@@ -1,0 +1,213 @@
+# commonly used folders for $PATH
+export PATH="/usr/local/bin:$PATH"
+
+export ANDROID_SDK_ROOT=$HOME/Library/Android/sdk
+export PATH=$PATH:$ANDROID_SDK_ROOT/emulator
+export PATH=$PATH:$ANDROID_SDK_ROOT/platform-tools
+
+# Add to ~/.zshrc or ~/.bashrc: pyenv and and virtualenv
+export PYENV_ROOT="$HOME/.pyenv"
+export PATH="$PYENV_ROOT/bin:$PATH"
+eval "$(pyenv init --path)"
+eval "$(pyenv virtualenv-init -)"
+
+
+export PATH="$PATH:/Users/vietquocbui/repos/NuSMV-2.6.0-Darwin/bin/"
+
+export PATH="$PATH:/Users/vietquocbui/.local/bin"
+
+export PATH="$PATH:/Users/vietquocbui/.cargo/bin"
+export PATH="$PATH:/opt/homebrew/bin"
+
+if [[ -f ~/.config/chezmoi/secrets.sh ]]; then
+    source ~/.config/chezmoi/secrets.sh
+fi
+
+export PATH="$PATH:/Users/vietquocbui/tools/"
+# export PATH="$PATH:/Users/vietquocbui/repos/Spin/Bin"
+
+autoload -U bashcompinit
+bashcompinit
+eval "$(register-python-argcomplete pipx)"
+# eval "$(pyenv init -)"
+
+# export NUSMV_LIBRARY_PATH=/Users/vietquocbui/repos/NuSMV-2.6.0-Darwin/share/nusmv
+
+# Default editor
+# autoload -U bashcompinit
+# bashcompinit
+
+ # oh my zsh has already taken care of 
+
+export EDITOR=nvim
+
+# FUNCTIONS
+zhelp() {
+  echo "current functions: 
+  - zhelp: list all functions \n
+  - edit_zsh: go to my_functions.zsh file \n
+  - zprofile: go to zprofile in one command \n
+  - sourced: source zprofile in one command \n
+  - acp: git add, commit (with message), and push (all files) \n
+  - lustavim: opens nvim configs and plugin directory \n
+  - vimacp: commits changes to neovim plugins in one command \n
+  - syncth: opens syncthing terminal on web \n
+  - edc (input): choose editor for diff languages and developments \n
+  - pendulum: go to pendulum project and allow execution on the terminal line for visualization \n
+  - lsync: live-server-sync at current directory \n
+  - pycharm: open pycharm \n
+  - xcode: open xcode \n
+  - studio: open android studio \n
+  - dayton: open Dayton directory \n
+  
+  "
+# Archived commands
+# - csc490: open csc490 directory \n
+# - org: opens org-mode directory \n
+}
+
+function wdev ()
+{
+  cd ~/repos/VsCode/vietbui1999ru/WebLearn/ && nvim
+}
+
+function edc() {
+  echo "choices: React: rct, Web: wb, Rust: rst, IOS: ios, Android: ndr \n 
+  Flutter: fltr, React-Native: ntv, Pycharm-python: py, github README file: md \n
+  exit: cancel \n"
+  read choice
+  case $choice in
+    "rct")
+      echo "React Development"
+      cd ~/repos/VsCode/vietbui1999ru/React/ && nvim
+      ;;
+    "wb")
+      echo "General Web Development"
+      cd ~/repos/VsCode/vietbui1999ru/WebLearn/ && nvim
+      ;;
+    "rst")
+      echo "Rust Development"
+      cd ~/repos/VsCode/vietbui1999ru/Rust/ && nvim
+      ;;
+    "ios")
+      echo "IOS Development"
+      cd ~/repos/XCode/vietbui1999ru/ios/ 
+      ;;
+    "ndr")
+      echo "Android Development"
+      cd ~/repos/AndroidStudio/vietbui1999ru/Android 
+      ;;
+    "fltr")
+      echo "Flutter Development"
+      cd ~/repos/AndroidStudio/vietbui1999ru/Flutter/ 
+      ;;
+    "ntv")
+      echo "React-Native Development"
+      cd ~/repos/AndroidStudio/vietbui1999ru/React-Native/ 
+      ;;
+    "py")
+      echo "Python Development"
+      cd ~/repos/PyCharm/ 
+      ;;
+    "md")
+      echo "README file"
+      cd ~/repos/github-profile/vietbui1999ru/ && nvim README.md
+      ;;
+  "cancel")
+    echo "Exiting"
+    ;;
+    "*")
+      echo "not a command"
+      ;;
+  esac
+}
+
+# my zsh functions for faster development
+# TODO create a fast git init and git remote initializer 
+
+# go to zprofile file in one command
+zc() { nvim ~/.zshrc; }
+# edit my_functions.zsh 
+zf() { cd ~/.zsh/ && nvim my_functions.zsh; }
+zp() { nvim ~/.zprofile; }
+# Done see if I can source the zprofile faster
+sourced() { source ~/.zshrc && source ~/.zprofile; }
+# add, commit, and push all nvim in current directory
+acp() { git add . && git commit -a -m "$1" && git push; }
+
+# opens nvim configs and plugin directory
+luavim() {  cd ~/.config/nvim && nvim; }
+
+# updates nvim changes to github with one command
+vimacp() { cd ~/.config/nvim/ && git add . && git commit -a -m "$1" && git push; }
+
+# ARCHIVED opens org-mode directory
+# org() {
+#   cd ~/Desktop/Spring-2023 && nvim
+# }
+
+# open syncthing gui
+syncth() { open http://127.0.0.1:8384/; }
+
+# ARCHIVED open csc490 directory
+# csc490() {
+#   cd ~/repos/XCode/vietbui1999ru/ios/Rhythmiq 
+# }
+
+# opens directory for VsCode
+
+# go straight to the pendulum simulation nvim # python3 main.py
+pendulum() { cd ~/repos/PyCharm/RungeKatta/ ; }
+
+# faster live-browser-sync at current directory
+
+lsync() { live-server .; }
+
+# go to Dayton repo
+
+dayton() { cd ~/repos/Dayton/; }
+
+work() { cd ~/repos/GA/; }
+
+# create folder move into it
+mkcd() { mkdir -p "$@" && cd "$_"; }
+
+# start ssh session for pi
+pi() { ssh vietbui1999ru@10.0.0.211; }
+
+# go to obsidian directory
+obs() { cd ~/repos/Obsidian/; }
+
+# termpdf for pdfs
+
+
+lp() { awk 'BEGIN{RS=":"}{printf "Path %d: %s\n",++i,$0}' <<<"$PATH"; }
+
+# ALIASES
+alias xcode="open -a Xcode" or alias xcode="open -a Xcode.app"
+alias studio="open -a 'Android Studio.app'"
+alias pycharm="open -a PyCharm" or alias pycharm="open -a PyCharm.app"
+# alias python="/opt/homebrew/bin/python3.12"
+alias python="python3"
+# alias python3="/opt/homebrew/bin/python3.12"
+# alias pip="/opt/homebrew/bin/pip3.12"
+# alias pip3="/opt/homebrew/bin/pip3.12"
+# alias pip="pip3"
+# alias python="python3"
+alias matlab="/Applications/MATLAB_R2023b.app/bin/matlab"
+alias mysqlwb="/Applications/MySQLWorkbench.app/Contents/MacOS/MySQLWorkbench"
+alias qt="/Applications/Qt\ Creator.app/Contents/MacOS/Qt\ Creator"
+alias clr="clear"
+alias tpdf="termpdf.py"
+alias spin="/Users/vietquocbui/repos/Spin/Src/spin"
+
+alias nv="nvim"
+alias cd="z"
+
+# kitty ssh fix
+alias s="kitten ssh"
+# alias tmux='tmux new-session -c "$(pwd)"'
+tmux
+
+
+
