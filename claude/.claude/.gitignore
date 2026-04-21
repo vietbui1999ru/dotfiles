@@ -1,0 +1,37 @@
+# Secrets
+.env
+
+# Runtime state
+history.jsonl
+stats-cache.json
+policy-limits.json
+.caveman-active
+*.json.bak
+
+# Session and project state
+sessions/
+projects/
+todos/
+tasks/
+teams/
+
+# Cache and telemetry
+cache/
+debug/
+downloads/
+paste-cache/
+shell-snapshots/
+session-env/
+file-history/
+telemetry/
+statsig/
+backups/
+ide/
+
+# Plugin install state (managed by Claude Code, not by dotfiles)
+plugins/blocklist.json
+plugins/installed_plugins.json
+plugins/install-counts-cache.json
+
+# Security warning state
+security_warnings_state_*.json
