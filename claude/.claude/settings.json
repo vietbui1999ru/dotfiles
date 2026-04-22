@@ -23,33 +23,31 @@
     "playwright@claude-plugins-official": true,
     "context7@claude-plugins-official": true,
     "code-review@claude-plugins-official": true,
-    "github@claude-plugins-official": true,
     "feature-dev@claude-plugins-official": true,
     "code-simplifier@claude-plugins-official": true,
     "superpowers@claude-plugins-official": true,
     "security-guidance@claude-plugins-official": true,
-    "figma@claude-plugins-official": true,
     "claude-md-management@claude-plugins-official": true,
     "agent-sdk-dev@claude-plugins-official": true,
     "explanatory-output-style@claude-plugins-official": true,
     "claude-code-setup@claude-plugins-official": true,
     "learning-output-style@claude-plugins-official": true,
     "sentry@claude-plugins-official": true,
-    "pyright-lsp@claude-plugins-official": true,
-    "omnisharp@claude-code-lsps": true,
+    "pyright-lsp@claude-plugins-official": false,
+    "omnisharp@claude-code-lsps": false,
     "ralph-loop@claude-plugins-official": true,
-    "basedpyright@claude-code-lsps": true,
-    "clangd@claude-code-lsps": true,
-    "gopls@claude-code-lsps": true,
-    "ocaml-lsp@claude-code-lsps": true,
-    "ruby-lsp@claude-code-lsps": true,
-    "rust-analyzer@claude-code-lsps": true,
-    "vscode-langservers@claude-code-lsps": true,
-    "vtsls@claude-code-lsps": true,
-    "pyright@claude-code-lsps": true,
-    "typescript-lsp@claude-plugins-official": true,
-    "rust-analyzer-lsp@claude-plugins-official": true,
-    "caveman@caveman": true
+    "basedpyright@claude-code-lsps": false,
+    "clangd@claude-code-lsps": false,
+    "gopls@claude-code-lsps": false,
+    "ocaml-lsp@claude-code-lsps": false,
+    "ruby-lsp@claude-code-lsps": false,
+    "rust-analyzer@claude-code-lsps": false,
+    "vscode-langservers@claude-code-lsps": false,
+    "vtsls@claude-code-lsps": false,
+    "pyright@claude-code-lsps": false,
+    "typescript-lsp@claude-plugins-official": false,
+    "caveman@caveman": true,
+    "qmd@qmd": true
   },
   "extraKnownMarketplaces": {
     "caveman": {
@@ -57,9 +55,29 @@
         "source": "github",
         "repo": "JuliusBrussee/caveman"
       }
+    },
+    "qmd": {
+      "source": {
+        "source": "github",
+        "repo": "tobi/qmd"
+      }
     }
   },
-  "effortLevel": "high",
+  "effortLevel": "medium",
   "autoUpdatesChannel": "latest",
-  "teammateMode": "in-process"
+  "teammateMode": "in-process",
+  "model": "sonnet",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd ~/repos/llm-wiki && git diff --name-only HEAD 2>/dev/null | grep -q 'log\\.md' && ./scripts/publish-ai-kb.sh || true"
+          }
+        ]
+      }
+    ]
+  }
 }

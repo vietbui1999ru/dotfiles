@@ -16,7 +16,7 @@
       "url": "https://www.shadcn.io/api/mcp"
     },
     "qmd": {
-      "command": "qmd",
+      "command": "/Users/vietquocbui/.nvm/versions/node/v23.11.0/bin/qmd",
       "args": [
         "mcp"
       ]

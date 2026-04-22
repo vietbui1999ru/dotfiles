@@ -1,0 +1,16 @@
+{
+  "_comment": "Portable URL-based MCP servers. Source of truth for all tools.",
+  "_note": "Stdio servers (qmd, cgc) are tool-specific — configure per tool manually.",
+  "_secrets": "API keys use ${env:VAR} syntax. Add actual values to ~/secrets/.env",
+  "servers": {
+    "context7": {
+      "url": "https://mcp.context7.com/mcp",
+      "headers": {
+        "CONTEXT7_API_KEY": "${env:CONTEXT7_API_KEY}"
+      }
+    },
+    "shadcn": {
+      "url": "https://www.shadcn.io/api/mcp"
+    }
+  }
+}
