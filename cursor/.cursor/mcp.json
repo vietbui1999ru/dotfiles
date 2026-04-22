@@ -1,0 +1,40 @@
+{
+  "mcpServers": {
+    "GitKraken": {
+      "command": "/Users/vietquocbui/Library/Application Support/Cursor/User/globalStorage/eamodio.gitlens/gk",
+      "type": "stdio",
+      "name": "GitKraken",
+      "args": [
+        "mcp",
+        "--host=cursor",
+        "--source=gitlens",
+        "--scheme=cursor"
+      ],
+      "env": {}
+    },
+    "shadcn": {
+      "url": "https://www.shadcn.io/api/mcp"
+    },
+    "qmd": {
+      "command": "qmd",
+      "args": [
+        "mcp"
+      ]
+    },
+    "context7": {
+      "url": "https://mcp.context7.com/mcp",
+      "headers": {
+        "CONTEXT7_API_KEY": "${env:CONTEXT7_API_KEY}"
+      }
+    },
+    "CodeGraphContext": {
+      "command": "cgc",
+      "args": [
+        "mcp",
+        "start"
+      ],
+      "disabled": false,
+      "alwaysAllow": []
+    }
+  }
+}
