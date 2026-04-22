@@ -4,5 +4,6 @@
 @~/.claude/rules/editing.md
 
 ## Knowledge
-# Wiki index loaded on-demand via qmd — not auto-loaded here.
-# Run: qmd query "<topic>" to search ~/repos/llm-wiki
+# Wiki index — loaded every session. Full pages available via qmd.
+@~/.claude/wiki/ai-kb/00-index.md
+# To search wiki: qmd query "<topic>" in ~/repos/llm-wiki
