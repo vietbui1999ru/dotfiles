@@ -28,13 +28,29 @@
       }
     },
     "CodeGraphContext": {
-      "command": "cgc",
+      "command": "/Users/vietquocbui/.pyenv/versions/3.14.0/envs/neovim/bin/cgc",
       "args": [
         "mcp",
         "start"
       ],
-      "disabled": false,
-      "alwaysAllow": []
+      "env": {
+        "NEO4J_URI": "${env:NEO4J_URI}",
+        "NEO4J_USERNAME": "${env:NEO4J_USERNAME}",
+        "NEO4J_PASSWORD": "${env:NEO4J_PASSWORD}"
+      },
+      "type": "stdio"
+    },
+    "sentry": {
+      "url": "https://mcp.sentry.dev/mcp",
+      "_note": "OAuth \u2014 no API key needed. Authenticate via browser on first use."
+    },
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@latest"
+      ],
+      "type": "stdio"
     }
   }
 }
