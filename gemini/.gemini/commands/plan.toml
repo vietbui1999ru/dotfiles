@@ -1,0 +1,17 @@
+description = "Create a strategic implementation plan. Does NOT write code — design only."
+prompt = """
+Create an implementation plan for: {{args}}
+
+Current git context: !{git log --pretty=format:"%s" -n 5}
+Current branch: !{git branch --show-current}
+
+Steps:
+1. Restate the goal and surface any bad premises.
+2. Identify the key design decisions and trade-offs.
+3. Propose a step-by-step plan (ordered, named, scoped).
+4. Flag dependencies, blockers, or unknowns.
+5. Suggest which agent tier should handle each step (Opus/Sonnet/Haiku).
+
+Do NOT write implementation code. Design only.
+Ask if anything is unclear before producing the plan.
+"""

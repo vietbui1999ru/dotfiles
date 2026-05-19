@@ -6,6 +6,53 @@
 
 ---
 
+## Loop completion signal
+
+OpenCode runs a ralph-loop plugin (workflow.js) that re-prompts on every session.idle
+until it sees `<task-complete>` in the assistant response.
+
+Rules:
+- Include `<task-complete>` at the end of any response where the task is **fully done**.
+- Do NOT include it mid-task, when waiting for input, or when more steps remain.
+- For simple one-shot answers (questions, lookups), include it — they're done in one turn.
+- The loop re-injects the original task automatically; no need to repeat context.
+
+---
+
+## Communication style — caveman ultra mode (always on)
+
+Drop articles, filler words, hedging, pleasantries. Fragments OK. Short synonyms.
+Pattern: [thing] [action] [reason]. No sycophantic openers.
+
+NOT applicable to: code generation, commit messages, documentation content.
+
+Goal: reduce token cost ~75% on conversation turns without losing technical accuracy.
+
+---
+
+## Skill invocation patterns (for providers without a native skill system)
+
+OpenCode and Codex have no skill loader. When a Claude/Gemini skill would normally
+be invoked, apply these inline patterns instead:
+
+- **wiki-context** → before any technical task or design discussion, run
+  `qmd query "<topic>" --files --min-score 0.4` from the shell. Read the top
+  matches before designing or implementing. Cite hits as `[[concepts/...]]`.
+- **agent-patterns** (multi-agent design) → consult the wiki entries
+  `[[concepts/agent-harness]]`, `[[concepts/agent-skills]]`,
+  `[[concepts/agent-subagents]]`, `[[concepts/agent-teams]]`,
+  `[[syntheses/agent-primitive-selection]]` before proposing structure.
+- **security** (review/audit) → consult `[[concepts/owasp-security-checklist]]`
+  and `[[concepts/indirect-prompt-injection]]`. Walk OWASP Top 10 + AI extensions.
+- **verification** → consult `[[concepts/verification-pipeline]]`. Always run
+  the four-tier ladder (typecheck → visual → screenshot gate → critique) before
+  claiming completion.
+
+Providers with a skill system (Claude, Gemini) should invoke the named skill
+directly instead of inlining the pattern.
+
+---
+
 ## Core behavior
 
 - Be direct and concise. No filler, no sycophantic openers.
@@ -98,10 +145,72 @@ Full wiki location: ~/repos/llm-wiki
 
 Search methods:
 - CLI: qmd query "<topic>" --files --min-score 0.4
-- MCP: use qmd tool if connected (Claude Code, Cursor with MCP configured)
+- MCP: use qmd tool if connected (Claude Code, Gemini, Cursor, OpenCode with MCP configured)
 
 When a relevant wiki page exists, apply the pattern and cite it: "Per [[concepts/...]]"
 When you discover a reusable pattern not in the wiki, flag: WIKI-CANDIDATE: <description>
+
+### Wiki index snapshot
+Providers without qmd MCP can use this snapshot to know what's available before
+shelling out to `qmd query`.
+
+**Entities:** agent-harness, agent-skills, agent-subagents, agent-teams, docling,
+eggroll, qmd, pydoll, firecrawl, ai-coding-agents, gemini-cli, opencode, sandcastle,
+dangeresque, mnemory, agentops, karpathy-llm-council, agents-md-format, codex,
+opencode-dcp, lean-session, pi-agent, dspy.
+
+**Concepts:** context-degradation (5 failure modes), context-compression (anchored
+iterative summarization, 70/80/90% thresholds), context-window, context-engineering,
+ralph-loop, tool-design-for-agents, verification-pipeline, indirect-prompt-injection,
+agentic-sandbox-controls, owasp-security-checklist, deep-modules, contextual-retrieval,
+bm25, reranking, unit-testing, cicd-testing, claude-code-plugins, agentic-memory-tool,
+web-fingerprinting, proxy-rotation, webrtc-ip-leak, evolution-strategies,
+domain-glossary, agent-context-instructions, ai-code-review, ai-specific-pitfalls,
+compounding-knowledge-base, multi-vendor-adversarial-review, council-pattern,
+worktree-isolation, rules-vs-hooks, memory-bank-pattern, self-healing-loop,
+agentic-cicd, error-budget, agent-self-correction, dynamic-context-pruning,
+branch-strategy-for-agents, llm-as-judge, preference-feedback-loop.
+
+**Syntheses:** agent-primitive-selection (decision tree for skill vs subagent vs team),
+lean-agentic-workflow (full stack: grill→PRD→slices→AFK→verify).
+
+**Patterns:** principles (SOLID/DRY/YAGNI/KISS/LoD), code-quality (naming/function-discipline/
+cognitive-complexity/smells), design-patterns-creational (Factory/Builder/Singleton/Prototype),
+design-patterns-structural (Adapter/Decorator/Facade/Proxy/Composite/Bridge/Flyweight),
+design-patterns-behavioral (Strategy/Observer/Command/Iterator/State/Template/Mediator/
+Chain-of-Responsibility/Memento/Visitor/Domain-Event), refactoring (13 Fowler techniques),
+algorithmic (15 families: sliding-window/two-pointer/BFS/DFS/DP/binary-search/topological-sort/
+union-find/heap/backtracking/greedy/monotonic-stack), frontend (React patterns/state-management/
+SSR-CSR-SSG-ISR/performance/CSS-architecture), concurrency (thread-safety/locks/async/actor/CSP/
+race-conditions/backpressure), database (indexing/query-optimization/N+1/transactions/pooling).
+Stubs: api-design, error-handling, backend.
+
+**Systems:** distributed-systems (CAP/eventual-consistency/idempotency/circuit-breaker/saga),
+architectural-patterns (monolith-vs-microservices/CQRS/event-sourcing/hexagonal/strangler-fig),
+system-design-process (requirements/capacity-estimation/decomposition/tradeoffs),
+scalability-reliability (caching/sharding/rate-limiting/load-balancing/observability/SLO),
+data-modeling (relational-vs-document-vs-graph/normalization/schema-evolution/event-sourcing),
+ai-ml (training-pipeline/feature-stores/model-serving/A-B-testing/drift-monitoring).
+
+**Search command:** `qmd query "<topic>" --files --min-score 0.4` (run from any cwd).
+
+## Engineering golden rules
+
+Apply these at all times when writing, reviewing, or designing code. No retrieval needed — these are always in context.
+
+**Principles**: DRY — extract on third occurrence, not first. YAGNI — don't build what isn't asked. KISS — simplest solution that works. Deep modules: narrow interface, wide implementation over many shallow helpers. Composition over inheritance.
+
+**Structure**: One unit, one responsibility, one reason to change. Depend on abstractions not concretions. Separate what changes from what stays the same. Open for extension, closed for modification.
+
+**Code quality**: Functions do one thing. Names describe behavior not implementation. Comments explain why, never what. No magic numbers — named constants. Validate at system boundaries; trust internal code.
+
+**Reliability**: Design for failure. Idempotent operations where state is shared. Never swallow errors silently. Explicit error paths. Log outcomes not intent. Retry with backoff, not infinite loops.
+
+**Concurrency**: Shared mutable state is the root cause. Prefer immutability. Lock minimum scope for minimum duration. Prefer message passing over shared memory.
+
+**Patterns retrieval**: When a design decision feels non-trivial, run `qmd query "<pattern>" --files --min-score 0.4`. Full pattern library in `wiki/patterns/` and `wiki/systems/`. Cite as [[patterns/...]] or [[systems/...]].
+
+---
 
 ## Agent roster
 The following agents are available. Route tasks to the right agent by description match.

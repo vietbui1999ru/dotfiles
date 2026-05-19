@@ -29,6 +29,38 @@ mkdir -p "$CODEX_DIR"
 cp "$SHARED" "$CODEX_DIR/AGENTS.md"
 echo "✓ Codex: $CODEX_DIR/AGENTS.md"
 
+# ── Gemini CLI ────────────────────────────────────────────────────────────────
+# Gemini reads ~/.gemini/GEMINI.md. The dotfiles version lives at
+# ~/dotfiles/gemini/.gemini/GEMINI.md and is normally stow-managed.
+# If stow hasn't run, copy it into place as a fallback.
+
+GEMINI_DIR="$HOME/.gemini"
+GEMINI_SRC="$DOTFILES/gemini/.gemini/GEMINI.md"
+mkdir -p "$GEMINI_DIR"
+if [ ! -L "$GEMINI_DIR/GEMINI.md" ] && [ -f "$GEMINI_SRC" ]; then
+  cp "$GEMINI_SRC" "$GEMINI_DIR/GEMINI.md"
+  echo "✓ Gemini: $GEMINI_DIR/GEMINI.md (copied — consider \`stow gemini\`)"
+else
+  echo "✓ Gemini: GEMINI.md already in place (stow-linked or copied)"
+fi
+
+# Link Gemini-native skills from the llm-wiki-plugin (idempotent).
+if command -v gemini >/dev/null 2>&1; then
+  for skill in wiki agent-patterns security; do
+    gemini skills link "$DOTFILES/llm-wiki-plugin/skills/$skill/" --consent 2>/dev/null \
+      && echo "  ↳ linked skill: $skill" \
+      || echo "  ↳ skill $skill already linked or unavailable"
+  done
+
+  # Best-effort migration of Claude hooks.
+  # Must run from $HOME so gemini finds ~/.claude/settings.json, not the dotfiles-local .claude/.
+  (cd "$HOME" && gemini hooks migrate --from-claude 2>/dev/null) \
+    && echo "  ↳ Claude hooks migrated" \
+    || echo "  ↳ hooks migration skipped — run manually: cd ~ && gemini hooks migrate --from-claude"
+else
+  echo "  (gemini CLI not in PATH — skipping skills link + hooks migrate)"
+fi
+
 # ── Cursor ────────────────────────────────────────────────────────────────────
 # Cursor reads ~/.cursor/rules/*.mdc for global rules.
 # We regenerate the core.mdc from rules/core.md and rules/editing.md.
@@ -52,7 +84,7 @@ echo "" >> "$CURSOR_RULES/core.mdc"
 sed '/^---$/,/^---$/d' "$RULES/editing.md" >> "$CURSOR_RULES/core.mdc"
 
 echo "✓ Cursor: $CURSOR_RULES/core.mdc"
-echo "  (domain .mdc files are hand-authored — not regenerated)"
+echo "  (domain .mdc files are stow-managed from dotfiles/cursor/.cursor/rules/ — not regenerated)"
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
@@ -62,7 +94,7 @@ echo "  ~/.codex/AGENTS.md"
 echo "  ~/.cursor/rules/core.mdc"
 echo ""
 echo "Cursor domain rules (learning, intermediate, research, applied-ai) are"
-echo "hand-authored in ~/dotfiles/cursor/.cursor/rules/ — update them manually."
+echo "stow-managed from dotfiles/cursor/.cursor/rules/ — run 'stow cursor' to deploy."
 
 # ── MCP Servers ───────────────────────────────────────────────────────────────
 # Inject portable URL-based MCP servers into each tool's config.
@@ -97,9 +129,18 @@ for name, cfg in servers.items():
         if "headers" in cfg:
             config["mcp"][name]["headers"] = cfg["headers"]
 
+# Add qmd as a local stdio MCP for OpenCode.
+# OpenCode requires `command` as an array; no separate `args` field.
+qmd_path = "/Users/vietquocbui/.nvm/versions/node/v23.11.0/bin/qmd"
+config["mcp"]["qmd"] = {
+    "type": "local",
+    "command": [qmd_path, "mcp"],
+    "enabled": True,
+}
+
 with open(opencode_path, "w") as f:
     json.dump(config, f, indent=2)
-print("✓ OpenCode: mcp servers synced")
+print("✓ OpenCode: mcp servers synced (incl. qmd stdio)")
 
 # ── Cursor ──
 cursor_path = "/Users/vietquocbui/.cursor/mcp.json"
@@ -122,4 +163,67 @@ with open(cursor_path, "w") as f:
     json.dump(config, f, indent=2)
 print("✓ Cursor: mcp servers synced")
 
+# ── Gemini ──
+# Merge shared remote MCPs + qmd stdio into ~/.gemini/settings.json,
+# preserving the security.auth section and other top-level keys.
+import os
+gemini_path = os.path.expanduser("~/.gemini/settings.json")
+try:
+    with open(gemini_path) as f:
+        gemini_cfg = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError):
+    gemini_cfg = {}
+
+gemini_cfg.setdefault("security", {}).setdefault("auth", {}).setdefault(
+    "selectedType", "oauth-personal"
+)
+gemini_cfg.setdefault("mcpServers", {})
+
+# qmd stdio
+qmd_path = "/Users/vietquocbui/.nvm/versions/node/v23.11.0/bin/qmd"
+gemini_cfg["mcpServers"]["qmd"] = {"command": qmd_path, "args": ["mcp"]}
+
+# Remote servers from shared/mcp-servers.json
+for name, cfg in servers.items():
+    entry = {"url": cfg["url"]}
+    if "headers" in cfg:
+        entry["headers"] = cfg["headers"]
+    gemini_cfg["mcpServers"][name] = entry
+
+# Drop legacy Claude-specific fields Gemini rejects.
+for srv_name, srv in list(gemini_cfg["mcpServers"].items()):
+    for bad_field in ("tools", "disabled", "alwaysAllow"):
+        srv.pop(bad_field, None)
+
+# Inject context.fileName so Gemini natively reads shared AGENTS.md.
+gemini_cfg.setdefault("context", {})
+gemini_cfg["context"]["fileName"] = ["AGENTS.md", "GEMINI.md"]
+
+with open(gemini_path, "w") as f:
+    json.dump(gemini_cfg, f, indent=2)
+print("✓ Gemini: mcp servers synced + context.fileName injected")
+
 PYEOF
+
+# ── Codex MCP ─────────────────────────────────────────────────────────────────
+# Codex stores MCP config via `codex mcp add`. Stdio + URL-based remotes only;
+# arbitrary header auth is unsupported, so context7 (which needs an API key
+# header) is intentionally skipped — see weaknesses/codex-limitations.md.
+
+if command -v codex >/dev/null 2>&1; then
+  codex mcp add qmd /Users/vietquocbui/.nvm/versions/node/v23.11.0/bin/qmd mcp 2>/dev/null \
+    && echo "✓ Codex: qmd stdio added" \
+    || echo "✓ Codex: qmd already configured"
+
+  codex mcp add --url https://www.shadcn.io/api/mcp shadcn 2>/dev/null \
+    && echo "✓ Codex: shadcn remote added" \
+    || echo "✓ Codex: shadcn already configured"
+
+  codex mcp add --url https://mcp.sentry.dev/mcp sentry 2>/dev/null \
+    && echo "✓ Codex: sentry remote added" \
+    || echo "✓ Codex: sentry already configured"
+
+  echo "  (context7 skipped — Codex MCP client lacks header auth support)"
+else
+  echo "  (codex CLI not in PATH — skipping MCP registration)"
+fi

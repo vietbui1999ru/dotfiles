@@ -1,0 +1,10 @@
+description = "Search the personal LLM wiki via qmd and return relevant pages."
+prompt = """
+Search the personal LLM wiki at ~/repos/llm-wiki for: {{args}}
+
+Run: qmd query "{{args}}" --files --min-score 0.4
+
+Read the top 2-3 returned pages. Synthesize the relevant patterns or facts. Cite pages as [[concepts/...]] or [[entities/...]] or [[summaries/...]].
+
+If nothing is found, say so — do not fabricate wiki content.
+"""

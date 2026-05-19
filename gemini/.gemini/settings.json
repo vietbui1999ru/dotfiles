@@ -1,0 +1,53 @@
+{
+  "security": {
+    "auth": {
+      "selectedType": "oauth-personal"
+    }
+  },
+  "context": {
+    "fileName": ["AGENTS.md", "GEMINI.md"]
+  },
+  "mcpServers": {
+    "CodeGraphContext": {
+      "command": "/Users/vietquocbui/.pyenv/versions/neovim/bin/cgc",
+      "args": ["mcp", "start"],
+      "env": {
+        "DEFAULT_DATABASE": "falkordb",
+        "FALKORDB_PATH": "/Users/vietquocbui/.codegraphcontext/falkordb.db",
+        "FALKORDB_SOCKET_PATH": "/Users/vietquocbui/.codegraphcontext/falkordb.sock",
+        "INDEX_VARIABLES": "true",
+        "ALLOW_DB_DELETION": "false",
+        "DEBUG_LOGS": "false",
+        "DEBUG_LOG_PATH": "/Users/vietquocbui/mcp_debug.log",
+        "ENABLE_APP_LOGS": "CRITICAL",
+        "LOG_FILE_PATH": "/Users/vietquocbui/.codegraphcontext/logs/cgc.log",
+        "MAX_FILE_SIZE_MB": "10",
+        "IGNORE_TEST_FILES": "false",
+        "IGNORE_HIDDEN_FILES": "true",
+        "ENABLE_AUTO_WATCH": "false",
+        "COMPLEXITY_THRESHOLD": "10",
+        "MAX_DEPTH": "unlimited",
+        "PARALLEL_WORKERS": "4",
+        "CACHE_ENABLED": "true",
+        "IGNORE_DIRS": "node_modules,venv,.venv,env,.env,dist,build,target,out,.git,.idea,.vscode,__pycache__",
+        "INDEX_SOURCE": "true"
+      }
+    },
+    "qmd": {
+      "command": "/Users/vietquocbui/.nvm/versions/node/v23.11.0/bin/qmd",
+      "args": ["mcp"]
+    },
+    "context7": {
+      "url": "https://mcp.context7.com/mcp",
+      "headers": {
+        "CONTEXT7_API_KEY": "${env:CONTEXT7_API_KEY}"
+      }
+    },
+    "shadcn": {
+      "url": "https://www.shadcn.io/api/mcp"
+    },
+    "sentry": {
+      "url": "https://mcp.sentry.dev/mcp"
+    }
+  }
+}
