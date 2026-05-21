@@ -68,14 +68,26 @@ Example: "review frontend and backend"
 → `frontend-debug-tester` + `backend-debug-tester` simultaneously
 
 ### Agent team — use when task requires design + implementation + verification
-Example: "build a new feature"
-→ `design-explorer` (explore approach, Opus)
-→ `architecture-reviewer` (validate structure, Opus)
-→ `code-writer` (implement, Sonnet)
-→ `code-reviewer` (review, Sonnet) — escalates to `security-auditor` (Opus) if security issues found
-→ `visual-verifier` (screenshot gate for frontend work, Sonnet) — skip for backend-only
-→ `project-health-monitor` (verify, Sonnet)
-→ `session-report-generator` (record, Haiku)
+
+**Routine addition** (new endpoint, new component following existing pattern, clear requirements, ≤3 files):
+→ `code-writer` (Sonnet)
+→ `review-council` skill (auto-gate — always runs after code-writer)
+→ `visual-verifier` (Sonnet) — frontend only
+→ `project-health-monitor` (Sonnet)
+
+**New feature requiring design** — only when ANY of these apply:
+- Creating a new module, subsystem, or service from scratch
+- Multiple valid architectural approaches exist
+- Scope touches >3 files crossing multiple layers (e.g., DB + API + UI)
+- User explicitly says "design", "explore", or "think through"
+
+→ `design-explorer` (Opus) — explore approach
+→ `architecture-reviewer` (Opus) — validate structure
+→ `code-writer` (Sonnet)
+→ `review-council` skill (auto-gate — always runs after code-writer)
+→ `visual-verifier` (Sonnet) — frontend only
+→ `project-health-monitor` (Sonnet)
+→ `session-report-generator` (Haiku)
 
 Example: "security review before deploy"
 → `security-auditor` (Opus) — produces threat report
@@ -108,6 +120,32 @@ A loop without a completion condition never exits. Define one first, always.
 - Read state at the start of the next iteration — never rely on in-context memory
 - Each iteration gets a clean context window; load only what that step needs
 
+## Session state injection
+
+At startup and before spawning any subagent:
+
+```bash
+grep "^status:" "$(git rev-parse --show-toplevel 2>/dev/null)/.claude/session-state.md" 2>/dev/null
+```
+
+| Result | Action |
+|---|---|
+| `status: active` | Read the full file. Inject its **Goal**, **In Progress**, and **Next Session Should** sections into every subagent prompt you construct. |
+| `status: idle` or missing | Skip — no injection. |
+
+**Why**: Subagents spawned via the Agent tool receive an isolated context. They do not run CLAUDE.md startup rules, do not see the status line, and have no access to session-state.md unless you explicitly include it. Without injection, they have no session continuity.
+
+**What to inject** — prepend to the subagent prompt:
+
+```
+## Session context (from .claude/session-state.md)
+Goal: <goal line>
+In progress: <in-progress items>
+Decisions made: <decisions>
+```
+
+Omit sections that are empty or irrelevant to the subagent's specific task.
+
 ## Knowledge access
 
 Before routing complex or ambiguous requests, check the wiki:
@@ -115,8 +153,9 @@ Before routing complex or ambiguous requests, check the wiki:
 - Fallback: `qmd query "<topic>" --files --min-score 0.4` in `~/repos/llm-wiki`
 - Relevant topics: agent orchestration, delegation patterns, context degradation, compression
 - If a relevant page exists, apply the pattern. Cite it: "Per [[concepts/...]]"
-- If you observe a reusable routing pattern not in the wiki, flag:
-  `WIKI-CANDIDATE: <description>`
+- If you encounter a pattern, concept, or tool worth researching and adding to the wiki,
+  flag it inline as: `WIKI-CANDIDATE: <topic> — <why it's worth ingesting>`
+  These are surfaced to the user at end of session as ingest suggestions — not automated.
 
 ## Codebase query routing (when CGC is available)
 
@@ -157,6 +196,17 @@ Steps:
 4. Then report what code-writer built
 
 Exception: skip if the user explicitly says "no review" or "skip review" in their request.
+
+## Agent tool call requirements
+
+Every Agent tool call MUST include an explicit `model:` parameter matching the tier
+assigned in the routing rules above. The enforcement hook will block calls without it.
+
+| Tier | param value |
+|---|---|
+| Opus | `model: "opus"` |
+| Sonnet | `model: "sonnet"` |
+| Haiku | `model: "haiku"` |
 
 ## Output format
 
