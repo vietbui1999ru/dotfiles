@@ -3,7 +3,6 @@
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
     "teammateMode": "in-process",
     "MAX_THINKING_TOKENS": "10000",
-    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "50",
     "CLAUDE_CODE_SUBAGENT_MODEL": "haiku"
   },
   "permissions": {
@@ -15,6 +14,15 @@
   "model": "sonnet",
   "hooks": {
     "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/context-threshold-check.sh"
+          }
+        ]
+      },
       {
         "matcher": "Agent",
         "hooks": [
@@ -127,7 +135,7 @@
   "autoUpdatesChannel": "latest",
   "editorMode": "vim",
   "verbose": true,
-  "autoCompactEnabled": true,
+  "autoCompactEnabled": false,
   "teammateMode": "in-process",
   "agentPushNotifEnabled": true,
   "mcpServers": {
