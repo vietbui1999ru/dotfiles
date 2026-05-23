@@ -37,6 +37,26 @@ model: "sonnet" # for Sonnet 4.6 (default)
 model: "haiku"  # for Haiku 4.5
 ```
 
+### Tier → subagent_type mapping (fixed)
+
+Every Agent call must use a whitelisted `subagent_type`. Never use `claude`, `general-purpose`, or omit it — those are blocked in code repos.
+
+| Tier | subagent_type | Use when |
+|---|---|---|
+| **Haiku** | `code-writer-fast` | Boilerplate, scaffolding, simple utilities, rote edits |
+| **Sonnet** | `code-writer` | Standard implementation, multi-file features, refactors |
+| **Opus** | `design-explorer` | Brainstorm, explore alternatives, open-ended ideation |
+| **Opus** | `architecture-reviewer` | Holistic review, structural assessment, pre-implementation validation |
+| **Opus** | `Explore` | Codebase research, symbol/pattern lookup across files |
+| **Opus** | `Plan` | Implementation planning, task breakdown, approach design |
+| **Opus** | `security-auditor` | Security analysis, threat modeling |
+
+Specialist agents (debugging, devops, review) keep their own tier as documented in agent-delegator — this table covers the common direct-spawn cases.
+
+### Prompt-specified tiers
+
+When the user says "use Opus to research, Sonnet to implement, Haiku for boilerplate" — honor it directly. User-specified tiers override auto-selection. Translate tier → subagent_type using the table above.
+
 ## Self-check
 
 If the task seems Opus-worthy but the current session is running Sonnet:

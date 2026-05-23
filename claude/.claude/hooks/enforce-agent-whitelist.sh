@@ -36,18 +36,18 @@ if [ -z "$SUBAGENT_TYPE" ]; then
     # Allow implicit general-purpose outside code repos; model check still applies below
     SUBAGENT_TYPE="general-purpose"
   else
-    echo "BLOCKED: Agent called without subagent_type — defaults to 'general-purpose', banned in code repos."
-    echo "Specify a configured agent from ~/.claude/agents/ or an approved plugin agent."
+    >&2 echo "BLOCKED: Agent called without subagent_type — defaults to 'general-purpose', banned in code repos."
+    >&2 echo "Specify a configured agent from ~/.claude/agents/ or an approved plugin agent."
     exit 2
   fi
 fi
 
 # Model param always required — forces conscious routing per model-routing.md
 if [ -z "$MODEL" ]; then
-  echo "BLOCKED: Agent spawn for '$SUBAGENT_TYPE' missing explicit model param."
-  echo "  haiku  — single-step mechanical: lookups, boilerplate, bounded subagent work"
-  echo "  sonnet — multi-file impl, review, debugging, standard orchestration"
-  echo "  opus   — architecture, security audits, irreversible ops, hard bugs"
+  >&2 echo "BLOCKED: Agent spawn for '$SUBAGENT_TYPE' missing explicit model param."
+  >&2 echo "  haiku  — single-step mechanical: lookups, boilerplate, bounded subagent work"
+  >&2 echo "  sonnet — multi-file impl, review, debugging, standard orchestration"
+  >&2 echo "  opus   — architecture, security audits, irreversible ops, hard bugs"
   exit 2
 fi
 
@@ -55,7 +55,7 @@ VALID_MODELS=("haiku" "sonnet" "opus")
 MODEL_OK=0
 for m in "${VALID_MODELS[@]}"; do [ "$MODEL" = "$m" ] && MODEL_OK=1 && break; done
 if [ "$MODEL_OK" -eq 0 ]; then
-  echo "BLOCKED: model '$MODEL' is not a valid tier. Use: haiku | sonnet | opus"
+  >&2 echo "BLOCKED: model '$MODEL' is not a valid tier. Use: haiku | sonnet | opus"
   exit 2
 fi
 
@@ -100,9 +100,9 @@ CTX="code repo — strict mode"
 [ "$CODE_REPO" -eq 0 ] && CTX="non-code context"
 
 ALLOWED=$(printf '%s\n' "${!WHITELIST[@]}" | sort | tr '\n' ', ' | sed 's/,$//')
-echo "BLOCKED ($CTX): Agent type '$SUBAGENT_TYPE' is not configured."
-echo "Allowed: $ALLOWED"
+>&2 echo "BLOCKED ($CTX): Agent type '$SUBAGENT_TYPE' is not configured."
+>&2 echo "Allowed: $ALLOWED"
 if [ "$CODE_REPO" -eq 0 ]; then
-  echo "Also allowed here (non-code): ${GENERIC_AGENTS[*]}"
+  >&2 echo "Also allowed here (non-code): ${GENERIC_AGENTS[*]}"
 fi
 exit 2
