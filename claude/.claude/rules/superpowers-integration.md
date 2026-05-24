@@ -30,8 +30,7 @@ wiki-context satisfies superpowers' "invoke a skill before responding" requireme
 
 ## Caveman mode + skill artifacts
 
-Caveman compression applies to: all Claude commentary, explanations, summaries around skills.
-Caveman does NOT apply to: plan docs, design specs, skill artifacts written to disk — use clear prose (per communication.md exemptions).
+Exemptions defined in `~/.claude/rules/caveman-mode.md` (single source of truth). Skill artifacts written to disk (plan docs, design specs, SKILL.md) are exempt — use clear prose.
 
 ## Brainstorming hard-gate
 

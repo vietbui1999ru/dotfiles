@@ -7,7 +7,7 @@ This is a strict rule. Do not default silently. Think explicitly, even if briefl
 
 | Tier | When to use |
 |---|---|
-| **Haiku** | Single-file edits, boilerplate, trivial rewrites, lookup/factual Q&A, shell commands, bounded subagent mechanical work |
+| **Haiku** | Single-file edits, boilerplate, trivial rewrites, lookup/factual Q&A, shell commands, bounded subagent mechanical work, **read-only exploration** (filesystem traversal, symbol lookup, codebase mapping — use `explore` agent) |
 | **Sonnet** | Default. Multi-file implementation, code review, debugging, wiki ingests, multi-step workflows, standard orchestration |
 | **Opus** | Architecture design, security audits, hard debugging (multiple interacting systems), cross-source synthesis, irreversible decisions, high-stakes analysis |
 
@@ -25,6 +25,7 @@ Start at **Sonnet**. Then ask two questions:
    - Clearly bounded, single-step, mechanical
    - No judgment call required — output is deterministic or easily verified
    - Subagent doing rote work (rename, format, lookup, boilerplate generation)
+   - **Read-only exploration**: task is purely "find/read/map" with no modification — delegate to `explore` agent (Haiku, disallowed Write/Edit)
 
 ## Agent spawning
 
@@ -44,6 +45,7 @@ Every Agent call must use a whitelisted `subagent_type`. Never use `claude`, `ge
 | Tier | subagent_type | Use when |
 |---|---|---|
 | **Haiku** | `code-writer-fast` | Boilerplate, scaffolding, simple utilities, rote edits |
+| **Haiku** | `explore` | Read-only filesystem/codebase exploration — no writes allowed |
 | **Sonnet** | `code-writer` | Standard implementation, multi-file features, refactors |
 | **Opus** | `design-explorer` | Brainstorm, explore alternatives, open-ended ideation |
 | **Opus** | `architecture-reviewer` | Holistic review, structural assessment, pre-implementation validation |

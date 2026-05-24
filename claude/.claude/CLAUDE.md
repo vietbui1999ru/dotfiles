@@ -6,6 +6,8 @@
 @~/.claude/rules/intermediate.md
 @~/.claude/rules/applied-ai.md
 @~/.claude/rules/model-routing.md
+@~/.claude/rules/skill-invocation.md
+@~/.claude/rules/caveman-mode.md
 # Niche domain rules (not auto-loaded): ~/.claude/rules/domains/learning.md, research.md
 # @-import them in project CLAUDE.md for learning-domain or formal-methods work
 
