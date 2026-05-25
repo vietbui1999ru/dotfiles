@@ -32,8 +32,9 @@ Goal: reduce token cost ~75% on conversation turns without losing technical accu
 
 ## Skill invocation patterns (for providers without a native skill system)
 
-OpenCode and Codex have no skill loader. When a Claude/Gemini skill would normally
-be invoked, apply these inline patterns instead:
+OpenCode has no native skill loader. Codex does. When a Claude/Gemini/OpenCode
+skill would normally be invoked and no native Codex skill is installed, apply these
+inline patterns instead:
 
 - **wiki-context** → before any technical task or design discussion, run
   `qmd query "<topic>" --files --min-score 0.4` from the shell. Read the top
@@ -48,8 +49,8 @@ be invoked, apply these inline patterns instead:
   the four-tier ladder (typecheck → visual → screenshot gate → critique) before
   claiming completion.
 
-Providers with a skill system (Claude, Gemini) should invoke the named skill
-directly instead of inlining the pattern.
+Providers with a native skill system (Claude, Gemini, Codex) should invoke the
+named skill directly instead of inlining the pattern when the skill is installed.
 
 ---
 
