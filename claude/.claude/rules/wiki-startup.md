@@ -1,1 +1,0 @@
-/Users/vietquocbui/repos/llm-wiki/claude-setup/rules/wiki-startup.md

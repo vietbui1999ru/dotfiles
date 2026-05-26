@@ -47,6 +47,10 @@
   },
   "instructions": [
     "/Users/vietquocbui/dotfiles/claude/.claude/rules/communication.md",
+    "/Users/vietquocbui/dotfiles/claude/.claude/rules/editing.md",
+    "/Users/vietquocbui/dotfiles/claude/.claude/rules/model-routing.md",
+    "/Users/vietquocbui/dotfiles/claude/.claude/rules/skill-invocation.md",
+    "/Users/vietquocbui/dotfiles/claude/.claude/rules/applied-ai.md",
     "/Users/vietquocbui/dotfiles/claude/.claude/rules/wiki-startup.md"
   ],
   "command": {
@@ -86,37 +90,37 @@
   "agent": {
     "coder": {
       "mode": "subagent",
-      "model": "anthropic/claude-sonnet-4-6",
-      "description": "Full-stack code implementation. Use for implementing features from clear requirements, refactoring, prototyping. Invoke when requirements are defined."
+      "model": "github-copilot/gpt-5.2-codex",
+      "description": "Full-stack code implementation (maps to: Claude Code code-writer). Use for implementing features from clear requirements, refactoring, prototyping. Invoke when requirements are defined. Future: migrate to opencode/gpt-5.3-codex once OpenCode billing is active."
     },
     "reviewer": {
       "mode": "subagent",
-      "model": "anthropic/claude-opus-4-7",
-      "description": "Code review specialist. Reviews existing implementations for correctness, security, performance, maintainability. Invoke after implementation completes.",
+      "model": "github-copilot/claude-sonnet-4.5",
+      "description": "Code review specialist (maps to: Claude Code code-reviewer). Reviews for correctness, security, performance, maintainability. Sonnet-tier: sufficient for routine review; use architect for architectural assessment.",
       "color": "#FF9800"
     },
     "debugger": {
       "mode": "subagent",
-      "model": "anthropic/claude-sonnet-4-6",
-      "description": "Debugging specialist. Finds, replicates, and fixes bugs. Use when a bug is reported or tests fail. Diagnoses root cause before fixing.",
+      "model": "github-copilot/gpt-5.2-codex",
+      "description": "Debugging specialist (maps to: Claude Code backend-debug-tester). Finds, replicates, fixes bugs. Diagnoses root cause before fixing. Use when a bug is reported or tests fail.",
       "color": "#F44336"
     },
     "architect": {
       "mode": "subagent",
-      "model": "anthropic/claude-opus-4-7",
-      "description": "Architecture and design reviewer. Use for structural assessment, scalability evaluation, hidden risk identification. Invoke before major implementation.",
+      "model": "github-copilot/claude-opus-4.5",
+      "description": "Architecture and design reviewer (maps to: Claude Code architecture-reviewer). Opus-tier for structural assessment, scalability, hidden risk. Invoke before major implementation.",
       "color": "#9C27B0"
     },
     "security-auditor": {
       "mode": "subagent",
-      "model": "anthropic/claude-opus-4-7",
-      "description": "Security audit specialist. OWASP-depth analysis, secrets scanning, indirect prompt injection checks. Use for pre-deploy audits or security-critical changes.",
+      "model": "github-copilot/claude-opus-4.5",
+      "description": "Security audit specialist (maps to: Claude Code security-auditor). OWASP-depth analysis, secrets scanning, indirect prompt injection checks. Use for pre-deploy audits or security-critical changes.",
       "color": "#F44336"
     },
     "fast-coder": {
       "mode": "subagent",
-      "model": "anthropic/claude-haiku-4-5-20251001",
-      "description": "Fast boilerplate and routine code generation. Use for scaffolding, simple utilities, repetitive patterns. Not for complex features.",
+      "model": "github-copilot/gpt-5.4-mini",
+      "description": "Fast boilerplate and routine code generation (maps to: Claude Code code-writer-fast). Haiku-tier: scaffolding, simple utilities, repetitive patterns only. Not for complex features.",
       "color": "#4CAF50"
     }
   }
