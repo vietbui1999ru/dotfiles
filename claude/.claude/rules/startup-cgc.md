@@ -28,12 +28,10 @@ find . -type f \( -name "*.py" -o -name "*.ts" -o -name "*.tsx" -o -name "*.js" 
   -o -name "*.php" -o -name "*.swift" -o -name "*.cs" -o -name "*.cpp" -o -name "*.c" -o -name "*.h" \) \
   -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/vendor/*" \
   -not -path "*/dist/*" -not -path "*/__pycache__/*" | wc -l
-
 find . -type f \( -name "*.py" -o -name "*.ts" -o -name "*.tsx" -o -name "*.js" \
   -o -name "*.go" -o -name "*.rs" -o -name "*.java" -o -name "*.cpp" -o -name "*.c" \) \
   -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/vendor/*" \
   | sed 's/.*\.//' | sort -u
-
 find . -maxdepth 4 \( -name "Dockerfile" -o -name "docker-compose*.yml" -o -name "*.tf" \
   -o -name "*.yaml" -path "*/.github/workflows/*" \) -not -path "*/.git/*" 2>/dev/null
 ```

@@ -20,8 +20,7 @@ When sources conflict: higher number loses. Explicit always beats implicit.
 @~/.claude/rules/skill-invocation.md
 @~/.claude/rules/caveman-mode.md
 @~/.claude/rules/startup-cgc.md
-@~/.claude/rules/startup-linting.md
-@~/.claude/rules/startup-slop.md
+@~/.claude/rules/startup-project-checks.md
 @~/.claude/rules/startup-session.md
 # Niche domain rules (not auto-loaded): see claude-setup/rules/ in project repos
 # @-import them in project CLAUDE.md for learning-domain or formal-methods work
