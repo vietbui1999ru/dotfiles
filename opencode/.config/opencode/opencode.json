@@ -21,7 +21,7 @@
       "type": "remote",
       "enabled": true,
       "url": "https://mcp.sentry.dev/mcp",
-      "_note": "OAuth — no API key needed. Authenticate via browser on first use."
+      "_note": "OAuth \u2014 no API key needed. Authenticate via browser on first use."
     },
     "qmd": {
       "type": "local",
@@ -55,8 +55,8 @@
   ],
   "command": {
     "wiki": {
-      "description": "Query personal LLM wiki — graph-aware synthesis via local LightRAG (no API cost)",
-      "template": "Query ~/repos/llm-wiki for: {{input}}. Use the wiki_query tool (wiki-rag MCP) for graph-aware synthesis — it runs locally via ollama, no API cost. For quick exact-term lookups, use qmd as fallback. Cite results as [[concepts/...]] or [[summaries/...]]."
+      "description": "Query personal LLM wiki \u2014 graph-aware synthesis via local LightRAG (no API cost)",
+      "template": "Query ~/repos/llm-wiki for: {{input}}. Use the wiki_query tool (wiki-rag MCP) for graph-aware synthesis \u2014 it runs locally via ollama, no API cost. For quick exact-term lookups, use qmd as fallback. Cite results as [[concepts/...]] or [[summaries/...]]."
     },
     "tdd": {
       "description": "Test-driven development: write failing test first, then implementation",
@@ -68,7 +68,7 @@
     },
     "security": {
       "description": "Security audit using OWASP Top 10 + AI-specific checks",
-      "template": "Security audit of: {{input}}. Walk OWASP Top 10 systematically. Also check: indirect prompt injection (if agent code), agentic sandbox controls, secret exposure. Report findings as [SEVERITY] Category — Description / Location / Fix."
+      "template": "Security audit of: {{input}}. Walk OWASP Top 10 systematically. Also check: indirect prompt injection (if agent code), agentic sandbox controls, secret exposure. Report findings as [SEVERITY] Category \u2014 Description / Location / Fix."
     },
     "review": {
       "description": "Code review: correctness, security, performance, maintainability",
@@ -79,12 +79,12 @@
       "template": "Write an implementation plan for: {{input}}. Include: goal, approach, files to create/modify (with why), step sequence, risks/unknowns. No code yet. Present plan for approval."
     },
     "brainstorm": {
-      "description": "Creative brainstorming with Kimi K2.6 — ideation, alternatives, what-if exploration",
+      "description": "Creative brainstorming with Kimi K2.6 \u2014 ideation, alternatives, what-if exploration",
       "template": "Brainstorm: {{input}}. Explore alternatives, edge cases, trade-offs. Think expansively before converging. Challenge assumptions. Output: 3-5 distinct approaches with pros/cons for each.",
       "agent": "kimi-creative"
     },
     "grill-me": {
-      "description": "Stress-test a plan or design with Kimi K2.6 — relentless questioning until shared understanding",
+      "description": "Stress-test a plan or design with Kimi K2.6 \u2014 relentless questioning until shared understanding",
       "template": "Grill this plan/design: {{input}}. Ask aggressive clarifying questions. Resolve each branch of the decision tree. Challenge assumptions, flag bad premises, sharpen terminology. Do not proceed until ambiguities are resolved.",
       "agent": "kimi-creative"
     },

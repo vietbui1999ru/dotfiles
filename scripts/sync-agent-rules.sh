@@ -105,13 +105,15 @@ MCP_SHARED="$DOTFILES/shared/mcp-servers.json"
 python3 << 'PYEOF'
 import json, sys
 
-shared_path = "/Users/vietquocbui/dotfiles/shared/mcp-servers.json"
+import os as _os
+_home = _os.path.expanduser("~")
+shared_path = f"{_home}/dotfiles/shared/mcp-servers.json"
 with open(shared_path) as f:
     shared = json.load(f)
 servers = shared["servers"]
 
 # ── OpenCode ──
-opencode_path = "/Users/vietquocbui/.config/opencode/opencode.json"
+opencode_path = f"{_home}/.config/opencode/opencode.json"
 try:
     with open(opencode_path) as f:
         config = json.load(f)
@@ -131,10 +133,10 @@ for name, cfg in servers.items():
 
 # Add qmd as a local stdio MCP for OpenCode.
 # OpenCode requires `command` as an array; no separate `args` field.
-qmd_path = "/Users/vietquocbui/.nvm/versions/node/v23.11.0/bin/qmd"
+# Use bare "qmd" — PATH-resolved so it works on any machine regardless of nvm version.
 config["mcp"]["qmd"] = {
     "type": "local",
-    "command": [qmd_path, "mcp"],
+    "command": ["qmd", "mcp"],
     "enabled": True,
 }
 
@@ -143,7 +145,7 @@ with open(opencode_path, "w") as f:
 print("✓ OpenCode: mcp servers synced (incl. qmd stdio)")
 
 # ── Cursor ──
-cursor_path = "/Users/vietquocbui/.cursor/mcp.json"
+cursor_path = f"{_home}/.cursor/mcp.json"
 try:
     with open(cursor_path) as f:
         config = json.load(f)
@@ -179,9 +181,8 @@ gemini_cfg.setdefault("security", {}).setdefault("auth", {}).setdefault(
 )
 gemini_cfg.setdefault("mcpServers", {})
 
-# qmd stdio
-qmd_path = "/Users/vietquocbui/.nvm/versions/node/v23.11.0/bin/qmd"
-gemini_cfg["mcpServers"]["qmd"] = {"command": qmd_path, "args": ["mcp"]}
+# qmd stdio — bare binary, PATH-resolved
+gemini_cfg["mcpServers"]["qmd"] = {"command": "qmd", "args": ["mcp"]}
 
 # Remote servers from shared/mcp-servers.json
 for name, cfg in servers.items():
@@ -211,7 +212,7 @@ PYEOF
 # header) is intentionally skipped — see weaknesses/codex-limitations.md.
 
 if command -v codex >/dev/null 2>&1; then
-  codex mcp add qmd /Users/vietquocbui/.nvm/versions/node/v23.11.0/bin/qmd mcp 2>/dev/null \
+  codex mcp add qmd "$(command -v qmd 2>/dev/null || echo qmd)" mcp 2>/dev/null \
     && echo "✓ Codex: qmd stdio added" \
     || echo "✓ Codex: qmd already configured"
 
