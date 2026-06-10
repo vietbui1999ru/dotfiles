@@ -9,18 +9,18 @@
   },
   "mcpServers": {
     "CodeGraphContext": {
-      "command": "/Users/vietquocbui/.pyenv/versions/neovim/bin/cgc",
+      "command": "cgc",
       "args": ["mcp", "start"],
       "env": {
         "DEFAULT_DATABASE": "falkordb",
-        "FALKORDB_PATH": "/Users/vietquocbui/.codegraphcontext/falkordb.db",
-        "FALKORDB_SOCKET_PATH": "/Users/vietquocbui/.codegraphcontext/falkordb.sock",
+        "FALKORDB_PATH": "${env:HOME}/.codegraphcontext/falkordb.db",
+        "FALKORDB_SOCKET_PATH": "${env:HOME}/.codegraphcontext/falkordb.sock",
         "INDEX_VARIABLES": "true",
         "ALLOW_DB_DELETION": "false",
         "DEBUG_LOGS": "false",
-        "DEBUG_LOG_PATH": "/Users/vietquocbui/mcp_debug.log",
+        "DEBUG_LOG_PATH": "${env:HOME}/mcp_debug.log",
         "ENABLE_APP_LOGS": "CRITICAL",
-        "LOG_FILE_PATH": "/Users/vietquocbui/.codegraphcontext/logs/cgc.log",
+        "LOG_FILE_PATH": "${env:HOME}/.codegraphcontext/logs/cgc.log",
         "MAX_FILE_SIZE_MB": "10",
         "IGNORE_TEST_FILES": "false",
         "IGNORE_HIDDEN_FILES": "true",
@@ -34,7 +34,7 @@
       }
     },
     "qmd": {
-      "command": "/Users/vietquocbui/.nvm/versions/node/v23.11.0/bin/qmd",
+      "command": "qmd",
       "args": ["mcp"]
     },
     "context7": {

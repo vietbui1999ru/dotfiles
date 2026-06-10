@@ -21,12 +21,12 @@
       "type": "remote",
       "enabled": true,
       "url": "https://mcp.sentry.dev/mcp",
-      "_note": "OAuth \u2014 no API key needed. Authenticate via browser on first use."
+      "_note": "OAuth — no API key needed. Authenticate via browser on first use."
     },
     "qmd": {
       "type": "local",
       "command": [
-        "/Users/vietquocbui/.nvm/versions/node/v23.11.0/bin/qmd",
+        "qmd",
         "mcp"
       ],
       "enabled": true
@@ -34,33 +34,29 @@
     "wiki-rag": {
       "type": "local",
       "command": [
-        "/Users/vietquocbui/.local/bin/wiki-mcp"
+        "${env:HOME}/.local/bin/wiki-mcp"
       ],
       "enabled": true
     }
   },
   "skills": {
     "paths": [
-      "/Users/vietquocbui/dotfiles/llm-wiki-plugin/skills",
-      "/Users/vietquocbui/dotfiles/claude/.claude/skills"
+      "${env:HOME}/dotfiles/llm-wiki-plugin/skills",
+      "${env:HOME}/dotfiles/claude/.claude/skills"
     ]
   },
   "instructions": [
-    "/Users/vietquocbui/dotfiles/claude/.claude/rules/communication.md",
-    "/Users/vietquocbui/dotfiles/claude/.claude/rules/editing.md",
-    "/Users/vietquocbui/dotfiles/claude/.claude/rules/model-routing.md",
-    "/Users/vietquocbui/dotfiles/claude/.claude/rules/skill-invocation.md",
-    "/Users/vietquocbui/dotfiles/claude/.claude/rules/applied-ai.md",
-    "/Users/vietquocbui/dotfiles/claude/.claude/rules/wiki-startup.md"
+    "${env:HOME}/dotfiles/claude/.claude/rules/communication.md",
+    "${env:HOME}/dotfiles/claude/.claude/rules/editing.md",
+    "${env:HOME}/dotfiles/claude/.claude/rules/model-routing.md",
+    "${env:HOME}/dotfiles/claude/.claude/rules/skill-invocation.md",
+    "${env:HOME}/dotfiles/claude/.claude/rules/applied-ai.md",
+    "${env:HOME}/dotfiles/claude/.claude/rules/wiki-startup.md"
   ],
   "command": {
     "wiki": {
-      "description": "Query personal LLM wiki \u2014 graph-aware synthesis via local LightRAG (no API cost)",
-      "template": "Query ~/repos/llm-wiki for: {{input}}. Use the wiki_query tool (wiki-rag MCP) for graph-aware synthesis \u2014 it runs locally via ollama, no API cost. For quick exact-term lookups, use qmd as fallback. Cite results as [[concepts/...]] or [[summaries/...]]."
-    },
-    "brainstorm": {
-      "description": "Brainstorm approaches before implementing \u2014 hard gate: no code until design approved",
-      "template": "Brainstorm 3-5 concrete approaches for: {{input}}. For each: name, how it works, trade-offs (speed/simplicity/maintainability/risk). No code yet. Pick the best approach and explain why. Wait for approval before implementing."
+      "description": "Query personal LLM wiki — graph-aware synthesis via local LightRAG (no API cost)",
+      "template": "Query ~/repos/llm-wiki for: {{input}}. Use the wiki_query tool (wiki-rag MCP) for graph-aware synthesis — it runs locally via ollama, no API cost. For quick exact-term lookups, use qmd as fallback. Cite results as [[concepts/...]] or [[summaries/...]]."
     },
     "tdd": {
       "description": "Test-driven development: write failing test first, then implementation",
@@ -72,7 +68,7 @@
     },
     "security": {
       "description": "Security audit using OWASP Top 10 + AI-specific checks",
-      "template": "Security audit of: {{input}}. Walk OWASP Top 10 systematically. Also check: indirect prompt injection (if agent code), agentic sandbox controls, secret exposure. Report findings as [SEVERITY] Category \u2014 Description / Location / Fix."
+      "template": "Security audit of: {{input}}. Walk OWASP Top 10 systematically. Also check: indirect prompt injection (if agent code), agentic sandbox controls, secret exposure. Report findings as [SEVERITY] Category — Description / Location / Fix."
     },
     "review": {
       "description": "Code review: correctness, security, performance, maintainability",
@@ -82,12 +78,28 @@
       "description": "Write an implementation plan before coding",
       "template": "Write an implementation plan for: {{input}}. Include: goal, approach, files to create/modify (with why), step sequence, risks/unknowns. No code yet. Present plan for approval."
     },
+    "brainstorm": {
+      "description": "Creative brainstorming with Kimi K2.6 — ideation, alternatives, what-if exploration",
+      "template": "Brainstorm: {{input}}. Explore alternatives, edge cases, trade-offs. Think expansively before converging. Challenge assumptions. Output: 3-5 distinct approaches with pros/cons for each.",
+      "agent": "kimi-creative"
+    },
+    "grill-me": {
+      "description": "Stress-test a plan or design with Kimi K2.6 — relentless questioning until shared understanding",
+      "template": "Grill this plan/design: {{input}}. Ask aggressive clarifying questions. Resolve each branch of the decision tree. Challenge assumptions, flag bad premises, sharpen terminology. Do not proceed until ambiguities are resolved.",
+      "agent": "kimi-creative"
+    },
     "verify": {
       "description": "Verification checklist before claiming work is done",
       "template": "Verify completion of: {{input}}. Run through: 1) Does it match the original requirement? 2) Edge cases handled? 3) Tests pass? 4) No regressions in related areas? 5) Code readable and correctly named? Report pass/fail for each."
     }
   },
   "agent": {
+    "kimi-creative": {
+      "mode": "primary",
+      "model": "opencode-go/kimi-k2.6",
+      "description": "Creative ideation, grill sessions, PRD synthesis. Kimi K2.6 via OpenCode Go subscription.",
+      "color": "#00BCD4"
+    },
     "coder": {
       "mode": "subagent",
       "model": "github-copilot/gpt-5.2-codex",
@@ -122,6 +134,60 @@
       "model": "github-copilot/gpt-5.4-mini",
       "description": "Fast boilerplate and routine code generation (maps to: Claude Code code-writer-fast). Haiku-tier: scaffolding, simple utilities, repetitive patterns only. Not for complex features.",
       "color": "#4CAF50"
+    },
+    "agent-delegator": {
+      "mode": "subagent",
+      "model": "github-copilot/claude-opus-4.5",
+      "description": "Routes all requests, decides model tier and delegation strategy. Opus-tier coordinator.",
+      "color": "#673AB7"
+    },
+    "design-explorer": {
+      "mode": "subagent",
+      "model": "github-copilot/claude-opus-4.5",
+      "description": "Brainstorm, ideate, explore alternatives before committing. Opus-tier for open-ended design.",
+      "color": "#9C27B0"
+    },
+    "design-critic": {
+      "mode": "subagent",
+      "model": "github-copilot/claude-opus-4.5",
+      "description": "Critique existing code, identify anti-patterns, suggest improvements. Opus-tier for design review.",
+      "color": "#FF5722"
+    },
+    "infra-decision-maker": {
+      "mode": "subagent",
+      "model": "github-copilot/claude-opus-4.5",
+      "description": "Agent team, testing strategy, devops approach decisions. Opus-tier for infrastructure choices.",
+      "color": "#607D8B"
+    },
+    "frontend-debug-tester": {
+      "mode": "subagent",
+      "model": "github-copilot/claude-sonnet-4.5",
+      "description": "Find, fix, test frontend bugs. Sonnet-tier for UI/UX debugging.",
+      "color": "#FF9800"
+    },
+    "production-platform-devops": {
+      "mode": "subagent",
+      "model": "github-copilot/claude-sonnet-4.5",
+      "description": "CI/CD, deployment, environment config. Sonnet-tier for platform operations.",
+      "color": "#00BCD4"
+    },
+    "cmd-executor": {
+      "mode": "subagent",
+      "model": "github-copilot/gpt-5.4-mini",
+      "description": "Shell commands and scripts with safety guardrails. Haiku-tier for fast execution.",
+      "color": "#8BC34A"
+    },
+    "project-health-monitor": {
+      "mode": "subagent",
+      "model": "github-copilot/gpt-5.4-mini",
+      "description": "Detect changes, update project memory. Haiku-tier for status tracking.",
+      "color": "#CDDC39"
+    },
+    "session-report-generator": {
+      "mode": "subagent",
+      "model": "github-copilot/gpt-5.4-mini",
+      "description": "Session summaries and git diffs. Haiku-tier for reporting.",
+      "color": "#FFC107"
     }
   }
 }
