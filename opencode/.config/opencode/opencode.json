@@ -106,8 +106,8 @@
   "agent": {
     "kimi-creative": {
       "mode": "primary",
-      "model": "opencode-go/kimi-k2.6",
-      "description": "Creative ideation, grill sessions, PRD synthesis. Kimi K2.6 via OpenCode Go subscription.",
+      "model": "opencode-go/kimi-k2.7-code",
+      "description": "Creative ideation, grill sessions, PRD synthesis. Kimi K2.7-code via OpenCode Go subscription.",
       "color": "#00BCD4"
     }
   }
