@@ -1,0 +1,38 @@
+---
+- name: Install base packages (macOS)
+  community.general.homebrew:
+    name:
+      - git
+      - stow
+      - curl
+      - wget
+    state: present
+  when: ansible_os_family == "Darwin"
+
+- name: Install base packages (Debian/Ubuntu)
+  ansible.builtin.apt:
+    name:
+      - git
+      - stow
+      - curl
+      - wget
+      - build-essential
+      - unzip
+    state: present
+    update_cache: true
+  become: true
+  when: ansible_os_family == "Debian"
+
+- name: Install base packages (RedHat/Fedora)
+  ansible.builtin.dnf:
+    name:
+      - git
+      - stow
+      - curl
+      - wget
+      - gcc
+      - make
+      - unzip
+    state: present
+  become: true
+  when: ansible_os_family == "RedHat"

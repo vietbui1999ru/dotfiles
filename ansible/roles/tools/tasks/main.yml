@@ -1,0 +1,104 @@
+---
+# ── macOS (Homebrew) ──────────────────────────────────────────────────
+- name: Install modern CLI tools (macOS)
+  community.general.homebrew:
+    name:
+      - eza
+      - bat
+      - ripgrep
+      - fd
+      - git-delta
+      - lazygit
+      - fzf
+      - zoxide
+      - jq
+      - btop
+      - fastfetch
+    state: present
+  when: ansible_os_family == "Darwin"
+
+# ── Debian/Ubuntu ─────────────────────────────────────────────────────
+- name: Install tools available in apt (Debian)
+  ansible.builtin.apt:
+    name:
+      - ripgrep
+      - fd-find
+      - fzf
+      - jq
+      - btop
+    state: present
+    update_cache: true
+  become: true
+  when: ansible_os_family == "Debian"
+
+- name: Create fd symlink for fdfind (Debian)
+  ansible.builtin.file:
+    src: /usr/bin/fdfind
+    dest: "{{ ansible_env.HOME }}/.local/bin/fd"
+    state: link
+  when: ansible_os_family == "Debian"
+
+- name: Install Rust-based tools via cargo (Debian)
+  ansible.builtin.shell: |
+    . "$HOME/.cargo/env"
+    cargo install {{ item.crate }} --locked
+  loop:
+    - { crate: eza,       bin: eza    }
+    - { crate: bat,       bin: bat    }
+    - { crate: git-delta, bin: delta  }
+    - { crate: zoxide,    bin: zoxide }
+  args:
+    creates: "{{ ansible_env.HOME }}/.cargo/bin/{{ item.bin }}"
+  when: ansible_os_family == "Debian"
+
+- name: Install lazygit (Debian)
+  ansible.builtin.shell: |
+    LAZYGIT_VERSION=$(curl -s "https://api.github.com/repos/jesseduffield/lazygit/releases/latest" \
+      | grep '"tag_name"' | sed -E 's/.*"v*([^"]+)".*/\1/')
+    curl -Lo /tmp/lazygit.tar.gz \
+      "https://github.com/jesseduffield/lazygit/releases/latest/download/lazygit_${LAZYGIT_VERSION}_Linux_x86_64.tar.gz"
+    tar xf /tmp/lazygit.tar.gz -C /tmp lazygit
+    install /tmp/lazygit /usr/local/bin
+  become: true
+  args:
+    creates: /usr/local/bin/lazygit
+  when: ansible_os_family == "Debian"
+
+# ── RedHat/Fedora ──────────────────────────────────────────────────────
+- name: Install tools available in dnf (RedHat)
+  ansible.builtin.dnf:
+    name:
+      - ripgrep
+      - fd-find
+      - fzf
+      - jq
+      - btop
+    state: present
+  become: true
+  when: ansible_os_family == "RedHat"
+
+- name: Install Rust-based tools via cargo (RedHat)
+  ansible.builtin.shell: |
+    . "$HOME/.cargo/env"
+    cargo install {{ item.crate }} --locked
+  loop:
+    - { crate: eza,       bin: eza    }
+    - { crate: bat,       bin: bat    }
+    - { crate: git-delta, bin: delta  }
+    - { crate: zoxide,    bin: zoxide }
+  args:
+    creates: "{{ ansible_env.HOME }}/.cargo/bin/{{ item.bin }}"
+  when: ansible_os_family == "RedHat"
+
+- name: Install lazygit (RedHat)
+  ansible.builtin.shell: |
+    LAZYGIT_VERSION=$(curl -s "https://api.github.com/repos/jesseduffield/lazygit/releases/latest" \
+      | grep '"tag_name"' | sed -E 's/.*"v*([^"]+)".*/\1/')
+    curl -Lo /tmp/lazygit.tar.gz \
+      "https://github.com/jesseduffield/lazygit/releases/latest/download/lazygit_${LAZYGIT_VERSION}_Linux_x86_64.tar.gz"
+    tar xf /tmp/lazygit.tar.gz -C /tmp lazygit
+    install /tmp/lazygit /usr/local/bin
+  become: true
+  args:
+    creates: /usr/local/bin/lazygit
+  when: ansible_os_family == "RedHat"
