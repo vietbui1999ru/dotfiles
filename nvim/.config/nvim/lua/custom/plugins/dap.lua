@@ -66,7 +66,7 @@ dap.adapters.firefox = {
 	executable = {
 		command = "bun",
 		args = {
-			"/Users/vietquocbui/.local/share/nvim/mason/packages/firefox-debug-adapter/dist/adapter.bundle.js",
+			vim.fn.stdpath("data") .. "/mason/packages/firefox-debug-adapter/dist/adapter.bundle.js",
 			"--server=6000",
 		},
 	},
