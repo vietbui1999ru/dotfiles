@@ -1,0 +1,21 @@
+---
+- name: Clone dotfiles repo
+  ansible.builtin.git:
+    repo: git@github.com:vietbui99/dotfiles.git
+    dest: "{{ ansible_env.HOME }}/dotfiles"
+    version: main
+    depth: 1
+
+- name: Stow all packages
+  ansible.builtin.shell: |
+    cd {{ ansible_env.HOME }}/dotfiles
+    stow --target="{{ ansible_env.HOME }}" --restow {{ item }}
+  loop:
+    - zsh
+    - starship
+    - tmux
+    - kitty
+    - nvim
+    - git
+  register: stow_result
+  changed_when: stow_result.stdout != ""

@@ -1,0 +1,58 @@
+---
+- name: Install zsh (macOS)
+  community.general.homebrew:
+    name: zsh
+    state: present
+  when: ansible_os_family == "Darwin"
+
+- name: Install zsh (Debian)
+  ansible.builtin.apt:
+    name: zsh
+    state: present
+  become: true
+  when: ansible_os_family == "Debian"
+
+- name: Install zsh (RedHat)
+  ansible.builtin.dnf:
+    name: zsh
+    state: present
+  become: true
+  when: ansible_os_family == "RedHat"
+
+- name: Set zsh as default shell (macOS)
+  ansible.builtin.command:
+    cmd: chsh -s "{{ lookup('pipe', 'brew --prefix') }}/bin/zsh" "{{ ansible_user_id }}"
+  become: true
+  when: ansible_os_family == "Darwin"
+  changed_when: true
+
+- name: Set zsh as default shell (Linux)
+  ansible.builtin.command:
+    cmd: chsh -s /usr/bin/zsh "{{ ansible_user_id }}"
+  become: true
+  when: ansible_os_family != "Darwin"
+  changed_when: true
+
+- name: Install sheldon (macOS)
+  community.general.homebrew:
+    name: sheldon
+    state: present
+  when: ansible_os_family == "Darwin"
+
+- name: Install sheldon via cargo (Linux)
+  ansible.builtin.shell: |
+    . "$HOME/.cargo/env"
+    cargo install sheldon --locked
+  args:
+    creates: "{{ ansible_env.HOME }}/.cargo/bin/sheldon"
+  when: ansible_os_family != "Darwin"
+
+- name: Lock sheldon plugins
+  ansible.builtin.shell: |
+    export PATH="{{ ansible_env.HOME }}/.cargo/bin:$PATH"
+    sheldon lock
+  args:
+    creates: "{{ ansible_env.XDG_DATA_HOME | default(ansible_env.HOME + '/.local/share') }}/sheldon/plugins.lock"
+  environment:
+    XDG_CONFIG_HOME: "{{ ansible_env.HOME }}/.config"
+    XDG_DATA_HOME: "{{ ansible_env.HOME }}/.local/share"

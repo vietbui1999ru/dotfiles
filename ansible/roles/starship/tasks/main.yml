@@ -1,0 +1,13 @@
+---
+- name: Install starship (macOS)
+  community.general.homebrew:
+    name: starship
+    state: present
+  when: ansible_os_family == "Darwin"
+
+- name: Install starship via script (Linux)
+  ansible.builtin.shell: |
+    curl -sS https://starship.rs/install.sh | sh -s -- --yes
+  args:
+    creates: /usr/local/bin/starship
+  when: ansible_os_family != "Darwin"

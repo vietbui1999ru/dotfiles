@@ -1,0 +1,13 @@
+---
+- name: Install kitty (macOS)
+  community.general.homebrew_cask:
+    name: kitty
+    state: present
+  when: ansible_os_family == "Darwin"
+
+- name: Install kitty (Linux — user install via official script)
+  ansible.builtin.shell: |
+    curl -L https://sw.kovidgoyal.net/kitty/installer.sh | sh /dev/stdin
+  args:
+    creates: "{{ ansible_env.HOME }}/.local/kitty.app/bin/kitty"
+  when: ansible_os_family != "Darwin"
