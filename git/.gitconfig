@@ -1,0 +1,29 @@
+[user]
+	name = vietbui99
+	email = buiquocviet99@gmail.com
+	signingkey = ~/.ssh/id_rsa.pub
+[core]
+	editor = nvim
+	autocrlf = input
+	pager = delta
+[color]
+	ui = auto
+[credential]
+	helper = cache
+[pull]
+	rebase = false
+[init]
+	defaultBranch = main
+[gpg]
+	format = ssh
+[interactive]
+	diffFilter = delta --color-only
+[delta]
+	navigate = true
+	dark = true
+	line-numbers = true
+	syntax-theme = Dracula
+[merge]
+	conflictstyle = diff3
+[diff]
+	colorMoved = default
