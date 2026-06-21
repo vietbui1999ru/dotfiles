@@ -24,9 +24,6 @@ eval "$(sheldon source)"
 # ── Starship (prompt) ─────────────────────────────────────────────────
 eval "$(starship init zsh)"
 
-# ── Tool inits ───────────────────────────────────────────────────────
-eval "$(zoxide init zsh --cmd cd)"
-
 # rbenv
 if command -v rbenv &>/dev/null; then
   eval "$(rbenv init - zsh)"
@@ -67,3 +64,6 @@ source "$HOME/.zsh/functions.zsh"
 
 # ── Machine-local overrides (not in git) ─────────────────────────────
 [[ -f "$HOME/.zshrc.local" ]] && source "$HOME/.zshrc.local"
+
+# ── zoxide (must be last — interactive only) ──────────────────────────
+[[ -o interactive ]] && eval "$(zoxide init zsh --cmd cd)"

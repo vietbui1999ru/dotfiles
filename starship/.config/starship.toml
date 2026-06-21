@@ -3,6 +3,7 @@
 palette = "catppuccin_macchiato"
 
 format = """
+[╭─](fg:surface2)\
 [](surface0)\
 $os\
 $username\
@@ -18,7 +19,15 @@ $golang\
 $nodejs\
 $python\
 [](fg:teal)\
-$line_break$character"""
+$fill\
+$cmd_duration\
+$status\
+$jobs\
+$git_metrics\
+$time\
+[─╮](fg:surface2)\
+$line_break\
+[╰─](fg:surface2)$character"""
 
 add_newline = true
 command_timeout = 1000
@@ -43,14 +52,16 @@ style = "bg:peach fg:base"
 format = "[ $path ]($style)"
 truncation_length = 3
 truncation_symbol = "…/"
+truncate_to_repo = false   # show real path even at a repo root
 
+# icon PREFIX + name (substitutions replace the match, so keep the name in the value)
 [directory.substitutions]
-"Documents" = "󰈙 "
-"Downloads" = " "
-"Music" = "󰝚 "
-"Pictures" = " "
-"repos" = "󰲋 "
-"dotfiles" = " "
+"Documents" = "󰈙 Documents"
+"Downloads" = " Downloads"
+"Music" = "󰝚 Music"
+"Pictures" = " Pictures"
+"repos" = "󰲋 repos"
+"dotfiles" = " dotfiles"
 
 [git_branch]
 symbol = ""
@@ -89,6 +100,47 @@ format = '[ $symbol ($version) ]($style)'
 [character]
 success_symbol = '[❯](bold green)'
 error_symbol = '[❯](bold red)'
+
+# ── right-side cluster (full-width) ──────────────────────────
+# $fill stretches to push everything below it to the terminal edge.
+[fill]
+symbol = "─"
+style = "fg:surface1"
+
+# last command runtime; also drives desktop notifications
+[cmd_duration]
+min_time = 500
+min_time_to_notify = 120000   # ms — notify only on jobs over 2 min
+show_notifications = true
+style = "fg:yellow"
+format = '[ 󱎫 $duration ]($style)'
+
+# exit code of last command — shows only on failure
+[status]
+disabled = false
+symbol = "✘ "
+style = "fg:red"
+format = '[ $symbol$status ]($style)'
+
+# count of backgrounded jobs
+[jobs]
+symbol = " "
+style = "fg:sky"
+format = '[$symbol$number ]($style)'
+
+# +added / -removed lines in the working tree
+[git_metrics]
+disabled = false
+added_style = "fg:green"
+deleted_style = "fg:red"
+format = '([+$added ]($added_style))([-$deleted ]($deleted_style))'
+
+# clock at the far edge
+[time]
+disabled = false
+time_format = "%H:%M"
+style = "fg:lavender"
+format = '[ $time ]($style)'
 
 [palettes.catppuccin_macchiato]
 rosewater = "#f4dbd6"
