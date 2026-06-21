@@ -19,18 +19,34 @@
   become: true
   when: ansible_os_family == "RedHat"
 
+- name: Get current shell (macOS)
+  ansible.builtin.command: dscl . -read "/Users/{{ ansible_user_id }}" UserShell
+  register: current_shell_mac
+  changed_when: false
+  when: ansible_os_family == "Darwin"
+
 - name: Set zsh as default shell (macOS)
   ansible.builtin.command:
     cmd: chsh -s "{{ lookup('pipe', 'brew --prefix') }}/bin/zsh" "{{ ansible_user_id }}"
   become: true
-  when: ansible_os_family == "Darwin"
+  when:
+    - ansible_os_family == "Darwin"
+    - "'zsh' not in current_shell_mac.stdout"
   changed_when: true
+
+- name: Get current shell (Linux)
+  ansible.builtin.command: getent passwd {{ ansible_user_id }}
+  register: current_shell_linux
+  changed_when: false
+  when: ansible_os_family != "Darwin"
 
 - name: Set zsh as default shell (Linux)
   ansible.builtin.command:
     cmd: chsh -s /usr/bin/zsh "{{ ansible_user_id }}"
   become: true
-  when: ansible_os_family != "Darwin"
+  when:
+    - ansible_os_family != "Darwin"
+    - "'/usr/bin/zsh' not in current_shell_linux.stdout"
   changed_when: true
 
 - name: Install sheldon (macOS)

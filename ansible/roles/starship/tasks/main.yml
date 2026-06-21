@@ -5,9 +5,10 @@
     state: present
   when: ansible_os_family == "Darwin"
 
-- name: Install starship via script (Linux)
+- name: Install starship via script (Linux — user install)
   ansible.builtin.shell: |
-    curl -sS https://starship.rs/install.sh | sh -s -- --yes
+    mkdir -p "$HOME/.local/bin"
+    curl -sS https://starship.rs/install.sh | sh -s -- --yes --bin-dir "$HOME/.local/bin"
   args:
-    creates: /usr/local/bin/starship
+    creates: "{{ ansible_env.HOME }}/.local/bin/starship"
   when: ansible_os_family != "Darwin"
