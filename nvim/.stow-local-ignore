@@ -1,0 +1,14 @@
+node_modules
+package.json
+package-lock.json
+test.py
+Untitled
+init.archive
+lazy-lock.json
+\.git
+\.claude
+\.codeboarding
+\.env
+CLAUDE\.md
+README\.md
+neovim_tips

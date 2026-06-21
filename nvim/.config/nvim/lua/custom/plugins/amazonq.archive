@@ -1,0 +1,23 @@
+-- plugins.lua
+return {
+	{
+		name = "amazonq",
+		cond = not vim.g.vscode,
+		url = "https://github.com/awslabs/amazonq.nvim.git",
+		opts = {
+			ssoStartUrl = "https://view.awsapps.com/start", -- Authenticate with Amazon Q Free Tier
+		},
+		keymap = {
+			chat = {
+				open = "<leader>amc", -- Q for Amazon Q
+				close = "<leader>amx",
+				submit = "<leader>ams",
+			},
+			code_generation = {
+				open = "<leader>amg",
+				accept = "<leader>amy",
+				reject = "<leader>amn",
+			},
+		},
+	},
+}
