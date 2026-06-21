@@ -26,7 +26,7 @@
     "qmd": {
       "type": "local",
       "command": [
-        "/Users/vietquocbui/.nvm/versions/node/v23.11.0/bin/qmd",
+        "qmd",
         "mcp"
       ],
       "enabled": true
@@ -34,33 +34,39 @@
     "wiki-rag": {
       "type": "local",
       "command": [
-        "/Users/vietquocbui/.local/bin/wiki-mcp"
+        "${env:HOME}/.local/bin/wiki-mcp"
+      ],
+      "enabled": true
+    },
+    "playwright": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "@playwright/mcp"
       ],
       "enabled": true
     }
   },
   "skills": {
     "paths": [
-      "/Users/vietquocbui/dotfiles/llm-wiki-plugin/skills",
-      "/Users/vietquocbui/dotfiles/claude/.claude/skills"
+      "${env:HOME}/dotfiles/llm-wiki-plugin/skills",
+      "${env:HOME}/dotfiles/claude/.claude/skills"
     ]
   },
   "instructions": [
-    "/Users/vietquocbui/dotfiles/claude/.claude/rules/communication.md",
-    "/Users/vietquocbui/dotfiles/claude/.claude/rules/editing.md",
-    "/Users/vietquocbui/dotfiles/claude/.claude/rules/model-routing.md",
-    "/Users/vietquocbui/dotfiles/claude/.claude/rules/skill-invocation.md",
-    "/Users/vietquocbui/dotfiles/claude/.claude/rules/applied-ai.md",
-    "/Users/vietquocbui/dotfiles/claude/.claude/rules/wiki-startup.md"
+    "${env:HOME}/repos/llm-wiki/.opencode/provider-context.md",
+    "${env:HOME}/dotfiles/claude/.claude/rules/communication.md",
+    "${env:HOME}/dotfiles/claude/.claude/rules/editing.md",
+    "${env:HOME}/dotfiles/claude/.claude/rules/model-routing.md",
+    "${env:HOME}/dotfiles/claude/.claude/rules/skill-invocation.md",
+    "${env:HOME}/dotfiles/claude/.claude/rules/applied-ai.md",
+    "${env:HOME}/dotfiles/claude/.claude/rules/wiki-startup.md"
   ],
   "command": {
     "wiki": {
       "description": "Query personal LLM wiki \u2014 graph-aware synthesis via local LightRAG (no API cost)",
       "template": "Query ~/repos/llm-wiki for: {{input}}. Use the wiki_query tool (wiki-rag MCP) for graph-aware synthesis \u2014 it runs locally via ollama, no API cost. For quick exact-term lookups, use qmd as fallback. Cite results as [[concepts/...]] or [[summaries/...]]."
-    },
-    "brainstorm": {
-      "description": "Brainstorm approaches before implementing \u2014 hard gate: no code until design approved",
-      "template": "Brainstorm 3-5 concrete approaches for: {{input}}. For each: name, how it works, trade-offs (speed/simplicity/maintainability/risk). No code yet. Pick the best approach and explain why. Wait for approval before implementing."
     },
     "tdd": {
       "description": "Test-driven development: write failing test first, then implementation",
@@ -82,46 +88,27 @@
       "description": "Write an implementation plan before coding",
       "template": "Write an implementation plan for: {{input}}. Include: goal, approach, files to create/modify (with why), step sequence, risks/unknowns. No code yet. Present plan for approval."
     },
+    "brainstorm": {
+      "description": "Creative brainstorming with Kimi K2.6 \u2014 ideation, alternatives, what-if exploration",
+      "template": "Brainstorm: {{input}}. Explore alternatives, edge cases, trade-offs. Think expansively before converging. Challenge assumptions. Output: 3-5 distinct approaches with pros/cons for each.",
+      "agent": "kimi-creative"
+    },
+    "grill-me": {
+      "description": "Stress-test a plan or design with Kimi K2.6 \u2014 relentless questioning until shared understanding",
+      "template": "Grill this plan/design: {{input}}. Ask aggressive clarifying questions. Resolve each branch of the decision tree. Challenge assumptions, flag bad premises, sharpen terminology. Do not proceed until ambiguities are resolved.",
+      "agent": "kimi-creative"
+    },
     "verify": {
       "description": "Verification checklist before claiming work is done",
       "template": "Verify completion of: {{input}}. Run through: 1) Does it match the original requirement? 2) Edge cases handled? 3) Tests pass? 4) No regressions in related areas? 5) Code readable and correctly named? Report pass/fail for each."
     }
   },
   "agent": {
-    "coder": {
-      "mode": "subagent",
-      "model": "github-copilot/gpt-5.2-codex",
-      "description": "Full-stack code implementation (maps to: Claude Code code-writer). Use for implementing features from clear requirements, refactoring, prototyping. Invoke when requirements are defined. Future: migrate to opencode/gpt-5.3-codex once OpenCode billing is active."
-    },
-    "reviewer": {
-      "mode": "subagent",
-      "model": "github-copilot/claude-sonnet-4.5",
-      "description": "Code review specialist (maps to: Claude Code code-reviewer). Reviews for correctness, security, performance, maintainability. Sonnet-tier: sufficient for routine review; use architect for architectural assessment.",
-      "color": "#FF9800"
-    },
-    "debugger": {
-      "mode": "subagent",
-      "model": "github-copilot/gpt-5.2-codex",
-      "description": "Debugging specialist (maps to: Claude Code backend-debug-tester). Finds, replicates, fixes bugs. Diagnoses root cause before fixing. Use when a bug is reported or tests fail.",
-      "color": "#F44336"
-    },
-    "architect": {
-      "mode": "subagent",
-      "model": "github-copilot/claude-opus-4.5",
-      "description": "Architecture and design reviewer (maps to: Claude Code architecture-reviewer). Opus-tier for structural assessment, scalability, hidden risk. Invoke before major implementation.",
-      "color": "#9C27B0"
-    },
-    "security-auditor": {
-      "mode": "subagent",
-      "model": "github-copilot/claude-opus-4.5",
-      "description": "Security audit specialist (maps to: Claude Code security-auditor). OWASP-depth analysis, secrets scanning, indirect prompt injection checks. Use for pre-deploy audits or security-critical changes.",
-      "color": "#F44336"
-    },
-    "fast-coder": {
-      "mode": "subagent",
-      "model": "github-copilot/gpt-5.4-mini",
-      "description": "Fast boilerplate and routine code generation (maps to: Claude Code code-writer-fast). Haiku-tier: scaffolding, simple utilities, repetitive patterns only. Not for complex features.",
-      "color": "#4CAF50"
+    "kimi-creative": {
+      "mode": "primary",
+      "model": "opencode-go/kimi-k2.7-code",
+      "description": "Creative ideation, grill sessions, PRD synthesis. Kimi K2.7-code via OpenCode Go subscription.",
+      "color": "#00BCD4"
     }
   }
 }

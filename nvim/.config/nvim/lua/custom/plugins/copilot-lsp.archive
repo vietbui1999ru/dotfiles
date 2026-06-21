@@ -1,0 +1,388 @@
+-- Copilot Language Server + AI provider toggle (Codeium <-> Copilot)
+-- Copilot LSP is ALWAYS running (sidekick NES depends on it).
+-- Custom inline completion engine for Neovim 0.11 (vim.lsp.inline_completion unavailable).
+-- Default: Windsurf/Codeium. Toggle with <leader>tp.
+
+-- Global state: "windsurf" (default) or "copilot"
+vim.g.ai_provider = vim.g.ai_provider or "windsurf"
+
+-- ── Ghost text rendering engine ───────────────────────────────────────────────
+
+local ns = vim.api.nvim_create_namespace("copilot_ghost")
+vim.api.nvim_set_hl(0, "CopilotSuggestion", { link = "Comment", default = true })
+
+local ghost = {
+	items = {}, -- inline completion items from LSP
+	index = 0, -- 1-based index into items
+	bufnr = nil, -- buffer showing ghost text
+	tick = nil, -- changedtick when request was made
+}
+
+local debounce_timer = nil
+local DEBOUNCE_MS = 80
+
+local function clear()
+	if debounce_timer then
+		debounce_timer:stop()
+		debounce_timer = nil
+	end
+	if ghost.bufnr and vim.api.nvim_buf_is_valid(ghost.bufnr) then
+		vim.api.nvim_buf_clear_namespace(ghost.bufnr, ns, 0, -1)
+	end
+	ghost.items = {}
+	ghost.index = 0
+	ghost.tick = nil
+end
+
+local function render()
+	if #ghost.items == 0 or not ghost.bufnr or not vim.api.nvim_buf_is_valid(ghost.bufnr) then
+		return
+	end
+	vim.api.nvim_buf_clear_namespace(ghost.bufnr, ns, 0, -1)
+
+	local item = ghost.items[ghost.index]
+	local text = type(item.insertText) == "string" and item.insertText
+		or (type(item.insertText) == "table" and item.insertText.value or "")
+	if text == "" then
+		return
+	end
+
+	local cursor = vim.api.nvim_win_get_cursor(0)
+	local crow, ccol = cursor[1] - 1, cursor[2]
+	local lines = vim.split(text, "\n", { plain = true })
+
+	-- Trim prefix: the portion of insertText that's already in the buffer before cursor
+	local range = item.range
+	local prefix_len = 0
+	if range then
+		prefix_len = ccol - range.start.character
+		if prefix_len < 0 then
+			prefix_len = 0
+		end
+	end
+	local first_ghost = lines[1]:sub(prefix_len + 1)
+
+	-- First line: overlay ghost text starting at cursor
+	if #first_ghost > 0 then
+		vim.api.nvim_buf_set_extmark(ghost.bufnr, ns, crow, ccol, {
+			virt_text = { { first_ghost, "CopilotSuggestion" } },
+			virt_text_pos = "overlay",
+			hl_mode = "combine",
+		})
+	end
+
+	-- Remaining lines: virtual lines below
+	if #lines > 1 then
+		local virt_lines = {}
+		for i = 2, #lines do
+			table.insert(virt_lines, { { lines[i], "CopilotSuggestion" } })
+		end
+		vim.api.nvim_buf_set_extmark(ghost.bufnr, ns, crow, 0, {
+			virt_lines = virt_lines,
+			virt_lines_above = false,
+		})
+	end
+end
+
+local function trigger()
+	if vim.g.ai_provider ~= "copilot" then
+		return
+	end
+	if vim.fn.mode() ~= "i" then
+		return
+	end
+
+	local bufnr = vim.api.nvim_get_current_buf()
+	local clients = vim.lsp.get_clients({ name = "copilot", bufnr = bufnr })
+	if #clients == 0 then
+		return
+	end
+
+	local client = clients[1]
+	local method = "textDocument/inlineCompletion"
+	-- NOTE: skip supports_method() — Neovim 0.11 lacks the capability mapping
+	-- for inlineCompletionProvider, so the check always returns false even though
+	-- the server supports it. Just send the request and handle errors.
+
+	local params = vim.lsp.util.make_position_params(0, client.offset_encoding)
+	params.context = { triggerKind = 1 } -- Invoked
+
+	local tick = vim.api.nvim_buf_get_changedtick(bufnr)
+
+	client:request(method, params, function(err, result)
+		if err then
+			return
+		end
+		-- Discard stale responses
+		if vim.api.nvim_buf_get_changedtick(bufnr) ~= tick then
+			return
+		end
+		if vim.fn.mode() ~= "i" then
+			return
+		end
+
+		local items = result and (result.items or result) or {}
+		if type(items) ~= "table" or #items == 0 then
+			clear()
+			return
+		end
+
+		ghost.items = items
+		ghost.index = 1
+		ghost.bufnr = bufnr
+		ghost.tick = tick
+
+		vim.schedule(render)
+	end, bufnr)
+end
+
+local function trigger_debounced()
+	if vim.g.ai_provider ~= "copilot" then
+		return
+	end
+	if debounce_timer then
+		debounce_timer:stop()
+	end
+	debounce_timer = vim.defer_fn(trigger, DEBOUNCE_MS)
+end
+
+local function accept()
+	if #ghost.items == 0 then
+		return false
+	end
+
+	local item = ghost.items[ghost.index]
+	local text = type(item.insertText) == "string" and item.insertText
+		or (type(item.insertText) == "table" and item.insertText.value or "")
+	if text == "" then
+		clear()
+		return false
+	end
+
+	local range = item.range
+	local lines = vim.split(text, "\n", { plain = true })
+	local bufnr = ghost.bufnr
+
+	clear()
+
+	if range then
+		local sr, sc = range.start.line, range.start.character
+		local er, ec = range["end"].line, range["end"].character
+		vim.api.nvim_buf_set_text(bufnr, sr, sc, er, ec, lines)
+		local last_row = sr + #lines - 1
+		local last_col = #lines == 1 and (sc + #lines[1]) or #lines[#lines]
+		vim.api.nvim_win_set_cursor(0, { last_row + 1, last_col })
+	else
+		local cursor = vim.api.nvim_win_get_cursor(0)
+		local row, col = cursor[1] - 1, cursor[2]
+		vim.api.nvim_buf_set_text(bufnr, row, col, row, col, lines)
+		local last_row = row + #lines - 1
+		local last_col = #lines == 1 and (col + #lines[1]) or #lines[#lines]
+		vim.api.nvim_win_set_cursor(0, { last_row + 1, last_col })
+	end
+
+	return true
+end
+
+local function cycle(dir)
+	if #ghost.items <= 1 then
+		return
+	end
+	ghost.index = ((ghost.index - 1 + dir) % #ghost.items) + 1
+	render()
+end
+
+-- ── Provider toggle ───────────────────────────────────────────────────────────
+
+local function activate_copilot()
+	vim.g.ai_provider = "copilot"
+	-- Disable Codeium
+	pcall(function()
+		require("codeium").disable()
+	end)
+	vim.notify("Copilot", vim.log.levels.INFO)
+end
+
+local function activate_windsurf()
+	vim.g.ai_provider = "windsurf"
+	clear()
+	-- Re-enable Codeium
+	pcall(function()
+		require("codeium").enable()
+	end)
+	vim.notify("Windsurf", vim.log.levels.INFO)
+end
+
+local function toggle_provider()
+	if vim.g.ai_provider == "windsurf" then
+		activate_copilot()
+	else
+		activate_windsurf()
+	end
+	pcall(function()
+		require("lualine").refresh()
+	end)
+end
+
+-- ── Plugin spec ───────────────────────────────────────────────────────────────
+
+return {
+	"neovim/nvim-lspconfig",
+	event = "VeryLazy",
+	config = function()
+		vim.lsp.config("copilot", {
+			cmd = { "copilot-language-server", "--stdio" },
+			root_markers = { ".git" },
+			filetypes = nil,
+			init_options = {
+				editorInfo = {
+					name = "Neovim",
+					version = tostring(vim.version()),
+				},
+				editorPluginInfo = {
+					name = "copilot-lsp.lua",
+					version = "2.0.0",
+				},
+			},
+			settings = {
+				telemetry = { telemetryLevel = "off" },
+			},
+			on_attach = function(client, bufnr)
+				-- Sign-in/sign-out commands
+				vim.api.nvim_buf_create_user_command(bufnr, "LspCopilotSignIn", function()
+					client:request("signIn", vim.empty_dict(), function(err, result)
+						if err then
+							vim.notify(err.message, vim.log.levels.ERROR)
+							return
+						end
+						if result.status == "AlreadySignedIn" then
+							vim.notify("Copilot: Already signed in as " .. result.user)
+						elseif result.command then
+							vim.fn.setreg("+", result.userCode)
+							vim.fn.setreg("*", result.userCode)
+							local go = vim.fn.confirm(
+								"Copied one-time code to clipboard.\nOpen browser to sign in?",
+								"&Yes\n&No"
+							)
+							if go == 1 then
+								client:exec_cmd(result.command, { bufnr = bufnr }, function(cmd_err, cmd_result)
+									if cmd_err then
+										vim.notify(cmd_err.message, vim.log.levels.ERROR)
+										return
+									end
+									if cmd_result.status == "OK" then
+										vim.notify("Copilot: Signed in as " .. cmd_result.user)
+									end
+								end)
+							end
+						elseif result.status == "PromptUserDeviceFlow" then
+							vim.notify("Enter code " .. result.userCode .. " at " .. result.verificationUri)
+						end
+					end)
+				end, { desc = "Sign in to GitHub Copilot" })
+
+				vim.api.nvim_buf_create_user_command(bufnr, "LspCopilotSignOut", function()
+					client:request("signOut", vim.empty_dict(), function(err, result)
+						if err then
+							vim.notify(err.message, vim.log.levels.ERROR)
+							return
+						end
+						if result.status == "NotSignedIn" then
+							vim.notify("Copilot: Not signed in")
+						end
+					end)
+				end, { desc = "Sign out of GitHub Copilot" })
+			end,
+		})
+
+		-- Always enable Copilot LSP — sidekick NES depends on it
+		vim.lsp.enable("copilot")
+
+		-- ── Autocmds ──────────────────────────────────────────────────────────
+
+		local group = vim.api.nvim_create_augroup("CopilotInline", { clear = true })
+
+		vim.api.nvim_create_autocmd("TextChangedI", {
+			group = group,
+			callback = trigger_debounced,
+		})
+
+		vim.api.nvim_create_autocmd("InsertEnter", {
+			group = group,
+			callback = trigger_debounced,
+		})
+
+		vim.api.nvim_create_autocmd({ "InsertLeave", "BufLeave" }, {
+			group = group,
+			callback = clear,
+		})
+
+		-- ── Keymaps ───────────────────────────────────────────────────────────
+
+		vim.keymap.set("n", "<leader>tp", toggle_provider, {
+			desc = "[T]oggle AI [P]rovider (Windsurf/Copilot)",
+		})
+
+		-- Tab: accept Copilot ghost text, or delegate to Codeium, or literal Tab
+		vim.keymap.set("i", "<Tab>", function()
+			if vim.g.ai_provider == "copilot" and #ghost.items > 0 then
+				accept()
+				return
+			end
+			-- Delegate to Codeium when Windsurf is active
+			if vim.g.ai_provider == "windsurf" then
+				local ok, vt = pcall(require, "codeium.virtual_text")
+				if ok and vt.cycle_or_complete then
+					vt.cycle_or_complete()
+					return
+				end
+			end
+			-- Fallback: literal Tab
+			vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Tab>", true, false, true), "n", false)
+		end, { desc = "Accept AI suggestion or Tab" })
+
+		-- Cycle suggestions (unified for both providers)
+		vim.keymap.set("i", "<M-]>", function()
+			if vim.g.ai_provider == "copilot" then
+				cycle(1)
+			else
+				local ok, vt = pcall(require, "codeium.virtual_text")
+				if ok and vt.cycle_completions then
+					vt.cycle_completions(1)
+				end
+			end
+		end, { desc = "Next AI suggestion" })
+
+		vim.keymap.set("i", "<M-[>", function()
+			if vim.g.ai_provider == "copilot" then
+				cycle(-1)
+			else
+				local ok, vt = pcall(require, "codeium.virtual_text")
+				if ok and vt.cycle_completions then
+					vt.cycle_completions(-1)
+				end
+			end
+		end, { desc = "Prev AI suggestion" })
+
+		-- Manual trigger (insert mode: trigger directly; normal mode: enter insert first)
+		vim.keymap.set("i", "<M-a>", function()
+			if vim.g.ai_provider == "copilot" then
+				trigger()
+			end
+		end, { desc = "Copilot: Trigger inline completion" })
+
+		vim.keymap.set("n", "<M-a>", function()
+			if vim.g.ai_provider == "copilot" then
+				vim.cmd("startinsert")
+				vim.schedule(trigger)
+			end
+		end, { desc = "Copilot: Enter insert & trigger completion" })
+
+		-- Dismiss ghost text
+		vim.keymap.set("i", "<C-]>", function()
+			if vim.g.ai_provider == "copilot" then
+				clear()
+			end
+		end, { desc = "Copilot: Dismiss suggestion" })
+	end,
+}

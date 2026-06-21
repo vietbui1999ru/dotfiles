@@ -1,0 +1,41 @@
+---
+- name: Bootstrap local machine (macOS)
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  roles:
+    - base
+    - dotfiles
+    - rust
+    - tools
+    - zsh
+    - starship
+    - tmux
+    - neovim
+    - kitty
+
+- name: Bootstrap dev Debian servers
+  hosts: dev_debian
+  gather_facts: true
+  roles:
+    - base
+    - dotfiles
+    - rust
+    - tools
+    - zsh
+    - starship
+    - tmux
+    - neovim
+
+- name: Bootstrap RedHat servers
+  hosts: admin_redhat
+  gather_facts: true
+  roles:
+    - base
+    - dotfiles
+    - rust
+    - tools
+    - zsh
+    - starship
+    - tmux
+    - neovim

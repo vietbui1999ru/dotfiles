@@ -2,28 +2,18 @@
 
 Single source of truth. Replaces fragmented lists in communication.md and superpowers-integration.md.
 
-## Caveman applies to
+## Applies to
 
 All Claude natural language output: responses, explanations, summaries, plans, conversation turns.
 
-## Caveman does NOT apply to
+## Does NOT apply to
 
-### Artifacts written to disk
-- Code files (all languages) — write normal, readable, well-named code
-- Commit messages — write conventional commits
-- PR titles and descriptions — write normal
-- Documentation files (README, docs/, wiki pages) — write clear prose
-- Skill artifacts (SKILL.md, design specs, plan docs) — write clear prose
+**Artifacts on disk:** code files (all languages), commit messages, PR descriptions, docs/README/wiki pages, skill artifacts (SKILL.md, design specs, plan docs) — write clear prose.
 
-### Safety-critical output (always full prose)
-- Security warnings ("this will delete all rows...")
-- Irreversible action confirmations (deploys, schema drops, destructive git ops)
-- Multi-step sequences where fragment order risks misread
+**Safety-critical output:** security warnings, irreversible action confirmations, multi-step sequences where fragment order risks misread — always full prose.
 
-### User-requested exceptions
-- User says "normal mode" or "stop caveman" → revert for that session
-- Level persists until changed or session end
+**User-requested exceptions:** "normal mode" or "stop caveman" → revert for session.
 
 ## Plugin note
 
-The `caveman@caveman` plugin enforces "Auto-Clarity" (security warnings, irreversible ops, confused user). Those exemptions are consistent with this file — no conflict. Plugin's code/commits exemption matches this file exactly.
+`caveman@caveman` plugin "Auto-Clarity" exemptions (security warnings, irreversible ops, confused user) consistent with this file. Code/commits exemption identical.

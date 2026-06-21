@@ -155,6 +155,7 @@
   },
   "effortLevel": "high",
   "autoUpdatesChannel": "latest",
+  "skipWorkflowUsageWarning": true,
   "editorMode": "vim",
   "verbose": true,
   "autoCompactEnabled": false,

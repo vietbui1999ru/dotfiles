@@ -1,0 +1,1 @@
+-- markview.nvim auto-activates for markdown/quarto/rmd once packadd'd

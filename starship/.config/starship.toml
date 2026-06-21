@@ -1,0 +1,171 @@
+"$schema" = 'https://starship.rs/config-schema.json'
+
+palette = "catppuccin_macchiato"
+
+format = """
+[╭─](fg:surface2)\
+[](surface0)\
+$os\
+$username\
+[](bg:peach fg:surface0)\
+$directory\
+[](bg:green fg:peach)\
+$git_branch\
+$git_status\
+[](bg:teal fg:green)\
+$c\
+$rust\
+$golang\
+$nodejs\
+$python\
+[](fg:teal)\
+$fill\
+$cmd_duration\
+$status\
+$jobs\
+$git_metrics\
+$time\
+[─╮](fg:surface2)\
+$line_break\
+[╰─](fg:surface2)$character"""
+
+add_newline = true
+command_timeout = 1000
+
+[os]
+disabled = false
+style = "bg:surface0 fg:text"
+
+[os.symbols]
+Macos = "󰀵 "
+Linux = " "
+
+[username]
+show_always = false
+style_user = "bg:surface0 fg:text"
+style_root = "bg:surface0 fg:red"
+format = '[$user ]($style)'
+disabled = false
+
+[directory]
+style = "bg:peach fg:base"
+format = "[ $path ]($style)"
+truncation_length = 3
+truncation_symbol = "…/"
+truncate_to_repo = false   # show real path even at a repo root
+
+# icon PREFIX + name (substitutions replace the match, so keep the name in the value)
+[directory.substitutions]
+"Documents" = "󰈙 Documents"
+"Downloads" = " Downloads"
+"Music" = "󰝚 Music"
+"Pictures" = " Pictures"
+"repos" = "󰲋 repos"
+"dotfiles" = " dotfiles"
+
+[git_branch]
+symbol = ""
+style = "bg:green fg:base"
+format = '[ $symbol $branch ]($style)'
+
+[git_status]
+style = "bg:green fg:base"
+format = '[$all_status$ahead_behind ]($style)'
+
+[nodejs]
+symbol = ""
+style = "bg:teal fg:base"
+format = '[ $symbol ($version) ]($style)'
+
+[python]
+symbol = ""
+style = "bg:teal fg:base"
+format = '[ $symbol ($version) ]($style)'
+
+[rust]
+symbol = ""
+style = "bg:teal fg:base"
+format = '[ $symbol ($version) ]($style)'
+
+[golang]
+symbol = ""
+style = "bg:teal fg:base"
+format = '[ $symbol ($version) ]($style)'
+
+[c]
+symbol = " "
+style = "bg:teal fg:base"
+format = '[ $symbol ($version) ]($style)'
+
+[character]
+success_symbol = '[❯](bold green)'
+error_symbol = '[❯](bold red)'
+
+# ── right-side cluster (full-width) ──────────────────────────
+# $fill stretches to push everything below it to the terminal edge.
+[fill]
+symbol = "─"
+style = "fg:surface1"
+
+# last command runtime; also drives desktop notifications
+[cmd_duration]
+min_time = 500
+min_time_to_notify = 120000   # ms — notify only on jobs over 2 min
+show_notifications = true
+style = "fg:yellow"
+format = '[ 󱎫 $duration ]($style)'
+
+# exit code of last command — shows only on failure
+[status]
+disabled = false
+symbol = "✘ "
+style = "fg:red"
+format = '[ $symbol$status ]($style)'
+
+# count of backgrounded jobs
+[jobs]
+symbol = " "
+style = "fg:sky"
+format = '[$symbol$number ]($style)'
+
+# +added / -removed lines in the working tree
+[git_metrics]
+disabled = false
+added_style = "fg:green"
+deleted_style = "fg:red"
+format = '([+$added ]($added_style))([-$deleted ]($deleted_style))'
+
+# clock at the far edge
+[time]
+disabled = false
+time_format = "%H:%M"
+style = "fg:lavender"
+format = '[ $time ]($style)'
+
+[palettes.catppuccin_macchiato]
+rosewater = "#f4dbd6"
+flamingo  = "#f0c6c6"
+pink      = "#f5bde6"
+mauve     = "#c6a0f6"
+red       = "#ed8796"
+maroon    = "#ee99a0"
+peach     = "#f5a97f"
+yellow    = "#eed49f"
+green     = "#a6da95"
+teal      = "#8bd5ca"
+sky       = "#91d7e3"
+sapphire  = "#7dc4e4"
+blue      = "#8aadf4"
+lavender  = "#b7bdf8"
+text      = "#cad3f5"
+subtext1  = "#b8c0e0"
+subtext0  = "#a5adcb"
+overlay2  = "#939ab7"
+overlay1  = "#8087a2"
+overlay0  = "#6e738d"
+surface2  = "#5b6078"
+surface1  = "#494d64"
+surface0  = "#363a4f"
+base      = "#24273a"
+mantle    = "#1e2030"
+crust     = "#181926"

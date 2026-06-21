@@ -1,0 +1,12 @@
+if vim.g.vscode then
+	return
+end
+-- render-markdown.nvim is only activated for the "sidekick" filetype;
+-- markview.nvim handles regular markdown
+vim.api.nvim_create_autocmd("FileType", {
+	pattern = "sidekick",
+	group = vim.api.nvim_create_augroup("render-markdown-sidekick", { clear = true }),
+	callback = function()
+		require("render-markdown").setup({})
+	end,
+})

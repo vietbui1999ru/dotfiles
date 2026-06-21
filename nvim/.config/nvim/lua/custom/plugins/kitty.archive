@@ -1,0 +1,1 @@
+-- no setup; build hook (cp ./*.py ~/.config/kitty/) runs via PackChanged in init.lua

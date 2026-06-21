@@ -1,0 +1,14 @@
+---
+- name: Install starship (macOS)
+  community.general.homebrew:
+    name: starship
+    state: present
+  when: ansible_os_family == "Darwin"
+
+- name: Install starship via script (Linux — user install)
+  ansible.builtin.shell: |
+    mkdir -p "$HOME/.local/bin"
+    curl -sS https://starship.rs/install.sh | sh -s -- --yes --bin-dir "$HOME/.local/bin"
+  args:
+    creates: "{{ ansible_env.HOME }}/.local/bin/starship"
+  when: ansible_os_family != "Darwin"

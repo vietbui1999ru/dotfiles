@@ -16,11 +16,13 @@ When sources conflict: higher number loses. Explicit always beats implicit.
 @~/.claude/rules/communication.md
 @~/.claude/rules/editing.md
 @~/.claude/rules/intermediate.md
-@~/.claude/rules/applied-ai.md
 @~/.claude/rules/model-routing.md
 @~/.claude/rules/skill-invocation.md
 @~/.claude/rules/caveman-mode.md
-# Niche domain rules (not auto-loaded): ~/.claude/rules/domains/learning.md, research.md
+@~/.claude/rules/startup-cgc.md
+@~/.claude/rules/startup-project-checks.md
+@~/.claude/rules/startup-session.md
+# Niche domain rules (not auto-loaded): see claude-setup/rules/ in project repos
 # @-import them in project CLAUDE.md for learning-domain or formal-methods work
 
 ## Knowledge
@@ -28,4 +30,7 @@ When sources conflict: higher number loses. Explicit always beats implicit.
 # Do NOT load index at startup. Full index at ~/repos/llm-wiki/index.md if needed.
 
 ## Quality rules (judge-extracted)
-@~/.claude/rules/quality.md
+# @~/.claude/rules/quality.md — uncomment when judge populates it
+# graphify
+- **graphify** (`~/.claude/skills/graphify/SKILL.md`) - any input to knowledge graph. Trigger: `/graphify`
+When the user types `/graphify`, invoke the Skill tool with `skill: "graphify"` before doing anything else.

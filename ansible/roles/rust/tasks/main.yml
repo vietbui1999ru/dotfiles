@@ -1,0 +1,12 @@
+---
+- name: Install Rust via rustup (all platforms)
+  ansible.builtin.shell: |
+    curl https://sh.rustup.rs -sSf | sh -s -- -y --no-modify-path
+  args:
+    creates: "{{ ansible_env.HOME }}/.cargo/bin/cargo"
+
+- name: Set stable as default toolchain
+  ansible.builtin.shell: |
+    . "$HOME/.cargo/env"
+    rustup default stable
+  changed_when: false

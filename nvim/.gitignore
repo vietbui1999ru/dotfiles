@@ -1,0 +1,11 @@
+.config/nvim/node_modules/
+.config/nvim/package-lock.json
+.config/nvim/test.py
+.config/nvim/Untitled
+.config/nvim/init.archive
+.config/nvim/lazy-lock.json
+.config/nvim/.codeboarding/
+.config/nvim/.env
+.config/nvim/CLAUDE.md
+.config/nvim/README.md
+.config/nvim/neovim_tips/
