@@ -6,6 +6,17 @@
     version: main
     depth: 1
 
+- name: Init and update git submodules (llm-wiki)
+  ansible.builtin.command:
+    cmd: git submodule update --init --recursive
+    chdir: "{{ ansible_env.HOME }}/dotfiles"
+  changed_when: false
+
+- name: Bootstrap expected directories and symlinks
+  ansible.builtin.command:
+    cmd: "{{ ansible_env.HOME }}/dotfiles/scripts/bootstrap-dirs.sh"
+  changed_when: false
+
 - name: Stow all packages
   ansible.builtin.shell: |
     cd {{ ansible_env.HOME }}/dotfiles

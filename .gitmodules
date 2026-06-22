@@ -1,0 +1,3 @@
+[submodule "repos/llm-wiki"]
+	path = repos/llm-wiki
+	url = git@github.com:vietbui1999ru/llm-wiki.git
