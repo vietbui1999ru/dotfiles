@@ -9,6 +9,11 @@ autoload -Uz compinit
 mkdir -p "$XDG_CACHE_HOME/zsh"
 compinit -d "$XDG_CACHE_HOME/zsh/zcompdump-$ZSH_VERSION"
 
+# ── SSH tmux auto-attach ──────────────────────────────────────────────
+if [[ -z "$TMUX" && -n "$SSH_CONNECTION" ]]; then
+  tmux attach-session -t main 2>/dev/null || tmux new-session -s main
+fi
+
 # ── Editor ────────────────────────────────────────────────────────────
 export EDITOR='nvim'
 [[ -n $SSH_CONNECTION ]] && export EDITOR='vim'
