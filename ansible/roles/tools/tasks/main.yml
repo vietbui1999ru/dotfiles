@@ -17,6 +17,12 @@
     state: present
   when: ansible_os_family == "Darwin"
 
+- name: Install opencode (macOS)
+  community.general.homebrew:
+    name: anomalyco/tap/opencode
+    state: present
+  when: ansible_os_family == "Darwin"
+
 # ── Debian/Ubuntu ─────────────────────────────────────────────────────
 - name: Install tools available in apt (Debian)
   ansible.builtin.apt:
@@ -69,6 +75,13 @@
   become: true
   args:
     creates: /usr/local/bin/lazygit
+  when: ansible_os_family == "Debian"
+
+- name: Install opencode (Debian)
+  ansible.builtin.shell: |
+    XDG_BIN_DIR="$HOME/.local/bin" curl -fsSL https://opencode.ai/install | bash
+  args:
+    creates: "{{ ansible_env.HOME }}/.local/bin/opencode"
   when: ansible_os_family == "Debian"
 
 # ── RedHat/Fedora ──────────────────────────────────────────────────────
