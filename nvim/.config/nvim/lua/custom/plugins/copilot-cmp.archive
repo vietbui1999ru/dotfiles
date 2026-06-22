@@ -1,7 +1,0 @@
-return {
-	"zbirenbaum/copilot-cmp",
-	cond = not vim.g.vscode,
-	config = function()
-		require("copilot_cmp").setup()
-	end,
-}

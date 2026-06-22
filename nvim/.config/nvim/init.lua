@@ -164,7 +164,6 @@ vim.pack.add({
 	{ src = gh("kawre/leetcode.nvim"), name = "leetcode.nvim" },
 	gh("Julian/lean.nvim"),
 	-- gh("folke/sidekick.nvim"),
-	-- gh("Exafunction/windsurf.nvim"),
 })
 
 if vim.g.vscode then
@@ -468,9 +467,6 @@ vim.api.nvim_create_autocmd("VimEnter", {
 
 		vim.cmd.packadd("copilot.lua")
 		require("custom.plugins.copilot")
-
-		-- vim.cmd.packadd("windsurf.nvim")
-		-- require("custom.plugins.windsurf")
 
 		vim.cmd.packadd("markview.nvim")
 

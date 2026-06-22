@@ -1,7 +1,0 @@
-return {
-	{
-		"whonore/Coqtail",
-		cond = not vim.g.vscode,
-		ft = { "coq" },
-	},
-}
