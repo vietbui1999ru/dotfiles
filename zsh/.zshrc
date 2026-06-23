@@ -1,4 +1,6 @@
 # ── History ──────────────────────────────────────────────────────────
+[[ -o interactive ]] && stty -ixon 2>/dev/null
+
 HISTFILE="$HOME/.zsh_history"
 HISTSIZE=50000
 SAVEHIST=50000
@@ -9,11 +11,6 @@ autoload -Uz compinit
 mkdir -p "$XDG_CACHE_HOME/zsh"
 compinit -d "$XDG_CACHE_HOME/zsh/zcompdump-$ZSH_VERSION"
 
-# ── SSH tmux auto-attach ──────────────────────────────────────────────
-if [[ -z "$TMUX" && -n "$SSH_CONNECTION" ]]; then
-  tmux attach-session -t main 2>/dev/null || tmux new-session -s main
-fi
-
 # ── Editor ────────────────────────────────────────────────────────────
 export EDITOR='nvim'
 [[ -n $SSH_CONNECTION ]] && export EDITOR='vim'
@@ -22,6 +19,11 @@ export EDITOR='nvim'
 export PATH="$HOME/.local/bin:$PATH"
 export PATH="$HOME/go/bin:$PATH"
 export PATH="$HOME/.ghcup/bin:$PATH"
+
+# ── SSH tmux auto-attach ──────────────────────────────────────────────
+if [[ -z "$TMUX" && -n "$SSH_CONNECTION" ]]; then
+  tmux attach-session -t main 2>/dev/null || tmux new-session -s main
+fi
 
 # ── Sheldon (plugins) ─────────────────────────────────────────────────
 eval "$(sheldon source)"

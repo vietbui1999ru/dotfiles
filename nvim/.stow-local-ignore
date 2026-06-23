@@ -6,6 +6,7 @@ Untitled
 init.archive
 lazy-lock.json
 \.git
+\.gitignore
 \.claude
 \.codeboarding
 \.env

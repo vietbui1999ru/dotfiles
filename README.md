@@ -11,7 +11,7 @@ Personal dotfiles managed with [GNU Stow](https://www.gnu.org/software/stow/). A
 | `zsh/` | `~/.zshrc`, `~/.zprofile`, `~/.zsh/` |
 | `starship/` | `~/.config/starship.toml` |
 | `nvim/` | `~/.config/nvim/` |
-| `tmux/` | `~/.config/tmux/` |
+| `tmux/` | `~/.tmux.conf`, `~/.local/bin/tmux-cht` |
 | `kitty/` | `~/.config/kitty/` |
 | `git/` | `~/.gitconfig` |
 | `claude/` | `~/.claude/` |
@@ -49,10 +49,10 @@ Covers: base packages, Rust toolchain, modern CLI tools, zsh, starship, tmux, ne
 ansible-playbook ansible/site.yml --limit localhost
 
 # Remote Debian dev server
-ansible-playbook ansible/site.yml --limit dev_debian -i ansible/inventory/hosts
+ansible-playbook ansible/site.yml --limit dev_debian -i ansible/inventory/hosts.yml
 
 # Remote RedHat admin server
-ansible-playbook ansible/site.yml --limit admin_redhat -i ansible/inventory/hosts
+ansible-playbook ansible/site.yml --limit admin_redhat -i ansible/inventory/hosts.yml
 ```
 
 ## Scripts

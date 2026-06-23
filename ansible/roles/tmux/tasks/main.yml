@@ -28,5 +28,5 @@
 - name: Install tmux plugins via TPM
   ansible.builtin.shell: |
     {{ ansible_env.HOME }}/.tmux/plugins/tpm/bin/install_plugins
-  args:
-    creates: "{{ ansible_env.HOME }}/.tmux/plugins/catppuccin"
+  register: tmux_plugin_install
+  changed_when: "'Installing' in tmux_plugin_install.stdout"

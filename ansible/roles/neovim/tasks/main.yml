@@ -1,38 +1,171 @@
 ---
-- name: Install neovim (macOS)
+- name: Install Neovim runtime deps (macOS)
   community.general.homebrew:
-    name: neovim
+    name:
+      - neovim
+      - node
+      - python
+      - imagemagick
+      - pngpaste
+      - bun
     state: latest
   when: ansible_os_family == "Darwin"
 
-- name: Add neovim PPA (Ubuntu only — not plain Debian)
-  ansible.builtin.apt_repository:
-    repo: ppa:neovim-ppa/unstable
-    state: present
-  become: true
-  when: ansible_distribution == "Ubuntu"
-
-- name: Install neovim (Debian/Ubuntu)
+- name: Install Neovim runtime deps (Debian/Ubuntu)
   ansible.builtin.apt:
-    name: neovim
-    state: latest
+    name:
+      - git
+      - curl
+      - make
+      - gcc
+      - python3
+      - python3-venv
+      - python3-pip
+      - imagemagick
+      - xclip
+      - wl-clipboard
+    state: present
     update_cache: true
   become: true
   when: ansible_os_family == "Debian"
 
-- name: Install neovim (RedHat/Fedora)
+- name: Install Neovim runtime deps (RedHat/Fedora)
   ansible.builtin.dnf:
-    name: neovim
-    state: latest
+    name:
+      - git
+      - curl
+      - make
+      - gcc
+      - python3
+      - python3-pip
+      - ImageMagick
+      - xclip
+      - wl-clipboard
+    state: present
   become: true
   when: ansible_os_family == "RedHat"
 
-- name: Verify neovim version
+- name: Ensure ~/.local/bin exists
+  ansible.builtin.file:
+    path: "{{ ansible_env.HOME }}/.local/bin"
+    state: directory
+    mode: "0755"
+
+- name: Install nvm (Linux)
+  ansible.builtin.git:
+    repo: https://github.com/nvm-sh/nvm.git
+    dest: "{{ ansible_env.HOME }}/.nvm"
+    version: v0.40.3
+    depth: 1
+  when: ansible_os_family != "Darwin"
+
+- name: Install Node.js 23.11.0 via nvm (Linux)
   ansible.builtin.shell: |
-    nvim --version | head -1
+    . "{{ ansible_env.HOME }}/.nvm/nvm.sh"
+    nvm install 23.11.0
+    nvm alias default 23.11.0
+  args:
+    creates: "{{ ansible_env.HOME }}/.nvm/versions/node/v23.11.0/bin/node"
+  when: ansible_os_family != "Darwin"
+
+- name: Link Node.js tools into ~/.local/bin (Linux)
+  ansible.builtin.file:
+    src: "{{ ansible_env.HOME }}/.nvm/versions/node/v23.11.0/bin/{{ item }}"
+    dest: "{{ ansible_env.HOME }}/.local/bin/{{ item }}"
+    state: link
+  loop:
+    - node
+    - npm
+    - npx
+  when: ansible_os_family != "Darwin"
+
+- name: Check user Neovim is new enough (Linux)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    test -x "{{ ansible_env.HOME }}/.local/bin/nvim"
+    version=$("{{ ansible_env.HOME }}/.local/bin/nvim" --version | awk 'NR == 1 { sub(/^v/, "", $2); print $2 }')
+    major=${version%%.*}
+    rest=${version#*.}
+    minor=${rest%%.*}
+    [ "$major" -gt 0 ] || { [ "$major" -eq 0 ] && [ "$minor" -ge 12 ]; }
+  args:
+    executable: /bin/bash
+  register: user_nvim_current
+  changed_when: false
+  failed_when: false
+  when: ansible_os_family != "Darwin"
+
+- name: Install latest upstream Neovim release (Linux)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    case "$(uname -m)" in
+      x86_64|amd64) nvim_arch=x86_64 ;;
+      aarch64|arm64) nvim_arch=arm64 ;;
+      *) echo "Unsupported Neovim release arch: $(uname -m)" >&2; exit 1 ;;
+    esac
+
+    tmpdir=$(mktemp -d)
+    trap 'rm -rf "$tmpdir"' EXIT
+
+    url="https://github.com/neovim/neovim/releases/latest/download/nvim-linux-${nvim_arch}.tar.gz"
+    if ! curl -fsSL "$url" -o "$tmpdir/nvim.tar.gz"; then
+      [ "$nvim_arch" = x86_64 ] || exit 1
+      curl -fsSL "https://github.com/neovim/neovim/releases/latest/download/nvim-linux64.tar.gz" -o "$tmpdir/nvim.tar.gz"
+    fi
+
+    mkdir -p "$tmpdir/extract" "{{ ansible_env.HOME }}/.local/bin"
+    tar -xzf "$tmpdir/nvim.tar.gz" -C "$tmpdir/extract"
+    rm -rf "{{ ansible_env.HOME }}/.local/neovim"
+    mv "$tmpdir"/extract/nvim-* "{{ ansible_env.HOME }}/.local/neovim"
+    ln -sfn "{{ ansible_env.HOME }}/.local/neovim/bin/nvim" "{{ ansible_env.HOME }}/.local/bin/nvim"
+  args:
+    executable: /bin/bash
+  when:
+    - ansible_os_family != "Darwin"
+    - (user_nvim_current.rc | default(1)) != 0
+
+- name: Install Bun runtime (Linux)
+  ansible.builtin.shell: |
+    curl -fsSL https://bun.sh/install | bash
+  args:
+    creates: "{{ ansible_env.HOME }}/.bun/bin/bun"
+  when: ansible_os_family != "Darwin"
+
+- name: Link Bun into ~/.local/bin (Linux)
+  ansible.builtin.file:
+    src: "{{ ansible_env.HOME }}/.bun/bin/bun"
+    dest: "{{ ansible_env.HOME }}/.local/bin/bun"
+    state: link
+  when: ansible_os_family != "Darwin"
+
+- name: Install Neovim Node dependencies
+  ansible.builtin.shell: |
+    npm --prefix "{{ ansible_env.HOME }}/dotfiles/nvim/.config/nvim" install --omit=dev --package-lock=false
+  args:
+    creates: "{{ ansible_env.HOME }}/dotfiles/nvim/.config/nvim/node_modules/acp-claude-code"
+  environment:
+    PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.PATH }}"
+
+- name: Check MCP Hub install
+  ansible.builtin.command: "{{ ansible_env.HOME }}/.local/bin/mcp-hub --version"
+  register: mcphub_version
+  changed_when: false
+  failed_when: false
+
+- name: Install MCP Hub globally for Neovim
+  ansible.builtin.shell: |
+    npm install --global --prefix "{{ ansible_env.HOME }}/.local" mcp-hub@latest
+  environment:
+    PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.PATH }}"
+  when: mcphub_version.rc != 0
+
+- name: Verify neovim version
+  ansible.builtin.command: nvim --version
+  environment:
+    PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.PATH }}"
   register: nvim_version
   changed_when: false
 
 - name: Show neovim version
   ansible.builtin.debug:
-    msg: "{{ nvim_version.stdout }}"
+    msg: "{{ nvim_version.stdout_lines[0] }}"

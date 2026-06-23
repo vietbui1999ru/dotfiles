@@ -46,11 +46,17 @@
   become: true
   when: ansible_os_family == "RedHat"
 
-- name: Set system locale (Linux)
+- name: Set system locale (Debian/Ubuntu)
+  ansible.builtin.command: update-locale LANG=en_US.UTF-8
+  become: true
+  changed_when: false
+  when: ansible_os_family == "Debian"
+
+- name: Set system locale (RedHat/Fedora)
   ansible.builtin.lineinfile:
     path: /etc/locale.conf
     regexp: '^LANG='
     line: 'LANG=en_US.UTF-8'
     create: true
   become: true
-  when: ansible_os_family in ["Debian", "RedHat"]
+  when: ansible_os_family == "RedHat"
