@@ -18,8 +18,16 @@
       - wget
       - build-essential
       - unzip
+      - locales
     state: present
     update_cache: true
+  become: true
+  when: ansible_os_family == "Debian"
+
+- name: Generate en_US.UTF-8 locale (Debian/Ubuntu)
+  ansible.builtin.locale_gen:
+    name: en_US.UTF-8
+    state: present
   become: true
   when: ansible_os_family == "Debian"
 
@@ -33,6 +41,16 @@
       - gcc
       - make
       - unzip
+      - glibc-langpack-en
     state: present
   become: true
   when: ansible_os_family == "RedHat"
+
+- name: Set system locale (Linux)
+  ansible.builtin.lineinfile:
+    path: /etc/locale.conf
+    regexp: '^LANG='
+    line: 'LANG=en_US.UTF-8'
+    create: true
+  become: true
+  when: ansible_os_family in ["Debian", "RedHat"]
