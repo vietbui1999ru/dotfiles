@@ -26,6 +26,7 @@
     - starship
     - tmux
     - neovim
+    - kitty
 
 - name: Bootstrap RedHat servers
   hosts: admin_redhat
@@ -39,3 +40,4 @@
     - starship
     - tmux
     - neovim
+    - kitty
