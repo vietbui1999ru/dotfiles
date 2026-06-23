@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-topics=(
+# ── topics for cht.sh fzf picker ──────────────────────────────────────
+cht_topics=(
   bash zsh fish
   tmux git curl wget
   rg fd fzf jq awk sed grep xargs
@@ -18,138 +19,198 @@ topics=(
   nginx apache
 )
 
-die() {
-  printf 'tmux-cht: %s\n' "$*" >&2
-  exit 1
+# ── sources ───────────────────────────────────────────────────────────
+sources=(
+  "cht.sh   stackoverflow answers + cheatsheets"
+  "tldr     community simplified man pages (GitHub)"
+  "man      local man page"
+)
+
+# ── helpers ───────────────────────────────────────────────────────────
+die()  { printf 'tmux-cht: %s\n' "$*" >&2; exit 1; }
+
+pick() {
+  local prompt=$1; shift
+  printf '%s\n' "$@" | fzf \
+    --prompt="$prompt " \
+    --height=50% \
+    --border=rounded \
+    --layout=reverse \
+    --bind 'change:first'
 }
 
-command -v curl >/dev/null 2>&1 || die 'curl is required'
-
-cleanup_file=
-
-cleanup() {
-  [ -n "${cleanup_file:-}" ] && rm -f "$cleanup_file"
-}
-
-contains_topic() {
-  local item=$1 topic
-  for topic in "${topics[@]}"; do
-    [[ $topic == "$item" ]] && return 0
-  done
-  return 1
-}
-
-prompt_query() {
-  local choice query
-
-  if command -v fzf >/dev/null 2>&1; then
-    choice=$(printf '%s\n' "${topics[@]}" | fzf \
-      --prompt='cht.sh> ' \
-      --height=50% \
-      --border=rounded \
-      --layout=reverse \
-      --bind 'change:first' \
-      --print-query | awk 'NF { value=$0 } END { print value }')
-  else
-    printf 'cht.sh topic/query: '
-    IFS= read -r choice
-  fi
-
-  [ -n "${choice:-}" ] || return 1
-
-  if contains_topic "$choice"; then
-    printf '%s query: ' "$choice" >/dev/tty
-    IFS= read -r query </dev/tty
-    [ -n "${query:-}" ] && printf '%s/%s\n' "$choice" "$query" || printf '%s\n' "$choice"
-  else
-    printf '%s\n' "$choice"
-  fi
-}
-
-guess_filetype() {
-  case $1 in
-    bash/*|bash|zsh/*|zsh|fish/*|fish) printf 'sh' ;;
-    python/*|python|python3/*|python3) printf 'python' ;;
-    ruby/*|ruby) printf 'ruby' ;;
-    go/*|go|golang/*|golang) printf 'go' ;;
-    rust/*|rust) printf 'rust' ;;
-    javascript/*|javascript|nodejs/*|nodejs) printf 'javascript' ;;
-    typescript/*|typescript) printf 'typescript' ;;
-    lua/*|lua) printf 'lua' ;;
-    c/*|c) printf 'c' ;;
-    cpp/*|cpp|c++/*|c++) printf 'cpp' ;;
-    java/*|java) printf 'java' ;;
-    kotlin/*|kotlin) printf 'kotlin' ;;
-    docker/*|docker) printf 'dockerfile' ;;
-    kubectl/*|kubectl|helm/*|helm) printf 'yaml' ;;
-    terraform/*|terraform) printf 'hcl' ;;
-    *) printf 'text' ;;
-  esac
-}
-
-show_result() {
-  local file=$1 query=$2 filetype=$3
-
-  cleanup_file=$file
-  trap cleanup RETURN
-
-  # guard: skip empty fetches
-  local content_lines
-  content_lines=$(grep -c . "$file" 2>/dev/null || echo 0)
-  if [ "$content_lines" -le 3 ]; then
-    printf '\n  [no results for: %s]\n\n  Press enter to continue...' "$query"
-    read -r _
-    return
-  fi
-
+view() {
+  local file=$1 ft=${2:-text}
   if command -v nvim >/dev/null 2>&1; then
     nvim -R \
       +'setlocal buftype=nofile bufhidden=wipe noswapfile nomodifiable nowrap nonumber norelativenumber signcolumn=no' \
-      +"setlocal filetype=${filetype}" \
-      "$file"
-  elif command -v vim >/dev/null 2>&1; then
-    vim -R \
-      +'setlocal buftype=nofile bufhidden=wipe noswapfile nomodifiable nowrap nonumber norelativenumber' \
-      +"setlocal filetype=${filetype}" \
+      +"setlocal filetype=${ft}" \
       "$file"
   elif command -v less >/dev/null 2>&1; then
     less -FRX "$file"
   else
     cat "$file"
   fi
+  rm -f "$file"
 }
 
-fetch_and_show() {
-  local query=$1
-  local encoded tmpfile url
-  encoded=${query// /+}
+empty_guard() {
+  local file=$1 query=$2
+  local lines
+  lines=$(grep -c . "$file" 2>/dev/null || echo 0)
+  if [ "$lines" -le 3 ]; then
+    printf '\n  [no results for: %s]\n\n  Press enter...' "$query"
+    read -r _
+    return 1
+  fi
+  return 0
+}
+
+guess_ft() {
+  case $1 in
+    bash*|zsh*|fish*) printf 'sh' ;;
+    python*) printf 'python' ;;
+    ruby*)   printf 'ruby' ;;
+    go*)     printf 'go' ;;
+    rust*)   printf 'rust' ;;
+    js*|javascript*|node*) printf 'javascript' ;;
+    typescript*) printf 'typescript' ;;
+    lua*)    printf 'lua' ;;
+    c|c/*)   printf 'c' ;;
+    cpp*|c++*) printf 'cpp' ;;
+    java/*)  printf 'java' ;;
+    kotlin*) printf 'kotlin' ;;
+    docker*) printf 'dockerfile' ;;
+    kubectl*|helm*) printf 'yaml' ;;
+    terraform*) printf 'hcl' ;;
+    *) printf 'text' ;;
+  esac
+}
+
+contains_cht_topic() {
+  local item=$1 t
+  for t in "${cht_topics[@]}"; do [[ $t == "$item" ]] && return 0; done
+  return 1
+}
+
+# ── source handlers ───────────────────────────────────────────────────
+
+do_chtsh() {
+  local choice query
+  choice=$(pick 'cht.sh>' "${cht_topics[@]}") || return 0
+
+  if contains_cht_topic "$choice"; then
+    printf '%s query (enter for overview): ' "$choice" >/dev/tty
+    IFS= read -r query </dev/tty
+    [ -n "${query:-}" ] && choice="${choice}/${query}"
+  fi
+
+  local encoded url tmp
+  encoded=${choice// /+}
   url="https://cht.sh/${encoded}?T"
-  tmpfile=$(mktemp "${TMPDIR:-/tmp}/tmux-cht.XXXXXX")
+  tmp=$(mktemp "${TMPDIR:-/tmp}/tmux-cht.XXXXXX")
 
   {
-    printf '# cht.sh/%s\n' "$query"
-    printf '# %s\n' "$url"
-    printf '# Vim: / search, y yank, :q quit.\n\n'
+    printf '# cht.sh/%s\n' "$choice"
+    printf '# :q to quit, / to search\n\n'
     curl -fsSL "$url"
-  } >"$tmpfile" 2>/dev/null || { rm -f "$tmpfile"; die "failed to fetch $url"; }
+  } >"$tmp" 2>/dev/null || { rm -f "$tmp"; printf '\n  [fetch failed: %s]\n' "$url"; sleep 1; return 0; }
 
-  show_result "$tmpfile" "$query" "$(guess_filetype "$query")"
-  rm -f "$tmpfile"
+  empty_guard "$tmp" "$choice" && view "$tmp" "$(guess_ft "$choice")" || true
 }
 
-# one-shot mode: tmux-cht go channels
+do_tldr() {
+  local cmd
+  printf 'tldr command: ' >/dev/tty
+  IFS= read -r cmd </dev/tty
+  [ -z "${cmd:-}" ] && return 0
+
+  # normalise: "git worktree" → "git-worktree"
+  local page=${cmd// /-}
+  local tmp url content
+  tmp=$(mktemp "${TMPDIR:-/tmp}/tmux-cht.XXXXXX")
+
+  # try platforms in order
+  local found=0
+  for platform in common linux osx; do
+    url="https://raw.githubusercontent.com/tldr-pages/tldr/main/pages/${platform}/${page}.md"
+    content=$(curl -fsSL "$url" 2>/dev/null)
+    if [ -n "$content" ] && ! printf '%s' "$content" | grep -q '404'; then
+      found=1
+      {
+        printf '# tldr: %s  [%s]\n' "$cmd" "$platform"
+        printf '# :q to quit, / to search\n\n'
+        printf '%s\n' "$content"
+      } >"$tmp"
+      break
+    fi
+  done
+
+  if [ "$found" -eq 0 ]; then
+    rm -f "$tmp"
+    printf '\n  [no tldr page for: %s]\n  Try cht.sh or man instead.\n\n  Press enter...' "$cmd"
+    read -r _
+    return 0
+  fi
+
+  view "$tmp" "markdown"
+}
+
+do_man() {
+  local cmd section=""
+  printf 'man command (e.g. git-worktree, curl, 5 crontab): ' >/dev/tty
+  IFS= read -r cmd </dev/tty
+  [ -z "${cmd:-}" ] && return 0
+
+  local tmp
+  tmp=$(mktemp "${TMPDIR:-/tmp}/tmux-cht.XXXXXX")
+
+  # shellcheck disable=SC2086
+  if ! man $cmd 2>/dev/null | col -bx >"$tmp"; then
+    rm -f "$tmp"
+    printf '\n  [no man page for: %s]\n\n  Press enter...' "$cmd"
+    read -r _
+    return 0
+  fi
+
+  {
+    local header
+    header=$(head -1 "$tmp")
+    local body
+    body=$(tail -n +2 "$tmp")
+    printf '# man: %s\n' "$cmd"
+    printf '# :q to quit, / to search\n\n'
+    printf '%s\n' "$header"
+    printf '%s\n' "$body"
+  } >"${tmp}.fmt" && mv "${tmp}.fmt" "$tmp"
+
+  view "$tmp" "man"
+}
+
+# ── one-shot mode ─────────────────────────────────────────────────────
 if [ "$#" -gt 0 ]; then
-  if [ "$#" -gt 1 ] && contains_topic "$1"; then
-    topic=$1; shift
-    fetch_and_show "$topic/$*"
+  if [ "$#" -gt 1 ] && contains_cht_topic "$1"; then
+    t=$1; shift; do_chtsh <<< "${t}/${*}"
   else
-    fetch_and_show "$*"
+    SOURCE=chtsh
+    choice="$*"
+    encoded=${choice// /+}
+    url="https://cht.sh/${encoded}?T"
+    tmp=$(mktemp "${TMPDIR:-/tmp}/tmux-cht.XXXXXX")
+    { printf '# cht.sh/%s\n# :q to quit\n\n' "$choice"; curl -fsSL "$url"; } >"$tmp"
+    view "$tmp" "$(guess_ft "$choice")"
   fi
   exit 0
 fi
 
-# interactive loop
+# ── interactive loop ──────────────────────────────────────────────────
 while true; do
-  query=$(prompt_query) || break
-  fetch_and_show "$query"
+  src=$(pick 'source>' "${sources[@]}") || break
+  src_key=$(printf '%s' "$src" | awk '{print $1}')
+
+  case $src_key in
+    cht.sh) do_chtsh ;;
+    tldr)   do_tldr ;;
+    man)    do_man ;;
+  esac
 done
