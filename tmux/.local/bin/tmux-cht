@@ -2,20 +2,20 @@
 set -euo pipefail
 
 topics=(
-  bash
-  zsh
-  tmux
-  git
-  rg
-  fd
-  jq
-  awk
-  sed
-  python
-  go
-  rust
-  docker
-  kubectl
+  bash zsh fish
+  tmux git curl wget
+  rg fd fzf jq awk sed grep xargs
+  python python3 ruby perl php
+  go rust c cpp java kotlin swift
+  javascript typescript nodejs
+  lua vim nvim
+  docker docker-compose kubectl helm
+  terraform ansible
+  ssh openssl gpg
+  make cmake
+  systemd cron
+  mysql postgres sqlite redis
+  nginx apache
 )
 
 die() {
@@ -26,18 +26,13 @@ die() {
 command -v curl >/dev/null 2>&1 || die 'curl is required'
 
 cleanup_file=
-cleanup_window=
 
 cleanup() {
-  if [ -n "${cleanup_window:-}" ] && command -v tmux >/dev/null 2>&1; then
-    tmux rename-window "$cleanup_window" 2>/dev/null || true
-  fi
   [ -n "${cleanup_file:-}" ] && rm -f "$cleanup_file"
 }
 
 contains_topic() {
-  local item=$1
-  local topic
+  local item=$1 topic
   for topic in "${topics[@]}"; do
     [[ $topic == "$item" ]] && return 0
   done
@@ -49,10 +44,11 @@ prompt_query() {
 
   if command -v fzf >/dev/null 2>&1; then
     choice=$(printf '%s\n' "${topics[@]}" | fzf \
-      --prompt='cht.sh topic/query> ' \
-      --height=40% \
+      --prompt='cht.sh> ' \
+      --height=50% \
       --border=rounded \
       --layout=reverse \
+      --bind 'change:first' \
       --print-query | awk 'NF { value=$0 } END { print value }')
   else
     printf 'cht.sh topic/query: '
@@ -72,8 +68,9 @@ prompt_query() {
 
 guess_filetype() {
   case $1 in
-    bash/*|bash|zsh/*|zsh) printf 'sh' ;;
-    python/*|python) printf 'python' ;;
+    bash/*|bash|zsh/*|zsh|fish/*|fish) printf 'sh' ;;
+    python/*|python|python3/*|python3) printf 'python' ;;
+    ruby/*|ruby) printf 'ruby' ;;
     go/*|go|golang/*|golang) printf 'go' ;;
     rust/*|rust) printf 'rust' ;;
     javascript/*|javascript|nodejs/*|nodejs) printf 'javascript' ;;
@@ -81,47 +78,29 @@ guess_filetype() {
     lua/*|lua) printf 'lua' ;;
     c/*|c) printf 'c' ;;
     cpp/*|cpp|c++/*|c++) printf 'cpp' ;;
+    java/*|java) printf 'java' ;;
+    kotlin/*|kotlin) printf 'kotlin' ;;
     docker/*|docker) printf 'dockerfile' ;;
-    kubectl/*|kubectl) printf 'yaml' ;;
+    kubectl/*|kubectl|helm/*|helm) printf 'yaml' ;;
+    terraform/*|terraform) printf 'hcl' ;;
     *) printf 'text' ;;
   esac
 }
 
 show_result() {
-  local file=$1 query=$2 filetype=$3 old_window
+  local file=$1 query=$2 filetype=$3
 
   cleanup_file=$file
+  trap cleanup RETURN
 
-  if [ -n "${TMUX:-}" ] && command -v tmux >/dev/null 2>&1; then
-    old_window=$(tmux display-message -p '#W' 2>/dev/null || true)
-    cleanup_window=$old_window
-    tmux rename-window "cht:${query%%/*}" 2>/dev/null || true
+  # guard: skip empty fetches
+  local content_lines
+  content_lines=$(grep -c . "$file" 2>/dev/null || echo 0)
+  if [ "$content_lines" -le 3 ]; then
+    printf '\n  [no results for: %s]\n\n  Press enter to continue...' "$query"
+    read -r _
+    return
   fi
-
-  trap cleanup EXIT
-
-  case ${TMUX_CHT_VIEWER:-auto} in
-    cat)
-      cat "$file"
-      return
-      ;;
-    less)
-      command -v less >/dev/null 2>&1 && less -FRX "$file" && return
-      ;;
-    vim)
-      if command -v nvim >/dev/null 2>&1; then
-        nvim -R \
-          +'setlocal buftype=nofile bufhidden=wipe noswapfile nomodifiable nowrap nonumber norelativenumber signcolumn=no' \
-          +"setlocal filetype=${filetype}" \
-          "$file"
-        return
-      fi
-      command -v vim >/dev/null 2>&1 && vim -R \
-        +'setlocal buftype=nofile bufhidden=wipe noswapfile nomodifiable nowrap nonumber norelativenumber' \
-        +"setlocal filetype=${filetype}" \
-        "$file" && return
-      ;;
-  esac
 
   if command -v nvim >/dev/null 2>&1; then
     nvim -R \
@@ -140,27 +119,37 @@ show_result() {
   fi
 }
 
+fetch_and_show() {
+  local query=$1
+  local encoded tmpfile url
+  encoded=${query// /+}
+  url="https://cht.sh/${encoded}?T"
+  tmpfile=$(mktemp "${TMPDIR:-/tmp}/tmux-cht.XXXXXX")
+
+  {
+    printf '# cht.sh/%s\n' "$query"
+    printf '# %s\n' "$url"
+    printf '# Vim: / search, y yank, q quit.\n\n'
+    curl -fsSL "$url"
+  } >"$tmpfile" 2>/dev/null || { rm -f "$tmpfile"; die "failed to fetch $url"; }
+
+  show_result "$tmpfile" "$query" "$(guess_filetype "$query")"
+  rm -f "$tmpfile"
+}
+
+# one-shot mode: tmux-cht go channels
 if [ "$#" -gt 0 ]; then
   if [ "$#" -gt 1 ] && contains_topic "$1"; then
-    topic=$1
-    shift
-    query="$topic/$*"
+    topic=$1; shift
+    fetch_and_show "$topic/$*"
   else
-    query="$*"
+    fetch_and_show "$*"
   fi
-else
-  query=$(prompt_query) || exit 0
+  exit 0
 fi
 
-encoded=${query// /+}
-url="https://cht.sh/${encoded}?T"
-tmpfile=$(mktemp "${TMPDIR:-/tmp}/tmux-cht.XXXXXX")
-
-{
-  printf '# cht.sh/%s\n' "$query"
-  printf '# %s\n' "$url"
-  printf '# Vim: / search, y yank, q quit. Text is plain for copy/paste.\n\n'
-  curl -fsSL "$url"
-} >"$tmpfile" || die "failed to fetch $url"
-
-show_result "$tmpfile" "$query" "$(guess_filetype "$query")"
+# interactive loop
+while true; do
+  query=$(prompt_query) || break
+  fetch_and_show "$query"
+done
