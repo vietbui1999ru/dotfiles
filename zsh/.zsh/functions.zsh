@@ -22,3 +22,13 @@ claude-tui() {
 resumed() {
   node "99 System/Agents/Gemini/skills/obsidian-notes-to-resume/scripts/generate_resume.js"
 }
+
+# SSH into remote machine without nesting tmux
+# Detaches local tmux, SSHs in (remote .zshrc auto-attaches),
+# then reattaches local tmux on exit.
+sshr() {
+  local host="${1:-vietbui1999ru@rtx2060}"
+  [ -n "${TMUX:-}" ] && tmux detach
+  ssh "$host"
+  [ -z "${TMUX:-}" ] && tmux attach 2>/dev/null || true
+}

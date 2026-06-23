@@ -1,0 +1,9 @@
+# tmux-switcher hosts
+# format: alias  user@host
+#   alias = short name shown in fzf
+#   user@host = SSH target
+#
+# Add:  tmux-switcher add <alias> <user@host>
+# Remove: tmux-switcher rm <alias>
+# List:  tmux-switcher list
+rtx  vietbui1999ru@rtx2060

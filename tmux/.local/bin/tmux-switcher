@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+HOSTS_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/tmux-switcher/hosts"
+
+die() { printf 'tmux-switcher: %s\n' "$*" >&2; exit 1; }
+command -v fzf >/dev/null 2>&1 || die 'fzf is required'
+
+# ── host database ────────────────────────────────────────────────────
+hosts_load() {
+  [ -f "$HOSTS_FILE" ] || return 0
+  while IFS=' ' read -r alias host _rest; do
+    [[ -z "$alias" || "$alias" == \#* ]] && continue
+    printf '%s\t%s\n' "$alias" "$host"
+  done <"$HOSTS_FILE"
+}
+
+hosts_save() {
+  local tmp; tmp=$(mktemp)
+  # preserve comments and blank lines
+  grep '^#' "$HOSTS_FILE" 2>/dev/null >>"$tmp" || true
+  printf '%s  %s\n' "$1" "$2" >>"$tmp"
+  mv "$tmp" "$HOSTS_FILE"
+}
+
+hosts_delete() {
+  local alias=$1
+  local tmp; tmp=$(mktemp)
+  grep -v "^${alias}[[:space:]]" "$HOSTS_FILE" >"$tmp" 2>/dev/null || true
+  mv "$tmp" "$HOSTS_FILE"
+}
+
+# ── terminal spawn ───────────────────────────────────────────────────
+spawn_terminal() {
+  local cmd=$1
+  # kitty @ launch execs directly (no shell parsing), so wrap in sh -c
+  if command -v kitty >/dev/null 2>&1; then
+    kitty @ launch --type window --cwd ~ sh -c "$cmd" 2>/dev/null && return
+  fi
+  if [[ "$OSTYPE" == darwin* ]]; then
+    # open -a Terminal: pass command via applescript but escape for shell
+    local escaped; escaped=$(printf '%s\n' "$cmd" | sed 's/"/\\"/g')
+    osascript -e "tell application \"Terminal\" to do script \"${escaped}\"" >/dev/null 2>&1 && return
+  fi
+  if command -v x-terminal-emulator >/dev/null 2>&1; then
+    x-terminal-emulator -e "$cmd" 2>/dev/null && return
+  fi
+  xterm -e "$cmd" 2>/dev/null && return
+  die "could not open terminal"
+}
+
+# ── connection ────────────────────────────────────────────────────────
+connect_remote() {
+  local host=$1
+  # remote .zshrc handles auto-attach via SSH_CONNECTION.
+  # wrapper keeps window open on failure so user sees the error.
+  spawn_terminal "ssh -t '$host'; s=\$?; echo; echo 'Connection closed (exit '\$s').'; echo 'Press Enter to close.'; read -r"
+}
+
+connect_local() {
+  local session=$1
+  tmux switch-client -t "$session" 2>/dev/null || \
+    tmux new-session -d -s "$session" && tmux switch-client -t "$session"
+}
+
+# ── interactive picker ───────────────────────────────────────────────
+interactive() {
+  local entries=()
+  local line alias host key entry remote_session
+
+  # local sessions
+  while IFS= read -r entry; do
+    entries+=("local:${entry}")
+  done < <(tmux list-sessions -F '#S' 2>/dev/null || echo "(no sessions)")
+
+  # remote hosts
+  while IFS=$'\t' read -r alias host; do
+    entries+=("remote:${alias}")
+  done < <(hosts_load)
+
+  [ "${#entries[@]}" -eq 0 ] && die 'no sessions or hosts configured'
+
+  picked=$(printf '%s\n' "${entries[@]}" | fzf \
+    --prompt='switcher> ' \
+    --height='100%' \
+    --border=rounded \
+    --layout=reverse \
+    --bind 'change:first' \
+    --header $'local:session-name  → switch (in place)\nremote:alias  → opens new terminal (no nesting)') || return 0
+
+  [ -z "${picked:-}" ] && return 0
+
+  case "$picked" in
+    local:*)
+      connect_local "${picked#local:}"
+      ;;
+    remote:*)
+      alias="${picked#remote:}"
+      host=$(hosts_load | awk -F'\t' -v a="$alias" '$1 == a {print $2; exit}')
+      [ -n "$host" ] && connect_remote "$host"
+      ;;
+  esac
+}
+
+# ── CLI ──────────────────────────────────────────────────────────────
+case "${1:-}" in
+  add)
+    [ "$#" -eq 3 ] || die 'usage: tmux-switcher add <alias> <user@host>'
+    hosts_save "$2" "$3"
+    printf 'added: %s → %s\n' "$2" "$3"
+    ;;
+  rm)
+    [ "$#" -eq 2 ] || die 'usage: tmux-switcher rm <alias>'
+    hosts_delete "$2"
+    printf 'removed: %s\n' "$2"
+    ;;
+  list)
+    hosts_load | while IFS=$'\t' read -r alias host; do
+      printf '%-12s %s\n' "$alias" "$host"
+    done
+    ;;
+  connect)
+    [ "$#" -ge 2 ] || die 'usage: tmux-switcher connect <alias> [session]'
+    host=$(hosts_load | awk -F'\t' -v a="$2" '$1 == a {print $2; exit}')
+    [ -n "$host" ] || die "unknown alias: $2"
+    connect_remote "$host" "${3:-}"
+    ;;
+  *)
+    interactive
+    ;;
+esac
