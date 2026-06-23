@@ -72,3 +72,6 @@ source "$HOME/.zsh/functions.zsh"
 
 # ── zoxide (must be last — interactive only) ──────────────────────────
 [[ -o interactive ]] && eval "$(zoxide init zsh --cmd cd)"
+
+# opencode
+export PATH=/home/vietbui1999ru/.opencode/bin:$PATH
