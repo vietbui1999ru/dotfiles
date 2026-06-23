@@ -69,6 +69,12 @@ fi
 source "$HOME/.zsh/aliases.zsh"
 source "$HOME/.zsh/functions.zsh"
 
+# ── rg / fzf integration ──────────────────────────────────────────────
+if command -v rg >/dev/null 2>&1; then
+  export FZF_DEFAULT_COMMAND='rg --files --hidden --follow --glob "!.git"'
+  export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
+fi
+
 # ── Machine-local overrides (not in git) ─────────────────────────────
 [[ -f "$HOME/.zshrc.local" ]] && source "$HOME/.zshrc.local"
 
