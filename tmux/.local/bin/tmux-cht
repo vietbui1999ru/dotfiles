@@ -129,7 +129,7 @@ fetch_and_show() {
   {
     printf '# cht.sh/%s\n' "$query"
     printf '# %s\n' "$url"
-    printf '# Vim: / search, y yank, q quit.\n\n'
+    printf '# Vim: / search, y yank, :q quit.\n\n'
     curl -fsSL "$url"
   } >"$tmpfile" 2>/dev/null || { rm -f "$tmpfile"; die "failed to fetch $url"; }
 
