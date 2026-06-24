@@ -140,7 +140,7 @@
 
 - name: Install Neovim Node dependencies
   ansible.builtin.shell: |
-    npm --prefix "{{ ansible_env.HOME }}/dotfiles/nvim/.config/nvim" install --omit=dev --package-lock=false
+    bun install --cwd "{{ ansible_env.HOME }}/dotfiles/nvim/.config/nvim"
   args:
     creates: "{{ ansible_env.HOME }}/dotfiles/nvim/.config/nvim/node_modules/acp-claude-code"
   environment:
@@ -154,9 +154,10 @@
 
 - name: Install MCP Hub globally for Neovim
   ansible.builtin.shell: |
-    npm install --global --prefix "{{ ansible_env.HOME }}/.local" mcp-hub@latest
+    bun install -g mcp-hub@latest
   environment:
     PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.PATH }}"
+    BUN_INSTALL: "{{ ansible_env.HOME }}/.local"
   when: mcphub_version.rc != 0
 
 - name: Verify neovim version

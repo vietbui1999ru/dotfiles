@@ -673,15 +673,19 @@ vim.api.nvim_create_autocmd("BufReadPre", {
 					},
 				},
 			},
+			ts_ls = {},
+			pyright = {},
+			rust_analyzer = {},
+			bashls = {},
 		}
 
 		local ensure_installed = vim.tbl_keys(servers or {})
-		vim.list_extend(ensure_installed, { "stylua" })
+		vim.list_extend(ensure_installed, { "stylua", "prettierd", "eslint_d" })
 		require("mason-tool-installer").setup({ ensure_installed = ensure_installed })
 
 		require("mason-lspconfig").setup({
 			ensure_installed = {},
-			automatic_installation = false,
+			automatic_installation = true,
 			handlers = {
 				function(server_name)
 					local server = servers[server_name] or {}

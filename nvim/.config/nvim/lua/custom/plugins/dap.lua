@@ -4,6 +4,10 @@ end
 local dap = require("dap")
 local dapui = require("dapui")
 require("nvim-dap-virtual-text").setup()
+require("mason-nvim-dap").setup({
+	ensure_installed = { "firefox" },
+	automatic_installation = true,
+})
 
 dapui.setup({
 	layouts = {
