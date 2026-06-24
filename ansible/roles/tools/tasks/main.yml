@@ -23,6 +23,21 @@
     state: present
   when: ansible_os_family == "Darwin"
 
+- name: Install uv (macOS)
+  community.general.homebrew:
+    name: uv
+    state: present
+  when: ansible_os_family == "Darwin"
+
+- name: Install gh, direnv, yq (macOS)
+  community.general.homebrew:
+    name:
+      - gh
+      - direnv
+      - yq
+    state: present
+  when: ansible_os_family == "Darwin"
+
 # ── Debian/Ubuntu ─────────────────────────────────────────────────────
 - name: Install tools available in apt (Debian)
   ansible.builtin.apt:
@@ -141,4 +156,105 @@
   become: true
   args:
     creates: /usr/local/bin/lazygit
+  when: ansible_os_family == "RedHat"
+
+# ── uv (Python package manager — all Linux) ───────────────────────────
+- name: Install uv (Linux)
+  ansible.builtin.shell: |
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+  args:
+    creates: "{{ ansible_env.HOME }}/.local/bin/uv"
+  environment:
+    UV_INSTALL_DIR: "{{ ansible_env.HOME }}/.local/bin"
+  when: ansible_os_family != "Darwin"
+
+# ── GitHub CLI ────────────────────────────────────────────────────────
+- name: Add GitHub CLI apt keyring (Debian)
+  ansible.builtin.shell: |
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+      | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+    chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+  args:
+    creates: /usr/share/keyrings/githubcli-archive-keyring.gpg
+  become: true
+  when: ansible_os_family == "Debian"
+
+- name: Add GitHub CLI apt repository (Debian)
+  ansible.builtin.copy:
+    content: "deb [arch={{ ansible_architecture }} signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\n"
+    dest: /etc/apt/sources.list.d/github-cli.list
+  become: true
+  when: ansible_os_family == "Debian"
+
+- name: Install gh (Debian)
+  ansible.builtin.apt:
+    name: gh
+    state: present
+    update_cache: true
+  become: true
+  when: ansible_os_family == "Debian"
+
+- name: Add GitHub CLI dnf repository (RedHat)
+  ansible.builtin.yum_repository:
+    name: gh
+    description: GitHub CLI
+    baseurl: https://cli.github.com/packages/rpm
+    gpgkey: https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x23F3D4EA75716059
+    gpgcheck: true
+    enabled: true
+  become: true
+  when: ansible_os_family == "RedHat"
+
+- name: Install gh (RedHat)
+  ansible.builtin.dnf:
+    name: gh
+    state: present
+  become: true
+  when: ansible_os_family == "RedHat"
+
+# ── direnv ────────────────────────────────────────────────────────────
+- name: Install direnv (Debian)
+  ansible.builtin.apt:
+    name: direnv
+    state: present
+  become: true
+  when: ansible_os_family == "Debian"
+
+- name: Install direnv (RedHat)
+  ansible.builtin.dnf:
+    name: direnv
+    state: present
+  become: true
+  when: ansible_os_family == "RedHat"
+
+# ── yq ───────────────────────────────────────────────────────────────
+- name: Install yq binary (Linux)
+  ansible.builtin.shell: |
+    case "$(uname -m)" in
+      x86_64|amd64) arch=amd64 ;;
+      aarch64|arm64) arch=arm64 ;;
+      *) echo "Unsupported arch: $(uname -m)" >&2; exit 1 ;;
+    esac
+    VERSION=$(curl -fsSL "https://api.github.com/repos/mikefarah/yq/releases/latest" \
+      | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')
+    curl -fsSL "https://github.com/mikefarah/yq/releases/download/v${VERSION}/yq_linux_${arch}" \
+      -o "{{ ansible_env.HOME }}/.local/bin/yq"
+    chmod +x "{{ ansible_env.HOME }}/.local/bin/yq"
+  args:
+    creates: "{{ ansible_env.HOME }}/.local/bin/yq"
+  when: ansible_os_family != "Darwin"
+
+# ── sqlite3 ───────────────────────────────────────────────────────────
+- name: Install sqlite3 (Debian)
+  ansible.builtin.apt:
+    name: sqlite3
+    state: present
+  become: true
+  when: ansible_os_family == "Debian"
+
+- name: Install sqlite (RedHat)
+  ansible.builtin.dnf:
+    name: sqlite
+    state: present
+  become: true
   when: ansible_os_family == "RedHat"

@@ -1,0 +1,42 @@
+---
+- name: Install Go (macOS via Homebrew)
+  community.general.homebrew:
+    name: go
+    state: present
+  when: ansible_os_family == "Darwin"
+
+- name: Get latest Go version (Linux)
+  ansible.builtin.uri:
+    url: https://go.dev/dl/?mode=json
+    return_content: true
+  register: go_releases
+  when: ansible_os_family != "Darwin"
+
+- name: Set Go version fact (Linux)
+  ansible.builtin.set_fact:
+    go_version: "{{ (go_releases.json | selectattr('stable', 'equalto', true) | first).version }}"
+  when: ansible_os_family != "Darwin"
+
+- name: Detect system architecture (Linux)
+  ansible.builtin.set_fact:
+    go_arch: "{{ 'arm64' if ansible_architecture in ['aarch64', 'arm64'] else 'amd64' }}"
+  when: ansible_os_family != "Darwin"
+
+- name: Check current Go version (Linux)
+  ansible.builtin.command: /usr/local/go/bin/go version
+  register: go_current
+  changed_when: false
+  failed_when: false
+  when: ansible_os_family != "Darwin"
+
+- name: Install Go tarball (Linux)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    curl -fsSL "https://go.dev/dl/{{ go_version }}.linux-{{ go_arch }}.tar.gz" \
+      | tar -C /usr/local -xz
+  become: true
+  args:
+    executable: /bin/bash
+  when:
+    - ansible_os_family != "Darwin"
+    - go_version not in (go_current.stdout | default(''))

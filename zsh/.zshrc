@@ -15,9 +15,7 @@ compinit -d "$XDG_CACHE_HOME/zsh/zcompdump-$ZSH_VERSION"
 export EDITOR='nvim'
 [[ -n $SSH_CONNECTION ]] && export EDITOR='vim'
 
-# ── PATH ──────────────────────────────────────────────────────────────
-export PATH="$HOME/.local/bin:$PATH"
-export PATH="$HOME/go/bin:$PATH"
+# ── PATH (login-shell PATH is in .zprofile; these are interactive-only additions) ──
 export PATH="$HOME/.ghcup/bin:$PATH"
 
 # ── SSH tmux auto-attach ──────────────────────────────────────────────
@@ -30,6 +28,9 @@ eval "$(sheldon source)"
 
 # ── Starship (prompt) ─────────────────────────────────────────────────
 eval "$(starship init zsh)"
+
+# direnv (after prompt so env changes show in starship)
+command -v direnv &>/dev/null && eval "$(direnv hook zsh)"
 
 # rbenv
 if command -v rbenv &>/dev/null; then
@@ -82,4 +83,4 @@ fi
 [[ -o interactive ]] && eval "$(zoxide init zsh --cmd cd)"
 
 # opencode
-export PATH=/home/vietbui1999ru/.opencode/bin:$PATH
+[[ -d "$HOME/.opencode/bin" ]] && export PATH="$HOME/.opencode/bin:$PATH"

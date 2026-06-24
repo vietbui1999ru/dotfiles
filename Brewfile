@@ -3,6 +3,12 @@ brew "git"
 brew "stow"
 brew "curl"
 brew "wget"
+brew "gh"
+
+# Build tools
+brew "cmake"
+brew "pkg-config"
+brew "llvm"
 
 # Shell
 brew "sheldon"
@@ -35,6 +41,7 @@ brew "rbenv"
 brew "go"
 brew "node"
 brew "uv"
+brew "direnv"
 
 # Utilities
 brew "jq"
