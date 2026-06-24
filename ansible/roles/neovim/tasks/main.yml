@@ -51,33 +51,6 @@
     state: directory
     mode: "0755"
 
-- name: Install nvm (Linux)
-  ansible.builtin.git:
-    repo: https://github.com/nvm-sh/nvm.git
-    dest: "{{ ansible_env.HOME }}/.nvm"
-    version: v0.40.3
-    depth: 1
-  when: ansible_os_family != "Darwin"
-
-- name: Install Node.js 23.11.0 via nvm (Linux)
-  ansible.builtin.shell: |
-    . "{{ ansible_env.HOME }}/.nvm/nvm.sh"
-    nvm install 23.11.0
-    nvm alias default 23.11.0
-  args:
-    creates: "{{ ansible_env.HOME }}/.nvm/versions/node/v23.11.0/bin/node"
-  when: ansible_os_family != "Darwin"
-
-- name: Link Node.js tools into ~/.local/bin (Linux)
-  ansible.builtin.file:
-    src: "{{ ansible_env.HOME }}/.nvm/versions/node/v23.11.0/bin/{{ item }}"
-    dest: "{{ ansible_env.HOME }}/.local/bin/{{ item }}"
-    state: link
-  loop:
-    - node
-    - npm
-    - npx
-  when: ansible_os_family != "Darwin"
 
 - name: Check user Neovim is new enough (Linux)
   ansible.builtin.shell: |

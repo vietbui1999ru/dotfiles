@@ -35,11 +35,8 @@ brew "fzf"
 brew "zoxide"
 
 # Dev tools
-brew "pyenv"
-brew "pyenv-virtualenv"
-brew "rbenv"
+brew "mise"
 brew "go"
-brew "node"
 brew "uv"
 brew "direnv"
 
