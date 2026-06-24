@@ -85,8 +85,8 @@ interactive() {
     --height='100%' \
     --border=rounded \
     --layout=reverse \
-    --bind 'change:first' \
-    --header $'local:session-name  → switch (in place)\nremote:alias  → opens new terminal (no nesting)') || return 0
+    --bind 'change:first,alt-j:down,alt-k:up,ctrl-n:down,ctrl-p:up' \
+    --header $'local:session-name  → switch (in place)\nremote:alias  → opens new terminal (no nesting)\nAlt-j/k · Ctrl-n/p  navigate  · Enter select  · Esc cancel') || return 0
 
   [ -z "${picked:-}" ] && return 0
 
