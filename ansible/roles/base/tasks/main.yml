@@ -19,6 +19,10 @@
       - build-essential
       - unzip
       - locales
+      - clang
+      - llvm
+      - cmake
+      - pkg-config
     state: present
     update_cache: true
   become: true
@@ -42,6 +46,10 @@
       - make
       - unzip
       - glibc-langpack-en
+      - clang
+      - llvm
+      - cmake
+      - pkgconf-pkg-config
     state: present
   become: true
   when: ansible_os_family == "RedHat"

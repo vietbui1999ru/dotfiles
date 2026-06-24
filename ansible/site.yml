@@ -7,6 +7,9 @@
     - base
     - dotfiles
     - rust
+    - golang
+    - python
+    - ruby
     - tools
     - zsh
     - starship
@@ -21,6 +24,9 @@
     - base
     - dotfiles
     - rust
+    - golang
+    - python
+    - ruby
     - tools
     - zsh
     - starship
@@ -35,6 +41,9 @@
     - base
     - dotfiles
     - rust
+    - golang
+    - python
+    - ruby
     - tools
     - zsh
     - starship

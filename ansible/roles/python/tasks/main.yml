@@ -1,0 +1,51 @@
+---
+- name: Install pyenv (macOS)
+  community.general.homebrew:
+    name:
+      - pyenv
+      - pyenv-virtualenv
+    state: present
+  when: ansible_os_family == "Darwin"
+
+# Python compilation needs these — pyenv builds CPython from source
+- name: Install Python build dependencies (Debian)
+  ansible.builtin.apt:
+    name:
+      - libssl-dev
+      - zlib1g-dev
+      - libbz2-dev
+      - libreadline-dev
+      - libsqlite3-dev
+      - libncursesw5-dev
+      - xz-utils
+      - tk-dev
+      - libffi-dev
+      - liblzma-dev
+    state: present
+    update_cache: true
+  become: true
+  when: ansible_os_family == "Debian"
+
+- name: Install Python build dependencies (RedHat)
+  ansible.builtin.dnf:
+    name:
+      - bzip2-devel
+      - readline-devel
+      - openssl-devel
+      - zlib-devel
+      - sqlite-devel
+      - xz-devel
+      - tk-devel
+      - libffi-devel
+      - libuuid-devel
+    state: present
+  become: true
+  when: ansible_os_family == "RedHat"
+
+# pyenv.run installs pyenv + pyenv-virtualenv + pyenv-update in one shot
+- name: Install pyenv via pyenv-installer (Linux)
+  ansible.builtin.shell: |
+    curl https://pyenv.run | bash
+  args:
+    creates: "{{ ansible_env.HOME }}/.pyenv/bin/pyenv"
+  when: ansible_os_family != "Darwin"

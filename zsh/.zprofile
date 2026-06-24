@@ -14,6 +14,20 @@ fi
 [[ -f "$HOME/.elan/env" ]] && source "$HOME/.elan/env"
 [[ -f "$HOME/.ghcup/env" ]] && source "$HOME/.ghcup/env"
 
+# Go: compiler binary (Linux tarball installs here; macOS via Homebrew already in PATH)
+[[ -d /usr/local/go/bin ]] && export PATH="/usr/local/go/bin:$PATH"
+# Go: user-installed tools (go install ...)
+export PATH="$HOME/go/bin:$PATH"
+
+# rbenv (git-clone install on Linux; Homebrew on macOS already in PATH)
+[[ -d "$HOME/.rbenv/bin" ]] && export PATH="$HOME/.rbenv/bin:$PATH"
+
+# pyenv (git-clone install on Linux)
+[[ -d "$HOME/.pyenv/bin" ]] && export PYENV_ROOT="$HOME/.pyenv" && export PATH="$PYENV_ROOT/bin:$PATH"
+
+# uv (Python toolchain manager — installs to ~/.local/bin on Linux, Homebrew on macOS)
+export PATH="$HOME/.local/bin:$PATH"
+
 # ── macOS-specific paths ──────────────────────────────────────────────
 if [[ $OSTYPE == darwin* ]]; then
   export ANDROID_SDK_ROOT="$HOME/Library/Android/sdk"
