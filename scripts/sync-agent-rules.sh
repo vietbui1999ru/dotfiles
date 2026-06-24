@@ -72,17 +72,31 @@ PYEOF
 # Codex stores MCP config via `codex mcp add`.
 
 if command -v codex >/dev/null 2>&1; then
-  codex mcp add qmd "$(command -v qmd 2>/dev/null || echo qmd)" mcp 2>/dev/null \
-    && echo "✓ Codex: qmd stdio added" \
-    || echo "✓ Codex: qmd already configured"
+  _codex_cfg="$HOME/.codex/config.toml"
 
-  codex mcp add --url https://www.shadcn.io/api/mcp shadcn 2>/dev/null \
-    && echo "✓ Codex: shadcn remote added" \
-    || echo "✓ Codex: shadcn already configured"
+  if grep -q '^\[mcp_servers\.qmd\]' "$_codex_cfg" 2>/dev/null; then
+    echo "✓ Codex: qmd already configured"
+  else
+    codex mcp add qmd "$(command -v qmd 2>/dev/null || echo qmd)" mcp 2>/dev/null \
+      && echo "✓ Codex: qmd stdio added" \
+      || echo "✗ Codex: qmd add failed"
+  fi
 
-  codex mcp add --url https://mcp.sentry.dev/mcp sentry 2>/dev/null \
-    && echo "✓ Codex: sentry remote added" \
-    || echo "✓ Codex: sentry already configured"
+  if grep -q '^\[mcp_servers\.shadcn\]' "$_codex_cfg" 2>/dev/null; then
+    echo "✓ Codex: shadcn already configured"
+  else
+    codex mcp add --url https://www.shadcn.io/api/mcp shadcn 2>/dev/null \
+      && echo "✓ Codex: shadcn remote added" \
+      || echo "✗ Codex: shadcn add failed"
+  fi
+
+  if grep -q '^\[mcp_servers\.sentry\]' "$_codex_cfg" 2>/dev/null; then
+    echo "✓ Codex: sentry already configured"
+  else
+    codex mcp add --url https://mcp.sentry.dev/mcp sentry 2>/dev/null \
+      && echo "✓ Codex: sentry remote added" \
+      || echo "✗ Codex: sentry add failed"
+  fi
 
   echo "  (context7 skipped — Codex MCP client lacks header auth support)"
 else
