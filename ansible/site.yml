@@ -10,6 +10,7 @@
     - golang
     - python
     - ruby
+    - mise
     - tools
     - zsh
     - starship
@@ -27,6 +28,7 @@
     - golang
     - python
     - ruby
+    - mise
     - tools
     - zsh
     - starship
@@ -44,6 +46,7 @@
     - golang
     - python
     - ruby
+    - mise
     - tools
     - zsh
     - starship

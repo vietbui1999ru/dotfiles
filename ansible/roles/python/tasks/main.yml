@@ -1,13 +1,5 @@
 ---
-- name: Install pyenv (macOS)
-  community.general.homebrew:
-    name:
-      - pyenv
-      - pyenv-virtualenv
-    state: present
-  when: ansible_os_family == "Darwin"
-
-# Python compilation needs these — pyenv builds CPython from source
+# Build deps for compiling Python from source (mise builds CPython on install)
 - name: Install Python build dependencies (Debian)
   ansible.builtin.apt:
     name:
@@ -41,11 +33,3 @@
     state: present
   become: true
   when: ansible_os_family == "RedHat"
-
-# pyenv.run installs pyenv + pyenv-virtualenv + pyenv-update in one shot
-- name: Install pyenv via pyenv-installer (Linux)
-  ansible.builtin.shell: |
-    curl https://pyenv.run | bash
-  args:
-    creates: "{{ ansible_env.HOME }}/.pyenv/bin/pyenv"
-  when: ansible_os_family != "Darwin"

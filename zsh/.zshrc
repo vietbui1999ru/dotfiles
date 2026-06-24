@@ -29,27 +29,11 @@ eval "$(sheldon source)"
 # ── Starship (prompt) ─────────────────────────────────────────────────
 eval "$(starship init zsh)"
 
-# direnv (after prompt so env changes show in starship)
+# mise (replaces pyenv, rbenv, nvm — activates shims and shell completions)
+command -v mise &>/dev/null && eval "$(mise activate zsh)"
+
+# direnv (after mise so .envrc can reference mise-managed tools)
 command -v direnv &>/dev/null && eval "$(direnv hook zsh)"
-
-# rbenv
-if command -v rbenv &>/dev/null; then
-  eval "$(rbenv init - zsh)"
-fi
-
-# pyenv
-if command -v pyenv &>/dev/null; then
-  export PYENV_ROOT="$HOME/.pyenv"
-  export PATH="$PYENV_ROOT/bin:$PATH"
-  eval "$(pyenv init --path)"
-  eval "$(pyenv init -)"
-  pyenv commands 2>/dev/null | grep -q 'virtualenv-init' && eval "$(pyenv virtualenv-init -)"
-fi
-
-# nvm
-export NVM_DIR="$HOME/.nvm"
-[[ -s "$NVM_DIR/nvm.sh" ]] && . "$NVM_DIR/nvm.sh"
-[[ -s "$NVM_DIR/bash_completion" ]] && . "$NVM_DIR/bash_completion"
 
 # opam
 [[ -r "$HOME/.opam/opam-init/init.zsh" ]] && source "$HOME/.opam/opam-init/init.zsh" &>/dev/null

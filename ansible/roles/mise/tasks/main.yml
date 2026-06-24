@@ -1,0 +1,22 @@
+---
+- name: Install mise (macOS)
+  community.general.homebrew:
+    name: mise
+    state: present
+  when: ansible_os_family == "Darwin"
+
+- name: Install mise (Linux)
+  ansible.builtin.shell: |
+    curl https://mise.run | sh
+  args:
+    creates: "{{ ansible_env.HOME }}/.local/bin/mise"
+  when: ansible_os_family != "Darwin"
+
+# Install node@lts globally — prebuilt binary, fast, needed for Mason/LSPs.
+# Python and Ruby are compiled from source; set versions per-project with
+# `mise use python@X.Y` or globally with `mise use -g ruby@X.Y`.
+- name: Set node@lts as global default via mise
+  ansible.builtin.command: mise use -g node@lts
+  environment:
+    PATH: "{{ ansible_env.HOME }}/.local/bin:/opt/homebrew/bin:/usr/local/bin:{{ ansible_env.PATH }}"
+  changed_when: false

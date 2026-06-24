@@ -1,12 +1,6 @@
 ---
-# ruby-build is a dependency of rbenv formula — installed automatically
-- name: Install rbenv (macOS)
-  community.general.homebrew:
-    name: rbenv
-    state: present
-  when: ansible_os_family == "Darwin"
-
-# Full GDK build dep set — covers native gems (pg, nokogiri, etc.)
+# Build deps for compiling Ruby from source (mise builds MRI on install)
+# Full GDK set — covers native gems (pg, nokogiri, etc.)
 - name: Install Ruby build dependencies (Debian)
   ansible.builtin.apt:
     name:
@@ -41,17 +35,3 @@
     state: present
   become: true
   when: ansible_os_family == "RedHat"
-
-- name: Install rbenv (Linux)
-  ansible.builtin.git:
-    repo: https://github.com/rbenv/rbenv.git
-    dest: "{{ ansible_env.HOME }}/.rbenv"
-    depth: 1
-  when: ansible_os_family != "Darwin"
-
-- name: Install ruby-build plugin (Linux)
-  ansible.builtin.git:
-    repo: https://github.com/rbenv/ruby-build.git
-    dest: "{{ ansible_env.HOME }}/.rbenv/plugins/ruby-build"
-    depth: 1
-  when: ansible_os_family != "Darwin"
