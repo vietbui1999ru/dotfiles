@@ -7,7 +7,9 @@
   },
   "permissions": {
     "allow": [
-      "Bash(/Users/vietquocbui/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.7/skills/brainstorming/scripts/start-server.sh:*)"
+      "Bash(/Users/vietquocbui/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.7/skills/brainstorming/scripts/start-server.sh:*)",
+      "mcp__sentry__authenticate",
+      "mcp__sentry__complete_authentication"
     ],
     "defaultMode": "default"
   },
