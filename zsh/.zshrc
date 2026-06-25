@@ -18,11 +18,6 @@ export EDITOR='nvim'
 # ── PATH (login-shell PATH is in .zprofile; these are interactive-only additions) ──
 export PATH="$HOME/.ghcup/bin:$PATH"
 
-# ── SSH tmux auto-attach ──────────────────────────────────────────────
-if [[ -z "$TMUX" && -n "$SSH_CONNECTION" ]]; then
-  tmux attach-session -t main 2>/dev/null || tmux new-session -s main
-fi
-
 # ── Sheldon (plugins) ─────────────────────────────────────────────────
 eval "$(sheldon source)"
 

@@ -41,9 +41,7 @@ resumed() {
   node "99 System/Agents/Gemini/skills/obsidian-notes-to-resume/scripts/generate_resume.js"
 }
 
-# SSH into remote without nesting tmux.
-# Sets TMUX on remote before .zshrc runs so the SSH auto-attach guard is skipped.
 sshr() {
   local host="${1:-vietbui1999ru@rtx2060}"
-  ssh -t "$host" 'export TMUX=sshr; exec -l zsh'
+  ssh "$host"
 }
