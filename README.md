@@ -74,6 +74,15 @@ git add repos/llm-wiki && git commit -m "chore(submodule): bump llm-wiki"
 
 `bootstrap-dirs.sh` creates `~/repos/llm-wiki` as a symlink → the submodule, so existing paths in `~/.claude/` resolve correctly without changing any symlinks.
 
+## AI Agents
+
+| Tool | Install |
+|---|---|
+| `pi` (pi-coding-agent) | `npm install -g @earendil-works/pi-coding-agent` |
+| `omp` (oh-my-pi) | `curl -fsSL https://omp.sh/install \| sh` |
+
+`omp` binaries land in `~/.bun/bin/` — already on PATH via `.zprofile`.
+
 ## Notes
 
 - `opencode/plugins/commandr-checkpoint.js` and `diffviewer.js` are symlinks into `~/repos/Commandr` and `~/repos/DiffViewer`. Clone those repos first.

@@ -22,6 +22,9 @@ export PATH="$HOME/go/bin:$PATH"
 # uv (Python toolchain manager — installs to ~/.local/bin on Linux, Homebrew on macOS)
 export PATH="$HOME/.local/bin:$PATH"
 
+# bun global binaries (omp, etc.)
+export PATH="$HOME/.bun/bin:$PATH"
+
 # ── macOS-specific paths ──────────────────────────────────────────────
 if [[ $OSTYPE == darwin* ]]; then
   export ANDROID_SDK_ROOT="$HOME/Library/Android/sdk"
