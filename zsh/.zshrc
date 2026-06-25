@@ -63,3 +63,12 @@ fi
 
 # opencode
 [[ -d "$HOME/.opencode/bin" ]] && export PATH="$HOME/.opencode/bin:$PATH"
+
+. "$HOME/.local/bin/env"
+
+# bun completions
+[ -s "/home/vietbui1999ru/.bun/_bun" ] && source "/home/vietbui1999ru/.bun/_bun"
+
+# bun
+export BUN_INSTALL="$HOME/.bun"
+export PATH="$BUN_INSTALL/bin:$PATH"
