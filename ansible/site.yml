@@ -36,6 +36,24 @@
     - neovim
     - kitty
 
+- name: Bootstrap Ubuntu desktop PC
+  hosts: ubuntu_desktop
+  gather_facts: true
+  roles:
+    - base
+    - dotfiles
+    - rust
+    - golang
+    - python
+    - ruby
+    - mise
+    - tools
+    - zsh
+    - starship
+    - tmux
+    - neovim
+    - kitty
+
 - name: Bootstrap RedHat servers
   hosts: admin_redhat
   gather_facts: true
