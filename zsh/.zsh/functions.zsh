@@ -1,3 +1,21 @@
+# Restore terminal state after nvim exit.
+# nvim's cleanup emits \033c (RIS hard reset via tmux-256color rs2 / xterm-kitty rs1),
+# which wipes SGR attributes and breaks Starship colors + fast-syntax-highlighting.
+# Running these sequences AFTER nvim exits (post-rs2) repairs the terminal.
+nvim() {
+  command nvim "$@"
+  printf '\033[0m'    # reset SGR: undo hard-reset's color/attr wipe
+  printf '\033[?25h'  # show cursor: rs2 should do this, but ensure it
+  printf '\033[?2004h' # re-enable bracketed paste: nvim disables on exit
+}
+
+# ZLE widgets
+autoload -U edit-command-line select-word-style smart-insert-last-word
+zle -N edit-command-line
+zle -N insert-last-word smart-insert-last-word
+bindkey '^X^E' edit-command-line
+select-word-style bash
+
 # Activate virtualenv if present, then launch nvim
 nvimvenv() {
   if [[ -n "$VIRTUAL_ENV" ]] && [[ -f "$VIRTUAL_ENV/bin/activate" ]]; then
@@ -23,12 +41,9 @@ resumed() {
   node "99 System/Agents/Gemini/skills/obsidian-notes-to-resume/scripts/generate_resume.js"
 }
 
-# SSH into remote machine without nesting tmux
-# Detaches local tmux, SSHs in (remote .zshrc auto-attaches),
-# then reattaches local tmux on exit.
+# SSH into remote without nesting tmux.
+# Sets TMUX on remote before .zshrc runs so the SSH auto-attach guard is skipped.
 sshr() {
   local host="${1:-vietbui1999ru@rtx2060}"
-  [ -n "${TMUX:-}" ] && tmux detach
-  ssh "$host"
-  [ -z "${TMUX:-}" ] && tmux attach 2>/dev/null || true
+  ssh -t "$host" 'export TMUX=sshr; exec -l zsh'
 }
