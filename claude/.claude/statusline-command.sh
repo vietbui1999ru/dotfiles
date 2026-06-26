@@ -48,7 +48,7 @@ else
   fi
 fi
 
-# Git branch + dirty + worktree
+# Git branch + dirty + ahead/behind + stash + worktree
 git_info=""
 if git -C "$cwd" rev-parse --git-dir > /dev/null 2>&1; then
   branch=$(git -C "$cwd" --no-optional-locks branch --show-current 2>/dev/null)
@@ -59,21 +59,39 @@ if git -C "$cwd" rev-parse --git-dir > /dev/null 2>&1; then
       dirty="*"
     fi
 
+    # Ahead/behind — omit fetch, use cached remote ref
+    remote=$(git -C "$cwd" --no-optional-locks rev-parse --abbrev-ref "${branch}@{upstream}" 2>/dev/null)
+    remote_info=""
+    if [ -n "$remote" ]; then
+      counts=$(git -C "$cwd" --no-optional-locks rev-list --left-right --count "${remote}...HEAD" 2>/dev/null)
+      behind=$(echo "$counts" | awk '{print $1}')
+      ahead=$(echo "$counts"  | awk '{print $2}')
+      [ "${ahead:-0}"  -gt 0 ] && remote_info="${remote_info} $(printf "${GREEN}")ahd:${ahead}$(printf "${RESET}")"
+      [ "${behind:-0}" -gt 0 ] && remote_info="${remote_info} $(printf "${YELLOW}")bhd:${behind}$(printf "${RESET}")"
+    else
+      remote_info=" $(printf "${SURFACE2}")local$(printf "${RESET}")"
+    fi
+
+    # Stash count
+    stash_info=""
+    stash_count=$(git -C "$cwd" --no-optional-locks stash list 2>/dev/null | wc -l | tr -d ' ')
+    [ "${stash_count:-0}" -gt 0 ] && stash_info=" $(printf "${PEACH}")stsh:${stash_count}$(printf "${RESET}")"
+
     # Worktree detection: resolve both to absolute before comparing
-    # --git-dir can be relative when run from a subdirectory; --git-common-dir always is
+    # --git-dir can be relative from a subdirectory; --git-common-dir always is
     git_dir=$(git -C "$cwd" --no-optional-locks rev-parse --absolute-git-dir 2>/dev/null)
     common_dir=$(cd "$cwd" && git --no-optional-locks rev-parse --git-common-dir 2>/dev/null | xargs realpath 2>/dev/null)
     wt_info=""
     if [ "$git_dir" != "$common_dir" ]; then
-      wt_name=$(basename "$(dirname "$git_dir")")   # e.g. memoized-painting-whistle
-      wt_name="${wt_name#worktree-}"                 # strip prefix
+      wt_name=$(basename "$(dirname "$git_dir")")
+      wt_name="${wt_name#worktree-}"
       wt_info=" $(printf "${SURFACE2}")[wt:${wt_name}]$(printf "${RESET}")"
     fi
 
     if [ -n "$dirty" ]; then
-      git_info=" $(printf "${YELLOW}")${branch}${dirty}$(printf "${RESET}")${wt_info}"
+      git_info=" $(printf "${YELLOW}")${branch}${dirty}$(printf "${RESET}")${remote_info}${stash_info}${wt_info}"
     else
-      git_info=" $(printf "${GREEN}")${branch}$(printf "${RESET}")${wt_info}"
+      git_info=" $(printf "${GREEN}")${branch}$(printf "${RESET}")${remote_info}${stash_info}${wt_info}"
     fi
   fi
 fi
