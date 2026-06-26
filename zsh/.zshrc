@@ -17,6 +17,8 @@ export EDITOR='nvim'
 
 # ── PATH (login-shell PATH is in .zprofile; these are interactive-only additions) ──
 export PATH="$HOME/.ghcup/bin:$PATH"
+[[ -d /usr/local/go/bin ]] && export PATH="/usr/local/go/bin:$PATH"
+export PATH="$HOME/go/bin:$PATH"
 
 # ── Sheldon (plugins) ─────────────────────────────────────────────────
 eval "$(sheldon source)"
