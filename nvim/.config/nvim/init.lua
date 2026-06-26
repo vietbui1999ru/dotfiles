@@ -472,6 +472,13 @@ vim.api.nvim_create_autocmd("VimEnter", {
 
 		vim.cmd.packadd("neovim-tips")
 		require("custom.plugins.tips")
+
+		vim.cmd.packadd("octo.nvim")
+		require("custom.plugins.octo")
+
+		require("which-key").add({
+			{ "<leader>o", group = "[O]cto" },
+		})
 	end,
 })
 
