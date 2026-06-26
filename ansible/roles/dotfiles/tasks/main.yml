@@ -5,6 +5,7 @@
     dest: "{{ ansible_env.HOME }}/dotfiles"
     version: main
     depth: 1
+    update: false
 
 - name: Init and update git submodules (llm-wiki)
   ansible.builtin.command:

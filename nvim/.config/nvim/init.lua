@@ -509,6 +509,13 @@ vim.api.nvim_create_autocmd("BufReadPre", {
 		require("fidget").setup({})
 
 		vim.cmd.packadd("mason.nvim")
+		-- Ensure language toolchains are visible to Mason
+		local mason_path = vim.env.PATH or ""
+		for _, p in ipairs({ "/usr/local/go/bin", vim.env.HOME .. "/go/bin", vim.env.HOME .. "/.local/bin" }) do
+			if not mason_path:find(p, 1, true) then
+				vim.env.PATH = p .. ":" .. vim.env.PATH
+			end
+		end
 		require("mason").setup({})
 
 		vim.cmd.packadd("mason-lspconfig.nvim")
@@ -696,6 +703,7 @@ vim.api.nvim_create_autocmd("BufReadPre", {
 			pyright = {},
 			rust_analyzer = {},
 			bashls = {},
+			gopls = {},
 		}
 
 		local ensure_installed = vim.tbl_keys(servers or {})
