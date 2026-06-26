@@ -43,5 +43,5 @@ resumed() {
 
 sshr() {
   local host="${1:-vietbui1999ru@rtx2060}"
-  ssh "$host"
+  kitten ssh "$host"
 }

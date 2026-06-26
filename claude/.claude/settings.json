@@ -167,5 +167,6 @@
     "shadcn": {
       "url": "https://www.shadcn.io/api/mcp"
     }
-  }
+  },
+  "tui": "fullscreen"
 }

@@ -37,9 +37,55 @@ local git_status = setmetatable({}, {
 	end,
 })
 
+local function open_in_adjacent_window()
+	local oil = require("oil")
+	local entry = oil.get_cursor_entry()
+	if not entry then
+		return
+	end
+
+	-- Directories: navigate within oil pane
+	if entry.type == "directory" then
+		oil.select()
+		return
+	end
+
+	local dir = oil.get_current_dir()
+	if not dir then
+		return
+	end
+	local path = dir .. entry.name
+
+	-- Find first non-oil window in the tabpage
+	local oil_win = vim.api.nvim_get_current_win()
+	local target_win = nil
+	for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+		if win ~= oil_win then
+			local buf = vim.api.nvim_win_get_buf(win)
+			if vim.bo[buf].filetype ~= "oil" then
+				target_win = win
+				break
+			end
+		end
+	end
+
+	if target_win then
+		vim.api.nvim_set_current_win(target_win)
+		vim.cmd("edit " .. vim.fn.fnameescape(path))
+	else
+		vim.cmd("vsplit " .. vim.fn.fnameescape(path))
+	end
+end
+
 require("oil").setup({
 	delete_to_trash = true,
 	skip_confirm_for_simple_edits = true,
+	keymaps = {
+		["<CR>"] = { callback = open_in_adjacent_window, desc = "Open in adjacent window" },
+		["<C-h>"] = false, -- let smart-splits handle window navigation
+		["<C-l>"] = false, -- let smart-splits handle window navigation
+		["gr"] = "actions.refresh", -- remap refresh off <C-l>
+	},
 	view_options = {
 		show_hidden = true,
 		is_hidden_file = function(name, bufnr)
@@ -68,4 +114,18 @@ require("oil").setup({
 	},
 })
 
-vim.keymap.set("n", "<leader>e", "<cmd>Oil<CR>", { desc = "Toggle Oil" })
+local function toggle_oil_sidebar()
+	for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+		local buf = vim.api.nvim_win_get_buf(win)
+		if vim.bo[buf].filetype == "oil" then
+			vim.api.nvim_win_close(win, true)
+			return
+		end
+	end
+	vim.cmd("leftabove vsplit")
+	require("oil").open()
+	vim.api.nvim_win_set_width(0, 40)
+	vim.wo.winfixwidth = true
+end
+
+vim.keymap.set("n", "<leader>e", toggle_oil_sidebar, { desc = "Toggle Oil sidebar" })

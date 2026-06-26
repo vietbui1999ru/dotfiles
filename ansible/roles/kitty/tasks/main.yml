@@ -11,3 +11,19 @@
   args:
     creates: "{{ ansible_env.HOME }}/.local/kitty.app/bin/kitty"
   when: ansible_os_family != "Darwin"
+
+- name: Install kitty-terminfo (Debian/Ubuntu — system-wide so tmux/SSH sessions see it)
+  ansible.builtin.apt:
+    name: kitty-terminfo
+    state: present
+  become: true
+  when: ansible_os_family == "Debian"
+
+- name: Install xterm-kitty terminfo (non-Debian Linux — user-level from kitty install)
+  ansible.builtin.shell: |
+    tic -x ~/.local/kitty.app/lib/kitty/terminfo/xterm-kitty.terminfo
+  args:
+    creates: "{{ ansible_env.HOME }}/.terminfo/x/xterm-kitty"
+  when:
+    - ansible_os_family != "Darwin"
+    - ansible_os_family != "Debian"

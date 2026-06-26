@@ -34,7 +34,7 @@
     "wiki-rag": {
       "type": "local",
       "command": [
-        "${env:HOME}/.local/bin/wiki-mcp"
+        "/Users/vietquocbui/.local/bin/wiki-mcp"
       ],
       "enabled": true
     },
@@ -50,18 +50,18 @@
   },
   "skills": {
     "paths": [
-      "${env:HOME}/dotfiles/llm-wiki-plugin/skills",
-      "${env:HOME}/dotfiles/claude/.claude/skills"
+      "/Users/vietquocbui/dotfiles/llm-wiki-plugin/skills",
+      "/Users/vietquocbui/dotfiles/claude/.claude/skills"
     ]
   },
   "instructions": [
-    "${env:HOME}/repos/llm-wiki/.opencode/provider-context.md",
-    "${env:HOME}/dotfiles/claude/.claude/rules/communication.md",
-    "${env:HOME}/dotfiles/claude/.claude/rules/editing.md",
-    "${env:HOME}/dotfiles/claude/.claude/rules/model-routing.md",
-    "${env:HOME}/dotfiles/claude/.claude/rules/skill-invocation.md",
-    "${env:HOME}/dotfiles/claude/.claude/rules/applied-ai.md",
-    "${env:HOME}/dotfiles/claude/.claude/rules/wiki-startup.md"
+    "/Users/vietquocbui/repos/llm-wiki/.opencode/provider-context.md",
+    "/Users/vietquocbui/dotfiles/claude/.claude/rules/communication.md",
+    "/Users/vietquocbui/dotfiles/claude/.claude/rules/editing.md",
+    "/Users/vietquocbui/dotfiles/claude/.claude/rules/model-routing.md",
+    "/Users/vietquocbui/dotfiles/claude/.claude/rules/skill-invocation.md",
+    "/Users/vietquocbui/dotfiles/claude/.claude/rules/applied-ai.md",
+    "/Users/vietquocbui/dotfiles/claude/.claude/rules/wiki-startup.md"
   ],
   "command": {
     "wiki": {

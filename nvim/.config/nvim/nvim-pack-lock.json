@@ -159,6 +159,10 @@
       "rev": "726b60c89f4bafef267a714ea1faa1335bdd414a",
       "src": "https://github.com/epwalsh/obsidian.nvim"
     },
+    "octo.nvim": {
+      "rev": "66b8eeca8e18213a19742f8a031e6947c738342f",
+      "src": "https://github.com/pwntester/octo.nvim"
+    },
     "oil.nvim": {
       "rev": "0fcc83805ad11cf714a949c98c605ed717e0b83e",
       "src": "https://github.com/stevearc/oil.nvim"

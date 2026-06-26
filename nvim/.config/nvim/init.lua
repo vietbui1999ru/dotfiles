@@ -3,10 +3,14 @@ vim.g.maplocalleader = " "
 vim.g.have_nerd_font = true
 
 local _py = vim.fn.exepath("python3")
-if _py ~= "" then vim.g.python3_host_prog = _py end
+if _py ~= "" then
+	vim.g.python3_host_prog = _py
+end
 
 local _node = vim.fn.exepath("node")
-if _node ~= "" then vim.g.node_host_prog = _node end
+if _node ~= "" then
+	vim.g.node_host_prog = _node
+end
 
 vim.g["coqtail#supported"] = 1
 -- Prevent vim-kitty-navigator from claiming C-hjkl (use vim-tmux-navigator instead)
@@ -57,7 +61,9 @@ vim.keymap.set("x", "<leader>ay", function()
 	local path = vim.fn.expand("%:.")
 	local l1 = vim.fn.line("v")
 	local l2 = vim.fn.line(".")
-	if l1 > l2 then l1, l2 = l2, l1 end
+	if l1 > l2 then
+		l1, l2 = l2, l1
+	end
 	local lines = vim.api.nvim_buf_get_lines(0, l1 - 1, l2, false)
 	local ft = vim.bo.filetype
 	local ref = string.format("`%s:%d-%d`\n```%s\n%s\n```", path, l1, l2, ft, table.concat(lines, "\n"))
@@ -163,6 +169,7 @@ vim.pack.add({
 	gh("epwalsh/obsidian.nvim"),
 	{ src = gh("kawre/leetcode.nvim"), name = "leetcode.nvim" },
 	gh("Julian/lean.nvim"),
+	gh("pwntester/octo.nvim"),
 	-- gh("folke/sidekick.nvim"),
 })
 
@@ -288,6 +295,9 @@ require("custom.plugins.lazygit")
 vim.cmd.packadd("fugit2.nvim")
 require("custom.plugins.fugit2")
 
+vim.cmd.packadd("octo.nvim")
+require("custom.plugins.octo")
+
 vim.cmd.packadd("mcphub.nvim")
 require("custom.plugins.mcp-hub")
 
@@ -350,26 +360,35 @@ vim.api.nvim_create_autocmd("VimEnter", {
 
 		local _cmd = { ts = 0, root = nil, result = "" }
 		vim.api.nvim_create_autocmd("DirChanged", {
-			callback = function() _cmd.root = nil end,
+			callback = function()
+				_cmd.root = nil
+			end,
 		})
 		local function commandr_status()
-			if os.time() - _cmd.ts < 2 then return _cmd.result end
+			if os.time() - _cmd.ts < 2 then
+				return _cmd.result
+			end
 			_cmd.ts = os.time()
 			if not _cmd.root then
 				local r = vim.fn.system("git rev-parse --show-toplevel 2>/dev/null"):gsub("\n", "")
-				if vim.v.shell_error == 0 and r ~= "" then _cmd.root = r end
+				if vim.v.shell_error == 0 and r ~= "" then
+					_cmd.root = r
+				end
 			end
-			if not _cmd.root then _cmd.result = ""; return "" end
+			if not _cmd.root then
+				_cmd.result = ""
+				return ""
+			end
 			local files = vim.fn.glob(_cmd.root .. "/.agents/claimed/*.md", false, true)
 			local tasks = {}
 			for _, f in ipairs(files) do
 				local name = vim.fn.fnamemodify(f, ":t:r")
 				local task_id = name:match("^[^_]+_[^_]+_(.+)$")
-				if task_id then tasks[#tasks + 1] = task_id end
+				if task_id then
+					tasks[#tasks + 1] = task_id
+				end
 			end
-			_cmd.result = #tasks == 1 and ("[" .. tasks[1] .. "]")
-				or #tasks > 1 and ("[" .. #tasks .. " tasks]")
-				or ""
+			_cmd.result = #tasks == 1 and ("[" .. tasks[1] .. "]") or #tasks > 1 and ("[" .. #tasks .. " tasks]") or ""
 			return _cmd.result
 		end
 
