@@ -28,6 +28,38 @@
     - ansible_os_family != "Darwin"
     - ansible_os_family != "Debian"
 
+# ── Hack Nerd Font Mono ───────────────────────────────────────
+- name: Install Hack Nerd Font (macOS)
+  community.general.homebrew_cask:
+    name: font-hack-nerd-font
+    state: present
+  when: ansible_os_family == "Darwin"
+
+- name: Create user font directory (Linux)
+  ansible.builtin.file:
+    path: "{{ ansible_env.HOME }}/.local/share/fonts/HackNerdFont"
+    state: directory
+    mode: '0755'
+  when: ansible_os_family != "Darwin"
+
+- name: Download Hack Nerd Font zip (Linux)
+  ansible.builtin.get_url:
+    url: "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/Hack.zip"
+    dest: /tmp/HackNerdFont.zip
+  when:
+    - ansible_os_family != "Darwin"
+    - not ansible_check_mode
+
+- name: Install Hack Nerd Font (Linux)
+  ansible.builtin.unarchive:
+    src: /tmp/HackNerdFont.zip
+    dest: "{{ ansible_env.HOME }}/.local/share/fonts/HackNerdFont/"
+    remote_src: true
+    creates: "{{ ansible_env.HOME }}/.local/share/fonts/HackNerdFont/HackNerdFontMono-Regular.ttf"
+  when: ansible_os_family != "Darwin"
+  notify: Refresh font cache
+
+# ── OS-specific kitty config symlink ─────────────────────────
 - name: Symlink OS-specific kitty config (macOS)
   ansible.builtin.file:
     src: "{{ ansible_env.HOME }}/.config/kitty/kitty-macos.conf"
