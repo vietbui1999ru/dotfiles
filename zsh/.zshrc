@@ -51,6 +51,14 @@ fi
 source "$HOME/.zsh/aliases.zsh"
 source "$HOME/.zsh/functions.zsh"
 
+# Reset terminal state on each prompt — prevents TUI apps from leaving mouse reporting
+# or keyboard protocol modes active after exit or tmux pane switch
+_reset_terminal_modes() {
+  printf '\e[?1000l\e[?1002l\e[?1003l\e[?1006l\e[?1015l'  # disable all mouse modes
+  printf '\e[<999u'                                          # pop kitty keyboard protocol stack
+}
+precmd_functions+=(_reset_terminal_modes)
+
 # ── rg / fzf integration ──────────────────────────────────────────────
 if command -v rg >/dev/null 2>&1; then
   export FZF_DEFAULT_COMMAND='rg --files --hidden --follow --glob "!.git"'
@@ -65,8 +73,6 @@ fi
 
 # opencode
 [[ -d "$HOME/.opencode/bin" ]] && export PATH="$HOME/.opencode/bin:$PATH"
-
-. "$HOME/.local/bin/env"
 
 # bun completions
 [ -s "/home/vietbui1999ru/.bun/_bun" ] && source "/home/vietbui1999ru/.bun/_bun"

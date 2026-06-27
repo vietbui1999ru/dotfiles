@@ -4,9 +4,10 @@
 # Running these sequences AFTER nvim exits (post-rs2) repairs the terminal.
 nvim() {
   command nvim "$@"
-  printf '\033[0m'    # reset SGR: undo hard-reset's color/attr wipe
-  printf '\033[?25h'  # show cursor: rs2 should do this, but ensure it
-  printf '\033[?2004h' # re-enable bracketed paste: nvim disables on exit
+  printf '\033[0m'     # reset SGR: undo hard-reset's color/attr wipe
+  printf '\033[?25h'   # show cursor
+  printf '\033[?2004h' # re-enable bracketed paste
+  printf '\033[<999u'  # pop kitty keyboard protocol stack (Ctrl+A/E fix)
 }
 
 # ZLE widgets
