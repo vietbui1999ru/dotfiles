@@ -15,13 +15,42 @@ echo "✓ ~/repos"
 # redirect on machines where the standalone clone doesn't exist.
 DOTFILES_WIKI="$HOME/dotfiles/repos/llm-wiki"
 REPOS_WIKI="$HOME/repos/llm-wiki"
-if [ -d "$DOTFILES_WIKI/.git" ] && [ ! -e "$REPOS_WIKI" ]; then
+if [ -e "$DOTFILES_WIKI/.git" ] && [ ! -e "$REPOS_WIKI" ]; then
   ln -s "$DOTFILES_WIKI" "$REPOS_WIKI"
   echo "✓ ~/repos/llm-wiki → ~/dotfiles/repos/llm-wiki"
 elif [ -e "$REPOS_WIKI" ]; then
   echo "✓ ~/repos/llm-wiki (exists — standalone clone or symlink already present)"
 else
   echo "⚠ ~/dotfiles/repos/llm-wiki not populated — run: git submodule update --init"
+fi
+
+# Materialize known_marketplaces.json from llm-wiki template.
+# Template uses ${HOME} placeholder; envsubst expands only that variable so
+# that Claude Code's own ${env:VAR} opencode syntax is left untouched.
+WIKI_KM_TEMPLATE="$HOME/repos/llm-wiki/claude-setup/plugins/known_marketplaces.json"
+CLAUDE_KM_FILE="$HOME/.claude/plugins/known_marketplaces.json"
+if [ ! -f "$CLAUDE_KM_FILE" ] && [ -f "$WIKI_KM_TEMPLATE" ]; then
+  mkdir -p "$(dirname "$CLAUDE_KM_FILE")"
+  HOME="$HOME" envsubst '${HOME}' < "$WIKI_KM_TEMPLATE" > "$CLAUDE_KM_FILE"
+  echo "✓ ~/.claude/plugins/known_marketplaces.json (materialized from llm-wiki template)"
+elif [ -f "$CLAUDE_KM_FILE" ]; then
+  echo "✓ ~/.claude/plugins/known_marketplaces.json (exists — Claude Code manages updates)"
+else
+  echo "⚠ llm-wiki template missing — skipping known_marketplaces.json (run after submodule init)"
+fi
+
+# Materialize opencode.json from dotfiles template.
+# Template uses ${HOME} placeholder; only that variable is expanded.
+OPENCODE_TEMPLATE="$HOME/dotfiles/opencode/.config/opencode/opencode.json"
+OPENCODE_CONFIG="$HOME/.config/opencode/opencode.json"
+if [ ! -f "$OPENCODE_CONFIG" ] && [ -f "$OPENCODE_TEMPLATE" ]; then
+  mkdir -p "$(dirname "$OPENCODE_CONFIG")"
+  HOME="$HOME" envsubst '${HOME}' < "$OPENCODE_TEMPLATE" > "$OPENCODE_CONFIG"
+  echo "✓ ~/.config/opencode/opencode.json (materialized from dotfiles template)"
+elif [ -f "$OPENCODE_CONFIG" ]; then
+  echo "✓ ~/.config/opencode/opencode.json (exists — run sync-agent-rules.sh to update MCP)"
+else
+  echo "⚠ opencode template missing — skipping opencode.json"
 fi
 
 # Symlinks in opencode/plugins point into these repos — clone them if absent:

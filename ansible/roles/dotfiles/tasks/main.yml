@@ -29,5 +29,6 @@
     - kitty
     - nvim
     - git
+    - claude
   register: stow_result
   changed_when: stow_result.stdout != ""
