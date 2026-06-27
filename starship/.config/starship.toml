@@ -12,14 +12,26 @@ $directory\
 [](bg:green fg:peach)\
 $git_branch\
 $git_status\
+$git_state\
 [](bg:teal fg:green)\
 $c\
 $rust\
 $golang\
 $nodejs\
+$bun\
 $python\
+$conda\
 [](fg:teal)\
 $fill\
+$shlvl\
+$sudo\
+$kubernetes\
+$docker_context\
+$direnv\
+$env_var.DATABASE_URL\
+$env_var.AWS_PROFILE\
+$package\
+$git_commit\
 $cmd_duration\
 $status\
 $jobs\
@@ -52,9 +64,8 @@ style = "bg:peach fg:base"
 format = "[ $path ]($style)"
 truncation_length = 3
 truncation_symbol = "…/"
-truncate_to_repo = false   # show real path even at a repo root
+truncate_to_repo = false
 
-# icon PREFIX + name (substitutions replace the match, so keep the name in the value)
 [directory.substitutions]
 "Documents" = "󰈙 Documents"
 "Downloads" = " Downloads"
@@ -63,6 +74,7 @@ truncate_to_repo = false   # show real path even at a repo root
 "repos" = "󰲋 repos"
 "dotfiles" = " dotfiles"
 
+# ── Git (green segment) ───────────────────────────────────────
 [git_branch]
 symbol = ""
 style = "bg:green fg:base"
@@ -71,16 +83,44 @@ format = '[ $symbol $branch ]($style)'
 [git_status]
 style = "bg:green fg:base"
 format = '[$all_status$ahead_behind ]($style)'
+# $all_status expands to: $conflicted $stashed $deleted $renamed $modified $staged $untracked
+# $ahead_behind expands to: $ahead $behind $diverged $up_to_date
+ahead      = "⇡${count}"
+behind     = "⇣${count}"
+diverged   = "⇕⇡${ahead_count}⇣${behind_count}"
+stashed    = " ${count}"
+modified   = "!${count}"
+staged     = "+${count}"
+untracked  = "?${count}"
+deleted    = "✘${count}"
+conflicted = "=${count}"
 
+# shows REBASING 3/7, MERGING, CHERRY-PICKING, BISECTING, REVERTING — only during active operation
+[git_state]
+style = "bg:green fg:base bold"
+format = '[$state( $progress_current/$progress_total) ]($style)'
+
+# ── Language / runtime (teal segment) ────────────────────────
 [nodejs]
 symbol = ""
 style = "bg:teal fg:base"
 format = '[ $symbol ($version) ]($style)'
 
+[bun]
+symbol = "󰟓 "
+style = "bg:teal fg:base"
+format = '[ $symbol($version) ]($style)'
+
 [python]
 symbol = ""
 style = "bg:teal fg:base"
-format = '[ $symbol ($version) ]($style)'
+format = '[ $symbol ($version)($virtualenv) ]($style)'  # $virtualenv shows active venv name
+
+[conda]
+symbol = "󱔎 "
+style = "bg:teal fg:base"
+format = '[ $symbol$environment ]($style)'
+ignore_base = true   # hide when env is "base"
 
 [rust]
 symbol = ""
@@ -101,41 +141,104 @@ format = '[ $symbol ($version) ]($style)'
 success_symbol = '[❯](bold green)'
 error_symbol = '[❯](bold red)'
 
-# ── right-side cluster (full-width) ──────────────────────────
-# $fill stretches to push everything below it to the terminal edge.
+# ── Right-side cluster ────────────────────────────────────────
 [fill]
 symbol = "─"
 style = "fg:surface1"
 
-# last command runtime; also drives desktop notifications
+# shell nesting depth — only shows at threshold 2+ (inside nix-shell, poetry shell, etc.)
+[shlvl]
+disabled = false
+symbol = "󰌒 "
+style = "fg:overlay1"
+format = '[$symbol$shlvl ]($style)'
+threshold = 2
+
+# red icon when sudo credentials are cached (sudo -v)
+[sudo]
+disabled = false
+symbol = "󰡴 "
+style = "fg:red"
+format = '[$symbol ]($style)'
+
+# kubectl context + namespace — only when kubeconfig is active
+[kubernetes]
+disabled = false
+symbol = "󱃾 "
+style = "fg:blue"
+format = '[$symbol$context( \($namespace\)) ]($style)'
+
+# active Docker context — only shows when Dockerfile/compose.yml present
+[docker_context]
+symbol = " "
+style = "fg:sky"
+format = '[$symbol$context ]($style)'
+only_with_files = true
+
+# .envrc status — only shows inside a direnv-managed directory
+[direnv]
+disabled = false
+symbol = "󰔍 "
+style = "fg:yellow"
+format = '[$symbol$loaded/$allowed ]($style)'
+
+# surface DATABASE_URL as a simple icon (not the full URL)
+[env_var.DATABASE_URL]
+variable = "DATABASE_URL"
+symbol = "󰆼 "
+style = "fg:mauve"
+format = '[$symbol DB ]($style)'
+
+# surface active AWS profile
+[env_var.AWS_PROFILE]
+variable = "AWS_PROFILE"
+symbol = "󰸏 "
+style = "fg:yellow"
+format = '[$symbol$env_value ]($style)'
+
+# package version from manifest (package.json, Cargo.toml, pyproject.toml, go.mod …)
+[package]
+symbol = "󰏗 "
+style = "fg:peach"
+format = '[$symbol$version ]($style)'
+
+# short commit hash + tag at HEAD; always shown (not just on detached HEAD)
+[git_commit]
+commit_hash_length = 7
+only_detached = false
+tag_symbol = " 󰓻 "
+style = "fg:overlay2"
+format = '[$hash$tag ]($style)'
+
+# last command runtime
 [cmd_duration]
 min_time = 500
-min_time_to_notify = 120000   # ms — notify only on jobs over 2 min
+min_time_to_notify = 120000
 show_notifications = true
 style = "fg:yellow"
 format = '[ 󱎫 $duration ]($style)'
 
-# exit code of last command — shows only on failure
+# exit code — shows only on failure
 [status]
 disabled = false
 symbol = "✘ "
 style = "fg:red"
 format = '[ $symbol$status ]($style)'
 
-# count of backgrounded jobs
+# backgrounded jobs
 [jobs]
 symbol = " "
 style = "fg:sky"
 format = '[$symbol$number ]($style)'
 
-# +added / -removed lines in the working tree
+# +added / -removed lines in working tree
 [git_metrics]
 disabled = false
 added_style = "fg:green"
 deleted_style = "fg:red"
 format = '([+$added ]($added_style))([-$deleted ]($deleted_style))'
 
-# clock at the far edge
+# clock
 [time]
 disabled = false
 time_format = "%H:%M"
