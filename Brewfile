@@ -18,6 +18,9 @@ brew "zsh"
 # Terminal
 cask "kitty"
 
+# Fonts
+cask "font-hack-nerd-font"
+
 # Multiplexer
 brew "tmux"
 
