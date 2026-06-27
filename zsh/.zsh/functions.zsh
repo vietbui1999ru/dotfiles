@@ -14,7 +14,6 @@ nvim() {
 autoload -U edit-command-line select-word-style smart-insert-last-word
 zle -N edit-command-line
 zle -N insert-last-word smart-insert-last-word
-bindkey '^X^E' edit-command-line
 select-word-style bash
 
 # Activate virtualenv if present, then launch nvim

@@ -55,6 +55,7 @@ fi
 # ── Aliases + functions ───────────────────────────────────────────────
 source "$HOME/.zsh/aliases.zsh"
 source "$HOME/.zsh/functions.zsh"
+source "$HOME/.zsh/keybindings.zsh"
 
 # Reset terminal state on each prompt — prevents TUI apps from leaving mouse reporting
 # or keyboard protocol modes active after exit or tmux pane switch
@@ -80,7 +81,7 @@ fi
 [[ -d "$HOME/.opencode/bin" ]] && export PATH="$HOME/.opencode/bin:$PATH"
 
 # bun completions
-[ -s "/home/vietbui1999ru/.bun/_bun" ] && source "/home/vietbui1999ru/.bun/_bun"
+[ -s "$HOME/.bun/_bun" ] && source "$HOME/.bun/_bun"
 
 # bun
 export BUN_INSTALL="$HOME/.bun"
