@@ -28,8 +28,8 @@ $sudo\
 $kubernetes\
 $docker_context\
 $direnv\
-$env_var.DATABASE_URL\
-$env_var.AWS_PROFILE\
+$custom.db\
+$custom.aws\
 $package\
 $git_commit\
 $cmd_duration\
@@ -83,17 +83,17 @@ format = '[ $symbol $branch ]($style)'
 [git_status]
 style = "bg:green fg:base"
 format = '[$all_status$ahead_behind ]($style)'
-# $all_status expands to: $conflicted $stashed $deleted $renamed $modified $staged $untracked
-# $ahead_behind expands to: $ahead $behind $diverged $up_to_date
-ahead      = "⇡${count}"
-behind     = "⇣${count}"
-diverged   = "⇕⇡${ahead_count}⇣${behind_count}"
-stashed    = " ${count}"
-modified   = "!${count}"
-staged     = "+${count}"
-untracked  = "?${count}"
-deleted    = "✘${count}"
-conflicted = "=${count}"
+# $all_status: $conflicted $stashed $deleted $renamed $modified $staged $untracked
+# $ahead_behind: $ahead $behind $diverged $up_to_date
+ahead      = "↑${count}"          # ahead of remote
+behind     = "↓${count}"          # behind remote
+diverged   = "⇅↑${ahead_count}↓${behind_count}"  # both ahead and behind
+stashed    = "⚑${count}"          # stashed entries (flag = saved aside)
+modified   = "~${count}"          # unstaged edits (tilde = approximate/changed)
+staged     = "▲${count}"          # in index (up-triangle = lifted to stage)
+untracked  = "…${count}"          # new files not yet tracked
+deleted    = "✖${count}"          # removed files
+conflicted = "≠${count}"          # merge conflicts (not-equal = disagreement)
 
 # shows REBASING 3/7, MERGING, CHERRY-PICKING, BISECTING, REVERTING — only during active operation
 [git_state]
@@ -182,19 +182,23 @@ symbol = "󰔍 "
 style = "fg:yellow"
 format = '[$symbol$loaded/$allowed ]($style)'
 
-# surface DATABASE_URL as a simple icon (not the full URL)
-[env_var.DATABASE_URL]
-variable = "DATABASE_URL"
+# DB: shows protocol (postgres/mysql/sqlite) only when DATABASE_URL is set
+# AND the repo has db artifacts (migrations dir, compose, prisma, etc.)
+[custom.db]
+command = 'printf "%s" "${DATABASE_URL%%:*}"'
+when = '[ -n "${DATABASE_URL:-}" ] && { [ -f docker-compose.yml ] || [ -f docker-compose.yaml ] || [ -d migrations ] || [ -d db ] || [ -f prisma/schema.prisma ] || [ -f database.yml ] || [ -f alembic.ini ]; }'
 symbol = "󰆼 "
 style = "fg:mauve"
-format = '[$symbol DB ]($style)'
+format = '[$symbol$output ]($style)'
 
-# surface active AWS profile
-[env_var.AWS_PROFILE]
-variable = "AWS_PROFILE"
+# AWS: shows active profile only when AWS_PROFILE is set
+# AND the repo has IaC/deploy artifacts (.terraform, *.tf, serverless.yml, cdk.json, etc.)
+[custom.aws]
+command = 'printf "%s" "${AWS_PROFILE:-}"'
+when = '[ -n "${AWS_PROFILE:-}" ] && { [ -d .terraform ] || [ -f serverless.yml ] || [ -f cdk.json ] || [ -f samconfig.toml ] || find . -maxdepth 1 -name "*.tf" | grep -q .; }'
 symbol = "󰸏 "
 style = "fg:yellow"
-format = '[$symbol$env_value ]($style)'
+format = '[$symbol$output ]($style)'
 
 # package version from manifest (package.json, Cargo.toml, pyproject.toml, go.mod …)
 [package]
