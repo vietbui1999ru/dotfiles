@@ -1,1 +1,1 @@
-/Users/vietquocbui/repos/llm-wiki/claude-setup/rules/intermediate.md
+/home/vietbui1999ru/repos/llm-wiki/claude-setup/rules/intermediate.md

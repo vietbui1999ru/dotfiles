@@ -1,1 +1,1 @@
-/Users/vietquocbui/repos/llm-wiki/claude-setup/agents/session-report-generator.md
+/home/vietbui1999ru/repos/llm-wiki/claude-setup/agents/session-report-generator.md

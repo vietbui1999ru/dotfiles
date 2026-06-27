@@ -1,1 +1,1 @@
-/Users/vietquocbui/repos/llm-wiki/claude-setup/rules/communication.md
+/home/vietbui1999ru/repos/llm-wiki/claude-setup/rules/communication.md
