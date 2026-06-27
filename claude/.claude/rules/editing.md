@@ -1,1 +1,1 @@
-/home/vietbui1999ru/repos/llm-wiki/claude-setup/rules/editing.md
+../../../../repos/llm-wiki/claude-setup/rules/editing.md

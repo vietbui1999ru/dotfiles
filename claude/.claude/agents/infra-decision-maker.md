@@ -1,1 +1,1 @@
-/home/vietbui1999ru/repos/llm-wiki/claude-setup/agents/infra-decision-maker.md
+../../../../repos/llm-wiki/claude-setup/agents/infra-decision-maker.md

@@ -1,1 +1,1 @@
-/home/vietbui1999ru/repos/llm-wiki/claude-setup/agents/design-critic.md
+../../../../repos/llm-wiki/claude-setup/agents/design-critic.md

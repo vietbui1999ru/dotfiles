@@ -1,1 +1,1 @@
-/home/vietbui1999ru/repos/llm-wiki/claude-setup/agents/code-writer.md
+../../../../repos/llm-wiki/claude-setup/agents/code-writer.md

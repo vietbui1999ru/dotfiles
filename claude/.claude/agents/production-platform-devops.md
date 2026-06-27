@@ -1,1 +1,1 @@
-/home/vietbui1999ru/repos/llm-wiki/claude-setup/agents/production-platform-devops.md
+../../../../repos/llm-wiki/claude-setup/agents/production-platform-devops.md

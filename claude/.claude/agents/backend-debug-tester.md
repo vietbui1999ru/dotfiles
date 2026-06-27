@@ -1,1 +1,1 @@
-/home/vietbui1999ru/repos/llm-wiki/claude-setup/agents/backend-debug-tester.md
+../../../../repos/llm-wiki/claude-setup/agents/backend-debug-tester.md
