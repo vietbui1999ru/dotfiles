@@ -23,6 +23,11 @@ export PATH="$HOME/go/bin:$PATH"
 # ── Sheldon (plugins) ─────────────────────────────────────────────────
 eval "$(sheldon source)"
 
+# Plugins can silently switch to vi mode; re-assert emacs bindings.
+bindkey -e
+bindkey '^A' beginning-of-line
+bindkey '^E' end-of-line
+
 # ── Starship (prompt) ─────────────────────────────────────────────────
 eval "$(starship init zsh)"
 
