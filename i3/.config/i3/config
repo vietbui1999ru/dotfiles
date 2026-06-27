@@ -1,0 +1,210 @@
+# i3 config — mirroring aerospace layout
+# Modifier = Alt (Mod1), matching aerospace alt-* bindings
+set $mod Mod1
+
+font pango:monospace 10
+
+# ── Gaps ──────────────────────────────────────────────────────────────────────
+# Requires i3 >= 4.22 (gaps built-in) or i3-gaps
+gaps inner 15
+gaps outer 15
+
+# ── Workspaces ────────────────────────────────────────────────────────────────
+# Named to match aerospace. Aerospace uses letters as workspace IDs;
+# i3 uses string names — prepend a number so they sort predictably in the bar.
+set $ws1  "1"
+set $ws2  "2"
+set $ws3  "3"
+set $ws0  "0"
+set $wsT  "T"
+set $wsB  "B"
+set $wsC  "C"
+set $wsM  "M"
+set $wsN  "N"
+set $wsO  "O"
+set $wsP  "P"
+set $wsR  "R"
+set $wsS  "S"
+
+# ── Focus (alt-hjkl) ──────────────────────────────────────────────────────────
+bindsym $mod+h focus left
+bindsym $mod+j focus down
+bindsym $mod+k focus up
+bindsym $mod+l focus right
+
+# ── Move window (alt-shift-hjkl) ──────────────────────────────────────────────
+bindsym $mod+Shift+h move left
+bindsym $mod+Shift+j move down
+bindsym $mod+Shift+k move up
+bindsym $mod+Shift+l move right
+
+# ── Focus monitor (alt-ctrl-h/l) ──────────────────────────────────────────────
+bindsym $mod+ctrl+h focus output left
+bindsym $mod+ctrl+l focus output right
+
+# ── Move container to monitor (alt-ctrl-shift-h/l) ────────────────────────────
+bindsym $mod+ctrl+Shift+h move container to output left
+bindsym $mod+ctrl+Shift+l move container to output right
+
+# ── Resize (alt-minus / alt-equal) ────────────────────────────────────────────
+# aerospace 'resize smart ±50' adapts to orientation; i3 needs explicit axis.
+# These grow/shrink the focused container's width by 50px.
+bindsym $mod+minus resize shrink width 50px or 5 ppt
+bindsym $mod+equal resize grow   width 50px or 5 ppt
+
+# ── Layout toggles ────────────────────────────────────────────────────────────
+# alt-slash  → aerospace 'layout tiles horizontal vertical'
+bindsym $mod+slash layout toggle split
+# alt-comma  → aerospace 'layout accordion' (tabbed is closest i3 equivalent)
+bindsym $mod+comma layout tabbed
+
+# ── Fullscreen (cmd-shift-f → mod-shift-f; cmd unavailable on Linux) ──────────
+bindsym $mod+Shift+f fullscreen toggle
+
+# ── Switch workspace ──────────────────────────────────────────────────────────
+bindsym $mod+1 workspace $ws1
+bindsym $mod+2 workspace $ws2
+bindsym $mod+3 workspace $ws3
+bindsym $mod+0 workspace $ws0
+bindsym $mod+t workspace $wsT
+bindsym $mod+b workspace $wsB
+bindsym $mod+c workspace $wsC
+bindsym $mod+m workspace $wsM
+bindsym $mod+n workspace $wsN
+bindsym $mod+o workspace $wsO
+bindsym $mod+p workspace $wsP
+bindsym $mod+r workspace $wsR
+bindsym $mod+s workspace $wsS
+
+# ── Move container to workspace ───────────────────────────────────────────────
+bindsym $mod+Shift+1 move container to workspace $ws1
+bindsym $mod+Shift+2 move container to workspace $ws2
+bindsym $mod+Shift+3 move container to workspace $ws3
+bindsym $mod+Shift+0 move container to workspace $ws0
+bindsym $mod+Shift+b move container to workspace $wsB
+bindsym $mod+Shift+c move container to workspace $wsC
+bindsym $mod+Shift+m move container to workspace $wsM
+bindsym $mod+Shift+n move container to workspace $wsN
+bindsym $mod+Shift+o move container to workspace $wsO
+bindsym $mod+Shift+p move container to workspace $wsP
+bindsym $mod+Shift+r move container to workspace $wsR
+bindsym $mod+Shift+s move container to workspace $wsS
+# alt-shift-t in aerospace both moves AND follows — replicated with chained cmds
+bindsym $mod+Shift+t move container to workspace $wsT; workspace $wsT
+
+# ── Back and forth (alt-tab) ──────────────────────────────────────────────────
+workspace_auto_back_and_forth yes
+bindsym $mod+Tab workspace back_and_forth
+
+# ── Move workspace to next monitor (alt-shift-tab) ────────────────────────────
+bindsym $mod+Shift+Tab move workspace to output next
+
+# ── Terminal (alt-enter, like default i3) ─────────────────────────────────────
+bindsym $mod+Return exec kitty
+
+# ── App launcher ──────────────────────────────────────────────────────────────
+# rofi -show drun gives a closer feel to macOS Spotlight / aerospace launcher
+bindsym $mod+d exec --no-startup-id rofi -show drun
+# Fallback: bindsym $mod+d exec --no-startup-id dmenu_run
+
+# ── Kill window ───────────────────────────────────────────────────────────────
+bindsym $mod+Shift+q kill
+
+# ── i3 management ─────────────────────────────────────────────────────────────
+bindsym $mod+Shift+r restart
+bindsym $mod+Shift+e exec "i3-nagbar -t warning -m 'Exit i3?' -B 'Yes, exit' 'i3-msg exit'"
+
+# ── Service mode (mirrors aerospace 'mode service' via alt-shift-a) ───────────
+# Enter with alt-shift-a, exit with Escape or Return
+mode "service" {
+    # r → reload config (aerospace: r = reload-config)
+    bindsym r reload; mode "default"
+
+    # t → reset layout (aerospace: t = flatten-workspace-tree)
+    bindsym t layout default; mode "default"
+
+    # f → toggle floating (aerospace: f = layout floating tiling)
+    bindsym f floating toggle; mode "default"
+
+    # backspace → kill focused window
+    # aerospace 'close-all-windows-but-current' has no direct i3 equivalent;
+    # killing the focused window is the closest approximation
+    bindsym BackSpace kill; mode "default"
+
+    # join-with (aerospace) → in i3, split direction before opening next window
+    # These set the split orientation so the next window joins in that direction
+    bindsym $mod+Shift+h split h; mode "default"
+    bindsym $mod+Shift+j split v; mode "default"
+    bindsym $mod+Shift+k split v; mode "default"
+    bindsym $mod+Shift+l split h; mode "default"
+
+    # Volume (pipewire/wireplumber — swap for pactl if using PulseAudio)
+    bindsym Down       exec --no-startup-id wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-
+    bindsym Up         exec --no-startup-id wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+
+    bindsym Shift+Down exec --no-startup-id wpctl set-mute @DEFAULT_AUDIO_SINK@ 1; mode "default"
+
+    bindsym Escape mode "default"
+    bindsym Return mode "default"
+}
+bindsym $mod+Shift+a mode "service"
+
+# ── Window assignments ────────────────────────────────────────────────────────
+# Use 'xprop | grep WM_CLASS' on a window to find its class name.
+# The second string in WM_CLASS is used here.
+
+# T — Terminal
+assign [class="kitty"] $wsT
+
+# B — Browser
+assign [class="Brave-browser"]  $wsB
+assign [class="firefox"]        $wsB
+assign [class="chromium"]       $wsB
+
+# P — Programming / Editor
+assign [class="Code"]           $wsP
+assign [class="code-oss"]       $wsP
+assign [class="Emacs"]          $wsP
+assign [class="cursor"]         $wsP
+assign [class="jetbrains-idea"] $wsP
+
+# N — Chat / Notifications
+assign [class="Slack"]          $wsN
+assign [class="discord"]        $wsN
+assign [class="Signal"]         $wsN
+
+# O — Notes
+assign [class="obsidian"]       $wsO
+
+# M — Music / Media
+assign [class="Spotify"]        $wsM
+assign [class="spotify"]        $wsM
+
+# S — Services
+assign [class="Postman"]        $wsS
+assign [class="Docker Desktop"] $wsS
+
+# C — AI Chat
+assign [class="ChatGPT"]        $wsC
+
+# R — Reading
+assign [class="Zathura"]        $wsR
+assign [class="Evince"]         $wsR
+assign [class="calibre"]        $wsR
+assign [class="okular"]         $wsR
+
+# ── Floating overrides ────────────────────────────────────────────────────────
+for_window [window_role="pop-up"]        floating enable
+for_window [window_role="bubble"]        floating enable
+for_window [window_role="dialog"]        floating enable
+for_window [title="^Preferences$"]      floating enable
+
+# ── Startup ───────────────────────────────────────────────────────────────────
+exec --no-startup-id dex --autostart --environment i3
+exec --no-startup-id xss-lock --transfer-sleep-lock -- i3lock --nofork
+
+# ── Status bar ────────────────────────────────────────────────────────────────
+# For a closer sketchybar feel, replace with polybar or waybar.
+bar {
+    status_command i3status
+    position top
+}
