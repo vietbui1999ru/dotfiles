@@ -27,3 +27,19 @@
   when:
     - ansible_os_family != "Darwin"
     - ansible_os_family != "Debian"
+
+- name: Symlink OS-specific kitty config (macOS)
+  ansible.builtin.file:
+    src: "{{ ansible_env.HOME }}/.config/kitty/kitty-macos.conf"
+    dest: "{{ ansible_env.HOME }}/.config/kitty/kitty-os.conf"
+    state: link
+    force: true
+  when: ansible_os_family == "Darwin"
+
+- name: Symlink OS-specific kitty config (Linux)
+  ansible.builtin.file:
+    src: "{{ ansible_env.HOME }}/.config/kitty/kitty-linux.conf"
+    dest: "{{ ansible_env.HOME }}/.config/kitty/kitty-os.conf"
+    state: link
+    force: true
+  when: ansible_os_family != "Darwin"
