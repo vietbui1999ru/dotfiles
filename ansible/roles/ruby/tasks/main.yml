@@ -30,8 +30,11 @@
       - zlib-devel
       - libyaml-devel
       - libffi-devel
-      - libgdbm-devel
+      - gdbm-devel
       - libuuid-devel
     state: present
+    # libyaml-devel/libgdbm-devel live in the CRB repo on RHEL9-family
+    # (Rocky/Alma/CentOS Stream); Fedora doesn't have a "crb" repo at all.
+    enablerepo: "{{ 'crb' if ansible_distribution != 'Fedora' else omit }}"
   become: true
   when: ansible_os_family == "RedHat"

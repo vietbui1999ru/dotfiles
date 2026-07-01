@@ -1,0 +1,12 @@
+---
+extends: default
+
+rules:
+  line-length:
+    max: 200
+  document-start:
+    present: true
+  truthy:
+    allowed-values: ["true", "false"]
+  braces: disable  # repo uses hand-aligned flow mappings (see ansible/roles/tools)
+  commas: disable

@@ -3,71 +3,43 @@
   hosts: localhost
   connection: local
   gather_facts: true
-  roles:
-    - base
-    - dotfiles
-    - rust
-    - golang
-    - python
-    - ruby
-    - mise
-    - tools
-    - zsh
-    - starship
-    - tmux
-    - neovim
-    - kitty
+  tasks:
+    - name: Apply bootstrap roles
+      ansible.builtin.include_role:
+        name: "{{ bootstrap_role_name }}"
+      loop: "{{ bootstrap_roles }}"
+      loop_control:
+        loop_var: bootstrap_role_name
 
 - name: Bootstrap dev Debian servers
   hosts: dev_debian
   gather_facts: true
-  roles:
-    - base
-    - dotfiles
-    - rust
-    - golang
-    - python
-    - ruby
-    - mise
-    - tools
-    - zsh
-    - starship
-    - tmux
-    - neovim
-    - kitty
+  tasks:
+    - name: Apply bootstrap roles
+      ansible.builtin.include_role:
+        name: "{{ bootstrap_role_name }}"
+      loop: "{{ bootstrap_roles }}"
+      loop_control:
+        loop_var: bootstrap_role_name
 
 - name: Bootstrap Ubuntu desktop PC
   hosts: ubuntu_desktop
   gather_facts: true
-  roles:
-    - base
-    - dotfiles
-    - rust
-    - golang
-    - python
-    - ruby
-    - mise
-    - tools
-    - zsh
-    - starship
-    - tmux
-    - neovim
-    - kitty
+  tasks:
+    - name: Apply bootstrap roles
+      ansible.builtin.include_role:
+        name: "{{ bootstrap_role_name }}"
+      loop: "{{ bootstrap_roles }}"
+      loop_control:
+        loop_var: bootstrap_role_name
 
 - name: Bootstrap RedHat servers
   hosts: admin_redhat
   gather_facts: true
-  roles:
-    - base
-    - dotfiles
-    - rust
-    - golang
-    - python
-    - ruby
-    - mise
-    - tools
-    - zsh
-    - starship
-    - tmux
-    - neovim
-    - kitty
+  tasks:
+    - name: Apply bootstrap roles
+      ansible.builtin.include_role:
+        name: "{{ bootstrap_role_name }}"
+      loop: "{{ bootstrap_roles }}"
+      loop_control:
+        loop_var: bootstrap_role_name

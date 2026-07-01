@@ -1,0 +1,4 @@
+---
+dotfiles_clone_enabled: false
+dotfiles_submodule_enabled: false
+zsh_set_default_shell: false

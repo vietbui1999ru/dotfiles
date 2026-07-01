@@ -63,7 +63,7 @@
     [ "$major" -gt 0 ] || { [ "$major" -eq 0 ] && [ "$minor" -ge 12 ]; }
   args:
     executable: /bin/bash
-  register: user_nvim_current
+  register: neovim_user_nvim_current
   changed_when: false
   failed_when: false
   when: ansible_os_family != "Darwin"
@@ -95,7 +95,7 @@
     executable: /bin/bash
   when:
     - ansible_os_family != "Darwin"
-    - (user_nvim_current.rc | default(1)) != 0
+    - (neovim_user_nvim_current.rc | default(1)) != 0
 
 - name: Install Bun runtime (Linux)
   ansible.builtin.shell: |
@@ -121,7 +121,7 @@
 
 - name: Check MCP Hub install
   ansible.builtin.command: "{{ ansible_env.HOME }}/.local/bin/mcp-hub --version"
-  register: mcphub_version
+  register: neovim_mcphub_version
   changed_when: false
   failed_when: false
 
@@ -131,15 +131,15 @@
   environment:
     PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.PATH }}"
     BUN_INSTALL: "{{ ansible_env.HOME }}/.local"
-  when: mcphub_version.rc != 0
+  when: neovim_mcphub_version.rc != 0
 
 - name: Verify neovim version
   ansible.builtin.command: nvim --version
   environment:
     PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.PATH }}"
-  register: nvim_version
+  register: neovim_nvim_version
   changed_when: false
 
 - name: Show neovim version
   ansible.builtin.debug:
-    msg: "{{ nvim_version.stdout_lines[0] }}"
+    msg: "{{ neovim_nvim_version.stdout_lines[0] }}"
