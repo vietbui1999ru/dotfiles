@@ -17,6 +17,7 @@ Personal dotfiles managed with [GNU Stow](https://www.gnu.org/software/stow/). A
 | `claude/` | `~/.claude/` |
 | `opencode/` | `~/.config/opencode/` |
 | `codex/` | `~/.codex/` |
+| `pi/` | `~/.pi/` |
 
 ## Quick start (macOS)
 
@@ -34,7 +35,7 @@ cd ~/dotfiles && brew bundle
 ./scripts/bootstrap-dirs.sh
 
 # 5. Symlink configs
-stow zsh starship nvim tmux kitty git claude opencode codex
+stow zsh starship nvim tmux kitty git claude opencode codex pi
 
 # 6. Sync AI tool rules (AGENTS.md + MCP servers)
 ./scripts/sync-agent-rules.sh
@@ -59,8 +60,9 @@ ansible-playbook ansible/site.yml --limit admin_redhat -i ansible/inventory/host
 
 | Script | Purpose |
 |---|---|
-| `scripts/bootstrap-dirs.sh` | Create `~/repos`, symlink `~/repos/llm-wiki` → submodule |
+| `scripts/bootstrap-dirs.sh` | Create `~/repos`, symlink `~/repos/llm-wiki` → submodule, materialize default configs |
 | `scripts/sync-agent-rules.sh` | Sync `shared/AGENTS.md` and MCP servers to Claude Code, Codex, OpenCode |
+| `scripts/agent-workflow` | Attach/detach/status/doctor for per-repo Commandr/Pi/Neovim workflow |
 
 ## Submodules
 
@@ -82,6 +84,32 @@ git add repos/llm-wiki && git commit -m "chore(submodule): bump llm-wiki"
 | `omp` (oh-my-pi) | `curl -fsSL https://omp.sh/install \| sh` |
 
 `omp` binaries land in `~/.bun/bin/` — already on PATH via `.zprofile`.
+
+The `pi/` stow package installs
+`~/.pi/agent/extensions/neovim-cockpit.ts`, which adds the Pi TUI
+`/cockpit`, `/nvim-context`, `/nvim-refresh`, `nvim_context` tool, and
+`#TASK` Commandr autocomplete used by the Neovim cockpit workflow.
+
+### Agent workflow automation
+
+Global defaults live in `shared/agent-workflow.default.json` and are copied to
+`~/.config/agent-workflow/config.json` by `scripts/bootstrap-dirs.sh`. Override
+per repo with `.agent-workflow.json` or machine-locally with ignored
+`.agent-workflow.local.json`.
+
+```sh
+# Check global install state
+scripts/agent-workflow doctor
+
+# Attach a repo to the Commandr bus + DiffViewer sidecars + approval gate
+scripts/agent-workflow attach ~/repos/example
+
+# Inspect current bus/board state
+scripts/agent-workflow status ~/repos/example
+
+# Remove only the managed hook; keep task history by default
+scripts/agent-workflow detach ~/repos/example
+```
 
 ## Notes
 

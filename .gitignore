@@ -1,2 +1,5 @@
 .DS_Store
 nvim/.config/nvim/.claude/
+/.pi/nvim-context.json
+/.pi/status/
+.agent-workflow.local.json
