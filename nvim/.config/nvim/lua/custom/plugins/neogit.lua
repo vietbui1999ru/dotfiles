@@ -5,7 +5,8 @@ end
 require("neogit").setup({
 	kind = "split",
 	integrations = { diffview = true },
-	filewatcher = { enabled = true, interval = 1000 },
+	-- native fs-event watcher (fixed ~200ms debounce); no configurable interval upstream
+	filewatcher = { enabled = true },
 })
 
 vim.keymap.set("n", "<leader>gg", require("neogit").open, { desc = "Neogit: status" })

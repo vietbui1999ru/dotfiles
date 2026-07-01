@@ -42,10 +42,6 @@
       "rev": "889e2e96edef4e144965571d46f7a77bcc4d0ddf",
       "src": "https://github.com/j-hui/fidget.nvim"
     },
-    "fugit2.nvim": {
-      "rev": "e1d6d261caa093a5845595d15cfaf24570e43c1f",
-      "src": "https://github.com/SuperBo/fugit2.nvim"
-    },
     "gitsigns.nvim": {
       "rev": "6d808f99bd63303646794406e270bd553ad7792e",
       "src": "https://github.com/lewis6991/gitsigns.nvim"
