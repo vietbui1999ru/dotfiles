@@ -96,6 +96,16 @@ if git -C "$cwd" rev-parse --git-dir > /dev/null 2>&1; then
   fi
 fi
 
+# Persist context usage for hooks.
+if [ -n "$context_used" ]; then
+  cache_dir="$HOME/.claude/state"
+  cache_file="$cache_dir/statusline-context.json"
+  mkdir -p "$cache_dir" 2>/dev/null || true
+  ctx_int=$(printf "%.0f" "$context_used" 2>/dev/null || echo "$context_used")
+  ts=$(date +%s)
+  printf '{"used_percentage":%s,"updated_at":%s}\n' "$ctx_int" "$ts" > "$cache_file.tmp" 2>/dev/null && mv "$cache_file.tmp" "$cache_file" 2>/dev/null || true
+fi
+
 # Context usage — warn before the 70% hook fires
 ctx_info=""
 if [ -n "$context_used" ]; then
