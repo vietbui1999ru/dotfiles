@@ -150,7 +150,7 @@ vim.pack.add({
 	gh("saxon1964/neovim-tips"),
 	gh("sindrets/diffview.nvim"),
 	gh("kdheepak/lazygit.nvim"),
-	gh("SuperBo/fugit2.nvim"),
+	gh("NeogitOrg/neogit"),
 	gh("stevearc/oil.nvim"),
 	gh("christoomey/vim-tmux-navigator"),
 	gh("mrjones2014/smart-splits.nvim"),
@@ -292,8 +292,8 @@ vim.keymap.set("n", "<leader>gq", "<cmd>DiffviewClose<cr>", { desc = "Diffview: 
 vim.cmd.packadd("lazygit.nvim")
 require("custom.plugins.lazygit")
 
-vim.cmd.packadd("fugit2.nvim")
-require("custom.plugins.fugit2")
+vim.cmd.packadd("neogit")
+require("custom.plugins.neogit")
 
 vim.cmd.packadd("octo.nvim")
 require("custom.plugins.octo")

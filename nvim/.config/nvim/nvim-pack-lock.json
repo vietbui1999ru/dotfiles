@@ -42,10 +42,6 @@
       "rev": "889e2e96edef4e144965571d46f7a77bcc4d0ddf",
       "src": "https://github.com/j-hui/fidget.nvim"
     },
-    "fugit2.nvim": {
-      "rev": "e1d6d261caa093a5845595d15cfaf24570e43c1f",
-      "src": "https://github.com/SuperBo/fugit2.nvim"
-    },
     "gitsigns.nvim": {
       "rev": "6d808f99bd63303646794406e270bd553ad7792e",
       "src": "https://github.com/lewis6991/gitsigns.nvim"
@@ -105,6 +101,10 @@
     "mini.nvim": {
       "rev": "be81509b7160aa02264a59789164a2e1c4a6750a",
       "src": "https://github.com/echasnovski/mini.nvim"
+    },
+    "neogit": {
+      "rev": "43ea1a0854052e583f647e0b35879f0158a70a78",
+      "src": "https://github.com/NeogitOrg/neogit"
     },
     "neovim-tips": {
       "rev": "1339a0da1ff59fab8cfc07661ef92aa8c7d07f79",
