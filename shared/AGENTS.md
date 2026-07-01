@@ -52,6 +52,75 @@ inline patterns instead:
 Providers with a native skill system (Claude, Gemini, Codex) should invoke the
 named skill directly instead of inlining the pattern when the skill is installed.
 
+## Documentation lookup — context7
+
+Before implementing any library, framework, CLI tool, or external API: fetch
+current docs. Never rely on training data alone for API behavior.
+
+### MCP-enabled agents (Claude Code, Opencode)
+Use native MCP tools — invoked automatically when context7 MCP is active:
+```
+mcp__context7__resolve-library-id {libraryName: "<name>", query: "<topic>"}
+  → returns id (e.g. "/vercel/next.js")
+
+mcp__context7__query-docs {libraryId: "<id>", query: "<specific question>"}
+  → returns docs and code snippets
+```
+
+### Codex (plugin path)
+The `context7@claude-plugins-official` plugin is enabled in `~/.codex/config.toml`.
+Same MCP tool names above are available natively — no extra config needed.
+
+### Pi and OMP (CLI path)
+Use the `ctx7` CLI — requires `CONTEXT7_API_KEY` in shell env:
+```bash
+# Resolve library ID
+ctx7 library <library-name> "<your question>" --json
+
+# Fetch docs (library ID from step above, must start with /)
+ctx7 docs /<org>/<project> "<specific question>"
+```
+
+Examples:
+```bash
+ctx7 library prisma "one-to-many relations"
+ctx7 docs /prisma/prisma "one-to-many relations with cascade delete"
+```
+
+### REST API fallback (scripting / no CLI)
+When ctx7 CLI is unavailable — requires `CONTEXT7_API_KEY` env var:
+```bash
+# Step 1: search (returns id with leading slash e.g. "/vercel/next.js")
+curl -sS "https://context7.com/api/v2/libs/search?libraryName=<LIB>&query=<TOPIC>" \
+  -H "Authorization: Bearer $CONTEXT7_API_KEY" | jq -r '.results[0].id'
+
+# Step 2: fetch docs (pass libraryId as-is including leading slash)
+curl -sS "https://context7.com/api/v2/context?libraryId=/<org>/<project>&query=<TOPIC>" \
+  -H "Authorization: Bearer $CONTEXT7_API_KEY"
+```
+
+Skip context7 for: pure reasoning, git ops, file manipulation with no external library dependency.
+
+## Code search — ketch
+
+For real-world code search (idiomatic usage, cross-repo examples, "how do
+other projects call this API") — a gap neither context7 (docs) nor firecrawl
+(web) covers. `ketch` is a stateless Go CLI, identical across every harness —
+no MCP wiring, just a binary on PATH:
+
+```bash
+ketch code "<query>" --lang <lang>     # Grep backend, zero-config, 1M+ public repos
+ketch code "<pattern>" --regex         # regex form
+ketch code "<query>" -b github         # GitHub Code Search, needs gh auth / GITHUB_TOKEN
+```
+
+Install: `go install github.com/1broseidon/ketch@latest` (provisioned by the
+`tools` ansible role; `$HOME/go/bin` is already on PATH).
+
+Skip `ketch search` / `ketch scrape` / `ketch docs` — those overlap with
+firecrawl and context7, already wired above. `ketch code` is the only
+net-new surface. See wiki `entities/ketch`.
+
 ---
 
 ## Core behavior
