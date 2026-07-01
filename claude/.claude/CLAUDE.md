@@ -29,6 +29,11 @@ When sources conflict: higher number loses. Explicit always beats implicit.
 # Wiki at ~/repos/llm-wiki — JIT only. Invoke wiki-context skill or: qmd query "<topic>"
 # Do NOT load index at startup. Full index at ~/repos/llm-wiki/index.md if needed.
 
+## Research
+- OSS code search: `ketch code "<query>" --lang <lang>` — real code across 1M+ public repos (Grep backend, zero-config). Use over grepping training-data memory for real-world usage examples, idiomatic patterns, or "how do other projects call this API" questions.
+- Regex form: `ketch code "<pattern>" --regex`. GitHub-scoped search (needs `gh auth`/token): `ketch code "<query>" -b github`.
+- Do not use `ketch search`/`ketch scrape`/`ketch docs` — those overlap with the firecrawl and context7 MCP servers already wired in; code search is ketch's only net-new surface here. See wiki [[entities/ketch]].
+
 ## Quality rules (judge-extracted)
 # @~/.claude/rules/quality.md — uncomment when judge populates it
 # graphify
