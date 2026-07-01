@@ -106,6 +106,10 @@
       "rev": "be81509b7160aa02264a59789164a2e1c4a6750a",
       "src": "https://github.com/echasnovski/mini.nvim"
     },
+    "neogit": {
+      "rev": "43ea1a0854052e583f647e0b35879f0158a70a78",
+      "src": "https://github.com/NeogitOrg/neogit"
+    },
     "neovim-tips": {
       "rev": "1339a0da1ff59fab8cfc07661ef92aa8c7d07f79",
       "src": "https://github.com/saxon1964/neovim-tips"
