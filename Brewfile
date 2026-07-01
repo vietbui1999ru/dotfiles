@@ -34,6 +34,7 @@ brew "ripgrep"
 brew "fd"
 brew "git-delta"
 brew "lazygit"
+brew "jj"
 brew "fzf"
 brew "zoxide"
 
