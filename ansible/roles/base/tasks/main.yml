@@ -6,6 +6,7 @@
       - stow
       - curl
       - wget
+      - gettext
     state: present
   when: ansible_os_family == "Darwin"
 
@@ -23,6 +24,7 @@
       - llvm
       - cmake
       - pkg-config
+      - gettext-base
     state: present
     update_cache: true
   become: true
@@ -34,6 +36,15 @@
     state: present
   become: true
   when: ansible_os_family == "Debian"
+
+- name: Enable EPEL repository (RHEL/CentOS/Rocky/Alma — not Fedora)
+  ansible.builtin.dnf:
+    name: epel-release
+    state: present
+  become: true
+  when:
+    - ansible_os_family == "RedHat"
+    - ansible_distribution != "Fedora"
 
 - name: Install base packages (RedHat/Fedora)
   ansible.builtin.dnf:
@@ -50,6 +61,7 @@
       - llvm
       - cmake
       - pkgconf-pkg-config
+      - gettext
     state: present
   become: true
   when: ansible_os_family == "RedHat"

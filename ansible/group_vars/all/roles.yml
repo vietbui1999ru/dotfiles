@@ -1,0 +1,15 @@
+---
+bootstrap_roles:
+  - base
+  - dotfiles
+  - rust
+  - golang
+  - python
+  - ruby
+  - mise
+  - tools
+  - zsh
+  - starship
+  - tmux
+  - neovim
+  - kitty

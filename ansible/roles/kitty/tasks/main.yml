@@ -19,11 +19,21 @@
   become: true
   when: ansible_os_family == "Debian"
 
-- name: Install xterm-kitty terminfo (non-Debian Linux — user-level from kitty install)
-  ansible.builtin.shell: |
-    tic -x ~/.local/kitty.app/lib/kitty/terminfo/xterm-kitty.terminfo
-  args:
-    creates: "{{ ansible_env.HOME }}/.terminfo/x/xterm-kitty"
+- name: Ensure ~/.terminfo/x exists (non-Debian Linux)
+  ansible.builtin.file:
+    path: "{{ ansible_env.HOME }}/.terminfo/x"
+    state: directory
+    mode: "0755"
+  when:
+    - ansible_os_family != "Darwin"
+    - ansible_os_family != "Debian"
+
+- name: Install xterm-kitty terminfo (non-Debian Linux — precompiled, ships with kitty)
+  ansible.builtin.copy:
+    src: "{{ ansible_env.HOME }}/.local/kitty.app/share/terminfo/x/xterm-kitty"
+    dest: "{{ ansible_env.HOME }}/.terminfo/x/xterm-kitty"
+    remote_src: true
+    mode: "0644"
   when:
     - ansible_os_family != "Darwin"
     - ansible_os_family != "Debian"

@@ -1,0 +1,57 @@
+name: Ansible CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ansible/**"
+      - ".github/workflows/ansible-ci.yml"
+  pull_request:
+    paths:
+      - "ansible/**"
+      - ".github/workflows/ansible-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install lint tools
+        run: pip install ansible-core ansible-lint yamllint
+
+      - name: Install collections
+        run: ansible-galaxy collection install -r ansible/requirements.yml
+
+      - name: yamllint
+        run: yamllint ansible/
+
+      - name: ansible-lint
+        run: ansible-lint ansible/
+
+  molecule:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install molecule and dependencies
+        run: |
+          pip install ansible-core molecule "molecule-plugins[docker]"
+          ansible-galaxy collection install -r ansible/requirements.yml
+          # community.docker is a molecule Docker-driver dependency, not a role
+          # dependency, so it's installed here rather than in requirements.yml.
+          ansible-galaxy collection install community.docker
+
+      - name: Run molecule test
+        working-directory: ansible
+        run: molecule test

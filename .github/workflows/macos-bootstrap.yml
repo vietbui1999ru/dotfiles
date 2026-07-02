@@ -1,0 +1,37 @@
+name: macOS bootstrap (real)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ansible/**"
+  workflow_dispatch:
+
+jobs:
+  bootstrap:
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Seed ~/dotfiles from this checkout
+        run: |
+          mkdir -p "$HOME/dotfiles"
+          rsync -a --exclude=".git" "$GITHUB_WORKSPACE"/ "$HOME/dotfiles"/
+
+      - name: Set up Python venv and install Ansible
+        run: |
+          python3 -m venv .venv
+          source .venv/bin/activate
+          pip install ansible-core
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Install collections
+        run: ansible-galaxy collection install -r ansible/requirements.yml
+
+      - name: Run real bootstrap playbook (macOS localhost)
+        run: |
+          ansible-playbook -i ansible/inventory/hosts.yml ansible/site.yml \
+            --limit localhost \
+            -e dotfiles_clone_enabled=false \
+            -e dotfiles_submodule_enabled=false

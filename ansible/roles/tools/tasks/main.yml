@@ -39,13 +39,15 @@
   when: ansible_os_family == "Darwin"
 
 # ── ketch (AI-agent research CLI: web/code/docs search) ────────────────
-# Go-based, cross-platform via `go install` — golang role runs before this
-# one in site.yml, and $HOME/go/bin is already on PATH (zsh/.zshrc).
+# Go-based, cross-platform via `go install`. Ansible shell tasks don't source
+# .zshrc, so the go binary's install location must be on PATH explicitly here.
 - name: Install ketch
   ansible.builtin.shell: |
     go install github.com/1broseidon/ketch@latest
   args:
     creates: "{{ ansible_env.HOME }}/go/bin/ketch"
+  environment:
+    PATH: "/usr/local/go/bin:/opt/homebrew/bin:{{ ansible_env.HOME }}/go/bin:{{ ansible_env.PATH }}"
 
 # ── Debian/Ubuntu ─────────────────────────────────────────────────────
 - name: Install tools available in apt (Debian)
@@ -230,10 +232,14 @@
   when: ansible_os_family == "Debian"
 
 - name: Install direnv (RedHat)
-  ansible.builtin.dnf:
-    name: direnv
-    state: present
-  become: true
+  # direnv isn't packaged for RHEL9-family (Rocky/Alma/CentOS Stream) via
+  # dnf or EPEL/CRB — use the official install script instead.
+  ansible.builtin.shell: |
+    curl -sfL https://direnv.net/install.sh | bash
+  args:
+    creates: "{{ ansible_env.HOME }}/.local/bin/direnv"
+  environment:
+    bin_path: "{{ ansible_env.HOME }}/.local/bin"
   when: ansible_os_family == "RedHat"
 
 # ── yq ───────────────────────────────────────────────────────────────

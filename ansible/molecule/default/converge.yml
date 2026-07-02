@@ -1,0 +1,13 @@
+---
+- name: Converge
+  hosts: all
+  become: true
+  vars_files:
+    - ../../group_vars/all/roles.yml
+  tasks:
+    - name: Apply bootstrap roles
+      ansible.builtin.include_role:
+        name: "{{ bootstrap_role_name }}"
+      loop: "{{ bootstrap_roles }}"
+      loop_control:
+        loop_var: bootstrap_role_name

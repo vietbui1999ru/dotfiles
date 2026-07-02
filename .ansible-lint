@@ -1,0 +1,12 @@
+---
+profile: moderate
+
+exclude_paths:
+  - .claude/
+  - ansible/molecule/
+
+skip_list:
+  - command-instead-of-shell # many tasks intentionally use shell for pipes (curl | sh, curl | tar)
+  - command-instead-of-module # curl|sh installer scripts and git-submodule can't be swapped for get_url/uri/git without changing behavior
+  - "yaml[braces]" # ansible-lint hard-requires max-spaces-inside=1, incompatible with tools role's hand-aligned flow mappings
+  - "yaml[commas]"
