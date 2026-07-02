@@ -60,6 +60,20 @@ _reset_terminal_modes() {
 }
 precmd_functions+=(_reset_terminal_modes)
 
+# Regenerate starship's palette from kitty's active theme whenever it changes
+# (kitty +kitten themes rewrites current-theme.conf on every theme switch)
+_sync_starship_theme() {
+  local theme_file="$HOME/.config/kitty/current-theme.conf"
+  local marker="$XDG_CACHE_HOME/starship-theme-sync.marker"
+  [[ -f "$theme_file" ]] || return
+  local mtime
+  mtime=$(stat -f %m "$theme_file" 2>/dev/null || stat -c %Y "$theme_file" 2>/dev/null)
+  if [[ "$(cat "$marker" 2>/dev/null)" != "$mtime" ]]; then
+    "$HOME/.local/bin/kitty-theme-to-starship" &>/dev/null && echo "$mtime" >"$marker"
+  fi
+}
+precmd_functions+=(_sync_starship_theme)
+
 # ── rg / fzf integration ──────────────────────────────────────────────
 if command -v rg >/dev/null 2>&1; then
   export FZF_DEFAULT_COMMAND='rg --files --hidden --follow --glob "!.git"'
