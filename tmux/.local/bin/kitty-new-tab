@@ -1,2 +1,2 @@
 #!/bin/zsh
-exec tmux new-session -A -s "k$$"
+exec /opt/homebrew/bin/tmux new-session -A -s "k$$"

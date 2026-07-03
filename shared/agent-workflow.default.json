@@ -1,0 +1,19 @@
+{
+  "commandr": true,
+  "preCommitGate": true,
+  "diffviewer": true,
+  "neovimCockpit": true,
+  "piCockpit": true,
+  "opencodeAdapters": true,
+  "claudeHooks": false,
+  "autoOpenNeovimBoard": false,
+  "universalSessionInbox": true,
+  "piStatusline": true,
+  "piStatuslineIcons": "nerd",
+  "piStatuslineSegments": ["dir", "git", "ctx", "model"],
+  "piSessionInbox": true,
+  "autoInjectSessionState": true,
+  "specTemplates": true,
+  "obsidianBridge": true,
+  "diffThemeOverride": true
+}
