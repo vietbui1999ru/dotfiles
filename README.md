@@ -86,10 +86,12 @@ git add repos/llm-wiki && git commit -m "chore(submodule): bump llm-wiki"
 
 `omp` binaries land in `~/.bun/bin/` — already on PATH via `.zprofile`.
 
-The `pi/` stow package installs two Pi TUI extensions:
+The `pi/` stow package installs three Pi TUI extensions:
 
 - `neovim-cockpit.ts` — `/cockpit`, `/nvim-context`, `/nvim-refresh`,
   `nvim_context` tool, `#TASK` autocomplete
+- `pi-statusline.ts` — Catppuccin footer statusline (dir, git, ctx%, model)
+  with Nerd Font icons
 - `pi-session.ts` — `/save-session`, `/clear-context` (new session = 0%),
   `/sessions`, `/resume`, `/spec`, `/plan`, `/design`, `/arch`, `/pr`,
   `/review`, `/open`, `/diff` (red-for-deletions fix)
