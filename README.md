@@ -14,6 +14,7 @@ Personal dotfiles managed with [GNU Stow](https://www.gnu.org/software/stow/). A
 | `tmux/` | `~/.tmux.conf`, `~/.local/bin/tmux-cht` |
 | `kitty/` | `~/.config/kitty/` |
 | `git/` | `~/.gitconfig` |
+| `jj/` | `~/.config/jj/config.toml` |
 | `claude/` | `~/.claude/` |
 | `opencode/` | `~/.config/opencode/` |
 | `codex/` | `~/.codex/` |
@@ -35,7 +36,7 @@ cd ~/dotfiles && brew bundle
 ./scripts/bootstrap-dirs.sh
 
 # 5. Symlink configs
-stow zsh starship nvim tmux kitty git claude opencode codex pi
+stow zsh starship nvim tmux kitty git jj claude opencode codex pi
 
 # 6. Sync AI tool rules (AGENTS.md + MCP servers)
 ./scripts/sync-agent-rules.sh

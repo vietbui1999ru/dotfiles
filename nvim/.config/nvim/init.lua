@@ -151,6 +151,7 @@ vim.pack.add({
 	gh("sindrets/diffview.nvim"),
 	gh("kdheepak/lazygit.nvim"),
 	gh("SuperBo/fugit2.nvim"),
+	gh("julienvincent/hunk.nvim"),
 	gh("nvim-tree/nvim-tree.lua"),
 	gh("christoomey/vim-tmux-navigator"),
 	gh("mrjones2014/smart-splits.nvim"),
@@ -294,6 +295,9 @@ require("custom.plugins.lazygit")
 
 vim.cmd.packadd("fugit2.nvim")
 require("custom.plugins.fugit2")
+
+vim.cmd.packadd("hunk.nvim")
+require("custom.plugins.hunk")
 
 vim.cmd.packadd("octo.nvim")
 require("custom.plugins.octo")

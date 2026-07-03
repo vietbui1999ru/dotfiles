@@ -104,6 +104,7 @@
     - { crate: bat,       bin: bat    }
     - { crate: git-delta, bin: delta  }
     - { crate: zoxide,    bin: zoxide }
+    - { crate: jj-cli,    bin: jj     }
   args:
     creates: "{{ ansible_env.HOME }}/.cargo/bin/{{ item.bin }}"
   when: ansible_os_family == "Debian"
@@ -150,6 +151,7 @@
     - { crate: bat,       bin: bat    }
     - { crate: git-delta, bin: delta  }
     - { crate: zoxide,    bin: zoxide }
+    - { crate: jj-cli,    bin: jj     }
   args:
     creates: "{{ ansible_env.HOME }}/.cargo/bin/{{ item.bin }}"
   when: ansible_os_family == "RedHat"
