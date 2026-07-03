@@ -151,7 +151,8 @@ vim.pack.add({
 	gh("sindrets/diffview.nvim"),
 	gh("kdheepak/lazygit.nvim"),
 	gh("NeogitOrg/neogit"),
-	gh("stevearc/oil.nvim"),
+	gh("julienvincent/hunk.nvim"),
+	gh("nvim-tree/nvim-tree.lua"),
 	gh("christoomey/vim-tmux-navigator"),
 	gh("mrjones2014/smart-splits.nvim"),
 	gh("knubie/vim-kitty-navigator"),
@@ -263,8 +264,8 @@ if not os.getenv("TMUX") then
 	vim.cmd.packadd("vim-kitty-navigator")
 end
 
-vim.cmd.packadd("oil.nvim")
-require("custom.plugins.oil")
+vim.cmd.packadd("nvim-tree.lua")
+require("custom.plugins.nvim-tree")
 
 vim.cmd.packadd("mini.nvim")
 require("custom.plugins.mini")
@@ -294,6 +295,9 @@ require("custom.plugins.lazygit")
 
 vim.cmd.packadd("neogit")
 require("custom.plugins.neogit")
+
+vim.cmd.packadd("hunk.nvim")
+require("custom.plugins.hunk")
 
 vim.cmd.packadd("octo.nvim")
 require("custom.plugins.octo")
@@ -358,6 +362,14 @@ vim.api.nvim_create_autocmd("VimEnter", {
 
 		vim.cmd.packadd("lualine.nvim")
 
+		local workflow_ok, workflow = pcall(require, "custom.agent_workflow")
+		local function workflow_enabled(key)
+			return workflow_ok and workflow.enabled(key)
+		end
+		local function commandr_ready()
+			return workflow_ok and workflow.commandr_ready()
+		end
+
 		local _cmd = { ts = 0, root = nil, result = "" }
 		vim.api.nvim_create_autocmd("DirChanged", {
 			callback = function()
@@ -365,6 +377,9 @@ vim.api.nvim_create_autocmd("VimEnter", {
 			end,
 		})
 		local function commandr_status()
+			if not commandr_ready() then
+				return ""
+			end
 			if os.time() - _cmd.ts < 2 then
 				return _cmd.result
 			end
@@ -407,6 +422,16 @@ vim.api.nvim_create_autocmd("VimEnter", {
 					},
 				},
 				lualine_x = {
+					{
+						function()
+							if not workflow_enabled("neovimCockpit") then
+								return ""
+							end
+							local ok, pi = pcall(require, "custom.plugins.pi-status")
+							return ok and pi.statusline() or ""
+						end,
+						color = { fg = "#89b4fa" },
+					},
 					-- {
 					-- 	function()
 					-- 		local ok, vt = pcall(require, "codeium.virtual_text")
@@ -495,9 +520,39 @@ vim.api.nvim_create_autocmd("VimEnter", {
 		vim.cmd.packadd("octo.nvim")
 		require("custom.plugins.octo")
 
-		require("which-key").add({
+		if workflow_enabled("neovimCockpit") then
+			require("custom.plugins.pi-status")
+			require("custom.plugins.pi-ai")
+		end
+		if commandr_ready() then
+			require("custom.plugins.commandr-board")
+			require("custom.plugins.evidence")
+		end
+
+		local wk_spec = {
 			{ "<leader>o", group = "[O]cto" },
-		})
+			{ "<leader>a", group = "[A]gent" },
+			{ "<leader>ay", desc = "Agent: yank file reference", mode = { "n", "v" } },
+		}
+		if commandr_ready() then
+			vim.list_extend(wk_spec, {
+				{ "<leader>ab", desc = "Commandr: open board" },
+				{ "<leader>ae", desc = "Evidence: LSP diagnostics" },
+				{ "<leader>ad", desc = "Evidence: DAP snapshot" },
+				{ "<leader>ah", desc = "Evidence: pin diff hunk" },
+			})
+		end
+		if workflow_enabled("neovimCockpit") then
+			vim.list_extend(wk_spec, {
+				{ "<leader>as", desc = "Pi: list sessions" },
+				{ "<leader>aa", desc = "AI: ask Pi about context" },
+				{ "<leader>aA", desc = "AI: ask OMP about context" },
+				{ "<leader>aC", desc = "AI: export Neovim context" },
+				{ "<leader>ai", desc = "AI: open Pi TUI" },
+				{ "<leader>aO", desc = "AI: open OMP TUI" },
+			})
+		end
+		require("which-key").add(wk_spec)
 	end,
 })
 

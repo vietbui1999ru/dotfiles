@@ -1,2 +1,16 @@
 .DS_Store
 nvim/.config/nvim/.claude/
+/.pi/nvim-context.json
+/.pi/status/
+.agent-workflow.local.json
+/.obsidian/
+/.agents/sessions/
+/.agents/events.jsonl
+/.agents/inbox/
+/.agents/claimed/
+/.agents/done/
+/.agents/approvals/
+/.agents/council/
+/.agents/annotations/
+kitty/.config/kitty/kitty-os.conf
+kitty/.config/kitty/*.bak

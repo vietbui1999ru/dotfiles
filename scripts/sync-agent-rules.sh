@@ -29,7 +29,7 @@ echo "✓ Codex: $CODEX_DIR/AGENTS.md"
 # ── MCP Servers ───────────────────────────────────────────────────────────────
 # Inject portable URL-based MCP servers into each tool's config.
 
-python3 << 'PYEOF'
+python3 <<'PYEOF'
 import json, os
 
 _home = os.path.expanduser("~")
@@ -72,35 +72,53 @@ PYEOF
 # Codex stores MCP config via `codex mcp add`.
 
 if command -v codex >/dev/null 2>&1; then
-  _codex_cfg="$HOME/.codex/config.toml"
+	_codex_cfg="$HOME/.codex/config.toml"
 
-  if grep -q '^\[mcp_servers\.qmd\]' "$_codex_cfg" 2>/dev/null; then
-    echo "✓ Codex: qmd already configured"
-  else
-    codex mcp add qmd "$(command -v qmd 2>/dev/null || echo qmd)" mcp 2>/dev/null \
-      && echo "✓ Codex: qmd stdio added" \
-      || echo "✗ Codex: qmd add failed"
-  fi
+	if grep -q '^\[mcp_servers\.qmd\]' "$_codex_cfg" 2>/dev/null; then
+		echo "✓ Codex: qmd already configured"
+	else
+		codex mcp add qmd "$(command -v qmd 2>/dev/null || echo qmd)" mcp 2>/dev/null &&
+			echo "✓ Codex: qmd stdio added" ||
+			echo "✗ Codex: qmd add failed"
+	fi
 
-  if grep -q '^\[mcp_servers\.shadcn\]' "$_codex_cfg" 2>/dev/null; then
-    echo "✓ Codex: shadcn already configured"
-  else
-    codex mcp add --url https://www.shadcn.io/api/mcp shadcn 2>/dev/null \
-      && echo "✓ Codex: shadcn remote added" \
-      || echo "✗ Codex: shadcn add failed"
-  fi
+	if grep -q '^\[mcp_servers\.shadcn\]' "$_codex_cfg" 2>/dev/null; then
+		echo "✓ Codex: shadcn already configured"
+	else
+		codex mcp add --url https://www.shadcn.io/api/mcp shadcn 2>/dev/null &&
+			echo "✓ Codex: shadcn remote added" ||
+			echo "✗ Codex: shadcn add failed"
+	fi
 
-  if grep -q '^\[mcp_servers\.sentry\]' "$_codex_cfg" 2>/dev/null; then
-    echo "✓ Codex: sentry already configured"
-  else
-    codex mcp add --url https://mcp.sentry.dev/mcp sentry 2>/dev/null \
-      && echo "✓ Codex: sentry remote added" \
-      || echo "✗ Codex: sentry add failed"
-  fi
+	if grep -q '^\[mcp_servers\.sentry\]' "$_codex_cfg" 2>/dev/null; then
+		echo "✓ Codex: sentry already configured"
+	else
+		codex mcp add --url https://mcp.sentry.dev/mcp sentry 2>/dev/null &&
+			echo "✓ Codex: sentry remote added" ||
+			echo "✗ Codex: sentry add failed"
+	fi
 
-  echo "  (context7 skipped — Codex MCP client lacks header auth support)"
+	echo "  (context7 skipped — Codex MCP client lacks header auth support)"
 else
-  echo "  (codex CLI not in PATH — skipping MCP registration)"
+	echo "  (codex CLI not in PATH — skipping MCP registration)"
+fi
+
+# ── Sync OpenCode agents from llm-wiki canonical source ──────────────────────
+# Generates .opencode/agents/*.md from claude-setup/agents/*.md with OpenCode
+# frontmatter, ending the drift between the two directories.
+if [ -f "$HOME/repos/llm-wiki/scripts/sync-agents.py" ]; then
+	PYTHONDONTWRITEBYTECODE=1 python3 "$HOME/repos/llm-wiki/scripts/sync-agents.py" --check 2>/dev/null &&
+		echo "✓ OpenCode agents in sync with llm-wiki canonical" ||
+		echo "⚠ OpenCode agents drifted — run: python3 ~/repos/llm-wiki/scripts/sync-agents.py --force"
+fi
+
+# ── Sync OpenCode agents from llm-wiki canonical source ──────────────────────
+# Generates .opencode/agents/*.md from claude-setup/agents/*.md with OpenCode
+# frontmatter, ending the drift between the two directories.
+if [ -f "$HOME/repos/llm-wiki/scripts/sync-agents.py" ]; then
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HOME/repos/llm-wiki/scripts/sync-agents.py" --check 2>/dev/null && \
+    echo "✓ OpenCode agents in sync with llm-wiki canonical" || \
+    echo "⚠ OpenCode agents drifted — run: python3 ~/repos/llm-wiki/scripts/sync-agents.py --force"
 fi
 
 echo ""

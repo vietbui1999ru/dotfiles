@@ -46,6 +46,10 @@
       "rev": "6d808f99bd63303646794406e270bd553ad7792e",
       "src": "https://github.com/lewis6991/gitsigns.nvim"
     },
+    "hunk.nvim": {
+      "rev": "c8a8e7b6973576f63e5bf39aa8338d7f37f4dc53",
+      "src": "https://github.com/julienvincent/hunk.nvim"
+    },
     "image.nvim": {
       "rev": "da2be65c153ba15a14a342b05591652a6df70d58",
       "src": "https://github.com/3rd/image.nvim"
@@ -162,10 +166,6 @@
     "octo.nvim": {
       "rev": "66b8eeca8e18213a19742f8a031e6947c738342f",
       "src": "https://github.com/pwntester/octo.nvim"
-    },
-    "oil.nvim": {
-      "rev": "0fcc83805ad11cf714a949c98c605ed717e0b83e",
-      "src": "https://github.com/stevearc/oil.nvim"
     },
     "plenary.nvim": {
       "rev": "74b06c6c75e4eeb3108ec01852001636d85a932b",

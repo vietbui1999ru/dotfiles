@@ -38,6 +38,15 @@
     state: present
   when: ansible_os_family == "Darwin"
 
+# ── ketch (AI-agent research CLI: web/code/docs search) ────────────────
+# Go-based, cross-platform via `go install` — golang role runs before this
+# one in site.yml, and $HOME/go/bin is already on PATH (zsh/.zshrc).
+- name: Install ketch
+  ansible.builtin.shell: |
+    go install github.com/1broseidon/ketch@latest
+  args:
+    creates: "{{ ansible_env.HOME }}/go/bin/ketch"
+
 # ── Debian/Ubuntu ─────────────────────────────────────────────────────
 - name: Install tools available in apt (Debian)
   ansible.builtin.apt:
@@ -95,6 +104,7 @@
     - { crate: bat,       bin: bat    }
     - { crate: git-delta, bin: delta  }
     - { crate: zoxide,    bin: zoxide }
+    - { crate: jj-cli,    bin: jj     }
   args:
     creates: "{{ ansible_env.HOME }}/.cargo/bin/{{ item.bin }}"
   when: ansible_os_family == "Debian"
@@ -141,6 +151,7 @@
     - { crate: bat,       bin: bat    }
     - { crate: git-delta, bin: delta  }
     - { crate: zoxide,    bin: zoxide }
+    - { crate: jj-cli,    bin: jj     }
   args:
     creates: "{{ ansible_env.HOME }}/.cargo/bin/{{ item.bin }}"
   when: ansible_os_family == "RedHat"

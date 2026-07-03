@@ -1,0 +1,464 @@
+#!/usr/bin/env python3
+"""agent-session — universal per-repo session inbox for cross-harness agents.
+
+Stores session state, specs, PRs, designs, and architecture docs in
+<repo>/.agents/sessions/ with harness + work-type tags. Maintains
+index.json as the universal inbox any agent can read.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+SCRIPT = Path(__file__).resolve()
+DOTFILES = SCRIPT.parents[1]
+TEMPLATES_DIR = DOTFILES / "shared" / "templates"
+WORK_TYPES = ["feature", "fix", "refactor", "chore", "research", "spec", "design", "arch", "pr", "general"]
+KINDS = ["session", "spec", "plan", "design", "arch", "pr"]
+HARNESSES = ["cc", "codex", "opencode", "pi"]
+LEGACY_STATE_FILES = {
+    "cc": ".claude/session-state.md",
+    "codex": ".codex/session-state.md",
+    "opencode": ".claude/session-state.md",
+    "pi": ".pi/session-state.md",
+}
+
+
+def die(msg: str, code: int = 1) -> None:
+    print(f"agent-session: {msg}", file=sys.stderr)
+    raise SystemExit(code)
+
+
+def run(args: list[str], cwd: Path | None = None, check: bool = False) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(args, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=check)
+
+
+def git_main_root(path: Path) -> Path:
+    path = path.expanduser().resolve()
+    proc = run(["git", "-C", str(path), "rev-parse", "--git-common-dir"])
+    if proc.returncode != 0:
+        die(f"not inside a git repository: {path}")
+    common = proc.stdout.strip()
+    cp = Path(common)
+    if not cp.is_absolute():
+        cp = (path / cp).resolve()
+    return cp.parent.resolve()
+
+
+def sessions_dir(root: Path) -> Path:
+    return root / ".agents" / "sessions"
+
+
+def index_path(root: Path) -> Path:
+    return sessions_dir(root) / "index.json"
+
+
+def now_ts() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def now_human() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+
+def slugify(text: str) -> str:
+    text = text.lower().strip()
+    text = re.sub(r"[^a-z0-9]+", "-", text)
+    return text.strip("-")[:60] or "unnamed"
+
+
+def detect_harness() -> str:
+    if os.environ.get("CLAUDE_SESSION_ID"):
+        return "cc"
+    if os.environ.get("CODEX_SESSION_ID") or os.environ.get("__CODEX__"):
+        return "codex"
+    if os.environ.get("OPENCODE_SESSION_ID"):
+        return "opencode"
+    if os.environ.get("PI_SESSION_ID") or os.environ.get("PI_SESSION_FILE"):
+        return "pi"
+    return "general"
+
+
+def detect_work_type(root: Path) -> str:
+    proc = run(["git", "-C", str(root), "branch", "--show-current"])
+    if proc.returncode != 0:
+        return "general"
+    branch = proc.stdout.strip()
+    if branch.startswith("fix/"):
+        return "fix"
+    if branch.startswith("feat/"):
+        return "feature"
+    if branch.startswith("refactor/"):
+        return "refactor"
+    if branch.startswith("chore/"):
+        return "chore"
+    if branch.startswith("research/"):
+        return "research"
+    return "general"
+
+
+def current_branch(root: Path) -> str:
+    proc = run(["git", "-C", str(root), "branch", "--show-current"])
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
+def read_index(root: Path) -> dict[str, Any]:
+    p = index_path(root)
+    if not p.exists():
+        return {"sessions": []}
+    try:
+        with p.open() as f:
+            return json.load(f)
+    except Exception:
+        return {"sessions": []}
+
+
+def write_index(root: Path, index: dict[str, Any]) -> None:
+    d = sessions_dir(root)
+    d.mkdir(parents=True, exist_ok=True)
+    tmp = index_path(root).with_suffix(".tmp")
+    tmp.write_text(json.dumps(index, indent=2, sort_keys=True) + "\n")
+    tmp.replace(index_path(root))
+
+
+def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
+    fm: dict[str, str] = {}
+    if not text.startswith("---\n"):
+        return fm, text
+    end = text.find("\n---\n", 4)
+    if end == -1:
+        return fm, text
+    block = text[4:end]
+    body = text[end + 5:]
+    for line in block.splitlines():
+        if ":" in line:
+            k, v = line.split(":", 1)
+            v = v.strip().strip('"').strip("'")
+            if v:
+                fm[k.strip()] = v
+    return fm, body
+
+
+def build_frontmatter(meta: dict[str, Any]) -> str:
+    lines = ["---"]
+    for k in ["kind", "harness", "work_type", "status", "goal", "saved_at", "updated", "branch", "task", "tags"]:
+        v = meta.get(k)
+        if v is not None and v != "":
+            if isinstance(v, list):
+                lines.append(f"{k}: [{', '.join(v)}]")
+            else:
+                lines.append(f'{k}: "{v}"')
+    lines.append("---\n")
+    return "\n".join(lines)
+
+
+def write_legacy_pointer(root: Path, harness: str, session_file: str) -> None:
+    legacy = root / LEGACY_STATE_FILES.get(harness, ".claude/session-state.md")
+    legacy.parent.mkdir(parents=True, exist_ok=True)
+    legacy.write_text(f"see: .agents/sessions/{session_file}\n")
+
+
+def cmd_save(args: argparse.Namespace) -> None:
+    root = git_main_root(Path(args.repo if args.repo else "."))
+    sdir = sessions_dir(root)
+    sdir.mkdir(parents=True, exist_ok=True)
+
+    harness = args.harness or detect_harness()
+    work_type = args.work_type or detect_work_type(root)
+    kind = args.kind
+    task = args.task or os.environ.get("AGENTS_TASK_ID", "")
+    goal = args.goal or ""
+    slug = args.slug or slugify(goal) if goal else "session"
+    branch = current_branch(root)
+
+    ts = now_ts()
+    fname = f"{ts}_{harness}_{work_type}_{slug}.md"
+    fpath = sdir / fname
+
+    # Build content
+    if kind != "session" and args.template is not False:
+        tpl = TEMPLATES_DIR / f"{kind}.md"
+        if tpl.exists():
+            content = tpl.read_text()
+            content = content.replace("{{goal}}", goal or kind.upper())
+            content = content.replace("{{branch}}", branch)
+        else:
+            content = f"# {kind.upper()}: {goal}\n\n(No template found)\n"
+    else:
+        # Session state
+        meta = {
+            "kind": "session",
+            "harness": harness,
+            "work_type": work_type,
+            "status": "active",
+            "saved_at": now_iso(),
+            "updated": now_human(),
+            "branch": branch,
+            "goal": goal,
+        }
+        body = args.body if args.body else _default_session_body(root, goal)
+        content = build_frontmatter(meta) + "\n" + body
+
+    # If a body was passed via stdin
+    if args.body == "-" or args.stdin:
+        stdin_text = sys.stdin.read()
+        if stdin_text.strip():
+            content = build_frontmatter({
+                "kind": kind, "harness": harness, "work_type": work_type,
+                "status": "active", "saved_at": now_iso(), "updated": now_human(),
+                "branch": branch, "goal": goal,
+            }) + "\n" + stdin_text
+
+    fpath.write_text(content)
+    write_legacy_pointer(root, harness, fname)
+
+    # Update index
+    index = read_index(root)
+    fm, _ = parse_frontmatter(content)
+    index["sessions"].append({
+        "file": fname,
+        "kind": fm.get("kind", kind),
+        "harness": fm.get("harness", harness),
+        "work_type": fm.get("work_type", work_type),
+        "status": fm.get("status", "active"),
+        "goal": fm.get("goal", goal),
+        "saved_at": fm.get("saved_at", now_iso()),
+        "branch": fm.get("branch", branch),
+        "task": fm.get("task", task),
+    })
+    write_index(root, index)
+    print(f"✓ Saved: .agents/sessions/{fname}")
+
+
+def _default_session_body(root: Path, goal: str) -> str:
+    proc = run(["git", "-C", str(root), "status", "--short"])
+    st = proc.stdout.strip() if proc.returncode == 0 else ""
+    proc2 = run(["git", "-C", str(root), "log", "--oneline", "-5"])
+    log = proc2.stdout.strip() if proc2.returncode == 0 else ""
+    return f"""# Session State
+status: active
+
+## Goal
+{goal or "(unspecified)"}
+
+## Completed
+- (fill in)
+
+## In Progress
+- (fill in)
+
+## Files Modified This Session
+{st or "(none)"}
+
+## Recent Commits
+{log or "(none)"}
+
+## Next Session Should
+1. (fill in)
+"""
+
+
+def cmd_list(args: argparse.Namespace) -> None:
+    root = git_main_root(Path(args.repo if args.repo else "."))
+    index = read_index(root)
+    sessions = index.get("sessions", [])
+    if args.harness:
+        sessions = [s for s in sessions if s.get("harness") == args.harness]
+    if args.work_type:
+        sessions = [s for s in sessions if s.get("work_type") == args.work_type]
+    if args.kind:
+        sessions = [s for s in sessions if s.get("kind") == args.kind]
+    if args.status:
+        sessions = [s for s in sessions if s.get("status") == args.status]
+    if args.task:
+        sessions = [s for s in sessions if s.get("task") == args.task]
+    if not sessions:
+        print("(no sessions found)")
+        return
+    for s in sessions:
+        status_icon = "●" if s.get("status") == "active" else "○"
+        print(f"  {status_icon} {s['file']}  [{s.get('harness','?')}/{s.get('work_type','?')}]  {s.get('goal','')}")
+
+
+def cmd_show(args: argparse.Namespace) -> None:
+    root = git_main_root(Path(args.repo if args.repo else "."))
+    fpath = sessions_dir(root) / args.file
+    if not fpath.exists():
+        die(f"session file not found: {fpath}")
+    print(fpath.read_text())
+
+
+def cmd_resume(args: argparse.Namespace) -> None:
+    root = git_main_root(Path(args.repo if args.repo else "."))
+    fpath = sessions_dir(root) / args.file
+    if not fpath.exists():
+        die(f"session file not found: {fpath}")
+    fm, body = parse_frontmatter(fpath.read_text())
+    print(body)
+
+
+def cmd_active(args: argparse.Namespace) -> None:
+    root = git_main_root(Path(args.repo if args.repo else "."))
+    index = read_index(root)
+    sessions = index.get("sessions", [])
+    active = [s for s in sessions if s.get("status") == "active"]
+    if not active:
+        print("(no active sessions)")
+        return
+    latest = active[-1]
+    print(f".agents/sessions/{latest['file']}")
+
+
+def cmd_idle(args: argparse.Namespace) -> None:
+    # If the first positional looks like a directory, treat it as repo
+    repo = args.repo
+    file_arg = args.file
+    if file_arg and Path(file_arg).is_dir() and not repo:
+        repo = file_arg
+        file_arg = None
+    root = git_main_root(Path(repo if repo else "."))
+    if file_arg:
+        fpath = sessions_dir(root) / args.file
+    else:
+        index = read_index(root)
+        active = [s for s in index.get("sessions", []) if s.get("status") == "active"]
+        if not active:
+            print("✓ no active sessions")
+            return
+        fpath = sessions_dir(root) / active[-1]["file"]
+    if not fpath.exists():
+        die(f"session file not found: {fpath}")
+    content = fpath.read_text()
+    content = content.replace("status: active", "status: idle", 1)
+    fpath.write_text(content)
+    # Update index
+    index = read_index(root)
+    for s in index.get("sessions", []):
+        if s["file"] == fpath.name:
+            s["status"] = "idle"
+    write_index(root, index)
+    print(f"✓ Marked idle: .agents/sessions/{fpath.name}")
+
+
+def cmd_index(args: argparse.Namespace) -> None:
+    root = git_main_root(Path(args.repo if args.repo else "."))
+    sdir = sessions_dir(root)
+    sessions = []
+    if sdir.is_dir():
+        for f in sorted(sdir.glob("*.md")):
+            fm, _ = parse_frontmatter(f.read_text())
+            sessions.append({
+                "file": f.name,
+                "kind": fm.get("kind", "session"),
+                "harness": fm.get("harness", "unknown"),
+                "work_type": fm.get("work_type", "general"),
+                "status": fm.get("status", "unknown"),
+                "goal": fm.get("goal", ""),
+                "saved_at": fm.get("saved_at", ""),
+                "branch": fm.get("branch", ""),
+                "task": fm.get("task", ""),
+            })
+    write_index(root, {"sessions": sessions})
+    print(f"✓ Index rebuilt: {len(sessions)} sessions")
+
+
+def cmd_open(args: argparse.Namespace) -> None:
+    root = git_main_root(Path(args.repo if args.repo else "."))
+    fpath = sessions_dir(root) / args.file
+    if not fpath.exists():
+        die(f"session file not found: {fpath}")
+    app = args.app
+    if app == "obsidian":
+        obsidian_cli = shutil.which("obsidian-cli")
+        if not obsidian_cli:
+            die("obsidian-cli not found on PATH")
+        proc = run([obsidian_cli, "open", str(fpath)])
+        if proc.returncode != 0:
+            # Try created mode
+            proc = run([obsidian_cli, "create", str(fpath), "--content", fpath.read_text()])
+        print(f"✓ Opened in Obsidian: {fpath}")
+    elif app == "nvim":
+        os.execvp("nvim", ["nvim", str(fpath)])
+    else:
+        die(f"unknown app: {app}")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Universal session inbox for cross-harness agents")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser("save", help="Save session/spec/PR to universal inbox")
+    p.add_argument("--harness", choices=HARNESSES)
+    p.add_argument("--work-type", choices=WORK_TYPES)
+    p.add_argument("--kind", choices=KINDS, default="session")
+    p.add_argument("--task", default="")
+    p.add_argument("--slug", default="")
+    p.add_argument("--goal", default="")
+    p.add_argument("--body", default="")
+    p.add_argument("--stdin", action="store_true", help="Read body from stdin")
+    p.add_argument("--template", action="store_true", default=True)
+    p.add_argument("--no-template", dest="template", action="store_false")
+    p.add_argument("repo", nargs="?")
+    p.set_defaults(func=cmd_save)
+
+    p = sub.add_parser("list", help="List sessions from index.json")
+    p.add_argument("--harness", choices=HARNESSES)
+    p.add_argument("--work-type", choices=WORK_TYPES)
+    p.add_argument("--kind", choices=KINDS)
+    p.add_argument("--status", choices=["active", "idle"])
+    p.add_argument("--task", default="")
+    p.add_argument("repo", nargs="?")
+    p.set_defaults(func=cmd_list)
+
+    p = sub.add_parser("show", help="Print a session file")
+    p.add_argument("file")
+    p.add_argument("repo", nargs="?")
+    p.set_defaults(func=cmd_show)
+
+    p = sub.add_parser("resume", help="Print session body for injection")
+    p.add_argument("file")
+    p.add_argument("repo", nargs="?")
+    p.set_defaults(func=cmd_resume)
+
+    p = sub.add_parser("active", help="Print the latest active session file")
+    p.add_argument("repo", nargs="?")
+    p.set_defaults(func=cmd_active)
+
+    p = sub.add_parser("idle", help="Flip status: active → idle")
+    p.add_argument("file", nargs="?")
+    p.add_argument("repo", nargs="?")
+    p.set_defaults(func=cmd_idle)
+
+    p = sub.add_parser("index", help="Rebuild index.json from files")
+    p.add_argument("repo", nargs="?")
+    p.set_defaults(func=cmd_index)
+
+    p = sub.add_parser("open", help="Open a session file in an app")
+    p.add_argument("file")
+    p.add_argument("--app", choices=["obsidian", "nvim"], default="obsidian")
+    p.add_argument("repo", nargs="?")
+    p.set_defaults(func=cmd_open)
+    return parser
+
+
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()
