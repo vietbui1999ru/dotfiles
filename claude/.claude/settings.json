@@ -59,6 +59,15 @@
         "hooks": [
           {
             "type": "command",
+            "command": "~/.claude/hooks/context-threshold-notify.sh"
+          }
+        ]
+      },
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
             "command": "~/.claude/hooks/observe-session.sh"
           }
         ]
@@ -162,11 +171,18 @@
   "verbose": true,
   "autoCompactEnabled": false,
   "teammateMode": "in-process",
+  "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": true,
   "mcpServers": {
     "shadcn": {
       "url": "https://www.shadcn.io/api/mcp"
+    },
+    "firecrawl": {
+      "command": "bash",
+      "args": [
+        "-lc",
+        "set -a; [ -f \"$HOME/secrets/.env\" ] && source \"$HOME/secrets/.env\"; exec npx -y firecrawl-mcp"
+      ]
     }
-  },
-  "inputNeededNotifEnabled": true
+  }
 }

@@ -1,0 +1,10 @@
+{
+  "commandr": true,
+  "preCommitGate": true,
+  "diffviewer": true,
+  "neovimCockpit": true,
+  "piCockpit": true,
+  "opencodeAdapters": true,
+  "claudeHooks": false,
+  "autoOpenNeovimBoard": false
+}
