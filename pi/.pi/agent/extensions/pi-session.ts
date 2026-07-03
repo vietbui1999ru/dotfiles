@@ -358,8 +358,11 @@ export default function piSession(pi: ExtensionAPI) {
 		handler: async (args, ctx) => {
 			const parts = (args || "").trim().split(/\s+/);
 			const file = parts[0];
-			if (!file) {
-				ctx.ui.notify("Usage: /open <file> [--app obsidian|nvim]", "warning");
+			if (!file || !/^[A-Za-z0-9._-]+\.md$/.test(file)) {
+				ctx.ui.notify(
+					"Usage: /open <file.md> [--app obsidian|nvim] (plain filename, no path)",
+					"warning",
+				);
 				return;
 			}
 			const app = parts.includes("--app")
@@ -373,15 +376,14 @@ export default function piSession(pi: ExtensionAPI) {
 			}
 			if (app === "obsidian") {
 				try {
-					const { exec } = await import("node:child_process");
-					exec(
-						`obsidian-cli open "${sessionPath}" || obsidian-cli create "${sessionPath}" --content "$(cat '${sessionPath}')"`,
-						(err) => {
-							if (err)
-								ctx.ui.notify(
-									"Obsidian open failed: " + String(err),
-									"warning",
-								);
+					await execFileAsync("obsidian-cli", ["open", sessionPath]).catch(
+						async () => {
+							await execFileAsync("obsidian-cli", [
+								"create",
+								sessionPath,
+								"--content",
+								readFileSync(sessionPath, "utf8"),
+							]);
 						},
 					);
 					ctx.ui.notify("Opening in Obsidian...", "info");
