@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+"""Regenerate starship's [palettes.kitty_sync] table from kitty's active theme.
+
+Kitty theme files only define 16 ANSI colors + background/foreground/cursor.
+Starship's format string here references catppuccin-style names (rosewater,
+flamingo, mauve, teal, sapphire, lavender, ...) that a 16-color theme has no
+direct slot for. This script derives all of them deterministically from
+whatever kitty theme is currently active, so the two stay in sync:
+
+  - neutrals (base/mantle/crust, surface0-2, overlay0-2, text/subtext0-1) are
+    blends anchored on background/foreground/color0
+  - the 6 hues kitty themes actually define (red/green/yellow/blue/mauve/sky)
+    map straight from color1-6
+  - the remaining hue names catppuccin has but ANSI-16 doesn't (maroon, peach,
+    teal, sapphire, lavender, pink, rosewater, flamingo) are RGB blends
+    between the two nearest real hues, so they stay in the theme's own colors
+    rather than being invented from scratch
+"""
+import re
+import sys
+from pathlib import Path
+
+KITTY_THEME = Path.home() / ".config/kitty/current-theme.conf"
+STARSHIP_TOML = Path.home() / "dotfiles/starship/.config/starship.toml"
+PALETTE_NAME = "kitty_sync"
+
+# Order matches the existing palette table style in starship.toml.
+PALETTE_KEYS = [
+    "rosewater", "flamingo", "pink", "mauve", "red", "maroon", "peach",
+    "yellow", "green", "teal", "sky", "sapphire", "blue", "lavender",
+    "text", "subtext1", "subtext0", "overlay2", "overlay1", "overlay0",
+    "surface2", "surface1", "surface0", "base", "mantle", "crust",
+]
+
+
+def hex_to_rgb(h):
+    h = h.lstrip("#")
+    return tuple(int(h[i : i + 2], 16) for i in (0, 2, 4))
+
+
+def rgb_to_hex(rgb):
+    return "#" + "".join(f"{max(0, min(255, round(c))):02x}" for c in rgb)
+
+
+def blend(hex_a, hex_b, t):
+    """Linear RGB interpolation: t=0 -> hex_a, t=1 -> hex_b."""
+    a, b = hex_to_rgb(hex_a), hex_to_rgb(hex_b)
+    return rgb_to_hex(tuple(a[i] + (b[i] - a[i]) * t for i in range(3)))
+
+
+def parse_kitty_theme(path):
+    colors = {}
+    hexpat = re.compile(r"^#[0-9a-fA-F]{6}$")
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split(None, 1)
+        if len(parts) != 2:
+            continue
+        key, value = parts[0], parts[1].strip()
+        if hexpat.match(value):
+            colors[key] = value
+    return colors
+
+
+def build_palette(c):
+    bg, fg = c["background"], c["foreground"]
+    color0 = c.get("color0", bg)
+    color1, color2, color3 = c["color1"], c["color2"], c["color3"]
+    color4, color5, color6 = c["color4"], c["color5"], c["color6"]
+
+    return {
+        # neutrals
+        "base": bg,
+        "mantle": blend(bg, "#000000", 0.15),
+        "crust": blend(bg, "#000000", 0.30),
+        "surface0": color0,
+        "surface1": blend(color0, fg, 0.15),
+        "surface2": blend(color0, fg, 0.30),
+        "overlay0": blend(color0, fg, 0.45),
+        "overlay1": blend(color0, fg, 0.60),
+        "overlay2": blend(color0, fg, 0.75),
+        "text": fg,
+        "subtext1": blend(fg, bg, 0.15),
+        "subtext0": blend(fg, bg, 0.30),
+        # direct hues
+        "red": color1,
+        "green": color2,
+        "yellow": color3,
+        "blue": color4,
+        "mauve": color5,
+        "sky": color6,
+        # derived hues (blends between the two nearest real hues)
+        "maroon": blend(color1, color3, 0.30),
+        "peach": blend(color1, color3, 0.55),
+        "teal": blend(color2, color6, 0.50),
+        "sapphire": blend(color6, color4, 0.45),
+        "lavender": blend(color4, color5, 0.50),
+        "pink": blend(color5, color1, 0.30),
+        "rosewater": blend(color5, color1, 0.15),
+        "flamingo": blend(color1, color5, 0.15),
+    }
+
+
+def render_palette_table(palette):
+    width = max(len(k) for k in PALETTE_KEYS)
+    lines = [f"[palettes.{PALETTE_NAME}]"]
+    for key in PALETTE_KEYS:
+        lines.append(f'{key.ljust(width)} = "{palette[key]}"')
+    return "\n".join(lines) + "\n"
+
+
+def apply_to_toml(toml_text, palette_table):
+    # Point the format header at kitty_sync (idempotent if already set).
+    toml_text = re.sub(
+        r'^palette = ".*"$', 'palette = "kitty_sync"', toml_text, count=1, flags=re.M
+    )
+    # Replace everything from the first [palettes. section to EOF — the
+    # palette table is always the last thing in the file.
+    new_text, n = re.subn(
+        r"\[palettes\..*", palette_table, toml_text, count=1, flags=re.S
+    )
+    if n == 0:
+        new_text = toml_text.rstrip("\n") + "\n\n" + palette_table
+    return new_text
+
+
+def main():
+    theme_path = Path(sys.argv[1]) if len(sys.argv) > 1 else KITTY_THEME
+    toml_path = Path(sys.argv[2]) if len(sys.argv) > 2 else STARSHIP_TOML
+
+    colors = parse_kitty_theme(theme_path)
+    palette = build_palette(colors)
+    table = render_palette_table(palette)
+
+    toml_text = toml_path.read_text()
+    toml_path.write_text(apply_to_toml(toml_text, table))
+    print(f"synced {PALETTE_NAME} palette into {toml_path} from {theme_path}")
+
+
+if __name__ == "__main__":
+    main()

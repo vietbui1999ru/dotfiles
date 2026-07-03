@@ -12,3 +12,5 @@ nvim/.config/nvim/.claude/
 /.agents/approvals/
 /.agents/council/
 /.agents/annotations/
+kitty/.config/kitty/kitty-os.conf
+kitty/.config/kitty/*.bak

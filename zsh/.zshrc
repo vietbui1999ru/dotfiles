@@ -1,14 +1,16 @@
 # ── History ──────────────────────────────────────────────────────────
 [[ -o interactive ]] && stty -ixon 2>/dev/null
 
+
 HISTFILE="$HOME/.zsh_history"
 HISTSIZE=50000
 SAVEHIST=50000
 setopt HIST_IGNORE_DUPS HIST_IGNORE_SPACE SHARE_HISTORY INC_APPEND_HISTORY
 
 # ── Completions ───────────────────────────────────────────────────────
-autoload -Uz compinit
+: "${XDG_CACHE_HOME:=$HOME/.cache}"
 mkdir -p "$XDG_CACHE_HOME/zsh"
+autoload -Uz compinit
 compinit -d "$XDG_CACHE_HOME/zsh/zcompdump-$ZSH_VERSION"
 
 # ── Editor ────────────────────────────────────────────────────────────
@@ -62,6 +64,20 @@ _reset_terminal_modes() {
   printf '\e[<999u'                                          # pop kitty keyboard protocol stack
 }
 precmd_functions+=(_reset_terminal_modes)
+
+# Regenerate starship's palette from kitty's active theme whenever it changes
+# (kitty +kitten themes rewrites current-theme.conf on every theme switch)
+_sync_starship_theme() {
+  local theme_file="$HOME/.config/kitty/current-theme.conf"
+  local marker="$XDG_CACHE_HOME/starship-theme-sync.marker"
+  [[ -f "$theme_file" ]] || return
+  local mtime
+  mtime=$(stat -f %m "$theme_file" 2>/dev/null || stat -c %Y "$theme_file" 2>/dev/null)
+  if [[ "$(cat "$marker" 2>/dev/null)" != "$mtime" ]]; then
+    "$HOME/.local/bin/kitty-theme-to-starship" &>/dev/null && echo "$mtime" >"$marker"
+  fi
+}
+precmd_functions+=(_sync_starship_theme)
 
 # ── rg / fzf integration ──────────────────────────────────────────────
 if command -v rg >/dev/null 2>&1; then

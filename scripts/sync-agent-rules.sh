@@ -112,6 +112,15 @@ if [ -f "$HOME/repos/llm-wiki/scripts/sync-agents.py" ]; then
 		echo "⚠ OpenCode agents drifted — run: python3 ~/repos/llm-wiki/scripts/sync-agents.py --force"
 fi
 
+# ── Sync OpenCode agents from llm-wiki canonical source ──────────────────────
+# Generates .opencode/agents/*.md from claude-setup/agents/*.md with OpenCode
+# frontmatter, ending the drift between the two directories.
+if [ -f "$HOME/repos/llm-wiki/scripts/sync-agents.py" ]; then
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HOME/repos/llm-wiki/scripts/sync-agents.py" --check 2>/dev/null && \
+    echo "✓ OpenCode agents in sync with llm-wiki canonical" || \
+    echo "⚠ OpenCode agents drifted — run: python3 ~/repos/llm-wiki/scripts/sync-agents.py --force"
+fi
+
 echo ""
 echo "Done. Files updated:"
 echo "  ~/.config/opencode/AGENTS.md"
