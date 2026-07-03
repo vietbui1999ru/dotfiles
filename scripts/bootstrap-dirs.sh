@@ -15,6 +15,11 @@ if [ -x "$HOME/dotfiles/scripts/agent-workflow" ]; then
 	echo "✓ ~/.local/bin/agent-workflow → ~/dotfiles/scripts/agent-workflow"
 fi
 
+if [ -x "$HOME/dotfiles/scripts/agent-session" ]; then
+	ln -sf "$HOME/dotfiles/scripts/agent-session" "$HOME/.local/bin/agent-session"
+	echo "✓ ~/.local/bin/agent-session → ~/dotfiles/scripts/agent-session"
+fi
+
 # llm-wiki is a git submodule at ~/dotfiles/repos/llm-wiki.
 # Symlinks inside ~/.claude/ point to ~/repos/llm-wiki, so we create that as a
 # redirect on machines where the standalone clone doesn't exist.
