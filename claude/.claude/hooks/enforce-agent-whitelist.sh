@@ -48,14 +48,15 @@ if [ -z "$MODEL" ]; then
   >&2 echo "  haiku  — single-step mechanical: lookups, boilerplate, bounded subagent work"
   >&2 echo "  sonnet — multi-file impl, review, debugging, standard orchestration"
   >&2 echo "  opus   — architecture, security audits, irreversible ops, hard bugs"
+  >&2 echo "  fable  — explicitly requested by name"
   exit 2
 fi
 
-VALID_MODELS=("haiku" "sonnet" "opus")
+VALID_MODELS=("haiku" "sonnet" "opus" "fable")
 MODEL_OK=0
 for m in "${VALID_MODELS[@]}"; do [ "$MODEL" = "$m" ] && MODEL_OK=1 && break; done
 if [ "$MODEL_OK" -eq 0 ]; then
-  >&2 echo "BLOCKED: model '$MODEL' is not a valid tier. Use: haiku | sonnet | opus"
+  >&2 echo "BLOCKED: model '$MODEL' is not a valid tier. Use: haiku | sonnet | opus | fable"
   exit 2
 fi
 
