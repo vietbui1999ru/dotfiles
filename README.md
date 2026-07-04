@@ -14,6 +14,7 @@ Personal dotfiles managed with [GNU Stow](https://www.gnu.org/software/stow/). A
 | `tmux/` | `~/.tmux.conf`, `~/.local/bin/tmux-cht` |
 | `kitty/` | `~/.config/kitty/` |
 | `git/` | `~/.gitconfig` |
+| `jj/` | `~/.config/jj/config.toml` |
 | `claude/` | `~/.claude/` |
 | `opencode/` | `~/.config/opencode/` |
 | `codex/` | `~/.codex/` |
@@ -35,7 +36,7 @@ cd ~/dotfiles && brew bundle
 ./scripts/bootstrap-dirs.sh
 
 # 5. Symlink configs
-stow zsh starship nvim tmux kitty git claude opencode codex pi
+stow zsh starship nvim tmux kitty git jj claude opencode codex pi
 
 # 6. Sync AI tool rules (AGENTS.md + MCP servers)
 ./scripts/sync-agent-rules.sh
@@ -63,6 +64,7 @@ ansible-playbook ansible/site.yml --limit admin_redhat -i ansible/inventory/host
 | `scripts/bootstrap-dirs.sh` | Create `~/repos`, symlink `~/repos/llm-wiki` → submodule, materialize default configs |
 | `scripts/sync-agent-rules.sh` | Sync `shared/AGENTS.md` and MCP servers to Claude Code, Codex, OpenCode |
 | `scripts/agent-workflow` | Attach/detach/status/doctor for per-repo Commandr/Pi/Neovim workflow |
+| `scripts/agent-session` | Universal per-repo session inbox: save/list/show/resume/active/idle/index/open across all harnesses |
 
 ## Submodules
 
@@ -85,10 +87,15 @@ git add repos/llm-wiki && git commit -m "chore(submodule): bump llm-wiki"
 
 `omp` binaries land in `~/.bun/bin/` — already on PATH via `.zprofile`.
 
-The `pi/` stow package installs
-`~/.pi/agent/extensions/neovim-cockpit.ts`, which adds the Pi TUI
-`/cockpit`, `/nvim-context`, `/nvim-refresh`, `nvim_context` tool, and
-`#TASK` Commandr autocomplete used by the Neovim cockpit workflow.
+The `pi/` stow package installs three Pi TUI extensions:
+
+- `neovim-cockpit.ts` — `/cockpit`, `/nvim-context`, `/nvim-refresh`,
+  `nvim_context` tool, `#TASK` autocomplete
+- `pi-statusline.ts` — Catppuccin footer statusline (dir, git, ctx%, model)
+  with Nerd Font icons
+- `pi-session.ts` — `/save-session`, `/clear-context` (new session = 0%),
+  `/sessions`, `/resume`, `/spec`, `/plan`, `/design`, `/arch`, `/pr`,
+  `/review`, `/open`, `/diff` (red-for-deletions fix)
 
 ### Agent workflow automation
 
@@ -110,6 +117,34 @@ scripts/agent-workflow status ~/repos/example
 # Remove only the managed hook; keep task history by default
 scripts/agent-workflow detach ~/repos/example
 ```
+
+### Universal session inbox
+
+All harnesses (Claude, Codex, OpenCode, Pi) save session state to
+`.agents/sessions/` with harness + work-type tags:
+
+```sh
+# Save a session/spec/PR to the universal inbox
+scripts/agent-session save --harness pi --kind spec --goal "feature X"
+
+# List all sessions across all harnesses
+scripts/agent-session list
+
+# Get the latest active session (for injection on resume)
+scripts/agent-session active
+
+# Mark idle when work is complete
+scripts/agent-session idle
+```
+
+SPEC/PR/design/architecture templates in `shared/templates/` follow the Addy
+Osmani spec framework (6 core areas, 3-tier boundaries) and the undefeated PR
+template (7 sections). Use `agent-session save --kind spec|pr|design|arch|plan`
+to scaffold from templates.
+
+In Pi TUI: `/clear-context` saves state then starts a fresh session (ctx → 0%),
+`/spec`, `/pr`, etc. scaffold from templates, `/diff` renders diffs with
+unambiguous red deletions.
 
 ## Notes
 

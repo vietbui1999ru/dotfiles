@@ -3,7 +3,6 @@ import { Type } from "typebox";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { readFile } from "node:fs/promises";
 import { join, resolve, dirname } from "node:path";
 import { homedir } from "node:os";
 import { createObsidianNote } from "./pi-obsidian";
@@ -376,16 +375,15 @@ export default function piSession(pi: ExtensionAPI) {
 
 	pi.registerCommand("open", {
 		description:
-			"Open a session file in Obsidian or nvim. Args: <file> [--app obsidian|nvim]",
+			"Open a session file in Obsidian or nvim. Args: <file.md> [--app obsidian|nvim]",
 		handler: async (args, ctx) => {
 			const parts = (args || "").trim().split(/\s+/);
 			const file = parts[0];
-			if (!file) {
-				ctx.ui.notify("Usage: /open <file> [--app obsidian|nvim]", "warning");
-				return;
-			}
-			if (/[/\\]|\.\.|^-/.test(file)) {
-				ctx.ui.notify("Invalid session file name: " + file, "warning");
+			if (!file || !/^[A-Za-z0-9._-]+\.md$/.test(file)) {
+				ctx.ui.notify(
+					"Usage: /open <file.md> [--app obsidian|nvim] (plain filename, no path)",
+					"warning",
+				);
 				return;
 			}
 			const app = parts.includes("--app")
@@ -398,29 +396,21 @@ export default function piSession(pi: ExtensionAPI) {
 				return;
 			}
 			if (app === "obsidian") {
-				execFile("obsidian-cli", ["open", sessionPath], async (err) => {
-					if (!err) return;
-					try {
-						const content = await readFile(sessionPath, "utf8");
-						execFile(
-							"obsidian-cli",
-							["create", sessionPath, "--content", content],
-							(createErr) => {
-								if (createErr)
-									ctx.ui.notify(
-										"Obsidian open failed: " + String(createErr),
-										"warning",
-									);
-							},
-						);
-					} catch (readErr: any) {
-						ctx.ui.notify(
-							"Obsidian open failed: " + String(readErr),
-							"warning",
-						);
-					}
-				});
-				ctx.ui.notify("Opening in Obsidian...", "info");
+				try {
+					await execFileAsync("obsidian-cli", ["open", sessionPath]).catch(
+						async () => {
+							await execFileAsync("obsidian-cli", [
+								"create",
+								sessionPath,
+								"--content",
+								readFileSync(sessionPath, "utf8"),
+							]);
+						},
+					);
+					ctx.ui.notify("Opening in Obsidian...", "info");
+				} catch (err: any) {
+					ctx.ui.notify("Obsidian bridge failed: " + String(err), "warning");
+				}
 			} else if (app === "nvim") {
 				ctx.ui.notify(
 					"Use :!nvim " + sessionPath + " from Pi terminal",

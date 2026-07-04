@@ -1,0 +1,7 @@
+[user]
+name = "vietbui99"
+email = "buiquocviet99@gmail.com"
+
+[ui]
+diff-editor = ["nvim", "-c", "DiffEditor $left $right $output"]
+diff-instructions = false

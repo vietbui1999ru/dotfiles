@@ -18,7 +18,14 @@ DEFAULT_CONFIG_PATH = DOTFILES / "shared" / "agent-workflow.default.json"
 USER_CONFIG_PATH = Path(os.environ.get("AGENT_WORKFLOW_CONFIG", "~/.config/agent-workflow/config.json")).expanduser()
 MANAGED_HOOK_MARKER = "agent-workflow managed: pre-commit-gate"
 BUS_DIRS = ["inbox", "claimed", "done", "approvals", "council", "annotations"]
-EXCLUDE_LINES = [".agents/", ".diffviewer/", ".pi/nvim-context.json", ".agent-workflow.local.json"]
+EXCLUDE_LINES = [
+    ".agents/",
+    ".diffviewer/",
+    ".pi/nvim-context.json",
+    ".pi/status/",
+    ".agent-workflow.local.json",
+    ".obsidian/",
+]
 
 
 def die(message: str, code: int = 1) -> None:
@@ -146,7 +153,9 @@ def attach(args: argparse.Namespace) -> None:
         for name in BUS_DIRS:
             (bus / name).mkdir(parents=True, exist_ok=True)
         (bus / "events.jsonl").touch()
-        print("✓ Commandr bus attached")
+        # Universal session inbox
+        (bus / "sessions").mkdir(parents=True, exist_ok=True)
+        print("✓ Commandr bus attached (incl. sessions/)")
     else:
         print("- Commandr disabled by config")
 
