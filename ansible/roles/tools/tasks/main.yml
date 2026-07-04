@@ -38,6 +38,25 @@
     state: present
   when: ansible_os_family == "Darwin"
 
+# Obsidian CLI is bundled with Obsidian 1.12.7+ and registered from
+# Obsidian → Settings → General → Command line interface.
+- name: Check Obsidian CLI registration (macOS)
+  ansible.builtin.command: zsh -lc 'command -v obsidian'
+  register: obsidian_cli_macos
+  changed_when: false
+  failed_when: false
+  when: ansible_os_family == "Darwin"
+
+- name: Show Obsidian CLI registration help (macOS)
+  ansible.builtin.debug:
+    msg: >-
+      Obsidian CLI not found. Install/update Obsidian 1.12.7+, then enable
+      Settings → General → Command line interface. This should create
+      /usr/local/bin/obsidian; restart the terminal afterwards.
+  when:
+    - ansible_os_family == "Darwin"
+    - obsidian_cli_macos.rc != 0
+
 # ── ketch (AI-agent research CLI: web/code/docs search) ────────────────
 # Go-based, cross-platform via `go install` — golang role runs before this
 # one in site.yml, and $HOME/go/bin is already on PATH (zsh/.zshrc).
@@ -62,9 +81,12 @@
 
 - name: Install fzf from GitHub release (Debian)
   ansible.builtin.shell: |
-    FZF_VERSION=$(curl -fsSL "https://api.github.com/repos/junegunn/fzf/releases/latest" \
-      | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')
-    curl -fsSL "https://github.com/junegunn/fzf/releases/download/v${FZF_VERSION}/fzf-${FZF_VERSION}-linux_amd64.tar.gz" \
+    api=https://api.github.com/repos/junegunn/fzf/releases/latest
+    FZF_VERSION=$(curl -fsSL "$api" \
+      | grep '"tag_name"' \
+      | sed -E 's/.*"v([^"]+)".*/\1/')
+    url="https://github.com/junegunn/fzf/releases/download"
+    curl -fsSL "$url/v${FZF_VERSION}/fzf-${FZF_VERSION}-linux_amd64.tar.gz" \
       | tar -xz -C "$HOME/.local/bin"
   args:
     creates: "{{ ansible_env.HOME }}/.local/bin/fzf"
@@ -72,21 +94,43 @@
 
 - name: Install ripgrep from GitHub release (Debian)
   ansible.builtin.shell: |
-    RG_VERSION=$(curl -fsSL "https://api.github.com/repos/BurntSushi/ripgrep/releases/latest" \
-      | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
-    curl -fsSL "https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/ripgrep-${RG_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+    api=https://api.github.com/repos/BurntSushi/ripgrep/releases/latest
+    RG_VERSION=$(curl -fsSL "$api" \
+      | grep '"tag_name"' \
+      | sed -E 's/.*"([^"]+)".*/\1/')
+    url=https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}
+    archive=ripgrep-${RG_VERSION}-x86_64-unknown-linux-musl
+    curl -fsSL "$url/${archive}.tar.gz" \
       | tar -xz --strip-components=1 -C "$HOME/.local/bin" \
-        "ripgrep-${RG_VERSION}-x86_64-unknown-linux-musl/rg"
+        "$archive/rg"
   args:
     creates: "{{ ansible_env.HOME }}/.local/bin/rg"
   when: ansible_os_family == "Debian"
 
-- name: Ensure ~/.local/bin exists (Debian)
+- name: Ensure ~/.local/bin exists (Linux)
   ansible.builtin.file:
     path: "{{ ansible_env.HOME }}/.local/bin"
     state: directory
     mode: "0755"
-  when: ansible_os_family == "Debian"
+  when: ansible_os_family != "Darwin"
+
+- name: Check Obsidian CLI registration (Linux)
+  ansible.builtin.command: bash -lc 'command -v obsidian'
+  register: obsidian_cli_linux
+  changed_when: false
+  failed_when: false
+  when: ansible_os_family != "Darwin"
+
+- name: Show Obsidian CLI registration help (Linux)
+  ansible.builtin.debug:
+    msg: >-
+      Obsidian CLI not found. Install/update Obsidian 1.12.7+, enable
+      Settings → General → Command line interface, and ensure ~/.local/bin is
+      on PATH. If needed, copy obsidian-cli from the Obsidian install directory
+      to ~/.local/bin/obsidian and chmod 755 it.
+  when:
+    - ansible_os_family != "Darwin"
+    - obsidian_cli_linux.rc != 0
 
 - name: Create fd symlink for fdfind (Debian)
   ansible.builtin.file:
@@ -100,21 +144,29 @@
     . "$HOME/.cargo/env"
     cargo install {{ item.crate }} --locked
   loop:
-    - { crate: eza,       bin: eza    }
-    - { crate: bat,       bin: bat    }
-    - { crate: git-delta, bin: delta  }
-    - { crate: zoxide,    bin: zoxide }
-    - { crate: jj-cli,    bin: jj     }
+    - crate: eza
+      bin: eza
+    - crate: bat
+      bin: bat
+    - crate: git-delta
+      bin: delta
+    - crate: zoxide
+      bin: zoxide
+    - crate: jj-cli
+      bin: jj
   args:
     creates: "{{ ansible_env.HOME }}/.cargo/bin/{{ item.bin }}"
   when: ansible_os_family == "Debian"
 
 - name: Install lazygit (Debian)
   ansible.builtin.shell: |
-    LAZYGIT_VERSION=$(curl -s "https://api.github.com/repos/jesseduffield/lazygit/releases/latest" \
-      | grep '"tag_name"' | sed -E 's/.*"v*([^"]+)".*/\1/')
-    curl -Lo /tmp/lazygit.tar.gz \
-      "https://github.com/jesseduffield/lazygit/releases/latest/download/lazygit_${LAZYGIT_VERSION}_Linux_x86_64.tar.gz"
+    api=https://api.github.com/repos/jesseduffield/lazygit/releases/latest
+    LAZYGIT_VERSION=$(curl -s "$api" \
+      | grep '"tag_name"' \
+      | sed -E 's/.*"v*([^"]+)".*/\1/')
+    base=https://github.com/jesseduffield/lazygit/releases/latest/download
+    archive=lazygit_${LAZYGIT_VERSION}_Linux_x86_64.tar.gz
+    curl -Lo /tmp/lazygit.tar.gz "$base/$archive"
     tar xf /tmp/lazygit.tar.gz -C /tmp lazygit
     install /tmp/lazygit /usr/local/bin
   become: true
@@ -147,21 +199,29 @@
     . "$HOME/.cargo/env"
     cargo install {{ item.crate }} --locked
   loop:
-    - { crate: eza,       bin: eza    }
-    - { crate: bat,       bin: bat    }
-    - { crate: git-delta, bin: delta  }
-    - { crate: zoxide,    bin: zoxide }
-    - { crate: jj-cli,    bin: jj     }
+    - crate: eza
+      bin: eza
+    - crate: bat
+      bin: bat
+    - crate: git-delta
+      bin: delta
+    - crate: zoxide
+      bin: zoxide
+    - crate: jj-cli
+      bin: jj
   args:
     creates: "{{ ansible_env.HOME }}/.cargo/bin/{{ item.bin }}"
   when: ansible_os_family == "RedHat"
 
 - name: Install lazygit (RedHat)
   ansible.builtin.shell: |
-    LAZYGIT_VERSION=$(curl -s "https://api.github.com/repos/jesseduffield/lazygit/releases/latest" \
-      | grep '"tag_name"' | sed -E 's/.*"v*([^"]+)".*/\1/')
-    curl -Lo /tmp/lazygit.tar.gz \
-      "https://github.com/jesseduffield/lazygit/releases/latest/download/lazygit_${LAZYGIT_VERSION}_Linux_x86_64.tar.gz"
+    api=https://api.github.com/repos/jesseduffield/lazygit/releases/latest
+    LAZYGIT_VERSION=$(curl -s "$api" \
+      | grep '"tag_name"' \
+      | sed -E 's/.*"v*([^"]+)".*/\1/')
+    base=https://github.com/jesseduffield/lazygit/releases/latest/download
+    archive=lazygit_${LAZYGIT_VERSION}_Linux_x86_64.tar.gz
+    curl -Lo /tmp/lazygit.tar.gz "$base/$archive"
     tar xf /tmp/lazygit.tar.gz -C /tmp lazygit
     install /tmp/lazygit /usr/local/bin
   become: true
@@ -192,8 +252,12 @@
 
 - name: Add GitHub CLI apt repository (Debian)
   ansible.builtin.copy:
-    content: "deb [arch={{ ansible_architecture }} signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\n"
+    content: >-
+      deb [arch={{ ansible_architecture }}
+      signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg]
+      https://cli.github.com/packages stable main
     dest: /etc/apt/sources.list.d/github-cli.list
+    mode: "0644"
   become: true
   when: ansible_os_family == "Debian"
 
@@ -210,7 +274,8 @@
     name: gh
     description: GitHub CLI
     baseurl: https://cli.github.com/packages/rpm
-    gpgkey: https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x23F3D4EA75716059
+    gpgkey: >-
+      https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x23F3D4EA75716059
     gpgcheck: true
     enabled: true
   become: true
@@ -246,9 +311,12 @@
       aarch64|arm64) arch=arm64 ;;
       *) echo "Unsupported arch: $(uname -m)" >&2; exit 1 ;;
     esac
-    VERSION=$(curl -fsSL "https://api.github.com/repos/mikefarah/yq/releases/latest" \
-      | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')
-    curl -fsSL "https://github.com/mikefarah/yq/releases/download/v${VERSION}/yq_linux_${arch}" \
+    api=https://api.github.com/repos/mikefarah/yq/releases/latest
+    VERSION=$(curl -fsSL "$api" \
+      | grep '"tag_name"' \
+      | sed -E 's/.*"v([^"]+)".*/\1/')
+    url=https://github.com/mikefarah/yq/releases/download/v${VERSION}
+    curl -fsSL "$url/yq_linux_${arch}" \
       -o "{{ ansible_env.HOME }}/.local/bin/yq"
     chmod +x "{{ ansible_env.HOME }}/.local/bin/yq"
   args:

@@ -46,3 +46,6 @@ if [[ $OSTYPE == darwin* ]]; then
   fi
   unset _oblas
 fi
+
+# Added by Obsidian
+export PATH="$PATH:/Applications/Obsidian.app/Contents/MacOS"

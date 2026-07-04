@@ -150,6 +150,10 @@
       "rev": "f12990601dfa63c623049b470dc306ca905064c8",
       "src": "https://github.com/chrisgrieser/nvim-tinygit"
     },
+    "nvim-tree.lua": {
+      "rev": "531b807b8f0d6f75016a0ee1e0cd5ce2086e9d95",
+      "src": "https://github.com/nvim-tree/nvim-tree.lua"
+    },
     "nvim-treesitter": {
       "rev": "4916d6592ede8c07973490d9322f187e07dfefac",
       "src": "https://github.com/nvim-treesitter/nvim-treesitter",

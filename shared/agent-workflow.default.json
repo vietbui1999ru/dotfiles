@@ -15,5 +15,33 @@
   "autoInjectSessionState": true,
   "specTemplates": true,
   "obsidianBridge": true,
+  "obsidianCli": "obsidian",
+  "obsidianVault": "~/repos/Obsidian",
+  "obsidianFolders": {
+    "spec": "Sessions/Specs",
+    "design": "Sessions/Specs",
+    "arch": "Sessions/Specs",
+    "plan": "Sessions/Plans",
+    "pr": "Sessions/Reviews",
+    "review": "Sessions/Reviews",
+    "note": "Sessions/Inbox"
+  },
+  "obsidianContextCapture": true,
+  "obsidianDefaultContextMode": "since-compaction",
+  "obsidianHistoryLimit": 10,
+  "obsidianDiffTimeoutMs": 3500,
+  "gitview": {
+    "staleDays": 14,
+    "historyDepth": 20,
+    "multiRepo": false,
+    "repos": ["~/dotfiles", "~/repos/Commandr"]
+  },
+  "controlPlane": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 3340,
+    "openBrowser": true,
+    "multiRepo": false
+  },
   "diffThemeOverride": true
 }
