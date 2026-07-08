@@ -16,6 +16,8 @@ cwd=$(echo "$input" | jq -r '.workspace.current_dir')
 model=$(echo "$input" | jq -r '.model.display_name')
 output_style=$(echo "$input" | jq -r '.output_style.name // empty')
 context_used=$(echo "$input" | jq -r '.context_window.used_percentage // empty')
+session_pct=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty')
+weekly_pct=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty')
 vim_mode=$(echo "$input" | jq -r '.vim.mode // empty')
 agent=$(echo "$input" | jq -r '.agent.name // empty')
 
@@ -117,7 +119,31 @@ if [ -n "$context_used" ]; then
   else
     ctx_color="$GREEN"
   fi
-  ctx_info=" $(printf "${ctx_color}")ctx:${ctx_int}%%$(printf "${RESET}")"
+  ctx_info=" $(printf "${ctx_color}")ctx:${ctx_int}%$(printf "${RESET}")"
+fi
+
+# Claude usage limits — 5h session window + 7d weekly window
+limit_color() {
+  pct_int="$1"
+  if [ "$pct_int" -ge 90 ] 2>/dev/null; then
+    printf "${RED}"
+  elif [ "$pct_int" -ge 70 ] 2>/dev/null; then
+    printf "${YELLOW}"
+  else
+    printf "${GREEN}"
+  fi
+}
+
+session_info=""
+if [ -n "$session_pct" ]; then
+  session_int=$(printf "%.0f" "$session_pct" 2>/dev/null || echo "$session_pct")
+  session_info=" $(limit_color "$session_int")5h:${session_int}%$(printf "${RESET}")"
+fi
+
+weekly_info=""
+if [ -n "$weekly_pct" ]; then
+  weekly_int=$(printf "%.0f" "$weekly_pct" 2>/dev/null || echo "$weekly_pct")
+  weekly_info=" $(limit_color "$weekly_int")7d:${weekly_int}%$(printf "${RESET}")"
 fi
 
 # Agent: first segment only
@@ -135,6 +161,6 @@ style_info=""
 # Model: strip 'claude-' prefix
 short_model="${model#claude-}"
 
-# Order: vim | dir | git | ctx% | agent | style | (model)
-printf "%s$(printf "${PEACH}")%s$(printf "${RESET}")%s%s%s%s $(printf "${LAVENDER}")(%s)$(printf "${RESET}")" \
-  "$vim_info" "$short_dir" "$git_info" "$ctx_info" "$agent_info" "$style_info" "$short_model"
+# Order: vim | dir | git | ctx% | 5h% | 7d% | agent | style | (model)
+printf "%s$(printf "${PEACH}")%s$(printf "${RESET}")%s%s%s%s%s%s $(printf "${LAVENDER}")(%s)$(printf "${RESET}")" \
+  "$vim_info" "$short_dir" "$git_info" "$ctx_info" "$session_info" "$weekly_info" "$agent_info" "$style_info" "$short_model"
