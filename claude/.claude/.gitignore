@@ -32,6 +32,7 @@ ide/
 plugins/blocklist.json
 plugins/installed_plugins.json
 plugins/install-counts-cache.json
+plugins/known_marketplaces.json
 
 # Security warning state
 security_warnings_state_*.json
