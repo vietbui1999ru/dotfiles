@@ -1,3 +1,5 @@
+<!-- markdownlint-disable MD013 MD024 MD025 -->
+
 # Plan: Obsidian Session Notes + Git TUI + Localhost Control Plane
 
 Status: **DRAFT v2 — decisions incorporated, still for grilling before build.**
@@ -8,10 +10,11 @@ Status: **DRAFT v2 — decisions incorporated, still for grilling before build.*
 
 ### Obsidian/session notes
 
-- Use **Obsidian CLI** as the primary open/create path. The extension should still detect PATH issues and fall back to a visible error/help message, but the intended dependency is `obsidian-cli`.
-- Add `obsidian-cli` installation to dotfiles provisioning:
-  - macOS: Ansible `roles/tools/tasks/main.yml` / Brewfile path if available.
-  - Linux: Ansible install task appropriate to the upstream install method (`npm`, `pipx`, or release binary after verifying the CLI package name/version).
+- Use **Obsidian CLI** as the primary open/create/history/diff path. Official docs name the command `obsidian`; if a local alias/wrapper named `obsidian-cli` exists, support it as fallback, but config default should be `obsidian`.
+- Add Obsidian CLI enablement/verification to dotfiles provisioning:
+  - macOS: Obsidian 1.12.7+ installer registers a symlink at `/usr/local/bin/obsidian`; Ansible should verify it and print the Settings → General → Command line interface remediation if missing.
+  - Linux: Obsidian CLI registration copies the binary to `~/.local/bin/obsidian`; Ansible should verify PATH and document/manual-copy fallback from the Obsidian install directory.
+  - This is not an npm/pipx dependency; it is bundled with official Obsidian and enabled from Obsidian settings.
 - Main vault default is `/Users/vietquocbui/repos/Obsidian`.
 - Also support per-repo/per-project vaults, especially `llm-wiki` and project-specific vault workflows.
 - Notes should live under a **Sessions/** root in the selected vault, with Dataview-friendly subfolders:
@@ -25,14 +28,17 @@ Status: **DRAFT v2 — decisions incorporated, still for grilling before build.*
   - `n-entries`
 - Review notes should **embed DiffViewer artifacts**, not only link them.
 - Notes are **mutated/updated** over time, with an `n-history` record rather than always creating a new note.
+- Chosen version-history strategy: use **official Obsidian File Recovery + official Obsidian CLI file-history commands**. Do **not** make a community plugin a required dependency. Candidate community plugin research is documented below, but the selected implementation is core/CLI-first.
+- Embed actual `obsidian diff` output into updated notes when it is fast enough; otherwise include a clear skipped/timeout marker and the exact command to rerun.
 
 ### Git TUI
 
 - Scope is **viewer + cleanup only**.
-- Do **not** switch pi cwd/session when selecting a worktree. Only open/reveal path.
+- Do **not** switch pi cwd/session by raw/manual TUI selection. The TUI may open/reveal paths. A separate agent-mediated action may ask pi/agents to operate inside a selected worktree, but must first verify repo state, detect dirty/untracked files, create a backup/checkpoint, and require confirmation before destructive cleanup.
+- Agent worktree handoff should send a follow-up prompt telling pi to operate in the selected worktree, and should write a timestamped `session-paused`/handoff marker for the source worktree/session so failures can be traced and reverted.
 - Stale threshold: 14 days default.
 - History depth: 20 commits default.
-- Default repo scope: **cwd repo only**.
+- Default repo scope: **cwd repo only**
 - Add multi-repo option/toggle.
 - Implement as a new extension file plus shared git helpers:
   - `pi-gitview.ts`
@@ -87,6 +93,27 @@ Key constraints:
 - Defined events include `task_claimed`, `task_progress`, `task_complete`, `task_failed`, `session_end`, `council_verdict`, `task_annotation`.
 - `bin/index refresh [repo...]` builds derived `~/.agents/index.json`; this is a cache, never source of truth.
 - Annotation loop writes `.agents/annotations/<task>/<turn>-<seq>.json` and `task_annotation` events; injection is harness-side.
+
+### Obsidian File Recovery / CLI facts
+
+Official Obsidian docs say File Recovery is a core plugin that saves complete snapshots of `.md` and `.canvas` files at regular intervals. Defaults: snapshots are saved at least 5 minutes apart and kept for 7 days; both intervals are configurable under Settings → Core plugins → File recovery. Snapshots are stored in global settings outside the vault, keyed by absolute note path, are device-local, and are not a complete backup solution.
+
+Useful official UI/CLI capabilities:
+
+- File Recovery UI can copy or restore snapshots and has **Show changes** to display added/removed/modified content between snapshots.
+- Official Obsidian CLI includes file history commands:
+  - `obsidian diff path="..." from=1 to=3` — list/compare local File Recovery and Sync versions.
+  - `obsidian history path="..."` — list File Recovery versions.
+  - `obsidian history:read path="..." version=1` — read a local history version.
+  - `obsidian history:restore path="..." version=1` — restore a local history version.
+  - `obsidian history:open path="..."` — open File Recovery UI for a file.
+- Official Obsidian CLI requires Obsidian 1.12.7+ installer and the app/CLI registration enabled.
+
+Community plugin research:
+
+- **Version History Diff**: supports Sync, File Recovery, and Git diffs, but its README warns it uses private APIs and may break. Not selected as a dependency.
+- **Obsidian Git**: strong Git/source-control UI, but it expands scope into staging/commit/sync and recommends pairing with Version History Diff for detailed file history. Not selected for this plan.
+- **Time Machine**: closest UI match if we choose a plugin route; it uses built-in File Recovery snapshots plus git commits, offers timeline slider, colored diffs, full/selective restore, and on-demand snapshots. Still not selected as a required dependency because official CLI already gives us stable history/diff hooks and we want our DiffViewer/control-plane UI to remain independent.
 
 ### DiffViewer facts
 
@@ -211,14 +238,19 @@ Behavior:
    - `## DiffViewer Artifact` for reviews
    - `## Template` from `~/dotfiles/shared/templates/<kind>.md`
    - `## History` retaining last `n` update entries
-6. Open via `obsidian-cli`.
+   - `## Obsidian File Recovery` with latest embedded `obsidian diff` output when under timeout, plus the CLI commands needed to inspect note history/diff (`history`, `diff`, `history:open`) for this note path
+6. Open via official Obsidian CLI (`obsidian open path=...`, or `obsidian create path=... content=... open overwrite` for create/update flows as appropriate).
 
 Obsidian CLI command should be adapter-based, not hardcoded until verified. Plan:
 
-- At runtime, probe `obsidian-cli --help` once and cache capabilities.
-- Prefer `obsidian-cli open <path>` if supported.
-- Fallback to `obsidian-cli create <path> --content ...` only for create flows if needed.
-- If CLI cannot be found in non-login PATH, try a login shell path probe (`zsh -lc 'command -v obsidian-cli'`) and report install/PATH hint.
+- At runtime, probe `obsidian --help` once and cache capabilities; if missing, also try `obsidian-cli --help` for local wrapper compatibility.
+- Prefer exact official command shapes:
+  - `obsidian vault="<vault-name>" create path="Sessions/Plans/foo.md" content="..." open overwrite`
+  - `obsidian vault="<vault-name>" open path="Sessions/Plans/foo.md"`
+  - `obsidian vault="<vault-name>" history path="Sessions/Plans/foo.md"`
+  - `obsidian vault="<vault-name>" diff path="Sessions/Plans/foo.md" from=1`
+  - `obsidian vault="<vault-name>" history:open path="Sessions/Plans/foo.md"`
+- If CLI cannot be found in non-login PATH, try a login shell path probe (`zsh -lc 'command -v obsidian || command -v obsidian-cli'`) and report official registration steps: Obsidian 1.12.7+, Settings → General → Command line interface, restart terminal.
 
 ## Skill: `obsidian-spec`
 
@@ -237,18 +269,22 @@ Instructions:
 
 ## Dotfiles provisioning for Obsidian CLI
 
-Add an install task to `ansible/roles/tools/tasks/main.yml` and optionally `Brewfile`.
+Add verification/remediation tasks to `ansible/roles/tools/tasks/main.yml` and optionally a note in Brewfile/docs.
 
 Plan before implementation:
 
-1. Verify actual upstream package/command for `obsidian-cli` on this machine:
-   - `zsh -lc 'command -v obsidian-cli && obsidian-cli --help | head'`
-2. Add macOS install path:
-   - Homebrew if formula/tap exists, otherwise npm/pipx/binary.
-3. Add Linux install path:
-   - same upstream method where possible.
-4. Add smoke task/command in docs:
-   - `obsidian-cli --version` or `obsidian-cli --help`.
+1. Verify actual command on this machine:
+   - `zsh -lc 'command -v obsidian && obsidian help | head'`
+   - fallback check: `zsh -lc 'command -v obsidian-cli && obsidian-cli --help | head'`
+2. macOS provisioning:
+   - Ensure Obsidian app/installer is installed or documented.
+   - Verify `/usr/local/bin/obsidian` exists after Obsidian Settings → General → Command line interface.
+   - If missing, print remediation rather than pretending Homebrew/npm can install the official CLI.
+3. Linux provisioning:
+   - Ensure `~/.local/bin` is on PATH.
+   - Verify `~/.local/bin/obsidian`; if missing, print official manual copy hint from the Obsidian install directory.
+4. Smoke command:
+   - `obsidian version` or `obsidian help`.
 
 ---
 
@@ -314,14 +350,22 @@ Viewer + cleanup only:
 
 - open/reveal selected worktree path
 - copy path/branch to clipboard if easy
+- ask pi/agents to operate in selected worktree via an explicit, confirmed handoff action that sends a follow-up prompt and writes a timestamped handoff marker
 - delete selected worktree with confirm (`git worktree remove`)
 - prune worktrees with confirm (`git worktree prune`)
 - diff selected branch/worktree vs main
 - refresh
 
+Agent-mediated worktree operation rules:
+
+- Before an agent operates inside or cleans up a worktree, it must run preflight checks: `git status --porcelain`, untracked files, ahead/behind, branch/ref, recent commits, and whether the worktree is the current session cwd.
+- Worktree handoff writes a timestamped marker such as `.agents/worktree-sessions/<branch-or-worktree>.json` or `.agents/session-paused/<timestamp>.json` containing source session, target worktree, branch, head, dirty summary, and intended action.
+- For any destructive cleanup, **always create a backup first** (patch file, stash, safety branch/tag, or exported snapshot depending on state), then require human confirmation.
+- The TUI selection itself must not silently switch pi cwd/session.
+
 Explicitly do **not**:
 
-- switch pi cwd/session
+- raw/manual switch pi cwd/session from row selection
 - stage files
 - commit
 - push
@@ -343,6 +387,7 @@ This should be a browser cockpit for:
 - annotations
 - DiffViewer turns/artifacts/stream
 - active pi session note links
+- Obsidian notes pane: recent/session-linked notes, current note history, embedded/latest CLI diff output, and buttons to open File Recovery UI via `obsidian history:open`
 - worktree/branch state from Workstream B helpers
 
 ## Design principles
@@ -391,6 +436,9 @@ GET /api/diffviewer/sessions?repo=...
 GET /api/diffviewer/artifacts?repo=...
 GET /api/git/worktrees?repo=...
 GET /api/git/branches?repo=...
+GET /api/obsidian/notes?repo=...
+GET /api/obsidian/history?path=...
+GET /api/obsidian/diff?path=...&from=1&to=0
 GET /stream
 ```
 
@@ -401,9 +449,11 @@ POST /api/commandr/progress
 POST /api/commandr/annotate
 POST /api/commandr/approve
 POST /api/commandr/reject
+POST /api/git/worktree-handoff
 POST /api/git/worktree-remove
 POST /api/git/worktree-prune
 POST /api/obsidian/open-note
+POST /api/obsidian/open-history
 ```
 
 All write endpoints:
@@ -449,7 +499,7 @@ The control plane must respect:
 ```json
 {
   "obsidianBridge": true,
-  "obsidianCli": "obsidian-cli",
+  "obsidianCli": "obsidian",
   "obsidianVault": "/Users/vietquocbui/repos/Obsidian",
   "obsidianProjectVaults": {
     "llm-wiki": "/Users/vietquocbui/repos/llm-wiki/wiki"
@@ -487,7 +537,7 @@ The control plane must respect:
 
 # Build order
 
-1. Verify `obsidian-cli` command shape and add Ansible/Brewfile dependency.
+1. Verify official `obsidian` CLI command shape and add Ansible/Brewfile verification/remediation.
 2. `git-helpers.ts` shared helpers.
 3. Workstream B: `/worktrees` TUI viewer/cleanup.
 4. Workstream A: `pi-obsidian.ts` hook/tool/commands + skill.
@@ -506,5 +556,5 @@ The control plane must respect:
 - Full neogit staging/commit/push.
 - Hosted dashboard.
 - Auto-delete stale worktrees without confirm.
-- Obsidian plugin development.
+- Obsidian plugin development as a required dependency. We may use Obsidian CLI and official core plugins.
 - Cross-machine Commandr coordination.

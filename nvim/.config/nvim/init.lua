@@ -545,6 +545,7 @@ vim.api.nvim_create_autocmd("VimEnter", {
 		if workflow_enabled("neovimCockpit") then
 			vim.list_extend(wk_spec, {
 				{ "<leader>as", desc = "Pi: list sessions" },
+				{ "<leader>ap", desc = "AI: queue prompt to active Pi" },
 				{ "<leader>aa", desc = "AI: ask Pi about context" },
 				{ "<leader>aA", desc = "AI: ask OMP about context" },
 				{ "<leader>aC", desc = "AI: export Neovim context" },

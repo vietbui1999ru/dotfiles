@@ -9,7 +9,8 @@
 ---
 --- Keymaps:
 ---   <leader>aC  export current Neovim context
----   <leader>aa  ask Pi about current file/selection
+---   <leader>ap  queue a prompt to the active Pi session
+---   <leader>aa  ask Pi about current file/selection in a terminal split
 ---   <leader>aA  ask OMP about current file/selection
 ---   <leader>ai  open Pi TUI in a terminal split
 ---   <leader>aO  open OMP TUI in a terminal split
@@ -58,18 +59,22 @@ local function clip_lines(lines, max_chars)
 	return text:sub(1, max_chars) .. "\n... [truncated]", true
 end
 
-local function diagnostic_snapshot(bufnr)
-	local diagnostics = vim.diagnostic.get(bufnr)
+local function severity_name(severity)
 	local sev_map = {
 		[vim.diagnostic.severity.ERROR] = "ERROR",
 		[vim.diagnostic.severity.WARN] = "WARN",
 		[vim.diagnostic.severity.INFO] = "INFO",
 		[vim.diagnostic.severity.HINT] = "HINT",
 	}
+	return sev_map[severity] or "UNKNOWN"
+end
+
+local function diagnostic_snapshot(bufnr)
+	local diagnostics = vim.diagnostic.get(bufnr)
 	local counts = { ERROR = 0, WARN = 0, INFO = 0, HINT = 0 }
 	local items = {}
 	for i, d in ipairs(diagnostics) do
-		local sev = sev_map[d.severity] or "UNKNOWN"
+		local sev = severity_name(d.severity)
 		counts[sev] = (counts[sev] or 0) + 1
 		if i <= 40 then
 			items[#items + 1] = {
@@ -83,6 +88,63 @@ local function diagnostic_snapshot(bufnr)
 		end
 	end
 	return { total = #diagnostics, severity_counts = counts, items = items }
+end
+
+local function diagnostics_under_cursor(bufnr, lnum, col)
+	local result = {}
+	for _, d in ipairs(vim.diagnostic.get(bufnr, { lnum = lnum - 1 })) do
+		local start_col = (d.col or 0) + 1
+		local end_col = (d.end_col or d.col or 0) + 1
+		if col >= start_col and col <= math.max(start_col, end_col) then
+			result[#result + 1] = {
+				severity = severity_name(d.severity),
+				message = d.message,
+				source = d.source,
+				code = d.code,
+			}
+		end
+	end
+	return result
+end
+
+local function lsp_clients(bufnr)
+	local names = {}
+	for _, client in ipairs(vim.lsp.get_clients({ bufnr = bufnr })) do
+		names[#names + 1] = client.name
+	end
+	table.sort(names)
+	return names
+end
+
+local function enclosing_symbol(bufnr)
+	local ok, node = pcall(vim.treesitter.get_node, { bufnr = bufnr })
+	if not ok or not node then
+		return nil
+	end
+	local wanted = {
+		function_declaration = true,
+		function_definition = true,
+		function_item = true,
+		method_declaration = true,
+		method_definition = true,
+		method = true,
+		arrow_function = true,
+		class_declaration = true,
+		class_definition = true,
+		struct_item = true,
+		interface_declaration = true,
+	}
+	while node do
+		local kind = node:type()
+		if wanted[kind] then
+			local srow, _scol, erow, _ecol = node:range()
+			local first = vim.api.nvim_buf_get_lines(bufnr, srow, srow + 1, false)[1] or kind
+			first = first:gsub("^%s+", ""):gsub("%s+", " ")
+			return { kind = kind, name = first:sub(1, 120), range = { start = srow + 1, ["end"] = erow + 1 } }
+		end
+		node = node:parent()
+	end
+	return nil
 end
 
 function M.build_context()
@@ -119,6 +181,10 @@ function M.build_context()
 		filetype = vim.bo.filetype,
 		mode = vim.fn.mode(),
 		cursor = { line = lnum, col = cursor[2] + 1 },
+		reference = relpath(file, root) .. ":" .. lnum .. ":" .. (cursor[2] + 1),
+		symbol = enclosing_symbol(bufnr),
+		lsp = { clients = lsp_clients(bufnr) },
+		diagnostic_under_cursor = diagnostics_under_cursor(bufnr, lnum, cursor[2] + 1),
 		selection = selection,
 		context = {
 			start = context_start,
@@ -142,6 +208,34 @@ function M.write_context()
 	vim.fn.writefile({ encoded }, global_path)
 	vim.notify("Exported Neovim context: " .. project_path)
 	return ctx, project_path
+end
+
+function M.queue_pi_prompt(prompt)
+	local ctx, ctx_path = M.write_context()
+	local root = ctx.root or git_root()
+	local queue_path = root .. "/.pi/nvim-requests.jsonl"
+	vim.fn.mkdir(vim.fn.fnamemodify(queue_path, ":h"), "p")
+	local message = prompt
+		.. "\n\nUse ctx:nvim. The latest Neovim context was exported from "
+		.. ctx_path
+		.. "."
+	local packet = vim.json.encode({
+		ts = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+		source = "neovim",
+		context_path = ctx_path,
+		prompt = message,
+	})
+	vim.fn.writefile({ packet }, queue_path, "a")
+	vim.notify("Queued Pi prompt: " .. queue_path)
+end
+
+function M.prompt_active_pi()
+	vim.ui.input({ prompt = "Pi prompt: " }, function(prompt)
+		if not prompt or prompt == "" then
+			return
+		end
+		M.queue_pi_prompt(prompt)
+	end)
 end
 
 local function shell_join(parts)
@@ -168,7 +262,7 @@ local function ask(kind)
 		end
 		local bin = kind == "OMP" and (vim.fn.exepath("omp") ~= "" and vim.fn.exepath("omp") or "omp")
 			or (vim.fn.exepath("pi") ~= "" and vim.fn.exepath("pi") or "pi")
-		local message = "Use the attached Neovim context JSON from my editor. " .. prompt
+		local message = "Use the attached Neovim context JSON from my editor. ctx:nvim " .. prompt
 		local cmd = "cd " .. vim.fn.shellescape(root) .. " && " .. shell_join({ bin, "@" .. ctx_path, message })
 		terminal(cmd, root)
 	end)
@@ -178,7 +272,7 @@ function M.open_pi()
 	local ctx, ctx_path = M.write_context()
 	local root = ctx.root or git_root()
 	local bin = vim.fn.exepath("pi") ~= "" and vim.fn.exepath("pi") or "pi"
-	local cmd = "cd " .. vim.fn.shellescape(root) .. " && " .. shell_join({ bin, "@" .. ctx_path, "Use /nvim-context paste or the nvim_context tool when I ask about my current editor state." })
+	local cmd = "cd " .. vim.fn.shellescape(root) .. " && " .. shell_join({ bin, "@" .. ctx_path, "Use /nvim-context paste, ctx:nvim, or the nvim_context tool when I ask about my current editor state." })
 	terminal(cmd, root)
 end
 
@@ -186,7 +280,7 @@ function M.open_omp()
 	local ctx, ctx_path = M.write_context()
 	local root = ctx.root or git_root()
 	local bin = vim.fn.exepath("omp") ~= "" and vim.fn.exepath("omp") or "omp"
-	local cmd = "cd " .. vim.fn.shellescape(root) .. " && " .. shell_join({ bin, "@" .. ctx_path, "Use the attached Neovim context JSON when I ask about my current editor state." })
+	local cmd = "cd " .. vim.fn.shellescape(root) .. " && " .. shell_join({ bin, "@" .. ctx_path, "Use the attached Neovim context JSON when I ask about my current editor state. ctx:nvim" })
 	terminal(cmd, root)
 end
 
@@ -194,6 +288,9 @@ function M.setup()
 	vim.keymap.set("n", "<leader>aC", function()
 		M.write_context()
 	end, { desc = "AI: export Neovim context" })
+	vim.keymap.set({ "n", "x" }, "<leader>ap", function()
+		M.prompt_active_pi()
+	end, { desc = "AI: queue prompt to active Pi" })
 	vim.keymap.set({ "n", "x" }, "<leader>aa", function()
 		ask("Pi")
 	end, { desc = "AI: ask Pi about context" })

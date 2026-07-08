@@ -3,13 +3,13 @@ import { Type } from "typebox";
 import {
 	Key,
 	matchesKey,
-	truncateToWidth,
+	wrapTextWithAnsi,
 	type Component,
 } from "@earendil-works/pi-tui";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync } from "node:fs";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 
@@ -24,6 +24,14 @@ interface NvimContext {
 	filetype?: string;
 	mode?: string;
 	cursor?: { line?: number; col?: number };
+	reference?: string;
+	symbol?: {
+		name?: string;
+		kind?: string;
+		range?: { start?: number; end?: number };
+	};
+	lsp?: { clients?: string[] };
+	diagnostic_under_cursor?: Array<Record<string, unknown>>;
 	selection?: {
 		start?: number;
 		end?: number;
@@ -210,6 +218,54 @@ async function readNvimContext(
 	}
 }
 
+async function nvimRequestQueuePath(cwd: string): Promise<string> {
+	const root = (await gitMainRoot(cwd)) ?? cwd;
+	return join(root, ".pi", "nvim-requests.jsonl");
+}
+
+async function fileSize(path: string): Promise<number> {
+	try {
+		return (await stat(path)).size;
+	} catch {
+		return 0;
+	}
+}
+
+async function readNewNvimRequests(
+	path: string,
+	offset: number,
+): Promise<{ nextOffset: number; prompts: string[] }> {
+	try {
+		const raw = await readFile(path, "utf8");
+		const nextOffset = Buffer.byteLength(raw);
+		if (nextOffset <= offset) return { nextOffset, prompts: [] };
+		const chunk = raw.slice(offset);
+		const prompts = chunk
+			.split("\n")
+			.filter(Boolean)
+			.flatMap((line) => {
+				try {
+					const parsed = JSON.parse(line) as {
+						prompt?: string;
+						source?: string;
+					};
+					return parsed.prompt ? [parsed.prompt] : [];
+				} catch {
+					return [];
+				}
+			});
+		return { nextOffset, prompts };
+	} catch {
+		return { nextOffset: offset, prompts: [] };
+	}
+}
+
+function shouldAutoAttachNvimContext(prompt: string): boolean {
+	return /(?:^|\s)ctx:(nvim|selection|cursor|diagnostics?|diag|current)(?:\s|$|[.,;:!?])/i.test(
+		prompt,
+	);
+}
+
 function renderContextMarkdown(ctx: NvimContext, sourcePath?: string): string {
 	const lines: string[] = [];
 	lines.push("# Latest Neovim Context");
@@ -221,6 +277,13 @@ function renderContextMarkdown(ctx: NvimContext, sourcePath?: string): string {
 	if (ctx.filetype) lines.push(`filetype: ${ctx.filetype}`);
 	if (ctx.cursor?.line)
 		lines.push(`cursor: ${ctx.cursor.line}:${ctx.cursor.col ?? 1}`);
+	if (ctx.reference) lines.push(`reference: ${ctx.reference}`);
+	if (ctx.symbol?.name)
+		lines.push(
+			`symbol: ${ctx.symbol.kind ?? "symbol"} ${ctx.symbol.name} ${ctx.symbol.range?.start ?? "?"}-${ctx.symbol.range?.end ?? "?"}`,
+		);
+	if (ctx.lsp?.clients?.length)
+		lines.push(`lsp: ${ctx.lsp.clients.join(", ")}`);
 	if (ctx.selection?.text) {
 		lines.push("");
 		lines.push(
@@ -248,8 +311,18 @@ function renderContextMarkdown(ctx: NvimContext, sourcePath?: string): string {
 		for (const item of ctx.diagnostics.items ?? []) {
 			const sev = String(item.severity ?? "?");
 			const lnum = String(item.lnum ?? "?");
+			const col = String(item.col ?? "?");
 			const msg = String(item.message ?? "").replace(/\s+/g, " ");
-			lines.push(`- ${sev} L${lnum}: ${msg}`);
+			lines.push(`- ${sev} L${lnum}:${col}: ${msg}`);
+		}
+	}
+	if (ctx.diagnostic_under_cursor?.length) {
+		lines.push("");
+		lines.push("## Diagnostics Under Cursor");
+		for (const item of ctx.diagnostic_under_cursor) {
+			const sev = String(item.severity ?? "?");
+			const msg = String(item.message ?? "").replace(/\s+/g, " ");
+			lines.push(`- ${sev}: ${msg}`);
 		}
 	}
 	return lines.join("\n");
@@ -257,22 +330,57 @@ function renderContextMarkdown(ctx: NvimContext, sourcePath?: string): string {
 
 class CockpitPanel implements Component {
 	private lines: string[];
+	private scroll = 0;
+
 	constructor(
 		lines: string[],
 		private done: () => void,
 	) {
 		this.lines = lines;
 	}
+
+	private viewportHeight(): number {
+		const rows = process.stdout.rows || 40;
+		return Math.max(8, Math.floor(rows * 0.82) - 3);
+	}
+
+	private move(delta: number): void {
+		this.scroll = Math.max(0, this.scroll + delta);
+	}
+
 	handleInput(data: string): void {
 		if (
 			matchesKey(data, Key.escape) ||
 			matchesKey(data, Key.enter) ||
 			data === "q"
 		)
-			this.done();
+			return this.done();
+		if (matchesKey(data, Key.down) || data === "j") return this.move(1);
+		if (matchesKey(data, Key.up) || data === "k") return this.move(-1);
+		if (matchesKey(data, Key.pageDown) || matchesKey(data, Key.space))
+			return this.move(this.viewportHeight());
+		if (matchesKey(data, Key.pageUp)) return this.move(-this.viewportHeight());
+		if (matchesKey(data, Key.home) || data === "g") {
+			this.scroll = 0;
+			return;
+		}
+		if (matchesKey(data, Key.end) || data === "G") {
+			this.scroll = Number.MAX_SAFE_INTEGER;
+		}
 	}
+
 	render(width: number): string[] {
-		return this.lines.map((line) => truncateToWidth(line, width));
+		const wrapWidth = Math.max(20, width - 2);
+		const wrapped = this.lines.flatMap((line) =>
+			line ? wrapTextWithAnsi(line, wrapWidth) : [""],
+		);
+		const viewport = this.viewportHeight();
+		const maxScroll = Math.max(0, wrapped.length - viewport);
+		this.scroll = Math.min(this.scroll, maxScroll);
+		const start = this.scroll;
+		const body = wrapped.slice(start, start + viewport);
+		const footer = `↑↓/jk scroll • PgUp/PgDn page • g/G top/bottom • q close • ${Math.min(start + 1, wrapped.length || 1)}-${Math.min(start + viewport, wrapped.length)}/${wrapped.length}`;
+		return [...body, "", footer];
 	}
 	invalidate(): void {}
 }
@@ -338,19 +446,45 @@ async function buildCockpitLines(cwd: string, theme: any): Promise<string[]> {
 	}
 	lines.push("");
 	lines.push(theme.fg("accent", "Cursor-like workflow"));
-	lines.push("  1. In Neovim: <leader>aC exports current editor context");
+	lines.push("  1. In Neovim: <leader>aC exports rich editor context");
 	lines.push(
-		"  2. In Neovim: <leader>aa asks Pi with current selection/context",
+		"  2. In Neovim: <leader>ap queues a prompt to the active Pi session",
 	);
 	lines.push(
-		"  3. In Pi: /nvim-context paste injects latest editor context into prompt",
+		"  3. In Pi: mention ctx:nvim / ctx:selection / ctx:diag to auto-attach context",
 	);
-	lines.push("  4. Use #TASK autocomplete to bind prompts to Commandr tasks");
+	lines.push(
+		"  4. In Pi: /nvim-context paste still works for explicit prompt editing",
+	);
+	lines.push("  5. Use #TASK autocomplete to bind prompts to Commandr tasks");
 	return lines;
 }
 
 export default function neovimCockpit(pi: ExtensionAPI) {
 	let lastStatus = "";
+	let requestTimer: NodeJS.Timeout | undefined;
+	let requestOffset = 0;
+	let requestPath = "";
+
+	async function startRequestBridge(ctx: any) {
+		if (requestTimer) clearInterval(requestTimer);
+		requestPath = await nvimRequestQueuePath(ctx.cwd);
+		requestOffset = await fileSize(requestPath);
+		requestTimer = setInterval(() => {
+			void (async () => {
+				const config = await readWorkflowConfig(ctx.cwd);
+				if (!enabled(config, "neovimCockpit")) return;
+				const result = await readNewNvimRequests(requestPath, requestOffset);
+				requestOffset = result.nextOffset;
+				for (const prompt of result.prompts) {
+					pi.sendUserMessage(
+						prompt,
+						ctx.isIdle?.() ? undefined : { deliverAs: "followUp" },
+					);
+				}
+			})().catch(() => {});
+		}, 1000);
+	}
 
 	async function refreshStatus(ctx: any) {
 		if (!ctx.hasUI) return;
@@ -374,6 +508,7 @@ export default function neovimCockpit(pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		await refreshStatus(ctx);
+		await startRequestBridge(ctx);
 		if (!ctx.hasUI) return;
 		const config = await readWorkflowConfig(ctx.cwd);
 		if (!enabled(config, "piCockpit") || !enabled(config, "commandr")) return;
@@ -428,6 +563,34 @@ export default function neovimCockpit(pi: ExtensionAPI) {
 
 	pi.on("turn_end", async (_event, ctx) => refreshStatus(ctx));
 	pi.on("agent_end", async (_event, ctx) => refreshStatus(ctx));
+	pi.on("session_shutdown", async () => {
+		if (requestTimer) clearInterval(requestTimer);
+		requestTimer = undefined;
+	});
+
+	pi.on("before_agent_start", async (event, ctx) => {
+		const prompt = String(event.prompt ?? "");
+		if (!shouldAutoAttachNvimContext(prompt)) return;
+		const config = await readWorkflowConfig(ctx.cwd);
+		if (!enabled(config, "neovimCockpit")) return;
+		const latest = await readNvimContext(ctx.cwd);
+		if (!latest.data) {
+			return {
+				message: {
+					customType: "nvim-context",
+					content: latest.error ?? "No Neovim context found.",
+					display: true,
+				},
+			};
+		}
+		return {
+			message: {
+				customType: "nvim-context",
+				content: `Auto-attached latest Neovim context because the prompt used ctx:nvim/ctx:selection/ctx:cursor/ctx:diag.\n\n${renderContextMarkdown(latest.data, latest.path)}`,
+				display: true,
+			},
+		};
+	});
 
 	pi.registerCommand("cockpit", {
 		description: "Show Neovim/Commandr/DiffViewer operator cockpit panel",
@@ -443,9 +606,9 @@ export default function neovimCockpit(pi: ExtensionAPI) {
 				{
 					overlay: true,
 					overlayOptions: {
-						anchor: "right-center",
-						width: "52%",
-						maxHeight: "80%",
+						anchor: "center",
+						width: "90%",
+						maxHeight: "90%",
 						margin: 1,
 					},
 				},
@@ -485,9 +648,9 @@ export default function neovimCockpit(pi: ExtensionAPI) {
 					{
 						overlay: true,
 						overlayOptions: {
-							anchor: "right-center",
-							width: "60%",
-							maxHeight: "85%",
+							anchor: "center",
+							width: "90%",
+							maxHeight: "90%",
 							margin: 1,
 						},
 					},

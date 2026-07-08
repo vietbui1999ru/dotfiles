@@ -1,7 +1,13 @@
 # Navigation
 alias clr="clear"
-alias mkcd='f() { mkdir -p "$@" && cd "$_"; }; f'
-alias lp='awk '\''BEGIN{RS=":"}{printf "Path %d: %s\n",++i,$0}'\'' <<<"$PATH"'
+unalias mkcd lp 2>/dev/null
+mkcd() {
+  mkdir -p "$@" && cd "$_"
+}
+
+lp() {
+  awk 'BEGIN{RS=":"}{printf "Path %d: %s\n",++i,$0}' <<<"$PATH"
+}
 
 # Modern CLI replacements
 alias ls="eza --icons --group-directories-first"
@@ -12,12 +18,18 @@ alias grep="rg"
 alias find="fd"
 
 # Git
-alias acp='f() { git add . && git commit -a -s -m "$1" && git push; }; f'
+unalias acp 2>/dev/null
+acp() {
+  git add . && git commit -a -s -m "$1" && git push
+}
 
 # Editors
 alias nv="nvimvenv"
 alias luavim='cd ~/.config/nvim && nvim'
-alias vimacp='f() { cd ~/.config/nvim/ && git add . && git commit -a -m "$1" && git push; }; f'
+unalias vimacp 2>/dev/null
+vimacp() {
+  cd ~/.config/nvim/ && git add . && git commit -a -m "$1" && git push
+}
 
 # Dotfiles
 alias zc="nvim ~/.zshrc"
@@ -29,6 +41,10 @@ alias sourced="source ~/.zshrc"
 alias python="python3"
 alias obs='cd ~/repos/Obsidian/'
 alias tpdf="termpdf.py"
+
+# Pi workflows
+alias picp='pi -e "$HOME/.pi/agent/extensions-available/pi-control-plane.ts"'
+alias pi-cp='pi -e "$HOME/.pi/agent/extensions-available/pi-control-plane.ts"'
 
 # macOS-specific
 if [[ $OSTYPE == darwin* ]]; then

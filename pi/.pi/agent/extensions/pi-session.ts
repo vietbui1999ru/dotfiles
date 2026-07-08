@@ -266,6 +266,7 @@ export default function piSession(pi: ExtensionAPI) {
 						? slug
 						: `${kind.toUpperCase()}: ${slug}`;
 				}
+				const workType = kind === "plan" ? "general" : kind;
 				const result = await runAgentSession(
 					[
 						"save",
@@ -274,7 +275,7 @@ export default function piSession(pi: ExtensionAPI) {
 						"--kind",
 						kind,
 						"--work-type",
-						kind,
+						workType,
 						"--slug",
 						slug,
 						"--goal",
@@ -299,7 +300,10 @@ export default function piSession(pi: ExtensionAPI) {
 								contextMode: "since-compaction",
 								openAfter: true,
 							});
-							ctx.ui.notify(`${kind.toUpperCase()} Obsidian note: ${note.path}`, "info");
+							ctx.ui.notify(
+								`${kind.toUpperCase()} Obsidian note: ${note.path}`,
+								"info",
+							);
 						} catch (err: any) {
 							ctx.ui.notify("Obsidian note failed: " + String(err), "warning");
 						}
@@ -317,7 +321,7 @@ export default function piSession(pi: ExtensionAPI) {
 		"Create a SPEC document from template. Args: [slug]",
 	);
 	templateCommand(
-		"plan",
+		"session-plan",
 		"plan",
 		"Create a technical PLAN document. Args: [slug]",
 	);

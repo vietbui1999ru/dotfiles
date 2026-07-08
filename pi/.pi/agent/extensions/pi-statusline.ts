@@ -38,6 +38,7 @@ interface Icons {
 	stash: string;
 	worktree: string;
 	ctx: string;
+	limits: string;
 	model: string;
 	agent: string;
 	style: string;
@@ -54,6 +55,7 @@ const NERD_ICONS: Icons = {
 	stash: "\uf187", //
 	worktree: "\ue7a2", //
 	ctx: "\uf07c", //  (reuse folder; distinct by color)
+	limits: "\uf201", //
 	model: "\uf1b3", //
 	agent: "\uf016", //
 	style: "\uf1fb", //
@@ -70,18 +72,19 @@ const ASCII_ICONS: Icons = {
 	stash: "stsh",
 	worktree: "[wt]",
 	ctx: "ctx:",
+	limits: "lim:",
 	model: "(",
 	agent: "@",
 	style: "[",
 	sep: " | ",
 };
 
-async function readWorkflowConfig(
-	cwd: string,
-): Promise<{
+async function readWorkflowConfig(cwd: string): Promise<{
 	piStatusline?: boolean;
 	piStatuslineIcons?: string;
 	piStatuslineSegments?: string[];
+	piStatuslineDailyCostLimit?: number;
+	piStatuslineWeeklyCostLimit?: number;
 }> {
 	const paths = [join(homedir(), ".config", "agent-workflow", "config.json")];
 	// Repo-local
@@ -294,6 +297,83 @@ async function ctxSegment(icons: Icons): Promise<string> {
 	}
 }
 
+function fmtCost(usd: number): string {
+	if (!Number.isFinite(usd) || usd <= 0) return "$0";
+	if (usd < 0.01) return `$${usd.toFixed(3)}`;
+	if (usd < 10) return `$${usd.toFixed(2)}`;
+	return `$${Math.round(usd)}`;
+}
+
+function limitColor(percent?: number): string {
+	if (typeof percent !== "number" || !Number.isFinite(percent)) return C.green;
+	if (percent >= 90) return C.red;
+	if (percent >= 70) return C.yellow;
+	return C.green;
+}
+
+async function usageLimitsSegment(
+	cwd: string,
+	icons: Icons,
+	cfg: {
+		piStatuslineDailyCostLimit?: number;
+		piStatuslineWeeklyCostLimit?: number;
+	},
+): Promise<string> {
+	try {
+		const dirs = [join(cwd, ".pi", "status"), join(homedir(), ".pi", "status")];
+		const bySession = new Map<string, { ts: number; cost: number }>();
+		for (const dir of dirs) {
+			if (!existsSync(dir)) continue;
+			for (const file of await readdir(dir)) {
+				if (!file.endsWith(".json")) continue;
+				try {
+					const raw = await readFile(join(dir, file), "utf8");
+					const data = JSON.parse(raw);
+					const sessionId = String(data?.sessionId || file);
+					const ts = Date.parse(data?.updatedAt || data?.startedAt || "");
+					const cost = Number(data?.cost ?? 0);
+					if (!Number.isFinite(ts) || !Number.isFinite(cost)) continue;
+					const prev = bySession.get(sessionId);
+					if (!prev || ts > prev.ts) bySession.set(sessionId, { ts, cost });
+				} catch {
+					/* ignore malformed status files */
+				}
+			}
+		}
+
+		const now = Date.now();
+		let daily = 0;
+		let weekly = 0;
+		for (const entry of bySession.values()) {
+			const age = now - entry.ts;
+			if (age <= 24 * 60 * 60 * 1000) daily += entry.cost;
+			if (age <= 7 * 24 * 60 * 60 * 1000) weekly += entry.cost;
+		}
+		if (daily === 0 && weekly === 0) return "";
+
+		const dailyLimit = cfg.piStatuslineDailyCostLimit;
+		const weeklyLimit = cfg.piStatuslineWeeklyCostLimit;
+		const dailyPct = dailyLimit ? (daily / dailyLimit) * 100 : undefined;
+		const weeklyPct = weeklyLimit ? (weekly / weeklyLimit) * 100 : undefined;
+		const dailyText = dailyLimit
+			? `24h:${Math.round(dailyPct ?? 0)}%`
+			: `24h:${fmtCost(daily)}`;
+		const weeklyText = weeklyLimit
+			? `7d:${Math.round(weeklyPct ?? 0)}%`
+			: `7d:${fmtCost(weekly)}`;
+
+		return (
+			dim(icons.sep) +
+			dim(icons.limits) +
+			color(dailyText, limitColor(dailyPct)) +
+			" " +
+			color(weeklyText, limitColor(weeklyPct))
+		);
+	} catch {
+		return "";
+	}
+}
+
 function modelSegment(modelName: string, icons: Icons): string {
 	if (!modelName) return "";
 	const short = modelName.replace(/^claude-/, "").replace(/^gpt-/, "");
@@ -306,7 +386,13 @@ async function composeStatusline(cwd: string, model: string): Promise<string> {
 
 	const iconMode = cfg.piStatuslineIcons || "nerd";
 	const icons = iconMode === "ascii" ? ASCII_ICONS : NERD_ICONS;
-	const segments = cfg.piStatuslineSegments || ["dir", "git", "ctx", "model"];
+	const segments = cfg.piStatuslineSegments || [
+		"dir",
+		"git",
+		"ctx",
+		"limits",
+		"model",
+	];
 
 	let line = dirSegment(cwd, icons);
 	if (segments.includes("git")) {
@@ -316,6 +402,10 @@ async function composeStatusline(cwd: string, model: string): Promise<string> {
 	if (segments.includes("ctx")) {
 		const ctx = await ctxSegment(icons);
 		if (ctx) line += ctx;
+	}
+	if (segments.includes("limits")) {
+		const limits = await usageLimitsSegment(cwd, icons, cfg);
+		if (limits) line += limits;
 	}
 	if (segments.includes("model") && model) {
 		line += modelSegment(model, icons);
@@ -333,8 +423,8 @@ export default function piStatusline(pi: ExtensionAPI) {
 		if (line && ctx.hasUI) ctx.ui.setStatus("pi-statusline", line);
 	});
 
-	pi.on("model_changed", async (event, ctx) => {
-		currentModel = event.model?.display_name || event.model?.id || "";
+	pi.on("model_select", async (event, ctx) => {
+		currentModel = event.model?.name || event.model?.id || "";
 		const line = await composeStatusline(currentCwd || ctx.cwd, currentModel);
 		if (line && ctx.hasUI) ctx.ui.setStatus("pi-statusline", line);
 	});

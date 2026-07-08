@@ -2,6 +2,7 @@
 nvim/.config/nvim/.claude/
 /.pi/nvim-context.json
 /.pi/status/
+/.pi/nvim-requests.jsonl
 .agent-workflow.local.json
 /.obsidian/
 /.agents/sessions/

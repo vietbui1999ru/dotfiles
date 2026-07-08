@@ -1,1 +1,1 @@
-see: .agents/sessions/20260703-023125_pi_refactor_multi-agent-workflow-sync.md
+see: .agents/sessions/20260707-185816_pi_general_pi-workflow-smoke-test.md
