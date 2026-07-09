@@ -698,6 +698,48 @@ export default function (pi: ExtensionAPI): void {
 		},
 	});
 
+	pi.registerCommand("review-list", {
+		description: "List all review batches with status summary",
+		handler: async (_args, ctx) => {
+			const batchIds = listBatches(ctx.cwd);
+			if (batchIds.length === 0) {
+				ctx.ui.notify("No review batches found", "info");
+				return;
+			}
+
+			const summaries = batchIds
+				.map((id) => {
+					const b = loadBatch(ctx.cwd, id);
+					if (!b) return null;
+					const approved = b.files.filter((f) => f.status === "approved").length;
+					const rejected = b.files.filter((f) => f.status === "rejected").length;
+					const pending = b.files.filter((f) => f.status === "pending").length;
+					return `${id.slice(-12)}  ${b.overallStatus}  ${b.files.length} files  ${approved}✓ ${rejected}✗ ${pending}○  ${b.generatedBy}`;
+				})
+				.filter(Boolean)
+				.join("\n");
+
+			ctx.ui.notify(`Review batches:\n${summaries}`, "info");
+		},
+	});
+
+	pi.registerCommand("review-sandbox", {
+		description:
+			"Create a git worktree sandbox for review-gate codegen. Args: <branch-name>",
+		handler: async (args, ctx) => {
+			const branchName = (args || "").trim() || `review-${Date.now()}`;
+			const sandboxPath = await createGitWorktree(ctx.cwd, branchName);
+			if (!sandboxPath) {
+				ctx.ui.notify("Failed to create sandbox worktree", "error");
+				return;
+			}
+			ctx.ui.notify(
+				`Sandbox created: ${sandboxPath} (branch: ${branchName})`,
+				"info",
+			);
+		},
+	});
+
 	pi.registerCommand("review-batch", {
 		description: "Create a review batch from a sandbox path",
 		handler: async (args, ctx) => {
@@ -1111,5 +1153,34 @@ function readdirSync(dir: string): string[] {
 		return require("fs").readdirSync(dir);
 	} catch {
 		return [];
+	}
+}
+
+// ─── Sandbox helper ──────────────────────────────────────────────────────
+
+async function createGitWorktree(
+	cwd: string,
+	branchName: string,
+): Promise<string | null> {
+	try {
+		const worktreeDir = resolve(cwd, "..", `.review-gate-sandbox-${branchName}`);
+		await git(["worktree", "add", worktreeDir, "HEAD"], cwd);
+		await git(["checkout", "-b", branchName], worktreeDir);
+		return worktreeDir;
+	} catch (err: any) {
+		console.error("Failed to create worktree:", err.message);
+		return null;
+	}
+}
+
+async function removeGitWorktree(
+	cwd: string,
+	worktreePath: string,
+): Promise<boolean> {
+	try {
+		await git(["worktree", "remove", "--force", worktreePath], cwd);
+		return true;
+	} catch {
+		return false;
 	}
 }
