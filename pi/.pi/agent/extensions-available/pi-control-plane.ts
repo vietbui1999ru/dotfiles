@@ -119,7 +119,14 @@ async function commandrEvents(cwd: string) {
 }
 
 function expandVault(path?: string): string {
-	return resolve((path || "~/repos/Obsidian").replace(/^~(?=\/|$)/, homedir()));
+	// Env vars override
+	const envVault =
+		process.env.AGENTOPS_VAULT ||
+		process.env.PI_OBSIDIAN_VAULT ||
+		"";
+	if (envVault) return resolve(envVault.replace(/^~\//, homedir() + "/"));
+	const raw = path || "~/repos/AgentOps";
+	return resolve(raw.replace(/^~(?=\/|$)/, homedir()));
 }
 
 async function obsidianNotes(cfg: ControlConfig) {

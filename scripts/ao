@@ -1,0 +1,308 @@
+#!/usr/bin/env bash
+# ao — AgentOps vault helper
+# Quick vault operations: open, status, repair, note
+set -euo pipefail
+
+AGENTOPS_VAULT="${AGENTOPS_VAULT:-$HOME/repos/AgentOps}"
+OBSIDIAN_CLI="${AO_OBSIDIAN_CLI:-obsidian}"
+
+die() { echo "ao: $*" >&2; exit 1; }
+info() { echo "ao: $*"; }
+
+usage() {
+	cat <<EOF
+Usage: ao <command> [args]
+
+Commands:
+  open          Open AgentOps vault in Obsidian (default)
+  status        Show vault status and plugin guard state
+  repair        Auto-repair missing plugins
+  note <text>   Quick capture a note to Inbox
+  help          Show this help
+
+Environment:
+  AGENTOPS_VAULT    Path to AgentOps vault (default: \$HOME/repos/AgentOps)
+  AO_OBSIDIAN_CLI   Obsidian CLI binary (default: obsidian)
+EOF
+}
+
+check_vault() {
+	[[ -d "$AGENTOPS_VAULT" ]] || die "Vault not found at $AGENTOPS_VAULT"
+	[[ -d "$AGENTOPS_VAULT/.obsidian" ]] || die "Vault missing .obsidian dir"
+}
+
+check_cli() {
+	command -v "$OBSIDIAN_CLI" &>/dev/null && return 0
+	# Try common fallback
+	OBSIDIAN_CLI="obsidian-cli"
+	command -v "$OBSIDIAN_CLI" &>/dev/null && return 0
+	# Try via shell
+	local found
+	found=$(command -v obsidian 2>/dev/null || command -v obsidian-cli 2>/dev/null || true)
+	if [[ -n "$found" ]]; then
+		OBSIDIAN_CLI="$found"
+		return 0
+	fi
+	return 1
+}
+
+cmd_open() {
+	check_vault
+	if ! check_cli; then
+		info "Obsidian CLI not found. Opening vault directory instead."
+		open "$AGENTOPS_VAULT" 2>/dev/null || xdg-open "$AGENTOPS_VAULT" 2>/dev/null || echo "Open manually: $AGENTOPS_VAULT"
+		return
+	fi
+	# Try official CLI open
+	if "$OBSIDIAN_CLI" open "vault=$AGENTOPS_VAULT" 2>/dev/null; then
+		info "Opened AgentOps vault"
+		return
+	fi
+	# Fallback: URI scheme
+	if [[ "$(uname)" == "Darwin" ]]; then
+		local encoded
+		encoded=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$AGENTOPS_VAULT'))" 2>/dev/null || echo "$AGENTOPS_VAULT")
+		open "obsidian://open?vault=$encoded" 2>/dev/null && info "Opened via obsidian://" && return
+	fi
+	info "Open manually: $AGENTOPS_VAULT"
+}
+
+# Required plugins (from plan §6)
+CORE_PLUGINS=(
+	file-explorer global-search switcher graph backlink canvas
+	outgoing-link tag-pane page-preview daily-notes templates
+	command-palette file-recovery properties bookmarks
+)
+
+COMMUNITY_PLUGINS=(
+	dataview obsidian-tasks-plugin templater-obsidian periodic-notes
+	calendar obsidian-git cmdr buttons obsidian-meta-bind-plugin
+	obsidian-advanced-uri quickadd obsidian-kanban
+	obsidian-excalidraw-plugin omnisearch obsidian-linter
+	obsidian-style-settings
+)
+
+cmd_repair() {
+	check_vault
+	local modified=false
+
+	# Repair core-plugins.json
+	local core_json="$AGENTOPS_VAULT/.obsidian/core-plugins.json"
+	if [[ -f "$core_json" ]]; then
+		local missing=()
+		for plugin in "${CORE_PLUGINS[@]}"; do
+			if ! grep -q "\"$plugin\"" "$core_json" 2>/dev/null; then
+				missing+=("$plugin")
+			fi
+		done
+		if [[ ${#missing[@]} -gt 0 ]]; then
+			info "Missing core plugins: ${missing[*]}"
+			# Read existing, add missing
+			local tmp
+			tmp=$(mktemp)
+			python3 -c "
+import json
+with open('$core_json') as f:
+    cfg = json.load(f)
+existing = cfg.get('plugins', [])
+for p in ${missing[*]/#/}:
+    if p not in existing:
+        existing.append(p)
+cfg['plugins'] = existing
+with open('$core_json', 'w') as f:
+    json.dump(cfg, f, indent=2)
+" && modified=true && info "Repaired core plugins"
+		fi
+	else
+		# Create fresh
+		cat > "$core_json" <<-JSON
+		{
+		  "id": "$(uuidgen 2>/dev/null || echo "agentops-$(date +%s)")",
+		  "plugins": $(printf '%s\n' "${CORE_PLUGINS[@]}" | jq -R . | jq -s .)
+		}
+		JSON
+		modified=true
+		info "Created core-plugins.json"
+	fi
+
+	# Repair community-plugins.json
+	local comm_json="$AGENTOPS_VAULT/.obsidian/community-plugins.json"
+	if [[ -f "$comm_json" ]]; then
+		local missing_comm=()
+		for plugin in "${COMMUNITY_PLUGINS[@]}"; do
+			if ! grep -q "\"$plugin\"" "$comm_json" 2>/dev/null; then
+				missing_comm+=("$plugin")
+			fi
+		done
+		if [[ ${#missing_comm[@]} -gt 0 ]]; then
+			info "Missing community plugins: ${missing_comm[*]}"
+			local tmp
+			tmp=$(mktemp)
+			python3 -c "
+import json
+with open('$comm_json') as f:
+    plugins = json.load(f)
+existing = plugins if isinstance(plugins, list) else []
+for p in ${missing_comm[*]/#/}:
+    if p not in existing:
+        existing.append(p)
+with open('$comm_json', 'w') as f:
+    json.dump(existing, f, indent=2)
+" && modified=true && info "Repaired community plugins"
+		fi
+	else
+		printf '%s\n' "${COMMUNITY_PLUGINS[@]}" | jq -R . | jq -s . > "$comm_json"
+		modified=true
+		info "Created community-plugins.json"
+	fi
+
+	# Check plugin folders exist
+	local missing_folders=()
+	for plugin in "${COMMUNITY_PLUGINS[@]}"; do
+		local plugin_dir="$AGENTOPS_VAULT/.obsidian/plugins/$plugin"
+		if [[ ! -d "$plugin_dir" ]]; then
+			missing_folders+=("$plugin")
+		fi
+	done
+	if [[ ${#missing_folders[@]} -gt 0 ]]; then
+		info "Missing plugin folders (need install in Obsidian): ${missing_folders[*]}"
+	fi
+
+	# Write guard report
+	local guard_file="$AGENTOPS_VAULT/System/plugin-guard-last-run.md"
+	{
+		echo "# Plugin Guard — Last Run"
+		echo ""
+		echo "Date: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+		echo ""
+		if $modified; then
+			echo "Status: **repairs made**"
+		elif [[ ${#missing_folders[@]} -gt 0 ]]; then
+			echo "Status: **plugins missing** (need install)"
+		else
+			echo "Status: **clean**"
+		fi
+		echo ""
+		echo "## Core plugins"
+		for p in "${CORE_PLUGINS[@]}"; do
+			echo "- [x] $p"
+		done
+		echo ""
+		echo "## Community plugins"
+		for p in "${COMMUNITY_PLUGINS[@]}"; do
+			if [[ -d "$AGENTOPS_VAULT/.obsidian/plugins/$p" ]]; then
+				echo "- [x] $p"
+			else
+				echo "- [ ] $p (folder missing — install in Obsidian)"
+			fi
+		done
+	} > "$guard_file"
+
+	if [[ ${#missing_folders[@]} -gt 0 ]]; then
+		die "Some community plugin folders are missing. Open AgentOps in Obsidian to install them."
+	fi
+
+	if $modified; then
+		info "Plugin config repaired. Guard report: $guard_file"
+	else
+		info "All plugins OK. Guard report: $guard_file"
+	fi
+}
+
+cmd_status() {
+	check_vault
+	echo "=== AgentOps Vault ==="
+	echo "Path: $AGENTOPS_VAULT"
+	echo ""
+
+	# Git status
+	if [[ -d "$AGENTOPS_VAULT/.git" ]]; then
+		local branch
+		branch=$(cd "$AGENTOPS_VAULT" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+		local dirty=""
+		cd "$AGENTOPS_VAULT" && git diff --quiet 2>/dev/null || dirty=" (dirty)"
+		echo "Git: $branch$dirty"
+	else
+		echo "Git: not initialized"
+	fi
+	echo ""
+
+	# Core plugins
+	echo "Core plugins:"
+	local core_json="$AGENTOPS_VAULT/.obsidian/core-plugins.json"
+	if [[ -f "$core_json" ]]; then
+		local count
+		count=$(python3 -c "import json; print(len(json.load(open('$core_json')).get('plugins',[])))" 2>/dev/null || echo "?")
+		echo "  $count plugins registered"
+	else
+		echo "  MISSING"
+	fi
+
+	# Community plugins
+	local comm_json="$AGENTOPS_VAULT/.obsidian/community-plugins.json"
+	if [[ -f "$comm_json" ]]; then
+		local comm_count missing_comm=0
+		comm_count=$(python3 -c "import json; d=json.load(open('$comm_json')); print(len(d) if isinstance(d,list) else 0)" 2>/dev/null || echo "?")
+		for plugin in "${COMMUNITY_PLUGINS[@]}"; do
+			[[ ! -d "$AGENTOPS_VAULT/.obsidian/plugins/$plugin" ]] && ((missing_comm++)) || true
+		done
+		echo "Community plugins: $comm_count registered, $missing_comm missing folders"
+	else
+		echo "Community plugins: MISSING"
+	fi
+	echo ""
+
+	# Notes count
+	local notes
+	notes=$(find "$AGENTOPS_VAULT" -name "*.md" -not -path "*/.obsidian/*" 2>/dev/null | wc -l | tr -d ' ')
+	echo "Notes: $notes"
+	echo ""
+
+	# Last guard run
+	local guard_file="$AGENTOPS_VAULT/System/plugin-guard-last-run.md"
+	if [[ -f "$guard_file" ]]; then
+		local last_run
+		last_run=$(head -5 "$guard_file" | grep "^Date:" | sed 's/^Date: //')
+		echo "Last guard run: ${last_run:-unknown}"
+	else
+		echo "Guard: never run"
+	fi
+}
+
+cmd_note() {
+	check_vault
+	local text="${*:?Usage: ao note <text>}"
+	local slug
+	slug=$(echo "$text" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g;s/--*/-/g;s/^-//;s/-$//' | cut -c1-60)
+	local file="$AGENTOPS_VAULT/Inbox/$(date +%Y%m%d)-${slug}.md"
+	mkdir -p "$AGENTOPS_VAULT/Inbox"
+	{
+		echo "---"
+		echo "type: inbox"
+		echo "created: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+		echo "tags: [inbox]"
+		echo "---"
+		echo ""
+		echo "# $text"
+		echo ""
+		echo "Captured: $(date)"
+	} > "$file"
+	info "Note saved: $file"
+}
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+
+cmd="${1:-open}"
+shift 2>/dev/null || true
+
+case "$cmd" in
+	open|status|repair|note)
+		"cmd_$cmd" "$@"
+		;;
+	help|--help|-h)
+		usage
+		;;
+	*)
+		die "Unknown command: $cmd. Use 'ao help' for usage."
+		;;
+esac

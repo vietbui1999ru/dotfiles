@@ -1,527 +1,744 @@
 <!-- markdownlint-disable MD013 MD024 MD025 -->
 
-# Plan: Obsidian Session Notes + Git TUI + Localhost Control Plane
+# Final Plan: AgentOps Vault + DiffView Review Gate + Pi Workflow
 
-Status: **DRAFT v2 — decisions incorporated, still for grilling before build.**
+Status: **FINAL pre-implementation plan**  
+Date: 2026-07-09
 
----
-
-## Confirmed decisions from grill pass
-
-### Obsidian/session notes
-
-- Use **Obsidian CLI** as the primary open/create/history/diff path. Official docs name the command `obsidian`; if a local alias/wrapper named `obsidian-cli` exists, support it as fallback, but config default should be `obsidian`.
-- Add Obsidian CLI enablement/verification to dotfiles provisioning:
-  - macOS: Obsidian 1.12.7+ installer registers a symlink at `/usr/local/bin/obsidian`; Ansible should verify it and print the Settings → General → Command line interface remediation if missing.
-  - Linux: Obsidian CLI registration copies the binary to `~/.local/bin/obsidian`; Ansible should verify PATH and document/manual-copy fallback from the Obsidian install directory.
-  - This is not an npm/pipx dependency; it is bundled with official Obsidian and enabled from Obsidian settings.
-- Main vault default is `/Users/vietquocbui/repos/Obsidian`.
-- Also support per-repo/per-project vaults, especially `llm-wiki` and project-specific vault workflows.
-- Notes should live under a **Sessions/** root in the selected vault, with Dataview-friendly subfolders:
-  - `Sessions/Specs/`
-  - `Sessions/Plans/`
-  - `Sessions/Reviews/`
-- Hook behavior: **yes** to interactive/user-visible capture flow, not purely silent. The hook should detect spec/plan/review intent and offer/start the note flow when appropriate.
-- Context scope options:
-  - `since-compaction` default
-  - `full`
-  - `n-entries`
-- Review notes should **embed DiffViewer artifacts**, not only link them.
-- Notes are **mutated/updated** over time, with an `n-history` record rather than always creating a new note.
-- Chosen version-history strategy: use **official Obsidian File Recovery + official Obsidian CLI file-history commands**. Do **not** make a community plugin a required dependency. Candidate community plugin research is documented below, but the selected implementation is core/CLI-first.
-- Embed actual `obsidian diff` output into updated notes when it is fast enough; otherwise include a clear skipped/timeout marker and the exact command to rerun.
-
-### Git TUI
-
-- Scope is **viewer + cleanup only**.
-- Do **not** switch pi cwd/session by raw/manual TUI selection. The TUI may open/reveal paths. A separate agent-mediated action may ask pi/agents to operate inside a selected worktree, but must first verify repo state, detect dirty/untracked files, create a backup/checkpoint, and require confirmation before destructive cleanup.
-- Agent worktree handoff should send a follow-up prompt telling pi to operate in the selected worktree, and should write a timestamped `session-paused`/handoff marker for the source worktree/session so failures can be traced and reverted.
-- Stale threshold: 14 days default.
-- History depth: 20 commits default.
-- Default repo scope: **cwd repo only**
-- Add multi-repo option/toggle.
-- Implement as a new extension file plus shared git helpers:
-  - `pi-gitview.ts`
-  - `git-helpers.ts`
-
-### Additional requirement
-
-- Add a **localhost web surface** that follows Commandr's `.agents/` bus protocol and DiffViewer's event/streaming model.
-- Think: local cockpit/control-plane web page that reads Commandr bus state, follows DiffViewer stream/turn artifacts, and exposes safe viewer/control actions.
-
----
-
-## Current state
-
-### Existing pi extension state
-
-`~/.pi/agent/extensions/pi-session.ts` already owns:
-
-- `/spec`, `/plan`, `/design`, `/arch`, `/pr` — create docs from templates in `~/dotfiles/shared/templates/` by calling `~/dotfiles/scripts/agent-session save ...`.
-- `/review` — points at `.diffviewer/artifacts/...`.
-- `/open <file> [--app obsidian|nvim]` — currently tries Obsidian via `obsidian-cli`.
-- `/save-session`, `/clear-context`, `/sessions`, `/resume`, `/diff`.
-
-`~/.config/agent-workflow/config.json` is the global config surface. Repo-local `.agent-workflow.json` can override.
-
-### Session facts
-
-- Pi sessions live at `~/.pi/agent/sessions/<slugified-cwd>/<timestamp>_<uuid>.jsonl`.
-- `ctx.sessionManager` exposes `getEntries()`, `getBranch()`, `getLeafId()`, `getSessionFile()`.
-- Useful entry types: messages, tool results, compactions, branch summaries, labels, model changes.
-- High-signal context sources: latest compaction, branch path since compaction, labeled checkpoints, failed tool results, touched files.
-
-### Commandr bus facts
-
-Commandr defines a filesystem-native bus under the main checkout's `.agents/` directory:
+This supersedes the earlier Obsidian/Git TUI/control-plane draft. The final direction is:
 
 ```text
-.agents/
-  inbox/
-  claimed/
-  done/
-  approvals/
-  events.jsonl
-  council/
-  annotations/
+AgentOps vault     = human memory, dashboards, durable summaries
+DiffView extension = visual diff fidelity + review artifacts
+Pi review gate     = sandbox generation, patch batches, approval state, apply enforcement
+Commandr           = task/event bus + cross-agent workflow coordination
 ```
 
-Key constraints:
+Non-negotiable separation:
 
-- Bus lives in the **main checkout**, not each worktree.
-- `events.jsonl` is append-only JSONL.
-- Defined events include `task_claimed`, `task_progress`, `task_complete`, `task_failed`, `session_end`, `council_verdict`, `task_annotation`.
-- `bin/index refresh [repo...]` builds derived `~/.agents/index.json`; this is a cache, never source of truth.
-- Annotation loop writes `.agents/annotations/<task>/<turn>-<seq>.json` and `task_annotation` events; injection is harness-side.
+> **DiffView owns visual diff fidelity. Pi owns workflow state. AgentOps owns durable memory.**
 
-### Obsidian File Recovery / CLI facts
-
-Official Obsidian docs say File Recovery is a core plugin that saves complete snapshots of `.md` and `.canvas` files at regular intervals. Defaults: snapshots are saved at least 5 minutes apart and kept for 7 days; both intervals are configurable under Settings → Core plugins → File recovery. Snapshots are stored in global settings outside the vault, keyed by absolute note path, are device-local, and are not a complete backup solution.
-
-Useful official UI/CLI capabilities:
-
-- File Recovery UI can copy or restore snapshots and has **Show changes** to display added/removed/modified content between snapshots.
-- Official Obsidian CLI includes file history commands:
-  - `obsidian diff path="..." from=1 to=3` — list/compare local File Recovery and Sync versions.
-  - `obsidian history path="..."` — list File Recovery versions.
-  - `obsidian history:read path="..." version=1` — read a local history version.
-  - `obsidian history:restore path="..." version=1` — restore a local history version.
-  - `obsidian history:open path="..."` — open File Recovery UI for a file.
-- Official Obsidian CLI requires Obsidian 1.12.7+ installer and the app/CLI registration enabled.
-
-Community plugin research:
-
-- **Version History Diff**: supports Sync, File Recovery, and Git diffs, but its README warns it uses private APIs and may break. Not selected as a dependency.
-- **Obsidian Git**: strong Git/source-control UI, but it expands scope into staging/commit/sync and recommends pairing with Version History Diff for detailed file history. Not selected for this plan.
-- **Time Machine**: closest UI match if we choose a plugin route; it uses built-in File Recovery snapshots plus git commits, offers timeline slider, colored diffs, full/selective restore, and on-demand snapshots. Still not selected as a required dependency because official CLI already gives us stable history/diff hooks and we want our DiffViewer/control-plane UI to remain independent.
-
-### DiffViewer facts
-
-DiffViewer local server:
-
-- Main server binds `127.0.0.1:3333`.
-- Core endpoints include:
-  - `POST /event`
-  - `POST /turn-end`
-  - `GET /stream` via SSE-style stream
-  - `POST /steer`
-  - `POST /annotate`
-  - `GET /api/architecture`
-- Mobile server optionally binds `127.0.0.1:3334` and has `/ws`, `/approve`, `/reject`, `/undo`.
-- `src/broadcaster.js` is a simple fan-out broadcaster with `subscribe`, `unsubscribe`, `emit`.
-- `src/sidecarWatcher.js` watches `.diffviewer/turns/<sessionId>/turn-N.json`, normalizes, broadcasts, then unlinks after successful broadcast.
-
-This is the web/control-plane pattern to follow: file/bus artifacts are source of truth; localhost server projects/streams them; safe actions shell to canonical bus tools.
+AgentOps must not become the source of truth for code approval state. It is a projection/history layer.
 
 ---
 
-# Workstream A — Obsidian notes seeded from pi session context
+## 1. Goals
 
-## Goal
-
-When we do specs, plans, PR descriptions, or reviews, create/open an Obsidian note that is seeded from the current pi session and then continues to update as the work evolves.
-
-The note should be useful outside pi: searchable in Obsidian, Dataview-friendly, linked to the source session, project, git branch/worktree, Commandr task (if any), and DiffViewer artifact (for reviews).
-
-## Extension shape
-
-New file: `~/.pi/agent/extensions/pi-obsidian.ts`.
-
-Responsibilities:
-
-1. Register hook(s) for intent detection and context capture.
-2. Register LLM tool `obsidian_note`.
-3. Register user commands:
-   - `/obsidian-note`
-   - `/obsidian-open`
-   - `/obsidian-update`
-4. Export helper(s) for `pi-session.ts` so existing `/spec`, `/plan`, `/review` commands reuse the same implementation.
-
-## Hook behavior
-
-Primary hook: `before_agent_start`.
-
-When the user prompt or slash command indicates spec/plan/review intent:
-
-1. Build a context snapshot from `ctx.sessionManager`.
-2. If `ctx.hasUI`, show a concise prompt/notification flow:
-   - detected kind
-   - proposed vault/folder
-   - proposed title/slug
-   - context mode default (`since-compaction`)
-3. Create/open/update the note according to config and user choice.
-4. Store a custom session entry `obsidian-snapshot` with the snapshot and note path so future turns can update the same note.
-
-Guardrails:
-
-- No blocking prompt in print/json mode.
-- Never dump raw JSONL into the note.
-- Redact likely secrets from tool output and env-like strings.
-- Limit tool output summaries by default.
-
-## Tool: `obsidian_note`
-
-Parameters:
-
-```ts
-kind: "spec" | "plan" | "design" | "arch" | "pr" | "review" | "note"
-title?: string
-slug?: string
-contextMode?: "snapshot" | "since-compaction" | "full" | "n-entries" | "none"
-entryCount?: number              // used when contextMode = "n-entries"
-notePath?: string                // update existing note if provided
-historyLimit?: number            // n-history entries to retain
-includeToolCalls?: boolean
-includeErrors?: boolean
-includeCompactionSummaries?: boolean
-includeDiffViewerArtifact?: boolean
-openAfter?: boolean
-vault?: string
-folder?: string
-```
-
-Behavior:
-
-1. Resolve vault:
-   - tool param
-   - repo `.agent-workflow.json`
-   - global `~/.config/agent-workflow/config.json`
-   - default `/Users/vietquocbui/repos/Obsidian`
-2. Resolve folder:
-   - `spec/design/arch` → `Sessions/Specs`
-   - `plan` → `Sessions/Plans`
-   - `pr/review` → `Sessions/Reviews`
-   - `note` → `Sessions/Inbox` or configurable
-3. Resolve or create note path:
-   - Mutate existing note when `notePath` or matching frontmatter identity exists.
-   - Otherwise create `<YYYY-MM-DD>_<slug>.md`.
-4. Render/update frontmatter:
-   - `kind`
-   - `title`
-   - `created`
-   - `updated`
-   - `pi_session`
-   - `pi_session_id`
-   - `cwd`
-   - `project`
-   - `git_branch`
-   - `git_head`
-   - `worktree_path`
-   - `commandr_task` if detectable
-   - `diffviewer_artifact` if present
-   - `tags`
-5. Update body sections idempotently:
-   - `## Goal`
-   - `## Session Context`
-   - `## Decisions`
-   - `## Files / Commands / Errors`
-   - `## DiffViewer Artifact` for reviews
-   - `## Template` from `~/dotfiles/shared/templates/<kind>.md`
-   - `## History` retaining last `n` update entries
-   - `## Obsidian File Recovery` with latest embedded `obsidian diff` output when under timeout, plus the CLI commands needed to inspect note history/diff (`history`, `diff`, `history:open`) for this note path
-6. Open via official Obsidian CLI (`obsidian open path=...`, or `obsidian create path=... content=... open overwrite` for create/update flows as appropriate).
-
-Obsidian CLI command should be adapter-based, not hardcoded until verified. Plan:
-
-- At runtime, probe `obsidian --help` once and cache capabilities; if missing, also try `obsidian-cli --help` for local wrapper compatibility.
-- Prefer exact official command shapes:
-  - `obsidian vault="<vault-name>" create path="Sessions/Plans/foo.md" content="..." open overwrite`
-  - `obsidian vault="<vault-name>" open path="Sessions/Plans/foo.md"`
-  - `obsidian vault="<vault-name>" history path="Sessions/Plans/foo.md"`
-  - `obsidian vault="<vault-name>" diff path="Sessions/Plans/foo.md" from=1`
-  - `obsidian vault="<vault-name>" history:open path="Sessions/Plans/foo.md"`
-- If CLI cannot be found in non-login PATH, try a login shell path probe (`zsh -lc 'command -v obsidian || command -v obsidian-cli'`) and report official registration steps: Obsidian 1.12.7+, Settings → General → Command line interface, restart terminal.
-
-## Skill: `obsidian-spec`
-
-Location: `~/.agents/skills/obsidian-spec/SKILL.md`.
-
-Description should trigger on spec/planning/reviewing with Obsidian/session context.
-
-Instructions:
-
-- Use `obsidian_note` when user begins spec, plan, design, arch, PR, or review work.
-- Prefer updating the active note over making duplicate notes.
-- Use `since-compaction` by default; ask or use `full` for short sessions; use `n-entries` when user names a window.
-- For reviews, include DiffViewer artifact content when available.
-- Keep notes human-readable and Dataview-friendly.
-- Do not include secrets.
-
-## Dotfiles provisioning for Obsidian CLI
-
-Add verification/remediation tasks to `ansible/roles/tools/tasks/main.yml` and optionally a note in Brewfile/docs.
-
-Plan before implementation:
-
-1. Verify actual command on this machine:
-   - `zsh -lc 'command -v obsidian && obsidian help | head'`
-   - fallback check: `zsh -lc 'command -v obsidian-cli && obsidian-cli --help | head'`
-2. macOS provisioning:
-   - Ensure Obsidian app/installer is installed or documented.
-   - Verify `/usr/local/bin/obsidian` exists after Obsidian Settings → General → Command line interface.
-   - If missing, print remediation rather than pretending Homebrew/npm can install the official CLI.
-3. Linux provisioning:
-   - Ensure `~/.local/bin` is on PATH.
-   - Verify `~/.local/bin/obsidian`; if missing, print official manual copy hint from the Obsidian install directory.
-4. Smoke command:
-   - `obsidian version` or `obsidian help`.
-
----
-
-# Workstream B — Git worktree + branch TUI viewer
-
-## Goal
-
-A pi TUI overlay for viewing and cleaning up git worktrees/branches. This is not full neogit; it is a focused worktree/branch hygiene cockpit.
-
-## Files
-
-- `~/.pi/agent/extensions/git-helpers.ts`
-- `~/.pi/agent/extensions/pi-gitview.ts`
-
-## Command
-
-Register:
-
-- `/worktrees`
-- aliases: `/git`, `/wt`
-
-Default scope: cwd repo only.
-
-Multi-repo support:
-
-- key toggle inside TUI
-- optional command arg/config: `/worktrees --all`
-- configured repos from `gitview.repos`
-
-## TUI panes
-
-### Pane 1 — Worktrees
-
-Data from `git worktree list --porcelain` plus per-worktree git probes:
-
-- path
-- branch
-- HEAD short SHA
-- last commit relative age
-- clean/dirty
-- locked/prunable if available
-- ahead/behind vs main/default branch
-- stale marker when last commit age > 14 days
-
-### Pane 2 — Branches
-
-Data from `git for-each-ref refs/heads`:
-
-- branch name
-- last commit date/relative age
-- author
-- upstream ahead/behind
-- merged into main?
-- checked out in worktree?
-
-### Pane 3 — History
-
-`git log -20 --oneline --graph --decorate` for selected worktree/branch.
-
-## Actions
-
-Viewer + cleanup only:
-
-- open/reveal selected worktree path
-- copy path/branch to clipboard if easy
-- ask pi/agents to operate in selected worktree via an explicit, confirmed handoff action that sends a follow-up prompt and writes a timestamped handoff marker
-- delete selected worktree with confirm (`git worktree remove`)
-- prune worktrees with confirm (`git worktree prune`)
-- diff selected branch/worktree vs main
-- refresh
-
-Agent-mediated worktree operation rules:
-
-- Before an agent operates inside or cleans up a worktree, it must run preflight checks: `git status --porcelain`, untracked files, ahead/behind, branch/ref, recent commits, and whether the worktree is the current session cwd.
-- Worktree handoff writes a timestamped marker such as `.agents/worktree-sessions/<branch-or-worktree>.json` or `.agents/session-paused/<timestamp>.json` containing source session, target worktree, branch, head, dirty summary, and intended action.
-- For any destructive cleanup, **always create a backup first** (patch file, stash, safety branch/tag, or exported snapshot depending on state), then require human confirmation.
-- The TUI selection itself must not silently switch pi cwd/session.
-
-Explicitly do **not**:
-
-- raw/manual switch pi cwd/session from row selection
-- stage files
-- commit
-- push
-
----
-
-# Workstream C — Localhost web control plane following Commandr + DiffViewer
-
-## Goal
-
-A local web surface that follows existing Commandr and DiffViewer contracts instead of inventing a new state model.
-
-This should be a browser cockpit for:
-
-- Commandr tasks (`.agents/inbox`, `claimed`, `done`)
-- append-only bus events (`.agents/events.jsonl`)
-- council verdicts
-- approvals state
-- annotations
-- DiffViewer turns/artifacts/stream
-- active pi session note links
-- Obsidian notes pane: recent/session-linked notes, current note history, embedded/latest CLI diff output, and buttons to open File Recovery UI via `obsidian history:open`
-- worktree/branch state from Workstream B helpers
-
-## Design principles
-
-1. Files/bus artifacts are source of truth.
-2. Web server is projection + safe command surface only.
-3. Writes shell to canonical Commandr tools (`claim`, `complete`, `progress`, `annotate-write`, approval helper), not ad-hoc file mutation.
-4. Stream updates using DiffViewer-style broadcaster/SSE/WebSocket.
-5. Localhost-first. Bind `127.0.0.1` only by default.
-6. No hosted service.
-
-## Proposed extension/server
-
-New file after A/B are stable:
-
-- `~/.pi/agent/extensions/pi-control-plane.ts`
-
-Command:
-
-- `/control-plane`
-- `/cockpit`
-
-Behavior:
-
-1. Start a local HTTP server if not already running.
-2. Bind default `127.0.0.1:3340` (configurable).
-3. Serve static cockpit UI.
-4. Open browser.
-5. Watch/project:
-   - current repo `.agents/` bus
-   - optional configured repos via Commandr index
-   - `.diffviewer/turns` / artifacts
-   - current pi session/note metadata
-
-## API sketch
-
-Read-only endpoints:
+Create a dedicated git-tracked Obsidian vault at:
 
 ```text
-GET /api/health
-GET /api/repos
-GET /api/commandr/tasks?repo=...
-GET /api/commandr/events?repo=...
-GET /api/commandr/council?repo=...
-GET /api/diffviewer/sessions?repo=...
-GET /api/diffviewer/artifacts?repo=...
-GET /api/git/worktrees?repo=...
-GET /api/git/branches?repo=...
-GET /api/obsidian/notes?repo=...
-GET /api/obsidian/history?path=...
-GET /api/obsidian/diff?path=...&from=1&to=0
-GET /stream
+$HOME/repos/AgentOps
 ```
 
-Safe action endpoints:
+for tracking Pi, Claude, Codex, opencode, Commandr, DiffView, review-gate, and related agent work.
+
+The new vault replaces the current accidental target:
 
 ```text
-POST /api/commandr/progress
-POST /api/commandr/annotate
-POST /api/commandr/approve
-POST /api/commandr/reject
-POST /api/git/worktree-handoff
-POST /api/git/worktree-remove
-POST /api/git/worktree-prune
-POST /api/obsidian/open-note
-POST /api/obsidian/open-history
+$HOME/repos/Obsidian
 ```
 
-All write endpoints:
+for all agent workflow notes.
 
-- require localhost origin checks
-- require confirmation token for destructive actions
-- call canonical tools/helpers
-- append/display event results
+Primary outcomes:
 
-## Relationship to DiffViewer
-
-Two options:
-
-### Option C1 — separate cockpit server
-
-Pros: minimal coupling; can be implemented as a pi extension; uses DiffViewer APIs if running.
-
-Cons: two local servers/pages.
-
-### Option C2 — extend DiffViewer server/browser
-
-Pros: one web UI; already has broadcaster and endpoints.
-
-Cons: crosses repo/package boundary; harder to keep pi extension standalone.
-
-**Proposed default:** C1 first. Follow DiffViewer's broadcaster pattern and optionally link/open DiffViewer pages/artifacts. Later merge if the shape proves stable.
-
-## Commandr protocol compliance
-
-The control plane must respect:
-
-- `.agents/` in main checkout, resolved from worktrees.
-- `events.jsonl` append-only.
-- `~/.agents/index.json` derived-only cache.
-- no unknown event writes.
-- no harness-private state under `.agents/`.
-- annotations written via canonical writer / same schema.
+- Stop Pi/agent workflow scripts from touching the main personal Obsidian vault.
+- Isolate AgentOps plugin configuration from the main vault.
+- Auto-repair accidentally disabled AgentOps plugins before opening the vault.
+- Store efficient run/review/spec history without dumping raw JSONL/logs.
+- Integrate with DiffView and Commandr without replacing either.
+- Add a review-gate contract for sandboxed AI codegen and per-file patch approval.
 
 ---
 
-# Config additions
+## 2. Current findings
+
+Inspected code/config:
+
+```text
+pi/.pi/agent/extensions/pi-obsidian.ts
+pi/.pi/agent/extensions-available/pi-control-plane.ts
+shared/agent-workflow.default.json
+~/.config/agent-workflow/config.json
+```
+
+Findings:
+
+- `pi-obsidian.ts` fallback vault is currently `$HOME/repos/Obsidian`.
+- `shared/agent-workflow.default.json` also sets `obsidianVault` to `~/repos/Obsidian`.
+- User config does not override `obsidianVault`, so the bad default wins.
+- `/cp` lives in `pi/.pi/agent/extensions-available/pi-control-plane.ts` and also falls back to `~/repos/Obsidian`.
+- `$HOME/repos/AgentOps` does not exist yet.
+- Obsidian note creation should not be used again until defaults are redirected.
+
+---
+
+## 3. Vault contract
+
+Create:
+
+```text
+$HOME/repos/AgentOps/
+  Inbox/
+  Projects/
+  Runs/
+  Reviews/
+  System/
+  .obsidian/
+```
+
+Folder meanings:
+
+- `Inbox/` — quick captures and unclassified notes.
+- `Projects/` — specs, plans, designs, architecture notes, project workflow docs.
+- `Runs/` — one main note per agent run/session.
+- `Reviews/` — review batches, DiffView links, approval summaries.
+- `System/` — templates, dashboards, plugin guard reports, vault docs.
+
+Large/raw artifacts:
+
+- Prefer linking existing source artifacts from `.diffviewer/`, `.review-gate/`, `.agents/`, or Pi session paths.
+- Only copy large artifacts into `Reviews/_artifacts/` when needed for portability.
+- Do not embed raw JSONL or huge logs in notes unless explicitly requested.
+
+---
+
+## 4. Git tracking policy
+
+AgentOps is git-tracked, but only partially.
+
+Commit:
+
+```text
+Inbox/.gitkeep
+Projects/.gitkeep
+Runs/.gitkeep
+Reviews/.gitkeep
+System/Templates/*.md
+System/Dashboards/*.md
+System/plugin-guard.md
+.obsidian/app.json
+.obsidian/appearance.json
+.obsidian/core-plugins.json
+.obsidian/community-plugins.json
+.obsidian/hotkeys.json
+.obsidian/plugins/*/data.json where useful
+```
+
+Ignore:
+
+```gitignore
+.obsidian/workspace*.json
+.obsidian/cache/
+.obsidian/plugins/*/main.js
+.obsidian/plugins/*/styles.css
+.trash/
+*.tmp
+Reviews/_artifacts/raw/
+```
+
+Rationale:
+
+- Plugin enablement/config is reproducible.
+- Workspace state and downloaded plugin binaries are local/cache-like.
+- Future multi-machine sync can reconstruct plugin binaries from documented IDs.
+
+---
+
+## 5. Portable vault path resolution
+
+Replace all hardcoded `~/repos/Obsidian` defaults.
+
+Resolution order:
+
+1. explicit tool/command arg
+2. repo `.agent-workflow.local.json`
+3. repo `.agent-workflow.json`
+4. user `~/.config/agent-workflow/config.json`
+5. environment variables:
+
+   ```sh
+   AGENTOPS_VAULT="$HOME/repos/AgentOps"
+   PI_OBSIDIAN_VAULT="$HOME/repos/AgentOps"
+   ```
+
+6. final fallback:
+
+   ```ts
+   path.join(os.homedir(), "repos", "AgentOps")
+   ```
+
+Path expansion must support:
+
+```text
+~
+$HOME
+${HOME}
+```
+
+Safety rule:
+
+> Agent workflow commands must never silently fall back to `$HOME/repos/Obsidian`.
+
+If a resolved vault path is `$HOME/repos/Obsidian`, fail loudly unless explicitly forced by an opt-in flag/config.
+
+---
+
+## 6. Obsidian plugin soft guard
+
+Desired protection level: soft guard + auto repair + fail loud.
+
+Before `/cp`, `/obsidian-note`, or any AgentOps open action:
+
+1. ensure vault skeleton exists
+2. ensure `.obsidian/core-plugins.json` exists
+3. ensure `.obsidian/community-plugins.json` exists
+4. restore missing required core/community plugin IDs
+5. fail loudly if required community plugin folders are missing
+6. write repair report:
+
+   ```text
+   System/plugin-guard-last-run.md
+   ```
+
+This protects accidental toggles. It does not fight intentional manual plugin changes after the user edits the required plugin list.
+
+### Required core plugin IDs
+
+Seed list:
+
+```text
+file-explorer
+global-search
+switcher
+graph
+backlink
+canvas
+outgoing-link
+tag-pane
+page-preview
+daily-notes
+templates
+command-palette
+file-recovery
+properties
+bookmarks
+```
+
+### Required community plugin IDs
+
+Seed list:
+
+```text
+dataview
+obsidian-tasks-plugin
+templater-obsidian
+periodic-notes
+calendar
+obsidian-git
+cmdr
+buttons
+obsidian-meta-bind-plugin
+obsidian-advanced-uri
+quickadd
+obsidian-kanban
+obsidian-excalidraw-plugin
+omnisearch
+obsidian-linter
+obsidian-style-settings
+```
+
+The plugin list is intentionally broad for first boot. User can later prune/update it.
+
+---
+
+## 7. Obsidian open behavior
+
+Best effort separate instance is acceptable.
+
+Open strategy:
+
+1. Prefer official Obsidian CLI when available.
+2. Use AgentOps vault path/name explicitly.
+3. If AgentOps is already open, focus/open note in current app instance.
+4. If separate instance/profile is possible on the platform, attempt it.
+5. Fallback to normal Obsidian open URI/app launch.
+6. Never open the old main vault for agent workflow commands unless explicitly forced.
+
+Shortest user commands:
+
+Inside Pi:
+
+```text
+/cp
+```
+
+Shell:
+
+```sh
+ao
+```
+
+`ao` default means `ao open`.
+
+Planned helper commands:
+
+```sh
+ao open
+ao repair
+ao status
+ao note
+```
+
+---
+
+## 8. AgentOps note model
+
+### 8.1 Run note
+
+One main note per agent run/session:
+
+```text
+Runs/<project>/<YYYYMMDD>-<harness>-<session_id>.md
+```
+
+Frontmatter:
+
+```yaml
+---
+type: run
+project:
+harness: pi | claude | codex | opencode
+agent:
+model:
+status: active | paused | done | failed
+session_id:
+session_file:
+repo:
+worktree:
+branch:
+commit:
+commandr_task:
+review_batch:
+created:
+updated:
+tags: [agentops, run]
+---
+```
+
+Body sections:
+
+```md
+# <Run title>
+
+## TLDR
+
+## Current State
+
+## Decisions
+
+## Files / Artifacts
+
+## Compressed History
+
+## Links
+```
+
+Old session content should compress into caveman TLDR:
+
+```md
+## Compressed History
+
+- DID: planned AgentOps vault.
+- FOUND: old Obsidian bridge targets ~/repos/Obsidian.
+- DECIDED: DiffView renders diffs; Pi tracks workflow state.
+- NEXT: redirect vault defaults to $HOME/repos/AgentOps.
+```
+
+### 8.2 Project/spec/plan note
+
+Path:
+
+```text
+Projects/<project>/<phase>-<slug>.md
+```
+
+Types:
+
+```text
+spec
+plan
+design
+arch
+pr
+decision
+```
+
+### 8.3 Review note
+
+Path:
+
+```text
+Reviews/<project>/<YYYYMMDD>-review-<batch_id>.md
+```
+
+Frontmatter:
+
+```yaml
+---
+type: review
+project:
+batch_id:
+status: pending | reviewing | approved | partially-approved | rejected | stale | conflicted | applied
+repo:
+base_commit:
+sandbox_path:
+review_ledger:
+diffview_artifact:
+created:
+updated:
+tags: [agentops, review]
+---
+```
+
+Review notes include:
+
+- batch ID
+- sandbox/worktree path
+- base commit
+- files reviewed
+- approved/rejected/deferred counts
+- stale/conflict warnings
+- DiffView artifact links
+- final apply status
+
+Important:
+
+> Review notes are projections of the review-gate ledger, not canonical approval state.
+
+---
+
+## 9. Review-gate locked decisions
+
+From grill/review session:
+
+- AI/subagents must generate in sandbox/worktree, not main.
+- Subagent output becomes patch batches for review.
+- Review budget is approximately 50 changed LOC, not a hard generation block.
+- LOC means additions + deletions + modifications.
+- Formatting diffs count.
+- Tests/docs are reviewable but excluded from LOC budget.
+- Generated/vendor/lock/snapshot files are excluded or collapsed.
+- Approval is per file; chunks are review aids.
+- UI is keyboard-only full overlay.
+- DiffView is the diff rendering backend.
+- Pi overlay owns orchestration, progress, approval state, and apply enforcement.
+- Rejection means mechanical exclusion/revert from apply set plus optional feedback prompt.
+- Apply occurs after generation batch, not live during generation.
+
+---
+
+## 10. Review-gate canonical ledger
+
+Canonical review state must live outside AgentOps Markdown.
+
+Default ledger location:
+
+```text
+.review-gate/batches/<batch_id>.json
+```
+
+Alternative if DiffView formally owns these artifacts:
+
+```text
+.diffviewer/review-batches/<batch_id>.json
+```
+
+Do not hide private review-gate state under `.agents/` unless Commandr formally adopts that schema.
+
+### Ledger schema sketch
+
+```json
+{
+  "batchId": "batch-20260709-abc123",
+  "schemaVersion": 1,
+  "repo": "/path/to/repo",
+  "baseCommit": "...",
+  "sandboxPath": "/path/to/worktree-or-sandbox",
+  "generatedBy": {
+    "harness": "pi",
+    "agent": "openai-codex/gpt-5.5",
+    "sessionFile": "..."
+  },
+  "status": "pending",
+  "created": "2026-07-09T00:00:00Z",
+  "updated": "2026-07-09T00:00:00Z",
+  "files": [
+    {
+      "path": "src/example.ts",
+      "action": "create|modify|delete|rename",
+      "baseFileHash": "...",
+      "mainHashAtReviewStart": "...",
+      "sandboxHash": "...",
+      "patchHash": "...",
+      "changedLoc": 47,
+      "locBudgetExempt": false,
+      "excludedReason": null,
+      "chunks": [
+        {
+          "id": "src/example.ts#1",
+          "index": 1,
+          "changedLoc": 47,
+          "diffHunkRange": "@@ -10,7 +10,35 @@",
+          "seen": false
+        }
+      ],
+      "status": "pending|reviewing|approved|rejected|deferred|stale|conflicted|applied"
+    }
+  ]
+}
+```
+
+Required per-file stale fields:
+
+```text
+baseCommit
+baseFileHash
+mainHashAtReviewStart
+sandboxHash
+patchHash
+```
+
+Before applying a file:
+
+```text
+if currentMainHash !== mainHashAtReviewStart:
+  status = stale/conflicted
+  block apply
+  offer: rebase patch / view conflict / defer / feedback
+```
+
+---
+
+## 11. Review-gate enforcement layer
+
+Sandbox/worktree-only mutation must be enforced, not merely documented.
+
+Pi review gate responsibilities:
+
+- Intercept `edit`, `write`, and mutating `bash` during generation.
+- Block main worktree mutation during generation mode.
+- Route subagents into sandbox/worktree only.
+- Convert subagent output into patch batch ledger.
+- Allow only approved file patches to apply to main worktree.
+- Revalidate hashes before apply.
+- Record apply results back to ledger and AgentOps projection note.
+
+Mutating bash detection should start conservative and configurable.
+
+Examples of commands requiring sandbox/worktree context:
+
+```text
+rm
+mv
+cp > repo path
+python/perl/node scripts that rewrite files
+formatters with --write
+package managers that modify lockfiles
+```
+
+Tests can run in sandbox and/or main depending on phase, but generated code mutation remains sandboxed.
+
+---
+
+## 12. DiffView integration contract
+
+DiffView is the visual diff backend. Pi/control-plane must not implement a second canonical diff renderer.
+
+Minimum contract:
+
+```text
+createReviewArtifact(batch)
+openDiffView(batchId, file?, chunk?)
+getArtifactUrl(batchId)
+```
+
+Preferred data flow:
+
+```text
+.review-gate/batches/<batch_id>.json
+  -> DiffView review artifact
+  -> Pi keyboard overlay opens/navigates DiffView artifact
+  -> AgentOps review note links/embeds artifact summary
+```
+
+Important rule:
+
+> Do not watch `.diffviewer/turns` as the primary source of truth.
+
+Reason: DiffViewer sidecar turn files may be transient; existing DiffViewer behavior can watch, broadcast, then unlink sidecars.
+
+Preferred sources:
+
+```text
+DiffViewer /stream
+DiffViewer APIs
+stable DiffViewer artifacts
+review-gate ledger
+```
+
+`.diffviewer/turns` may be used only as best-effort debug fallback.
+
+---
+
+## 13. Review TUI / overlay contract
+
+Keyboard-only full overlay, optimized for review after generation batch.
+
+Example:
+
+```text
+┌ AI Codegen Review ─────────────────────────────────────────────┐
+│ Batch: batch-20260709-abc123                                   │
+│ File 2/6: src/auth/session.ts   modify   +132 -41 = 173 LOC    │
+│ Chunk 3/4                      ~46 LOC   Status: reviewing     │
+│ Base: clean ✓   Main: unchanged ✓   Sandbox: ready ✓           │
+├────────────────────────────────────────────────────────────────┤
+│ DiffView artifact / rendered diff region                       │
+├────────────────────────────────────────────────────────────────┤
+│ Progress: [■■■□] chunks seen   File approval: pending          │
+│ Files: 1 approved · 1 reviewing · 4 pending · 0 conflicted     │
+├────────────────────────────────────────────────────────────────┤
+│ j/k scroll · n/p chunk · ]/[ file · a approve · r reject       │
+│ d defer · f feedback · x apply approved · ? help · q close     │
+└────────────────────────────────────────────────────────────────┘
+```
+
+Keyboard map:
+
+```text
+Navigation:
+j/k       scroll diff
+n/p       next/previous chunk
+]/[       next/previous file
+g/G       first/last file
+?         help
+
+Review:
+space     mark chunk reviewed
+a         approve current file
+r         reject current file
+d         defer current file
+f         send feedback to agent
+w         acknowledge oversized hunk warning
+
+Batch:
+x         apply all approved files
+R         regenerate rejected/deferred files
+q         close overlay
+```
+
+Approval behavior:
+
+- `a` approves the file, not an individual chunk.
+- If not all chunks were viewed, show warning but allow override.
+- Oversized hunks are visually split and require explicit warning acknowledgement.
+- `x` always shows final confirmation and performs hash revalidation.
+
+Reject behavior:
+
+```text
+reject file:
+  - mechanically exclude/revert patch from apply set
+  - optionally open feedback prompt for agent regeneration
+```
+
+---
+
+## 14. Commandr integration
+
+Commandr remains the task/event workflow bus.
+
+Respect Commandr constraints:
+
+- `.agents/` lives in the main checkout, not each worktree.
+- `events.jsonl` is append-only.
+- `~/.agents/index.json` is derived cache only.
+- Do not invent private review-gate schemas under `.agents/` unless Commandr adopts them.
+
+AgentOps notes may include:
+
+```yaml
+commandr_task:
+commandr_status:
+commandr_bus:
+```
+
+Control-plane actions that update Commandr should shell to canonical Commandr tools/helpers rather than ad-hoc mutating `.agents/` files.
+
+---
+
+## 15. Control plane scope
+
+`/cp` should be a cockpit/orchestration surface, not the owner of review workflow.
+
+Allowed responsibilities:
+
+- start/open local cockpit
+- display Commandr status
+- display recent AgentOps notes
+- display review batch summaries
+- link/open DiffView artifacts
+- call review-gate namespaced endpoints
+
+Avoid:
+
+- duplicate diff renderer
+- canonical approval state in web UI only
+- generic `/approve` / `/reject` semantics that collide with DiffView or Commandr
+
+Use namespaced endpoints for patch review:
+
+```text
+/api/review-gate/approve-file
+/api/review-gate/reject-file
+/api/review-gate/defer-file
+/api/review-gate/send-feedback
+/api/review-gate/apply-approved
+```
+
+DiffView/mobile endpoints like `/approve`, `/reject`, `/undo` must not be confused with review-gate file patch approval.
+
+---
+
+## 16. Config changes
+
+Update defaults:
 
 ```json
 {
   "obsidianBridge": true,
   "obsidianCli": "obsidian",
-  "obsidianVault": "/Users/vietquocbui/repos/Obsidian",
-  "obsidianProjectVaults": {
-    "llm-wiki": "/Users/vietquocbui/repos/llm-wiki/wiki"
-  },
+  "obsidianVault": "$HOME/repos/AgentOps",
   "obsidianFolders": {
-    "spec": "Sessions/Specs",
-    "design": "Sessions/Specs",
-    "arch": "Sessions/Specs",
-    "plan": "Sessions/Plans",
-    "pr": "Sessions/Reviews",
-    "review": "Sessions/Reviews",
-    "note": "Sessions/Inbox"
+    "spec": "Projects",
+    "design": "Projects",
+    "arch": "Projects",
+    "plan": "Projects",
+    "pr": "Reviews",
+    "review": "Reviews",
+    "note": "Inbox"
   },
   "obsidianContextCapture": true,
   "obsidianDefaultContextMode": "since-compaction",
   "obsidianHistoryLimit": 10,
-  "redactPatterns": [],
-  "gitview": {
-    "staleDays": 14,
-    "historyDepth": 20,
-    "multiRepo": false,
-    "repos": ["~/dotfiles", "~/repos/Commandr"]
+  "agentOpsVault": "$HOME/repos/AgentOps",
+  "reviewGate": {
+    "enabled": true,
+    "ledgerDir": ".review-gate/batches",
+    "defaultChunkLoc": 50,
+    "approvalUnit": "file",
+    "generationMode": "sandbox"
   },
   "controlPlane": {
     "enabled": true,
@@ -535,26 +752,158 @@ The control plane must respect:
 
 ---
 
-# Build order
+## 17. Implementation files
 
-1. Verify official `obsidian` CLI command shape and add Ansible/Brewfile verification/remediation.
-2. `git-helpers.ts` shared helpers.
-3. Workstream B: `/worktrees` TUI viewer/cleanup.
-4. Workstream A: `pi-obsidian.ts` hook/tool/commands + skill.
-5. Modify `pi-session.ts` to route `/spec`, `/plan`, `/review` through Obsidian note helper.
-6. Workstream C: local cockpit server, read-only first.
-7. Add safe action endpoints after read-only cockpit is stable.
-8. Diagnostics/smoke:
-   - `lsp_diagnostics` on new TS files
-   - `pi /reload`
-   - `/worktrees`
-   - `/obsidian-note --kind plan --context since-compaction`
-   - `/control-plane`
+Likely modified:
 
-## Out of scope
+```text
+shared/agent-workflow.default.json
+scripts/agent-workflow
+pi/.pi/agent/extensions/pi-obsidian.ts
+pi/.pi/agent/extensions-available/pi-control-plane.ts
+pi/.pi/agent/extensions/pi-session.ts
+```
 
-- Full neogit staging/commit/push.
+Likely new:
+
+```text
+scripts/ao
+shared/agentops-vault/.gitignore
+shared/agentops-vault/.obsidian/core-plugins.json
+shared/agentops-vault/.obsidian/community-plugins.json
+shared/agentops-vault/System/Templates/*.md
+shared/agentops-vault/System/Dashboards/*.md
+pi/.pi/agent/extensions/pi-review-gate.ts
+```
+
+Review-gate ledger created at runtime per repo:
+
+```text
+.review-gate/batches/<batch_id>.json
+```
+
+---
+
+## 18. Build order
+
+### Phase 0 — No more wrong-vault writes
+
+- Do not call `obsidian_note` until vault defaults are redirected.
+- Add guard that refuses `$HOME/repos/Obsidian` for agent workflow unless explicitly forced.
+
+### Phase 1 — AgentOps vault bootstrap
+
+- Create `$HOME/repos/AgentOps` skeleton.
+- Add partial `.gitignore`.
+- Initialize git if absent.
+- Seed `.obsidian` plugin config.
+- Seed templates/dashboards.
+
+### Phase 2 — Path/config fix
+
+- Update `shared/agent-workflow.default.json` to `$HOME/repos/AgentOps`.
+- Update `pi-obsidian.ts` default vault and env/path expansion.
+- Update `/cp` control-plane vault resolver.
+- Add old-vault refusal guard.
+
+### Phase 3 — Plugin soft guard
+
+- Implement AgentOps repair function.
+- Auto-repair core/community plugin JSON.
+- Fail loud on missing required community plugin folders.
+- Write `System/plugin-guard-last-run.md`.
+
+### Phase 4 — AgentOps note templates
+
+- Add run/review/spec/plan templates.
+- Add caveman TLDR compression section.
+- Add richer frontmatter.
+- Add dashboards.
+
+### Phase 5 — Fake review batch first
+
+Before real DiffView integration:
+
+- Create fake `.review-gate/batches/<batch_id>.json`.
+- Create AgentOps review note projection.
+- Render/open via DiffView if available, otherwise link placeholder.
+- Test applying one approved fake file with hash revalidation.
+
+### Phase 6 — DiffView contract integration
+
+- Implement/consume:
+
+  ```text
+  createReviewArtifact(batch)
+  openDiffView(batchId, file?, chunk?)
+  getArtifactUrl(batchId)
+  ```
+
+- Do not use `.diffviewer/turns` as primary source.
+
+### Phase 7 — Pi review-gate enforcement
+
+- Intercept `edit`, `write`, mutating `bash` during generation mode.
+- Force subagent generation into sandbox/worktree.
+- Produce review batch ledger.
+- Add keyboard overlay.
+- Apply approved file patches only after hash revalidation.
+
+### Phase 8 — `/cp` cockpit polish
+
+- Show AgentOps notes.
+- Show Commandr state.
+- Show review batch state.
+- Link/open DiffView artifacts.
+- Expose only namespaced review-gate endpoints.
+
+### Phase 9 — Smoke tests
+
+Run:
+
+```text
+/obsidian-note plan AgentOps vault smoke test
+/cp
+```
+
+Verify:
+
+- note lands under `$HOME/repos/AgentOps`
+- no writes to `$HOME/repos/Obsidian`
+- plugin guard report exists
+- fake review batch note exists
+- review-gate ledger exists
+- approved fake file apply checks hashes
+
+---
+
+## 19. Acceptance criteria
+
+Must pass before implementation is considered done:
+
+- `agent-workflow config` shows AgentOps vault by default.
+- `ao status` reports vault exists and plugin guard state.
+- `ao open` opens/focuses AgentOps, not main Obsidian vault.
+- `/obsidian-note` writes to AgentOps.
+- `/spec`, `/plan`, `/review` write to AgentOps.
+- `/cp` reads AgentOps folders and does not fall back to main vault.
+- Missing/toggled plugins are repaired or reported loudly.
+- Main vault `$HOME/repos/Obsidian` is untouched in smoke tests.
+- Review-gate ledger exists outside Markdown.
+- AgentOps review note links to ledger and DiffView artifact.
+- DiffView is not duplicated as a separate renderer.
+- `.diffviewer/turns` is not treated as source of truth.
+- Approved file apply revalidates hashes.
+
+---
+
+## 20. Out of scope
+
+- Full Obsidian plugin development.
 - Hosted dashboard.
-- Auto-delete stale worktrees without confirm.
-- Obsidian plugin development as a required dependency. We may use Obsidian CLI and official core plugins.
-- Cross-machine Commandr coordination.
+- Replacing DiffView.
+- Replacing Commandr.
+- Full neogit/stage/commit/push UI.
+- Auto-deleting stale worktrees without explicit confirmation.
+- Making AgentOps Markdown the canonical runtime state.
+- Fighting intentional manual plugin changes after the required plugin list is edited.

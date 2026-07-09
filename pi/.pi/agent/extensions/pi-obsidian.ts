@@ -17,7 +17,8 @@ const execFileAsync = promisify(execFile);
 
 const DOTFILES = resolve(homedir(), "dotfiles");
 const TEMPLATE_DIR = join(DOTFILES, "shared", "templates");
-const DEFAULT_VAULT = resolve(homedir(), "repos", "Obsidian");
+const DEFAULT_VAULT = resolve(homedir(), "repos", "AgentOps");
+const OLD_VAULT_WARNING = resolve(homedir(), "repos", "Obsidian");
 const CONTEXT_START = "<!-- pi:session-context:start -->";
 const CONTEXT_END = "<!-- pi:session-context:end -->";
 const HISTORY_START = "<!-- pi:history:start -->";
@@ -499,19 +500,60 @@ function projectVault(cwd: string, cfg: WorkflowConfig): string | undefined {
 	return undefined;
 }
 
+function expandPath(p: string): string {
+	// Expand ~, $HOME, ${HOME}
+	let result = p.replace(
+		/^~(?:\/|$)/,
+		homedir() + "$1",
+	);
+	result = result.replace(
+		/\$\{?HOME\}?/g,
+		homedir(),
+	);
+	return result;
+}
+
 function resolveVault(
 	cwd: string,
 	cfg: WorkflowConfig,
 	params: CreateNoteParams,
 ): string {
-	return resolve(
-		(
+	// Env vars override everything
+	const envVault =
+		process.env.AGENTOPS_VAULT ||
+		process.env.PI_OBSIDIAN_VAULT ||
+		"";
+	if (envVault) {
+		return resolve(expandPath(envVault));
+	}
+
+	const resolved = resolve(
+		expandPath(
 			params.vault ||
 			projectVault(cwd, cfg) ||
 			cfg.obsidianVault ||
-			DEFAULT_VAULT
-		).replace(/^~(?=\/|$)/, homedir()),
+			DEFAULT_VAULT,
+		),
 	);
+
+	// Refuse old main vault unless explicitly forced
+	const normalized = resolved.replace(/\/+$/, "");
+	if (normalized === OLD_VAULT_WARNING && !params.vault) {
+		// Allow if a project vault explicitly maps to Obsidian, or if env var set
+		const forced =
+			!!process.env.AGENTOPS_ALLOW_OLD_VAULT ||
+			!!cfg.obsidianVault?.includes("AgentOps");
+		if (!forced) {
+			throw new Error(
+				`Refusing to write to old main vault (${OLD_VAULT_WARNING}).\n` +
+					`AgentOps vault should be at ${DEFAULT_VAULT}.\n` +
+					"Set AGENTOPS_VAULT env var or update agent-workflow config.\n" +
+					"To force: set AGENTOPS_ALLOW_OLD_VAULT=1",
+			);
+		}
+	}
+
+	return resolved;
 }
 
 export async function createObsidianNote(

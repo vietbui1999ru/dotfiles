@@ -16,15 +16,15 @@
   "specTemplates": true,
   "obsidianBridge": true,
   "obsidianCli": "obsidian",
-  "obsidianVault": "~/repos/Obsidian",
+  "obsidianVault": "~/repos/AgentOps",
   "obsidianFolders": {
-    "spec": "Sessions/Specs",
-    "design": "Sessions/Specs",
-    "arch": "Sessions/Specs",
-    "plan": "Sessions/Plans",
-    "pr": "Sessions/Reviews",
-    "review": "Sessions/Reviews",
-    "note": "Sessions/Inbox"
+    "spec": "Projects",
+    "design": "Projects",
+    "arch": "Projects",
+    "plan": "Projects",
+    "pr": "Reviews",
+    "review": "Reviews",
+    "note": "Inbox"
   },
   "obsidianContextCapture": true,
   "obsidianDefaultContextMode": "since-compaction",
