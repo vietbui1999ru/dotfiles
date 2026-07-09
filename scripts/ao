@@ -48,23 +48,38 @@ check_cli() {
 
 cmd_open() {
 	check_vault
-	if ! check_cli; then
-		info "Obsidian CLI not found. Opening vault directory instead."
-		open "$AGENTOPS_VAULT" 2>/dev/null || xdg-open "$AGENTOPS_VAULT" 2>/dev/null || echo "Open manually: $AGENTOPS_VAULT"
-		return
-	fi
-	# Try official CLI open
-	if "$OBSIDIAN_CLI" open "vault=$AGENTOPS_VAULT" 2>/dev/null; then
-		info "Opened AgentOps vault"
-		return
-	fi
-	# Fallback: URI scheme
+
+	# Vault name is the directory basename (Obsidian convention)
+	local vault_name
+	vault_name="$(basename "$AGENTOPS_VAULT")"
+
+	# Strategy 1: obsidian:// URI scheme (cleanest, no CLI needed)
 	if [[ "$(uname)" == "Darwin" ]]; then
+		# URL-encode the vault name for the URI
 		local encoded
-		encoded=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$AGENTOPS_VAULT'))" 2>/dev/null || echo "$AGENTOPS_VAULT")
-		open "obsidian://open?vault=$encoded" 2>/dev/null && info "Opened via obsidian://" && return
+		encoded=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$vault_name'))" 2>/dev/null || echo "$vault_name")
+		if open "obsidian://open?vault=$encoded" 2>/dev/null; then
+			info "Opened AgentOps vault ($vault_name)"
+			return
+		fi
+	elif command -v xdg-open &>/dev/null; then
+		local encoded
+		encoded=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$vault_name'))" 2>/dev/null || echo "$vault_name")
+		if xdg-open "obsidian://open?vault=$encoded" 2>/dev/null; then
+			info "Opened AgentOps vault ($vault_name)"
+			return
+		fi
 	fi
-	info "Open manually: $AGENTOPS_VAULT"
+
+	# Strategy 2: CLI open with vault global option
+	if check_cli; then
+		# CLI 'open' needs path=/ to open vault root (no error if it fails)
+		"$OBSIDIAN_CLI" vault="$vault_name" open path=/ 2>/dev/null && info "Opened AgentOps vault" && return
+	fi
+
+	# Strategy 3: open the directory directly
+	info "Opening vault directory..."
+	open "$AGENTOPS_VAULT" 2>/dev/null || xdg-open "$AGENTOPS_VAULT" 2>/dev/null || echo "Open manually: $AGENTOPS_VAULT"
 }
 
 # Required plugins (from plan §6)
