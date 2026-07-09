@@ -502,14 +502,8 @@ function projectVault(cwd: string, cfg: WorkflowConfig): string | undefined {
 
 function expandPath(p: string): string {
 	// Expand ~, $HOME, ${HOME}
-	let result = p.replace(
-		/^~(?:\/|$)/,
-		homedir() + "$1",
-	);
-	result = result.replace(
-		/\$\{?HOME\}?/g,
-		homedir(),
-	);
+	let result = p.replace(/^~(?:\/|$)/, homedir() + "$1");
+	result = result.replace(/\$\{?HOME\}?/g, homedir());
 	return result;
 }
 
@@ -520,9 +514,7 @@ function resolveVault(
 ): string {
 	// Env vars override everything
 	const envVault =
-		process.env.AGENTOPS_VAULT ||
-		process.env.PI_OBSIDIAN_VAULT ||
-		"";
+		process.env.AGENTOPS_VAULT || process.env.PI_OBSIDIAN_VAULT || "";
 	if (envVault) {
 		return resolve(expandPath(envVault));
 	}
@@ -530,9 +522,9 @@ function resolveVault(
 	const resolved = resolve(
 		expandPath(
 			params.vault ||
-			projectVault(cwd, cfg) ||
-			cfg.obsidianVault ||
-			DEFAULT_VAULT,
+				projectVault(cwd, cfg) ||
+				cfg.obsidianVault ||
+				DEFAULT_VAULT,
 		),
 	);
 

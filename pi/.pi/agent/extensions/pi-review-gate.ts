@@ -11,10 +11,19 @@
  *   DiffView                                 — diff rendering (optional)
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync } from "node:fs";
+import {
+	existsSync,
+	readFileSync,
+	writeFileSync,
+	mkdirSync,
+	appendFileSync,
+} from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve, relative } from "node:path";
 import { homedir } from "node:os";
@@ -50,7 +59,14 @@ interface FileReview {
 	locExempt: boolean;
 	excluded: boolean;
 	chunks: ReviewChunk[];
-	status: "pending" | "reviewing" | "approved" | "rejected" | "deferred" | "stale" | "conflicted";
+	status:
+		| "pending"
+		| "reviewing"
+		| "approved"
+		| "rejected"
+		| "deferred"
+		| "stale"
+		| "conflicted";
 	rejectionReason?: string;
 }
 
@@ -112,7 +128,11 @@ async function gitCheck(cwd: string, ...args: string[]): Promise<boolean> {
 	}
 }
 
-async function getDiff(cwd: string, baseRef: string, path?: string): Promise<string> {
+async function getDiff(
+	cwd: string,
+	baseRef: string,
+	path?: string,
+): Promise<string> {
 	const args = ["diff", baseRef];
 	if (path) args.push("--", path);
 	return git(args, cwd);
@@ -123,7 +143,11 @@ function isMainWorktree(cwd: string): boolean {
 		// If .review-gate exists in parent that means this IS a sandbox
 		// Simple heuristic: check if cwd contains ".worktree" or is inside .review-gate/sandboxes
 		const root = readFileSync(join(cwd, ".git", "HEAD"), "utf8");
-		return !cwd.includes(".worktree") && !cwd.includes("sandbox") && !cwd.includes("review-gate");
+		return (
+			!cwd.includes(".worktree") &&
+			!cwd.includes("sandbox") &&
+			!cwd.includes("review-gate")
+		);
 	} catch {
 		return true; // assume main worktree
 	}
@@ -141,8 +165,15 @@ function parseChangedLines(diffText: string): number {
 	return added + removed;
 }
 
-function parseHunks(diffText: string): Array<{ header: string; lines: string[]; added: number; removed: number }> {
-	const hunks: Array<{ header: string; lines: string[]; added: number; removed: number }> = [];
+function parseHunks(
+	diffText: string,
+): Array<{ header: string; lines: string[]; added: number; removed: number }> {
+	const hunks: Array<{
+		header: string;
+		lines: string[];
+		added: number;
+		removed: number;
+	}> = [];
 	const lines = diffText.split("\n");
 	let currentHunk: string[] = [];
 	let currentHeader = "";
@@ -152,12 +183,18 @@ function parseHunks(diffText: string): Array<{ header: string; lines: string[]; 
 		const hunkMatch = line.match(/^@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@/);
 		if (hunkMatch) {
 			if (inHunk && currentHunk.length > 0) {
-				let added = 0, removed = 0;
+				let added = 0,
+					removed = 0;
 				for (const l of currentHunk) {
 					if (l.startsWith("+") && !l.startsWith("+++")) added++;
 					else if (l.startsWith("-") && !l.startsWith("---")) removed++;
 				}
-				hunks.push({ header: currentHeader, lines: currentHunk, added, removed });
+				hunks.push({
+					header: currentHeader,
+					lines: currentHunk,
+					added,
+					removed,
+				});
 			}
 			currentHeader = line;
 			currentHunk = [];
@@ -167,7 +204,8 @@ function parseHunks(diffText: string): Array<{ header: string; lines: string[]; 
 		}
 	}
 	if (inHunk && currentHunk.length > 0) {
-		let added = 0, removed = 0;
+		let added = 0,
+			removed = 0;
 		for (const l of currentHunk) {
 			if (l.startsWith("+") && !l.startsWith("+++")) added++;
 			else if (l.startsWith("-") && !l.startsWith("---")) removed++;
@@ -178,7 +216,12 @@ function parseHunks(diffText: string): Array<{ header: string; lines: string[]; 
 }
 
 function chunkHunks(
-	hunks: Array<{ header: string; lines: string[]; added: number; removed: number }>,
+	hunks: Array<{
+		header: string;
+		lines: string[];
+		added: number;
+		removed: number;
+	}>,
 	targetSize = 50,
 ): ReviewChunk[] {
 	const chunks: ReviewChunk[] = [];
@@ -212,7 +255,8 @@ function chunkHunks(
 			else if (line.startsWith("-") && !line.startsWith("---")) currentLoc++;
 
 			if (currentLoc >= targetSize || i === lines.length - 1) {
-				let added = 0, removed = 0;
+				let added = 0,
+					removed = 0;
 				for (const l of currentLines) {
 					if (l.startsWith("+") && !l.startsWith("+++")) added++;
 					else if (l.startsWith("-") && !l.startsWith("---")) removed++;
@@ -262,7 +306,7 @@ const DOCS_PATTERNS = [
 	/\/docs?\//,
 	/\/__docs__\//,
 	/\.md$/,
-	/\.mdx$/
+	/\.mdx$/,
 ];
 
 function isExcluded(path: string): boolean {
@@ -296,12 +340,23 @@ function ensureReviewGateDirs(cwd: string, batchId: string): void {
 function saveBatch(batch: ReviewBatch, cwd: string): void {
 	ensureReviewGateDirs(cwd, batch.batchId);
 	batch.updatedAt = Date.now();
-	writeFileSync(batchFilePath(cwd, batch.batchId), JSON.stringify(batch, null, 2));
+	writeFileSync(
+		batchFilePath(cwd, batch.batchId),
+		JSON.stringify(batch, null, 2),
+	);
 	// Save patch per file
 	for (const file of batch.files) {
 		if (file.chunks.length > 0) {
-			const patchContent = file.chunks.map((c) => `${c.hunkHeader}\n${c.diffText}`).join("\n");
-			writeFileSync(join(patchDir(cwd, batch.batchId), `${file.path.replace(/\//g, "_")}.patch`), patchContent);
+			const patchContent = file.chunks
+				.map((c) => `${c.hunkHeader}\n${c.diffText}`)
+				.join("\n");
+			writeFileSync(
+				join(
+					patchDir(cwd, batch.batchId),
+					`${file.path.replace(/\//g, "_")}.patch`,
+				),
+				patchContent,
+			);
 		}
 	}
 }
@@ -348,7 +403,18 @@ function isMutatingBash(command: string): boolean {
 	if (command.includes("| tee ")) return true;
 	if (command.startsWith("sed") && command.includes("-i")) return true;
 	// Write commands
-	const writeCmds = ["write", "echo", "cat >", "printf", "install", "cp", "mv", "rm", "mkdir", "touch"];
+	const writeCmds = [
+		"write",
+		"echo",
+		"cat >",
+		"printf",
+		"install",
+		"cp",
+		"mv",
+		"rm",
+		"mkdir",
+		"touch",
+	];
 	for (const cmd of writeCmds) {
 		if (command.startsWith(cmd) || command.includes(` ${cmd} `)) return true;
 	}
@@ -358,7 +424,8 @@ function isMutatingBash(command: string): boolean {
 function ensureReviewGateignore(cwd: string): void {
 	const gitignorePath = resolve(cwd, ".review-gate", ".gitignore");
 	try {
-		if (!existsSync(dirname(gitignorePath))) mkdirSync(dirname(gitignorePath), { recursive: true });
+		if (!existsSync(dirname(gitignorePath)))
+			mkdirSync(dirname(gitignorePath), { recursive: true });
 		if (!existsSync(gitignorePath)) writeFileSync(gitignorePath, "*\n");
 	} catch {
 		/* ignore */
@@ -374,12 +441,21 @@ async function createBatchFromSandbox(
 ): Promise<ReviewBatch | null> {
 	try {
 		const baseCommit = await git(["rev-parse", "HEAD"], cwd);
-		const sandboxCommit = await git(["rev-parse", "HEAD"], sandboxPath).catch(() => "");
+		const sandboxCommit = await git(["rev-parse", "HEAD"], sandboxPath).catch(
+			() => "",
+		);
 		const diffText = sandboxCommit
-			? await git(["diff", baseCommit, sandboxCommit, "--name-status"], sandboxPath).catch(() =>
-				git(["diff", baseCommit, "--name-status"], sandboxPath).catch(() => "")
-			  )
-			: await git(["diff", baseCommit, "--name-status"], sandboxPath).catch(() => "");
+			? await git(
+					["diff", baseCommit, sandboxCommit, "--name-status"],
+					sandboxPath,
+				).catch(() =>
+					git(["diff", baseCommit, "--name-status"], sandboxPath).catch(
+						() => "",
+					),
+				)
+			: await git(["diff", baseCommit, "--name-status"], sandboxPath).catch(
+					() => "",
+				);
 
 		if (!diffText.trim()) {
 			return null;
@@ -398,8 +474,12 @@ async function createBatchFromSandbox(
 
 			const resolvedPath = resolve(sandboxPath, filePath);
 			const mainPath = resolve(cwd, filePath);
-			const sandboxContent = existsSync(resolvedPath) ? readFileSync(resolvedPath, "utf8") : "";
-			const mainBeforeContent = existsSync(mainPath) ? readFileSync(mainPath, "utf8") : "";
+			const sandboxContent = existsSync(resolvedPath)
+				? readFileSync(resolvedPath, "utf8")
+				: "";
+			const mainBeforeContent = existsSync(mainPath)
+				? readFileSync(mainPath, "utf8")
+				: "";
 
 			const fileDiff = await git(
 				["diff", baseCommit, sandboxCommit || "HEAD", "--", filePath],
@@ -410,13 +490,21 @@ async function createBatchFromSandbox(
 			const hunks = parseHunks(fileDiff);
 			const chunks = chunkHunks(hunks);
 
-			const action = status === "A" ? "create" : status === "D" ? "delete" : status === "R" ? "rename" : "modify";
+			const action =
+				status === "A"
+					? "create"
+					: status === "D"
+						? "delete"
+						: status === "R"
+							? "rename"
+							: "modify";
 
 			files.push({
 				path: filePath,
 				action,
 				baseFileHash: fileHash(mainBeforeContent),
-				mainHashAtReviewStart: fileHashFromPath(mainPath) || fileHash(mainBeforeContent),
+				mainHashAtReviewStart:
+					fileHashFromPath(mainPath) || fileHash(mainBeforeContent),
 				sandboxHash: fileHash(sandboxContent),
 				patchHash: fileHash(fileDiff),
 				changedLoc,
@@ -490,7 +578,8 @@ async function applyApproved(
 		}
 	}
 
-	batch.overallStatus = stale.length > 0 ? "partial" : applied.length > 0 ? "applied" : "cancelled";
+	batch.overallStatus =
+		stale.length > 0 ? "partial" : applied.length > 0 ? "applied" : "cancelled";
 	saveBatch(batch, cwd);
 
 	if (ctx) {
@@ -523,13 +612,24 @@ function renderReviewOverlay(
 	const lines: string[] = [];
 	const totalFiles = batch.files.length;
 	const totalChunks = file.chunks.length;
-	const reviewedChunks = file.chunks.filter((c) => c.index <= chunkIndex).length;
+	const reviewedChunks = file.chunks.filter(
+		(c) => c.index <= chunkIndex,
+	).length;
 
 	// Header
 	const batchLabel = `Batch: ${batch.batchId}  Agent: ${batch.generatedBy}`;
 	lines.push(theme.fg("accent", theme.bold(batchLabel)));
-	const actionSymbol = file.action === "create" ? "➕" : file.action === "delete" ? "➖" : file.action === "rename" ? "📝" : "✏️";
-	const locExemptLabel = file.locExempt ? theme.fg("muted", "· LOC-exempt") : "";
+	const actionSymbol =
+		file.action === "create"
+			? "➕"
+			: file.action === "delete"
+				? "➖"
+				: file.action === "rename"
+					? "📝"
+					: "✏️";
+	const locExemptLabel = file.locExempt
+		? theme.fg("muted", "· LOC-exempt")
+		: "";
 	lines.push(
 		`  File ${fileIndex + 1}/${totalFiles}: ${file.path}  ${actionSymbol}  ${file.changedLoc} LOC${locExemptLabel}`,
 	);
@@ -541,7 +641,9 @@ function renderReviewOverlay(
 	const baseOk = file.baseFileHash ? "✓" : "—";
 	const mainOk = currentHashMatches(file, batch) ? "✓" : "✗";
 	const sandboxOk = file.sandboxHash ? "✓" : "—";
-	lines.push(theme.fg("dim", `  Base ${baseOk}  Main ${mainOk}  Sandbox ${sandboxOk}`));
+	lines.push(
+		theme.fg("dim", `  Base ${baseOk}  Main ${mainOk}  Sandbox ${sandboxOk}`),
+	);
 	lines.push("");
 
 	// Diff content
@@ -567,10 +669,16 @@ function renderReviewOverlay(
 
 	// Progress
 	const barLen = 20;
-	const progressFilled = Math.round((reviewedChunks / Math.max(totalChunks, 1)) * barLen);
+	const progressFilled = Math.round(
+		(reviewedChunks / Math.max(totalChunks, 1)) * barLen,
+	);
 	const bar = "■".repeat(progressFilled) + "□".repeat(barLen - progressFilled);
-	const approvedCount = batch.files.filter((f) => f.status === "approved").length;
-	const rejectedCount = batch.files.filter((f) => f.status === "rejected").length;
+	const approvedCount = batch.files.filter(
+		(f) => f.status === "approved",
+	).length;
+	const rejectedCount = batch.files.filter(
+		(f) => f.status === "rejected",
+	).length;
 	lines.push(
 		`  Progress: [${bar}] chunks  File: ${file.status}  Files: ${approvedCount} approved · ${rejectedCount} rejected · ${batch.files.filter((f) => f.status === "pending").length} pending`,
 	);
@@ -583,7 +691,10 @@ function renderReviewOverlay(
 }
 
 function currentHashMatches(file: FileReview, batch: ReviewBatch): boolean {
-	const mainPath = resolve(batch.sandboxPath.replace(/\/sandbox.*/, ""), file.path);
+	const mainPath = resolve(
+		batch.sandboxPath.replace(/\/sandbox.*/, ""),
+		file.path,
+	);
 	const hash = fileHashFromPath(mainPath);
 	return hash === file.mainHashAtReviewStart;
 }
@@ -658,8 +769,17 @@ export default function (pi: ExtensionAPI): void {
 
 			reviewState.enabled = !reviewState.enabled;
 			const status = reviewState.enabled ? "enabled" : "disabled";
-			ctx.ui.setStatus("review-gate", ctx.ui.theme.fg(reviewState.enabled ? "accent" : "warning", `gate ${status}`));
-			ctx.ui.notify(`Review gate ${status}`, reviewState.enabled ? "info" : "warning");
+			ctx.ui.setStatus(
+				"review-gate",
+				ctx.ui.theme.fg(
+					reviewState.enabled ? "accent" : "warning",
+					`gate ${status}`,
+				),
+			);
+			ctx.ui.notify(
+				`Review gate ${status}`,
+				reviewState.enabled ? "info" : "warning",
+			);
 		},
 	});
 
@@ -711,8 +831,12 @@ export default function (pi: ExtensionAPI): void {
 				.map((id) => {
 					const b = loadBatch(ctx.cwd, id);
 					if (!b) return null;
-					const approved = b.files.filter((f) => f.status === "approved").length;
-					const rejected = b.files.filter((f) => f.status === "rejected").length;
+					const approved = b.files.filter(
+						(f) => f.status === "approved",
+					).length;
+					const rejected = b.files.filter(
+						(f) => f.status === "rejected",
+					).length;
 					const pending = b.files.filter((f) => f.status === "pending").length;
 					return `${id.slice(-12)}  ${b.overallStatus}  ${b.files.length} files  ${approved}✓ ${rejected}✗ ${pending}○  ${b.generatedBy}`;
 				})
@@ -746,14 +870,22 @@ export default function (pi: ExtensionAPI): void {
 			// Parse args: sandbox path and generated-by label
 			const parts = (args || "").trim().split(/\s+/);
 			const sandboxPath = parts[0] || "";
-			const generatedBy = parts.slice(1).join(" ") || pi.getActiveTools().join(",");
+			const generatedBy =
+				parts.slice(1).join(" ") || pi.getActiveTools().join(",");
 
 			if (!sandboxPath) {
-				ctx.ui.notify("Usage: /review-batch <sandbox-path> [generated-by]", "warning");
+				ctx.ui.notify(
+					"Usage: /review-batch <sandbox-path> [generated-by]",
+					"warning",
+				);
 				return;
 			}
 
-			const batch = await createBatchFromSandbox(ctx.cwd, sandboxPath, generatedBy);
+			const batch = await createBatchFromSandbox(
+				ctx.cwd,
+				sandboxPath,
+				generatedBy,
+			);
 			if (!batch) {
 				ctx.ui.notify("No changes found in sandbox", "warning");
 				return;
@@ -769,8 +901,14 @@ export default function (pi: ExtensionAPI): void {
 			if (notePath) batch.agentOpsNotePath = notePath;
 			saveBatch(batch, ctx.cwd);
 
-			ctx.ui.notify(`Review batch created: ${batch.batchId} (${batch.files.length} files)`, "info");
-			ctx.ui.setStatus("review-gate", ctx.ui.theme.fg("accent", `📋 ${batch.files.length} files pending`));
+			ctx.ui.notify(
+				`Review batch created: ${batch.batchId} (${batch.files.length} files)`,
+				"info",
+			);
+			ctx.ui.setStatus(
+				"review-gate",
+				ctx.ui.theme.fg("accent", `📋 ${batch.files.length} files pending`),
+			);
 
 			// Try DiffView integration
 			tryCreateDiffViewArtifact(batch, ctx);
@@ -847,8 +985,13 @@ export default function (pi: ExtensionAPI): void {
 		}
 
 		if (currentBatch) {
-			const pending = currentBatch.files.filter((f) => f.status === "pending").length;
-			ctx.ui.setStatus("review-gate", ctx.ui.theme.fg("accent", `📋 ${pending} pending`));
+			const pending = currentBatch.files.filter(
+				(f) => f.status === "pending",
+			).length;
+			ctx.ui.setStatus(
+				"review-gate",
+				ctx.ui.theme.fg("accent", `📋 ${pending} pending`),
+			);
 		} else {
 			ctx.ui.setStatus("review-gate", ctx.ui.theme.fg("muted", "gate on"));
 		}
@@ -884,241 +1027,299 @@ function openReviewOverlay(ctx: ExtensionContext, batch: ReviewBatch): void {
 	let oversizedWarningAck = false;
 	let scrollOffset = 0;
 
-	ctx.ui.custom<void>((tui, theme, _kb, done) => {
-		const overlay = {
-			render(width: number): string[] {
-				const file = batch.files[fileIndex];
-				if (!file) return ["No files to review."];
+	ctx.ui.custom<void>(
+		(tui, theme, _kb, done) => {
+			const overlay = {
+				render(width: number): string[] {
+					const file = batch.files[fileIndex];
+					if (!file) return ["No files to review."];
 
-				const lines: string[] = [];
+					const lines: string[] = [];
 
-				if (helpVisible) {
-					lines.push(theme.fg("accent", theme.bold("Review Gate Keybindings")));
-					lines.push("");
-					lines.push("Navigation:");
-					lines.push("  j/k       scroll diff down/up");
-					lines.push("  n/p       next/previous chunk");
-					lines.push("  ]/[       next/previous file");
-					lines.push("  g/G       first/last file");
-					lines.push("  ?         toggle this help");
-					lines.push("");
-					lines.push("Review:");
-					lines.push("  space     mark chunk as seen");
-					lines.push("  a         approve current file");
-					lines.push("  r         reject current file");
-					lines.push("  d         defer current file");
-					lines.push("  f         send feedback to agent");
-					lines.push("  w         acknowledge oversized hunk");
-					lines.push("");
-					lines.push("Batch:");
-					lines.push("  x         apply all approved files");
-					lines.push("  q         close overlay");
-					lines.push("");
-					lines.push(theme.fg("dim", "Press any key to close help"));
-					return lines;
-				}
-
-				const totalFiles = batch.files.length;
-				const totalChunks = file.chunks.length;
-
-				// Header bar
-				const batchLabel = `AI Codegen Review  ·  Batch: ${batch.batchId.slice(-12)}  ·  Agent: ${batch.generatedBy}`;
-				lines.push(theme.fg("accent", theme.bold(batchLabel)));
-
-				// File header
-				const actionIcon =
-					file.action === "create" ? "➕" : file.action === "delete" ? "➖" : file.action === "rename" ? "📝" : "✏️";
-				const locExemptLabel = file.locExempt ? theme.fg("warning", " · LOC-exempt") : "";
-				const statusColor =
-					file.status === "approved" ? "success" : file.status === "rejected" ? "error" : file.status === "deferred" ? "warning" : "text";
-				lines.push(
-					`${theme.fg("accent", `File ${fileIndex + 1}/${totalFiles}`)}: ${file.path}  ${actionIcon}` +
-						`  ${theme.fg("muted", `${file.changedLoc} LOC`)}${locExemptLabel}` +
-						`  Status: ${theme.fg(statusColor, file.status)}`,
-				);
-				lines.push(
-					`  Chunk ${chunkIndex + 1}/${totalChunks}  ${file.chunks[chunkIndex] ? `~${file.chunks[chunkIndex].changedLoc} LOC` : ""}` +
-						`  ${theme.fg("dim", `Reviewed: ${file.chunks.filter((_, i) => i <= chunkIndex).length}/${totalChunks}`)}`,
-				);
-
-				// Separator
-				lines.push(theme.fg("dim", `  ${"─".repeat(Math.min(width - 4, 60))}`));
-
-				// Diff content
-				if (file.chunks[chunkIndex]) {
-					const diffLines = file.chunks[chunkIndex].diffText.split("\n");
-					const startLine = Math.max(0, scrollOffset);
-					const visibleLines = diffLines.slice(startLine, startLine + Math.max(10, Math.min(25, width / 4)));
-
-					for (const dl of visibleLines) {
-						if (dl.startsWith("+")) {
-							lines.push(theme.fg("success", ` ${dl}`));
-						} else if (dl.startsWith("-")) {
-							lines.push(theme.fg("error", ` ${dl}`));
-						} else if (dl.startsWith("@@")) {
-							lines.push(theme.fg("accent", ` ${dl}`));
-						} else {
-							lines.push(theme.fg("dim", ` ${dl}`));
-						}
-					}
-
-					if (diffLines.length > visibleLines.length) {
-						lines.push(theme.fg("muted", `  [${startLine + visibleLines.length}/${diffLines.length} lines]`));
-					}
-				} else {
-					lines.push(theme.fg("muted", "  (no changes to display)"));
-				}
-
-				// Separator
-				lines.push(theme.fg("dim", `  ${"─".repeat(Math.min(width - 4, 60))}`));
-
-				// Progress
-				const approvedCount = batch.files.filter((f) => f.status === "approved").length;
-				const rejectedCount = batch.files.filter((f) => f.status === "rejected").length;
-				const pendingCount = batch.files.filter((f) => f.status === "pending").length;
-				lines.push(
-					`  ${theme.fg("success", `✓ ${approvedCount} approved`)}  ` +
-						`${theme.fg("error", `✗ ${rejectedCount} rejected`)}  ` +
-						`${theme.fg("muted", `○ ${pendingCount} pending`)}` +
-						(file.status === "pending" && file.chunks.length > 0
-							? `  Chunk: ${chunkIndex + 1}/${file.chunks.length}`
-							: ""),
-				);
-
-				lines.push("");
-				lines.push(theme.fg("dim", "j/k scroll · n/p chunk · ]/[ file · a approve · r reject · d defer · f feedback"));
-				lines.push(theme.fg("dim", "x apply approved · ? help · q close"));
-
-				return lines;
-			},
-
-			handleInput(data: string): void {
-				if (helpVisible) {
-					helpVisible = false;
-					tui.requestRender();
-					return;
-				}
-
-				const file = batch.files[fileIndex];
-				if (!file) return;
-
-				if (data === "j") {
-					scrollOffset += 2;
-					tui.requestRender();
-				} else if (data === "k") {
-					scrollOffset = Math.max(0, scrollOffset - 2);
-					tui.requestRender();
-				} else if (data === "n") {
-					if (chunkIndex < file.chunks.length - 1) {
-						chunkIndex++;
-						scrollOffset = 0;
-					}
-					tui.requestRender();
-				} else if (data === "p") {
-					if (chunkIndex > 0) {
-						chunkIndex--;
-						scrollOffset = 0;
-					}
-					tui.requestRender();
-				} else if (data === "]" || data === "}") {
-					if (fileIndex < batch.files.length - 1) {
-						fileIndex++;
-						chunkIndex = 0;
-						scrollOffset = 0;
-					}
-					tui.requestRender();
-				} else if (data === "[" || data === "{") {
-					if (fileIndex > 0) {
-						fileIndex--;
-						chunkIndex = 0;
-						scrollOffset = 0;
-					}
-					tui.requestRender();
-				} else if (data === "g") {
-					fileIndex = 0;
-					chunkIndex = 0;
-					scrollOffset = 0;
-					tui.requestRender();
-				} else if (data === "G") {
-					fileIndex = batch.files.length - 1;
-					chunkIndex = 0;
-					scrollOffset = 0;
-					tui.requestRender();
-				} else if (data === " ") {
-					// mark chunk seen - no explicit action needed, just acknowledge navigation
-					tui.requestRender();
-				} else if (data === "a") {
-					// Approve file
-					const isOversized = file.changedLoc > 80;
-					const allSeen = true; // simplify: approve always allowed
-					if (isOversized && !oversizedWarningAck) {
-						ctx.ui.notify(
-							`Large file (${file.changedLoc} LOC): press w to acknowledge before approval`,
-							"warning",
+					if (helpVisible) {
+						lines.push(
+							theme.fg("accent", theme.bold("Review Gate Keybindings")),
 						);
-					} else {
-						file.status = "approved";
-						ctx.ui.notify(`Approved: ${file.path}`, "success");
+						lines.push("");
+						lines.push("Navigation:");
+						lines.push("  j/k       scroll diff down/up");
+						lines.push("  n/p       next/previous chunk");
+						lines.push("  ]/[       next/previous file");
+						lines.push("  g/G       first/last file");
+						lines.push("  ?         toggle this help");
+						lines.push("");
+						lines.push("Review:");
+						lines.push("  space     mark chunk as seen");
+						lines.push("  a         approve current file");
+						lines.push("  r         reject current file");
+						lines.push("  d         defer current file");
+						lines.push("  f         send feedback to agent");
+						lines.push("  w         acknowledge oversized hunk");
+						lines.push("");
+						lines.push("Batch:");
+						lines.push("  x         apply all approved files");
+						lines.push("  q         close overlay");
+						lines.push("");
+						lines.push(theme.fg("dim", "Press any key to close help"));
+						return lines;
 					}
-					tui.requestRender();
-				} else if (data === "r") {
-					file.status = "rejected";
-					ctx.ui.notify(`Rejected: ${file.path}`, "error");
-					tui.requestRender();
-				} else if (data === "d") {
-					file.status = "deferred";
-					ctx.ui.notify(`Deferred: ${file.path}`, "warning");
-					tui.requestRender();
-				} else if (data === "w") {
-					oversizedWarningAck = true;
-					ctx.ui.notify("Oversized warning acknowledged", "info");
-					tui.requestRender();
-				} else if (data === "f") {
-					// Send feedback — async is tricky here, use notification + prompt
-					ctx.ui.input("Feedback for agent (current file):", "").then((feedback) => {
-						if (feedback?.trim()) {
-							file.rejectionReason = feedback.trim();
-							ctx.ui.notify("Feedback recorded", "info");
-							tui.requestRender();
-						}
-					});
-				} else if (data === "x") {
-					// Apply approved
-					ctx.ui
-						.confirm("Apply approved files?", `Apply ${batch.files.filter((f) => f.status === "approved").length} file(s)?`)
-						.then(async (confirmed) => {
-							if (confirmed) {
-								const result = await applyApproved(batch, ctx.cwd, ctx);
-								const notePath = await createAgentOpsReviewNote(batch, ctx.cwd, result);
-								if (notePath) ctx.ui.notify(`Review note: ${notePath}`, "info");
-								if (result.stale.length > 0) {
-									ctx.ui.notify(`Stale files: ${result.stale.join(", ")}`, "warning");
-								}
-								tui.requestRender();
+
+					const totalFiles = batch.files.length;
+					const totalChunks = file.chunks.length;
+
+					// Header bar
+					const batchLabel = `AI Codegen Review  ·  Batch: ${batch.batchId.slice(-12)}  ·  Agent: ${batch.generatedBy}`;
+					lines.push(theme.fg("accent", theme.bold(batchLabel)));
+
+					// File header
+					const actionIcon =
+						file.action === "create"
+							? "➕"
+							: file.action === "delete"
+								? "➖"
+								: file.action === "rename"
+									? "📝"
+									: "✏️";
+					const locExemptLabel = file.locExempt
+						? theme.fg("warning", " · LOC-exempt")
+						: "";
+					const statusColor =
+						file.status === "approved"
+							? "success"
+							: file.status === "rejected"
+								? "error"
+								: file.status === "deferred"
+									? "warning"
+									: "text";
+					lines.push(
+						`${theme.fg("accent", `File ${fileIndex + 1}/${totalFiles}`)}: ${file.path}  ${actionIcon}` +
+							`  ${theme.fg("muted", `${file.changedLoc} LOC`)}${locExemptLabel}` +
+							`  Status: ${theme.fg(statusColor, file.status)}`,
+					);
+					lines.push(
+						`  Chunk ${chunkIndex + 1}/${totalChunks}  ${file.chunks[chunkIndex] ? `~${file.chunks[chunkIndex].changedLoc} LOC` : ""}` +
+							`  ${theme.fg("dim", `Reviewed: ${file.chunks.filter((_, i) => i <= chunkIndex).length}/${totalChunks}`)}`,
+					);
+
+					// Separator
+					lines.push(
+						theme.fg("dim", `  ${"─".repeat(Math.min(width - 4, 60))}`),
+					);
+
+					// Diff content
+					if (file.chunks[chunkIndex]) {
+						const diffLines = file.chunks[chunkIndex].diffText.split("\n");
+						const startLine = Math.max(0, scrollOffset);
+						const visibleLines = diffLines.slice(
+							startLine,
+							startLine + Math.max(10, Math.min(25, width / 4)),
+						);
+
+						for (const dl of visibleLines) {
+							if (dl.startsWith("+")) {
+								lines.push(theme.fg("success", ` ${dl}`));
+							} else if (dl.startsWith("-")) {
+								lines.push(theme.fg("error", ` ${dl}`));
+							} else if (dl.startsWith("@@")) {
+								lines.push(theme.fg("accent", ` ${dl}`));
+							} else {
+								lines.push(theme.fg("dim", ` ${dl}`));
 							}
-						});
-				} else if (data === "?") {
-					helpVisible = true;
-					tui.requestRender();
-				} else if (data === "q") {
-					// Save state before closing
-					saveBatch(batch, ctx.cwd);
-					done();
-				}
-			},
+						}
 
-			invalidate(): void {
-				// No cache to clear
-			},
-		};
+						if (diffLines.length > visibleLines.length) {
+							lines.push(
+								theme.fg(
+									"muted",
+									`  [${startLine + visibleLines.length}/${diffLines.length} lines]`,
+								),
+							);
+						}
+					} else {
+						lines.push(theme.fg("muted", "  (no changes to display)"));
+					}
 
-		return overlay;
-	}, { overlay: true });
+					// Separator
+					lines.push(
+						theme.fg("dim", `  ${"─".repeat(Math.min(width - 4, 60))}`),
+					);
+
+					// Progress
+					const approvedCount = batch.files.filter(
+						(f) => f.status === "approved",
+					).length;
+					const rejectedCount = batch.files.filter(
+						(f) => f.status === "rejected",
+					).length;
+					const pendingCount = batch.files.filter(
+						(f) => f.status === "pending",
+					).length;
+					lines.push(
+						`  ${theme.fg("success", `✓ ${approvedCount} approved`)}  ` +
+							`${theme.fg("error", `✗ ${rejectedCount} rejected`)}  ` +
+							`${theme.fg("muted", `○ ${pendingCount} pending`)}` +
+							(file.status === "pending" && file.chunks.length > 0
+								? `  Chunk: ${chunkIndex + 1}/${file.chunks.length}`
+								: ""),
+					);
+
+					lines.push("");
+					lines.push(
+						theme.fg(
+							"dim",
+							"j/k scroll · n/p chunk · ]/[ file · a approve · r reject · d defer · f feedback",
+						),
+					);
+					lines.push(theme.fg("dim", "x apply approved · ? help · q close"));
+
+					return lines;
+				},
+
+				handleInput(data: string): void {
+					if (helpVisible) {
+						helpVisible = false;
+						tui.requestRender();
+						return;
+					}
+
+					const file = batch.files[fileIndex];
+					if (!file) return;
+
+					if (data === "j") {
+						scrollOffset += 2;
+						tui.requestRender();
+					} else if (data === "k") {
+						scrollOffset = Math.max(0, scrollOffset - 2);
+						tui.requestRender();
+					} else if (data === "n") {
+						if (chunkIndex < file.chunks.length - 1) {
+							chunkIndex++;
+							scrollOffset = 0;
+						}
+						tui.requestRender();
+					} else if (data === "p") {
+						if (chunkIndex > 0) {
+							chunkIndex--;
+							scrollOffset = 0;
+						}
+						tui.requestRender();
+					} else if (data === "]" || data === "}") {
+						if (fileIndex < batch.files.length - 1) {
+							fileIndex++;
+							chunkIndex = 0;
+							scrollOffset = 0;
+						}
+						tui.requestRender();
+					} else if (data === "[" || data === "{") {
+						if (fileIndex > 0) {
+							fileIndex--;
+							chunkIndex = 0;
+							scrollOffset = 0;
+						}
+						tui.requestRender();
+					} else if (data === "g") {
+						fileIndex = 0;
+						chunkIndex = 0;
+						scrollOffset = 0;
+						tui.requestRender();
+					} else if (data === "G") {
+						fileIndex = batch.files.length - 1;
+						chunkIndex = 0;
+						scrollOffset = 0;
+						tui.requestRender();
+					} else if (data === " ") {
+						// mark chunk seen - no explicit action needed, just acknowledge navigation
+						tui.requestRender();
+					} else if (data === "a") {
+						// Approve file
+						const isOversized = file.changedLoc > 80;
+						const allSeen = true; // simplify: approve always allowed
+						if (isOversized && !oversizedWarningAck) {
+							ctx.ui.notify(
+								`Large file (${file.changedLoc} LOC): press w to acknowledge before approval`,
+								"warning",
+							);
+						} else {
+							file.status = "approved";
+							ctx.ui.notify(`Approved: ${file.path}`, "success");
+						}
+						tui.requestRender();
+					} else if (data === "r") {
+						file.status = "rejected";
+						ctx.ui.notify(`Rejected: ${file.path}`, "error");
+						tui.requestRender();
+					} else if (data === "d") {
+						file.status = "deferred";
+						ctx.ui.notify(`Deferred: ${file.path}`, "warning");
+						tui.requestRender();
+					} else if (data === "w") {
+						oversizedWarningAck = true;
+						ctx.ui.notify("Oversized warning acknowledged", "info");
+						tui.requestRender();
+					} else if (data === "f") {
+						// Send feedback — async is tricky here, use notification + prompt
+						ctx.ui
+							.input("Feedback for agent (current file):", "")
+							.then((feedback) => {
+								if (feedback?.trim()) {
+									file.rejectionReason = feedback.trim();
+									ctx.ui.notify("Feedback recorded", "info");
+									tui.requestRender();
+								}
+							});
+					} else if (data === "x") {
+						// Apply approved
+						ctx.ui
+							.confirm(
+								"Apply approved files?",
+								`Apply ${batch.files.filter((f) => f.status === "approved").length} file(s)?`,
+							)
+							.then(async (confirmed) => {
+								if (confirmed) {
+									const result = await applyApproved(batch, ctx.cwd, ctx);
+									const notePath = await createAgentOpsReviewNote(
+										batch,
+										ctx.cwd,
+										result,
+									);
+									if (notePath)
+										ctx.ui.notify(`Review note: ${notePath}`, "info");
+									if (result.stale.length > 0) {
+										ctx.ui.notify(
+											`Stale files: ${result.stale.join(", ")}`,
+											"warning",
+										);
+									}
+									tui.requestRender();
+								}
+							});
+					} else if (data === "?") {
+						helpVisible = true;
+						tui.requestRender();
+					} else if (data === "q") {
+						// Save state before closing
+						saveBatch(batch, ctx.cwd);
+						done();
+					}
+				},
+
+				invalidate(): void {
+					// No cache to clear
+				},
+			};
+
+			return overlay;
+		},
+		{ overlay: true },
+	);
 }
 
 // ─── DiffView integration ───────────────────────────────────────────────────
 
-function tryCreateDiffViewArtifact(batch: ReviewBatch, ctx: ExtensionContext): void {
+function tryCreateDiffViewArtifact(
+	batch: ReviewBatch,
+	ctx: ExtensionContext,
+): void {
 	try {
 		const diffviewerDir = resolve(ctx.cwd, ".diffviewer");
 		if (!existsSync(diffviewerDir)) return;
@@ -1141,7 +1342,10 @@ function tryCreateDiffViewArtifact(batch: ReviewBatch, ctx: ExtensionContext): v
 			ledger: `.review-gate/batches/${batch.batchId}/batch.json`,
 			createdAt: Date.now(),
 		};
-		writeFileSync(join(artifactDir, "artifact.json"), JSON.stringify(summary, null, 2));
+		writeFileSync(
+			join(artifactDir, "artifact.json"),
+			JSON.stringify(summary, null, 2),
+		);
 		batch.diffviewerArtifactId = batch.batchId;
 	} catch {
 		// DiffView not available, silently skip
@@ -1163,7 +1367,11 @@ async function createGitWorktree(
 	branchName: string,
 ): Promise<string | null> {
 	try {
-		const worktreeDir = resolve(cwd, "..", `.review-gate-sandbox-${branchName}`);
+		const worktreeDir = resolve(
+			cwd,
+			"..",
+			`.review-gate-sandbox-${branchName}`,
+		);
 		await git(["worktree", "add", worktreeDir, "HEAD"], cwd);
 		await git(["checkout", "-b", branchName], worktreeDir);
 		return worktreeDir;

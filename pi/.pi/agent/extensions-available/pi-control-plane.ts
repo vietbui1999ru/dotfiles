@@ -121,9 +121,7 @@ async function commandrEvents(cwd: string) {
 function expandVault(path?: string): string {
 	// Env vars override
 	const envVault =
-		process.env.AGENTOPS_VAULT ||
-		process.env.PI_OBSIDIAN_VAULT ||
-		"";
+		process.env.AGENTOPS_VAULT || process.env.PI_OBSIDIAN_VAULT || "";
 	if (envVault) return resolve(envVault.replace(/^~\//, homedir() + "/"));
 	const raw = path || "~/repos/AgentOps";
 	return resolve(raw.replace(/^~(?=\/|$)/, homedir()));
