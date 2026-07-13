@@ -16,3 +16,12 @@ nvim/.config/nvim/.claude/
 kitty/.config/kitty/kitty-os.conf
 kitty/.config/kitty/*.bak
 .firecrawl/
+
+# Backup files — rely on git history, no .bak convention (json.bak already covered elsewhere)
+*.md.bak
+# Per-session agent scratch/state that must never be committed
+/pi-session-*.html
+/.Codex/
+**/session-state.md
+/.pi/diff-review/
+/.pi-subagents/
