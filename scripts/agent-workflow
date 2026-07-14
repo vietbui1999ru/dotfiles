@@ -18,11 +18,20 @@ DEFAULT_CONFIG_PATH = DOTFILES / "shared" / "agent-workflow.default.json"
 USER_CONFIG_PATH = Path(os.environ.get("AGENT_WORKFLOW_CONFIG", "~/.config/agent-workflow/config.json")).expanduser()
 MANAGED_HOOK_MARKER = "agent-workflow managed: pre-commit-gate"
 BUS_DIRS = ["inbox", "claimed", "done", "approvals", "council", "annotations"]
-EXCLUDE_LINES = [
-    ".agents/",
+# Commandr's own bus home versions inbox/done via its own committed .gitignore;
+# attached repos treat the whole bus as transient (nothing under .agents/ is
+# committed here).
+IGNORE_LINES = [
+    ".agents/inbox/",
+    ".agents/done/",
+    ".agents/claimed/",
+    ".agents/approvals/",
+    ".agents/council/",
+    ".agents/annotations/",
+    ".agents/sessions/",
+    ".agents/events.jsonl",
     ".diffviewer/",
-    ".pi/nvim-context.json",
-    ".pi/status/",
+    ".pi/",
     ".agent-workflow.local.json",
     ".obsidian/",
 ]
@@ -101,17 +110,31 @@ def enabled(cfg: dict[str, Any], key: str) -> bool:
     return cfg.get(key) is not False
 
 
-def ensure_exclude(root: Path) -> None:
-    exclude = root / ".git" / "info" / "exclude"
-    exclude.parent.mkdir(parents=True, exist_ok=True)
-    existing = exclude.read_text().splitlines() if exclude.exists() else []
-    changed = False
-    with exclude.open("a") as f:
-        for line in EXCLUDE_LINES:
-            if line not in existing:
-                f.write(line + "\n")
-                changed = True
-    print(f"✓ git excludes {'updated' if changed else 'already configured'}")
+def append_ignore_lines(path: Path, lines: list[str]) -> bool:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing = path.read_text().splitlines() if path.exists() else []
+    to_add = [line for line in lines if line not in existing]
+    if not to_add:
+        return False
+    with path.open("a") as f:
+        for line in to_add:
+            f.write(line + "\n")
+    return True
+
+
+def has_tracked_gitignore(root: Path) -> bool:
+    proc = run(["git", "-C", str(root), "ls-files", "--error-unmatch", ".gitignore"])
+    return proc.returncode == 0
+
+
+def ensure_ignores(root: Path) -> None:
+    if has_tracked_gitignore(root):
+        changed = append_ignore_lines(root / ".gitignore", IGNORE_LINES)
+        print(f"✓ .gitignore {'updated' if changed else 'already configured'}")
+    else:
+        exclude = root / ".git" / "info" / "exclude"
+        changed = append_ignore_lines(exclude, IGNORE_LINES)
+        print(f"✓ git excludes {'updated' if changed else 'already configured'}")
 
 
 def install_pre_commit(root: Path) -> None:
@@ -165,7 +188,11 @@ def attach(args: argparse.Namespace) -> None:
     else:
         print("- DiffViewer disabled by config")
 
-    ensure_exclude(root)
+    (root / ".pi" / "status").mkdir(parents=True, exist_ok=True)
+    (root / ".pi" / "diff-review").mkdir(parents=True, exist_ok=True)
+    print("✓ Pi runtime directory attached (status/, diff-review/)")
+
+    ensure_ignores(root)
 
     if enabled(cfg, "preCommitGate"):
         install_pre_commit(root)

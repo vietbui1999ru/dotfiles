@@ -375,6 +375,11 @@ def cmd_index(args: argparse.Namespace) -> None:
     print(f"✓ Index rebuilt: {len(sessions)} sessions")
 
 
+def cmd_path(args: argparse.Namespace) -> None:
+    root = git_main_root(Path(args.repo if args.repo else "."))
+    print(sessions_dir(root))
+
+
 def cmd_open(args: argparse.Namespace) -> None:
     root = git_main_root(Path(args.repo if args.repo else "."))
     fpath = sessions_dir(root) / args.file
@@ -445,6 +450,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("index", help="Rebuild index.json from files")
     p.add_argument("repo", nargs="?")
     p.set_defaults(func=cmd_index)
+
+    p = sub.add_parser("path", help="Print the resolved sessions dir")
+    p.add_argument("repo", nargs="?")
+    p.set_defaults(func=cmd_path)
 
     p = sub.add_parser("open", help="Open a session file in an app")
     p.add_argument("file")
