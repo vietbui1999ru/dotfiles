@@ -1,6 +1,14 @@
 # SPEC: Multi-Session Context Queue
 
-**Status:** Proposed — implementation-ready
+> **Superseded:** The canonical specification now lives in AgentOps at
+> `Projects/20260715_agentops-canonical-communication-plane-spec.md`.
+> See the repository pointer at
+> `docs/SPEC-agentops-canonical-communication-plane.md`.
+>
+> This document remains as historical design material for the multi-session
+> queue. Its earlier projection-only AgentOps boundary is no longer current.
+
+**Status:** Superseded — retained for migration/reference
 
 **Date:** 2026-07-15
 
