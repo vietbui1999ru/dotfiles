@@ -52,11 +52,26 @@ if [ -z "$MODEL" ]; then
   exit 2
 fi
 
-VALID_MODELS=("haiku" "sonnet" "opus" "fable")
-MODEL_OK=0
-for m in "${VALID_MODELS[@]}"; do [ "$MODEL" = "$m" ] && MODEL_OK=1 && break; done
-if [ "$MODEL_OK" -eq 0 ]; then
-  >&2 echo "BLOCKED: model '$MODEL' is not a valid tier. Use: haiku | sonnet | opus | fable"
+# Two accepted spellings, because two layers consume this value:
+#   - the Agent tool's model enum takes bare tier aliases
+#   - agent frontmatter and settings.json also accept concrete versioned IDs
+# Both resolve to the same model, so validate the shape rather than a fixed list —
+# a hardcoded alias list rejects every real model ID (e.g. claude-haiku-4-5).
+MODEL_BASE="${MODEL%\[1m\]}"                       # strip optional [1m] context suffix
+MODEL_FAMILY=""
+case "$MODEL_BASE" in
+  haiku|sonnet|opus|fable|inherit) MODEL_FAMILY="$MODEL_BASE" ;;
+  claude-*)
+    if [[ "$MODEL_BASE" =~ ^claude-(haiku|sonnet|opus|fable|mythos)-[0-9]+(-[0-9]+)?(-[0-9]{8})?$ ]]; then
+      MODEL_FAMILY="${BASH_REMATCH[1]}"
+    fi
+    ;;
+esac
+
+if [ -z "$MODEL_FAMILY" ]; then
+  >&2 echo "BLOCKED: model '$MODEL' is not a recognized model."
+  >&2 echo "  Tier alias:  haiku | sonnet | opus | fable | inherit"
+  >&2 echo "  Versioned:   claude-<family>-<version>[-<date>]  (e.g. claude-haiku-4-5)"
   exit 2
 fi
 
