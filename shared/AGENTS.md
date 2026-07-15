@@ -285,20 +285,37 @@ ai-ml (training-pipeline/feature-stores/model-serving/A-B-testing/drift-monitori
 
 **Search command:** `qmd query "<topic>" --files --min-score 0.4` (run from any cwd).
 
-## Session inbox
+## Pi-first session and provider workflow
 
-All harnesses (Claude Code `cc`, Codex `codex`, OpenCode `opencode`, Pi `pi`) save session state to one **universal per-repo inbox** at `.agents/sessions/` via `scripts/agent-session` (symlinked to `~/.local/bin/agent-session`). One inbox across all harnesses — no more hunting through `.claude/`, `.codex/`, `.opencode/`, `.pi/` dirs.
+**Adopted architecture:** Pi is the only supported agent harness. AgentOps is
+the durable context plane; Commandr is the task service; DiffView is the review
+service; Obsidian is the human UI. Claude Code, Codex, and OpenCode are not
+parallel workflow targets.
 
-- Save: `agent-session save --harness <cc|codex|opencode|pi> --work-type <feature|fix|refactor|chore|research|spec|design|arch|pr|general> --kind <session|spec|plan|design|arch|pr> --goal "<goal>" --body -` (pipe markdown body on stdin)
-- List: `agent-session list [--harness ...] [--work-type ...] [--kind ...] [--status active|idle] [--task ...]`
-- Latest active: `agent-session active`
-- Flip idle: `agent-session idle [<file>]`
-- Show/resume: `agent-session show <file>` / `agent-session resume <file>`
-- Open in Obsidian: `agent-session open <file> --app obsidian` (completes the obsidian-cli bridge — SPECs/PRs/designs/arch readable/editable in Obsidian)
+Pi writes durable session/spec/plan/review state through the AgentOps contract:
 
-Files: `<repo>/.agents/sessions/<YYYYMMDD-HHMMSS>_<harness>_<work-type>_<slug>.md`, indexed in `<repo>/.agents/sessions/index.json`. Legacy per-harness state files (`.claude/session-state.md`, `.codex/session-state.md`, `.opencode/session-state.md`, `.pi/session-state.md`) become 1-line thin pointers (so existing tools keep working). Full details: `docs/SESSION-INBOX.md`.
+```sh
+agentops session start|checkpoint|pause|resume|done
+agentops context <work-item-or-session>
+agentops spec create|update
+agentops plan create|update
+agentops review start|event|verdict
+agentops handoff create|read
+```
 
-Pi `/clear-context` automates the 0% context reset via `ctx.newSession({parentSession})` (Claude/OpenCode must make the user type `/clear` manually — Pi can do it programmatically).
+Provider adapters are selected inside Pi:
+
+```text
+Anthropic / OpenAI-Codex / Google / Bedrock
+local OpenAI-compatible endpoints
+opt-in Antigravity proxy
+bounded CLI bridge only when no supported API exists
+```
+
+Legacy `scripts/agent-session` and `.agents/sessions/` remain migration and
+compatibility surfaces until the AgentOps-backed Pi session queue is complete.
+They are not the long-term canonical store. Pi `/clear-context` saves the
+AgentOps checkpoint before starting a fresh session.
 
 ## Engineering golden rules
 

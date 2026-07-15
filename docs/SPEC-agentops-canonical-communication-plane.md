@@ -8,8 +8,9 @@ It supersedes the older local multi-session specification:
 
 - [`SPEC-multi-session-context-queue.md`](./SPEC-multi-session-context-queue.md)
 
-The new SPEC makes AgentOps the durable communication/context source for Pi,
-Claude Code, OpenCode, and Codex, with Commandr and DiffView as adapters/views.
+The adopted rule is: Pi is the only supported agent harness. AgentOps is the
+durable communication/context source; Commandr and DiffView are Pi services;
+other vendors are provider adapters or explicit bounded CLI bridges.
 It includes the Antigravity provider phase:
 
 - explicit Google Antigravity vs Anthropic subscription distinction;

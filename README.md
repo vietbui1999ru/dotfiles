@@ -64,7 +64,7 @@ ansible-playbook ansible/site.yml --limit admin_redhat -i ansible/inventory/host
 | `scripts/bootstrap-dirs.sh` | Create `~/repos`, symlink `~/repos/llm-wiki` → submodule, materialize default configs |
 | `scripts/sync-agent-rules.sh` | Sync `shared/AGENTS.md` and MCP servers to Claude Code, Codex, OpenCode |
 | `scripts/agent-workflow` | Attach/detach/status/doctor for per-repo Commandr/Pi/Neovim workflow |
-| `scripts/agent-session` | Universal per-repo session inbox: save/list/show/resume/active/idle/index/open across all harnesses |
+| `scripts/agent-session` | Legacy per-repo session inbox used during migration to the Pi + AgentOps session API |
 
 ## Submodules
 
@@ -118,33 +118,32 @@ scripts/agent-workflow status ~/repos/example
 scripts/agent-workflow detach ~/repos/example
 ```
 
-### Universal session inbox
+### Pi-first workflow
 
-All harnesses (Claude, Codex, OpenCode, Pi) save session state to
-`.agents/sessions/` with harness + work-type tags:
+Pi is the only supported agent harness. AgentOps is the durable context plane,
+Commandr is the task service, DiffView is the review service, and Obsidian is
+the human UI. Other vendors are model providers or explicit CLI bridges, not
+parallel harnesses.
 
 ```sh
-# Save a session/spec/PR to the universal inbox
-scripts/agent-session save --harness pi --kind spec --goal "feature X"
+# AgentOps-backed Pi workflow (target contract)
+agentops context <work-item>
+agentops session checkpoint
+agentops spec create
+agentops plan create
+agentops review start
 
-# List all sessions across all harnesses
-scripts/agent-session list
-
-# Get the latest active session (for injection on resume)
-scripts/agent-session active
-
-# Mark idle when work is complete
-scripts/agent-session idle
+# Pi TUI
+/clear-context
+/sessions
+/spec
+/plan
+/review
 ```
 
-SPEC/PR/design/architecture templates in `shared/templates/` follow the Addy
-Osmani spec framework (6 core areas, 3-tier boundaries) and the undefeated PR
-template (7 sections). Use `agent-session save --kind spec|pr|design|arch|plan`
-to scaffold from templates.
-
-In Pi TUI: `/clear-context` saves state then starts a fresh session (ctx → 0%),
-`/spec`, `/pr`, etc. scaffold from templates, `/diff` renders diffs with
-unambiguous red deletions.
+Legacy `scripts/agent-session` and `.agents/sessions/` remain compatibility
+surfaces during migration. New workflow features should target AgentOps and
+Pi, not add another harness-specific state store.
 
 ## Notes
 
