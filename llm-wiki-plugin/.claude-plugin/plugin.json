@@ -1,5 +1,5 @@
 {
   "name": "llm-wiki",
-  "description": "Personal knowledge wiki for AI orchestration, agent engineering, security, and code quality patterns",
-  "version": "1.0.0"
+  "description": "Build one new, non-duplicate Pi-first agent blueprint from the personal LLM wiki",
+  "version": "2.0.0"
 }

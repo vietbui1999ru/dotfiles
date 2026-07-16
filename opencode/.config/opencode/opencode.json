@@ -31,13 +31,6 @@
       ],
       "enabled": true
     },
-    "wiki-rag": {
-      "type": "local",
-      "command": [
-        "${HOME}/.local/bin/wiki-mcp"
-      ],
-      "enabled": true
-    },
     "playwright": {
       "type": "local",
       "command": [
@@ -69,14 +62,9 @@
     "${HOME}/dotfiles/claude/.claude/rules/editing.md",
     "${HOME}/dotfiles/claude/.claude/rules/model-routing.md",
     "${HOME}/dotfiles/claude/.claude/rules/skill-invocation.md",
-    "${HOME}/dotfiles/claude/.claude/rules/applied-ai.md",
-    "${HOME}/dotfiles/claude/.claude/rules/wiki-startup.md"
+    "${HOME}/dotfiles/claude/.claude/rules/applied-ai.md"
   ],
   "command": {
-    "wiki": {
-      "description": "Query personal LLM wiki \u2014 graph-aware synthesis via local LightRAG (no API cost)",
-      "template": "Query ~/repos/llm-wiki for: {{input}}. Use the wiki_query tool (wiki-rag MCP) for graph-aware synthesis \u2014 it runs locally via ollama, no API cost. For quick exact-term lookups, use qmd as fallback. Cite results as [[concepts/...]] or [[summaries/...]]."
-    },
     "tdd": {
       "description": "Test-driven development: write failing test first, then implementation",
       "template": "Apply TDD for: {{input}}. Step 1: Write a failing test that captures the requirement. Step 2: Show the minimal implementation to make it pass. Step 3: Refactor if needed. Use red-green-refactor discipline."
