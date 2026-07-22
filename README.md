@@ -6,19 +6,26 @@ Personal dotfiles managed with [GNU Stow](https://www.gnu.org/software/stow/). A
 
 ## Packages
 
-| Package | Stow target |
-|---|---|
-| `zsh/` | `~/.zshrc`, `~/.zprofile`, `~/.zsh/` |
-| `starship/` | `~/.config/starship.toml` |
-| `nvim/` | `~/.config/nvim/` |
-| `tmux/` | `~/.tmux.conf`, `~/.local/bin/tmux-cht` |
-| `kitty/` | `~/.config/kitty/` |
-| `git/` | `~/.gitconfig` |
-| `jj/` | `~/.config/jj/config.toml` |
-| `claude/` | `~/.claude/` |
-| `opencode/` | `~/.config/opencode/` |
-| `codex/` | `~/.codex/` |
-| `pi/` | `~/.pi/` |
+Provisioning uses three mechanisms — know which applies before editing a package:
+**stow** (symlink, edits round-trip to git), **materialized** (copied once from a template by
+`bootstrap-dirs.sh`, then drifts silently — edit the template, not the live file), and
+**sync-pushed** (one-way push by `sync-agent-rules.sh`, live edits are invisible to git).
+
+| Package | Stow target | Provisioning |
+|---|---|---|
+| `zsh/` | `~/.zshrc`, `~/.zprofile`, `~/.zsh/` | stow |
+| `starship/` | `~/.config/starship.toml` | stow |
+| `nvim/` | `~/.config/nvim/` | stow |
+| `tmux/` | `~/.tmux.conf`, `~/.local/bin/tmux-cht` | stow |
+| `kitty/` | `~/.config/kitty/` | stow |
+| `git/` | `~/.gitconfig` | stow |
+| `jj/` | `~/.config/jj/config.toml` | stow — **not currently applied on this machine** |
+| `aerospace/` | `~/.aerospace.toml` | stow (macOS tiling WM) — not in the `stow` line above; add when used |
+| `i3/` | `~/.config/i3/config` | Linux-only, applied via Ansible (not macOS stow) |
+| `claude/` | `~/.claude/` | stow (partial) — files symlinked; `skills/`+`agents/` mix dotfiles and `llm-wiki` sources |
+| `opencode/` | `~/.config/opencode/` | partial — `plugins/` stow; `opencode.json` materialized; `agents/`/`skills/` unmanaged |
+| `codex/` | `~/.codex/` | **no-op stub today** — Codex is sync-pushed via `sync-agent-rules.sh`, not stowed |
+| `pi/` | `~/.pi/` | stow (extensions only); `~/.pi/agent/` runtime state is unmanaged |
 
 ## Quick start (macOS)
 
