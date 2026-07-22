@@ -233,8 +233,15 @@ export default function piSession(pi: ExtensionAPI) {
 				ctx.ui.notify(result.stdout.trim() || "No active sessions", "info");
 				return;
 			}
-			const root = await gitMainRoot(ctx.cwd);
-			const sessionPath = join(root, ".agents", "sessions", file);
+			const dirResult = await runAgentSession(["path", ctx.cwd], ctx.cwd);
+			if (dirResult.code !== 0) {
+				ctx.ui.notify(
+					"Could not resolve sessions dir: " + dirResult.stderr,
+					"warning",
+				);
+				return;
+			}
+			const sessionPath = join(dirResult.stdout.trim(), file);
 			if (!existsSync(sessionPath)) {
 				ctx.ui.notify("Session file not found: " + file, "warning");
 				return;
@@ -393,8 +400,15 @@ export default function piSession(pi: ExtensionAPI) {
 			const app = parts.includes("--app")
 				? parts[parts.indexOf("--app") + 1]
 				: "obsidian";
-			const root = await gitMainRoot(ctx.cwd);
-			const sessionPath = join(root, ".agents", "sessions", file);
+			const dirResult = await runAgentSession(["path", ctx.cwd], ctx.cwd);
+			if (dirResult.code !== 0) {
+				ctx.ui.notify(
+					"Could not resolve sessions dir: " + dirResult.stderr,
+					"warning",
+				);
+				return;
+			}
+			const sessionPath = join(dirResult.stdout.trim(), file);
 			if (!existsSync(sessionPath)) {
 				ctx.ui.notify("Session file not found: " + file, "warning");
 				return;
