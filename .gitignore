@@ -16,3 +16,8 @@ nvim/.config/nvim/.claude/
 kitty/.config/kitty/kitty-os.conf
 kitty/.config/kitty/*.bak
 .firecrawl/
+
+# Generated agent artifacts and caches
+.pi-subagents/
+__pycache__/
+/docs/.pi/status/
