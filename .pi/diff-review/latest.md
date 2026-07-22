@@ -1,10 +1,10 @@
 # Pi Diff Review
 
-File: `/Users/vietquocbui/dotfiles/docs/workflows/agentops-workflow.md`
+File: `/Users/vietquocbui/.pi/agent/extensions/provider-governance/test/phase-1.test.ts`
 
-- changed rows: 298
-- added rows: 298
-- removed rows: 0
-- accepted: 298
+- changed rows: 15
+- added rows: 8
+- removed rows: 7
+- accepted: 15
 - denied/restored: 0
 - edited by user: 0
