@@ -23,7 +23,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
-ok()   { echo -e "  ${GREEN}✓${NC} $1"; }
+ok() { echo -e "  ${GREEN}✓${NC} $1"; }
 info() { echo -e "  ${BLUE}ℹ${NC} $1"; }
 warn() { echo -e "  ${YELLOW}⚠${NC} $1"; }
 fail() { echo -e "  ${RED}✗${NC} $1"; }
@@ -54,7 +54,7 @@ write_json() {
 	local file="$1"
 	local content="$2"
 	mkdir -p "$(dirname "$file")"
-	echo "$content" > "$file"
+	echo "$content" >"$file"
 }
 
 ensure_dir() {
@@ -90,7 +90,7 @@ phase_gitignore() {
 		return
 	fi
 
-	cat > "$target" <<-'GITIGNORE'
+	cat >"$target" <<-'GITIGNORE'
 		# AgentOps vault gitignore — partial tracking policy
 		# See dotfiles/docs/PLAN-obsidian-gittui.md §4 for rationale
 
@@ -128,7 +128,7 @@ phase_obsidian_config() {
 		local uuid
 		uuid=$(uuidgen 2>/dev/null || echo "agentops-$(date +%s)")
 		write_json "$core" \
-"{
+			"{
   \"id\": \"$uuid\",
   \"plugins\": $(printf '%s\n' "${CORE_PLUGINS[@]}" | python3 -c 'import sys,json; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))' 2>/dev/null || printf '%s\n' "${CORE_PLUGINS[@]}" | jq -R . | jq -s .)
 }"
@@ -140,8 +140,8 @@ phase_obsidian_config() {
 	# community-plugins.json
 	local comm="$obs_dir/community-plugins.json"
 	if [[ ! -f "$comm" ]]; then
-		printf '%s\n' "${COMMUNITY_PLUGINS[@]}" | python3 -c 'import sys,json; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))' 2>/dev/null > "$comm" || \
-		printf '%s\n' "${COMMUNITY_PLUGINS[@]}" | jq -R . | jq -s . > "$comm"
+		printf '%s\n' "${COMMUNITY_PLUGINS[@]}" | python3 -c 'import sys,json; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))' 2>/dev/null >"$comm" ||
+			printf '%s\n' "${COMMUNITY_PLUGINS[@]}" | jq -R . | jq -s . >"$comm"
 		ok "community-plugins.json ($(printf '%s' "${COMMUNITY_PLUGINS[*]}" | wc -w | tr -d ' ') plugins)"
 	else
 		ok "community-plugins.json exists"
@@ -151,7 +151,7 @@ phase_obsidian_config() {
 	local app="$obs_dir/app.json"
 	if [[ ! -f "$app" ]]; then
 		write_json "$app" \
-'{
+			'{
   "vimMode": true,
   "alwaysUpdateLinks": true,
   "newFileLocation": "folder",
@@ -172,7 +172,7 @@ phase_obsidian_config() {
 	local appearance="$obs_dir/appearance.json"
 	if [[ ! -f "$appearance" ]]; then
 		write_json "$appearance" \
-'{
+			'{
   "accentColor": "#7c3aed",
   "cssTheme": "",
   "enabledCssSnippets": [],
@@ -199,7 +199,7 @@ phase_templates() {
 
 	# Run template
 	if [[ ! -f "$tmpl/Run.md" ]]; then
-		cat > "$tmpl/Run.md" <<-'RUN'
+		cat >"$tmpl/Run.md" <<-'RUN'
 			---
 			type: run
 			project: "{{project}}"
@@ -240,7 +240,7 @@ phase_templates() {
 
 	# Spec template
 	if [[ ! -f "$tmpl/Spec.md" ]]; then
-		cat > "$tmpl/Spec.md" <<-'SPEC'
+		cat >"$tmpl/Spec.md" <<-'SPEC'
 			---
 			type: spec
 			project: "{{project}}"
@@ -267,7 +267,7 @@ phase_templates() {
 
 	# Review template
 	if [[ ! -f "$tmpl/Review.md" ]]; then
-		cat > "$tmpl/Review.md" <<-'REVIEW'
+		cat >"$tmpl/Review.md" <<-'REVIEW'
 			---
 			type: review
 			project: "{{project}}"
@@ -297,7 +297,7 @@ phase_templates() {
 
 	# Dashboards
 	if [[ ! -f "$dash/AgentOps.md" ]]; then
-		cat > "$dash/AgentOps.md" <<-'DASH'
+		cat >"$dash/AgentOps.md" <<-'DASH'
 			# AgentOps Dashboard
 
 			```dataview
@@ -311,7 +311,7 @@ phase_templates() {
 	fi
 
 	if [[ ! -f "$dash/Runs.md" ]]; then
-		cat > "$dash/Runs.md" <<-'DASH'
+		cat >"$dash/Runs.md" <<-'DASH'
 			# Active Runs
 
 			```dataview
@@ -325,7 +325,7 @@ phase_templates() {
 	fi
 
 	if [[ ! -f "$dash/Reviews.md" ]]; then
-		cat > "$dash/Reviews.md" <<-'DASH'
+		cat >"$dash/Reviews.md" <<-'DASH'
 			# Pending Reviews
 
 			```dataview
@@ -340,7 +340,7 @@ phase_templates() {
 
 	# Plugin guard doc
 	if [[ ! -f "$AGENTOPS_VAULT/System/plugin-guard.md" ]]; then
-		cat > "$AGENTOPS_VAULT/System/plugin-guard.md" <<-'GUARD'
+		cat >"$AGENTOPS_VAULT/System/plugin-guard.md" <<-'GUARD'
 			# Plugin Guard
 
 			Required plugin sets for AgentOps vault.
@@ -396,8 +396,8 @@ phase_git_init() {
 		Inbox/.gitkeep \
 		Projects/.gitkeep \
 		Runs/.gitkeep \
-		Reviews/.gitkeep && \
-	git commit -m "chore: bootstrap AgentOps vault skeleton" || true
+		Reviews/.gitkeep &&
+		git commit -m "chore: bootstrap AgentOps vault skeleton" || true
 
 	ok "Git initialized with initial commit"
 }
@@ -495,7 +495,7 @@ with open('$comm_json', 'w') as f:
 				echo "- [ ] $p (folder missing — install in Obsidian)"
 			fi
 		done
-	} > "$report"
+	} >"$report"
 
 	if $modified; then
 		ok "Plugin config repaired"
@@ -553,34 +553,34 @@ echo "║     $AGENTOPS_VAULT"
 echo "╚══════════════════════════════════════════════════╝"
 
 case "${1:-}" in
-	--repair|-r)
-		phase_plugin_guard
-		phase_status_report
-		;;
-	--status|-s)
-		phase_status_report
-		;;
-	--help|-h)
-		echo "Usage: $0 [--repair|--status|--help]"
-		echo "  (no args)  Full idempotent bootstrap"
-		echo "  --repair   Plugin guard only"
-		echo "  --status   Report only, no changes"
-		exit 0
-		;;
-	*)
-		phase_vault_skeleton
-		phase_gitignore
-		phase_obsidian_config
-		phase_templates
-		phase_git_init
-		phase_plugin_guard
-		phase_symlink_ao
-		phase_status_report
-		echo ""
-		echo "Done. Next steps:"
-		echo "  1. ao open          # open vault in Obsidian"
-		echo "  2. Install community plugins in Obsidian"
-		echo "  3. ao repair        # verify plugins installed"
-		echo "  4. ao note 'hello'  # quick capture smoke test"
-		;;
+--repair | -r)
+	phase_plugin_guard
+	phase_status_report
+	;;
+--status | -s)
+	phase_status_report
+	;;
+--help | -h)
+	echo "Usage: $0 [--repair|--status|--help]"
+	echo "  (no args)  Full idempotent bootstrap"
+	echo "  --repair   Plugin guard only"
+	echo "  --status   Report only, no changes"
+	exit 0
+	;;
+*)
+	phase_vault_skeleton
+	phase_gitignore
+	phase_obsidian_config
+	phase_templates
+	phase_git_init
+	phase_plugin_guard
+	phase_symlink_ao
+	phase_status_report
+	echo ""
+	echo "Done. Next steps:"
+	echo "  1. ao open          # open vault in Obsidian"
+	echo "  2. Install community plugins in Obsidian"
+	echo "  3. ao repair        # verify plugins installed"
+	echo "  4. ao note 'hello'  # quick capture smoke test"
+	;;
 esac
