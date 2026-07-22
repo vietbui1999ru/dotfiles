@@ -230,10 +230,19 @@ def doctor(_args: argparse.Namespace) -> None:
     print(f"  dotfiles: {DOTFILES}")
     print(f"  config: {USER_CONFIG_PATH}")
     print(f"  default config: {DEFAULT_CONFIG_PATH if DEFAULT_CONFIG_PATH.exists() else 'missing'}")
-    for name in ["claim", "progress", "complete", "pre-commit-gate", "pi", "omp"]:
+    for name in ["claim", "progress", "complete", "pre-commit-gate", "pi", "omp", "rtk"]:
         print(tool_line(name))
     ext = Path("~/.pi/agent/extensions/neovim-cockpit.ts").expanduser()
     print(f"  Pi cockpit extension: {ext if ext.exists() else 'missing'}")
+    rtk_ext = Path("~/.pi/agent/extensions/rtk.ts").expanduser()
+    print(f"  RTK Pi extension: {rtk_ext if rtk_ext.exists() else 'missing'}")
+    claude_settings = Path("~/.claude/settings.json").expanduser()
+    claude_rtk_hook = (
+        claude_settings.exists() and '"command": "rtk hook claude"' in claude_settings.read_text()
+    )
+    print(f"  RTK Claude hook: {'configured' if claude_rtk_hook else 'missing'}")
+    rtk_instructions = Path("~/.claude/RTK.md").expanduser()
+    print(f"  RTK Claude instructions: {rtk_instructions if rtk_instructions.exists() else 'missing'}")
     oc_plugin = Path("~/.config/opencode/plugins/commandr-checkpoint.js").expanduser()
     print(f"  OpenCode Commandr plugin: {oc_plugin if oc_plugin.exists() else 'missing'}")
     print("  Neovim Lua syntax: run `luac -p` in validation (doctor is non-mutating)")

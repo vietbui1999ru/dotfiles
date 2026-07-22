@@ -61,7 +61,7 @@ ansible-playbook ansible/site.yml --limit admin_redhat -i ansible/inventory/host
 
 | Script | Purpose |
 |---|---|
-| `scripts/bootstrap-dirs.sh` | Create `~/repos`, symlink `~/repos/llm-wiki` → submodule, materialize default configs |
+| `scripts/bootstrap-dirs.sh` | Create directories, sync shared skills, and materialize default configs |
 | `scripts/sync-agent-rules.sh` | Sync `shared/AGENTS.md` and MCP servers to Claude Code, Codex, OpenCode |
 | `scripts/agent-workflow` | Attach/detach/status/doctor for per-repo Commandr/Pi/Neovim workflow |
 | `scripts/agent-session` | Legacy per-repo session inbox used during migration to the Pi + AgentOps session API |
@@ -84,10 +84,11 @@ git add repos/llm-wiki && git commit -m "chore(submodule): bump llm-wiki"
 |---|---|
 | `pi` (pi-coding-agent) | `npm install -g @earendil-works/pi-coding-agent` |
 | `omp` (oh-my-pi) | `curl -fsSL https://omp.sh/install \| sh` |
+| `rtk` (Rust Token Killer) | `brew install rtk` (included in `Brewfile`) |
 
 `omp` binaries land in `~/.bun/bin/` — already on PATH via `.zprofile`.
 
-The `pi/` stow package installs three Pi TUI extensions:
+The `pi/` stow package includes these Pi extensions:
 
 - `neovim-cockpit.ts` — `/cockpit`, `/nvim-context`, `/nvim-refresh`,
   `nvim_context` tool, `#TASK` autocomplete
@@ -96,6 +97,23 @@ The `pi/` stow package installs three Pi TUI extensions:
 - `pi-session.ts` — `/save-session`, `/clear-context` (new session = 0%),
   `/sessions`, `/resume`, `/spec`, `/plan`, `/design`, `/arch`, `/pr`,
   `/review`, `/open`, `/diff` (red-for-deletions fix)
+- `rtk.ts` — transparently rewrites supported Bash commands through RTK to
+  reduce tool-output tokens; set `RTK_DISABLED=1` for passthrough
+
+Claude Code uses the equivalent `rtk hook claude` `PreToolUse` hook from
+`claude/.claude/settings.json`, with usage instructions in `~/.claude/RTK.md`.
+
+### Research tool routing
+
+Research tools have exclusive primary scopes:
+
+- **Context7** — official library, framework, SDK, CLI, and API documentation
+- **Ketch** — public implementation examples through `ketch code` only
+- **Firecrawl** — general web search, URLs, news, crawling, and page extraction
+
+Fallback is allowed only when the primary tool lacks coverage. Canonical policy
+lives in `shared/research-tool-routing.md`; `bootstrap-dirs.sh` syncs the scoped
+Firecrawl skill to `~/.agents/skills/firecrawl`.
 
 ### Agent workflow automation
 
@@ -105,7 +123,7 @@ per repo with `.agent-workflow.json` or machine-locally with ignored
 `.agent-workflow.local.json`.
 
 ```sh
-# Check global install state
+# Check global install state (including RTK binary + Pi extension)
 scripts/agent-workflow doctor
 
 # Attach a repo to the Commandr bus + DiffViewer sidecars + approval gate
@@ -144,6 +162,9 @@ agentops review start
 Legacy `scripts/agent-session` and `.agents/sessions/` remain compatibility
 surfaces during migration. New workflow features should target AgentOps and
 Pi, not add another harness-specific state store.
+
+RTK is a rewrite-only optimization layer: it does not replace permission gates
+or context-mode. Inspect savings with `rtk gain` or `rtk gain --history`.
 
 ## Notes
 

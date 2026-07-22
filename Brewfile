@@ -37,6 +37,7 @@ brew "lazygit"
 brew "jj"
 brew "fzf"
 brew "zoxide"
+brew "rtk"
 
 # Dev tools
 brew "mise"

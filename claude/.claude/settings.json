@@ -13,7 +13,6 @@
     ],
     "defaultMode": "default"
   },
-  "model": "opus[1m]",
   "hooks": {
     "PreToolUse": [
       {
@@ -49,6 +48,15 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/enforce-bash-safety.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "rtk hook claude"
           }
         ]
       }

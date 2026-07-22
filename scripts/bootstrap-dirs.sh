@@ -10,6 +10,18 @@ set -euo pipefail
 mkdir -p "$HOME/repos" "$HOME/.local/bin"
 echo "✓ ~/repos"
 
+# Keep the shared Firecrawl skill consistent across Pi, Claude Code, and other
+# Agent Skills-compatible harnesses. Its routing excludes Context7 docs and
+# Ketch code search so the three research tools do not duplicate work.
+FIRECRAWL_SKILL_SRC="$HOME/dotfiles/shared/skills/firecrawl"
+FIRECRAWL_SKILL_DEST="$HOME/.agents/skills/firecrawl"
+if [ -d "$FIRECRAWL_SKILL_SRC" ]; then
+	mkdir -p "$FIRECRAWL_SKILL_DEST/rules"
+	cp "$FIRECRAWL_SKILL_SRC/SKILL.md" "$FIRECRAWL_SKILL_DEST/SKILL.md"
+	cp "$FIRECRAWL_SKILL_SRC/rules/install.md" "$FIRECRAWL_SKILL_DEST/rules/install.md"
+	echo "✓ ~/.agents/skills/firecrawl (synced research routing)"
+fi
+
 if [ -x "$HOME/dotfiles/scripts/agent-workflow" ]; then
 	ln -sf "$HOME/dotfiles/scripts/agent-workflow" "$HOME/.local/bin/agent-workflow"
 	echo "✓ ~/.local/bin/agent-workflow → ~/dotfiles/scripts/agent-workflow"

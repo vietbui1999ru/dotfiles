@@ -14,6 +14,7 @@
       - jq
       - btop
       - fastfetch
+      - rtk
     state: present
   when: ansible_os_family == "Darwin"
 
@@ -112,6 +113,14 @@
     path: "{{ ansible_env.HOME }}/.local/bin"
     state: directory
     mode: "0755"
+  when: ansible_os_family != "Darwin"
+
+- name: Install RTK token optimizer (Linux)
+  ansible.builtin.shell: |
+    installer=https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh
+    curl -fsSL "$installer" | sh
+  args:
+    creates: "{{ ansible_env.HOME }}/.local/bin/rtk"
   when: ansible_os_family != "Darwin"
 
 - name: Check Obsidian CLI registration (Linux)
