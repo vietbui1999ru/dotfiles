@@ -1,0 +1,50 @@
+---
+- name: Verify
+  hosts: all
+  gather_facts: false
+  vars:
+    verify_bins:
+      - zsh
+      - starship
+      - tmux
+      - nvim
+      - cargo
+      - go
+      - mise
+      - rg
+      - fzf
+      - lazygit
+      - jq
+      - gh
+      - yq
+    verify_symlinks:
+      - .zshrc
+      - .tmux.conf
+      - .config/starship.toml
+      - .config/nvim
+  tasks:
+    - name: Check expected binaries are on PATH
+      ansible.builtin.shell: "command -v {{ item }}"
+      args:
+        executable: /bin/bash
+      environment:
+        PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.HOME }}/.cargo/bin:/usr/local/go/bin:{{ ansible_env.PATH }}"
+      loop: "{{ verify_bins }}"
+      register: verify_bin_check
+      changed_when: false
+
+    - name: Check key stow symlinks exist
+      ansible.builtin.stat:
+        path: "{{ ansible_env.HOME }}/{{ item }}"
+      loop: "{{ verify_symlinks }}"
+      register: verify_symlink_check
+
+    - name: Assert symlinks resolved into ~/dotfiles
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+          - item.stat.islnk
+        fail_msg: "{{ item.item }} is missing or not a symlink"
+      loop: "{{ verify_symlink_check.results }}"
+      loop_control:
+        label: "{{ item.item }}"

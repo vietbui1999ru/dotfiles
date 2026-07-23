@@ -1,0 +1,30 @@
+---
+dependency:
+  name: galaxy
+  options:
+    requirements-file: ../../requirements.yml
+driver:
+  name: docker
+platforms:
+  - name: debian12
+    image: docker.io/library/debian:12-slim
+    command: sleep infinity
+    pre_build_image: false
+    groups:
+      - debian
+  - name: rockylinux9
+    image: docker.io/rockylinux/rockylinux:9-minimal
+    command: sleep infinity
+    pre_build_image: false
+    groups:
+      - redhat
+provisioner:
+  name: ansible
+  env:
+    ANSIBLE_ROLES_PATH: ../../roles
+  playbooks:
+    prepare: prepare.yml
+    converge: converge.yml
+    verify: verify.yml
+verifier:
+  name: ansible

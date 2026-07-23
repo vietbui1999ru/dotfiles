@@ -1,0 +1,53 @@
+---
+- name: Bootstrap Python (Debian)
+  hosts: debian
+  gather_facts: false
+  tasks:
+    - name: Install python3/sudo/tar (Debian, via raw)
+      ansible.builtin.raw: apt-get update && apt-get install -y python3 sudo tar
+      changed_when: true
+
+- name: Bootstrap Python (RedHat)
+  hosts: redhat
+  gather_facts: false
+  tasks:
+    - name: Install python3/sudo/tar/xz (RedHat, via raw)
+      ansible.builtin.raw: >
+        (microdnf install -y python3 python3-dnf sudo tar xz ||
+         dnf install -y python3 python3-dnf sudo tar xz)
+      changed_when: true
+
+- name: Seed dotfiles checkout from the current working tree
+  hosts: all
+  gather_facts: true
+  vars:
+    seed_repo_root: "{{ (playbook_dir + '/../../..') | realpath }}"
+    seed_archive: /tmp/molecule-dotfiles-seed.tar.gz
+  tasks:
+    - name: Archive current working tree (controller)
+      ansible.builtin.shell: >
+        tar --exclude=.git --exclude=node_modules --exclude=.claude/worktrees
+        -czf {{ seed_archive }} -C {{ seed_repo_root }} .
+      delegate_to: localhost
+      run_once: true
+      changed_when: true
+      environment:
+        COPYFILE_DISABLE: "1"  # prevent macOS BSD tar from embedding AppleDouble ._* sidecar files
+
+    - name: Copy seed archive into container
+      ansible.builtin.copy:
+        src: "{{ seed_archive }}"
+        dest: "{{ seed_archive }}"
+        mode: "0644"
+
+    - name: Ensure ~/dotfiles exists
+      ansible.builtin.file:
+        path: "{{ ansible_env.HOME }}/dotfiles"
+        state: directory
+        mode: "0755"
+
+    - name: Extract seed archive into ~/dotfiles
+      ansible.builtin.unarchive:
+        src: "{{ seed_archive }}"
+        dest: "{{ ansible_env.HOME }}/dotfiles"
+        remote_src: true

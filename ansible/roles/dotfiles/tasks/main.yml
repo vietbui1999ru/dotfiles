@@ -1,17 +1,19 @@
 ---
 - name: Clone dotfiles repo
   ansible.builtin.git:
-    repo: git@github.com:vietbui99/dotfiles.git
+    repo: git@github.com:vietbui1999ru/dotfiles.git
     dest: "{{ ansible_env.HOME }}/dotfiles"
     version: main
     depth: 1
     update: false
+  when: dotfiles_clone_enabled
 
 - name: Init and update git submodules (llm-wiki)
   ansible.builtin.command:
     cmd: git submodule update --init --recursive
     chdir: "{{ ansible_env.HOME }}/dotfiles"
   changed_when: false
+  when: dotfiles_submodule_enabled
 
 - name: Bootstrap expected directories and symlinks
   ansible.builtin.command:
@@ -30,5 +32,5 @@
     - nvim
     - git
     - claude
-  register: stow_result
-  changed_when: stow_result.stdout != ""
+  register: dotfiles_stow_result
+  changed_when: dotfiles_stow_result.stdout != ""
