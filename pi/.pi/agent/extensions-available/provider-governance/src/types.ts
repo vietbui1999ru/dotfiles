@@ -13,7 +13,8 @@ export type ProviderClass =
   | "native-api-cloud"
   | "local"
   | "acp-delegate"
-  | "authorized-custom";
+  | "authorized-custom"
+  | "unknown";
 
 /** Billing label for display. */
 export type BillingLabel =
@@ -21,7 +22,8 @@ export type BillingLabel =
   | "metered/contract"
   | "local/no-token-price"
   | "subscription/metered-upstream"
-  | "configured/unknown";
+  | "configured/unknown"
+  | "unknown";
 
 /** Effective retry label as reported by the extension. */
 export type RetryLabel =
@@ -94,6 +96,41 @@ export interface ProviderUsage {
   cacheWrite: number;
   cost: number | null;
   billingClass: string;
+}
+
+/** Health state derived only from Pi's response lifecycle hooks. */
+export type ProviderHealthState = "unknown" | "healthy" | "degraded" | "unavailable";
+
+/** Read-only provider metadata used for display; it is never inferred from a model name. */
+export interface ProviderObservationPolicy {
+  providerClass: ProviderClass;
+  authorization: AuthorizationState;
+  billing: BillingLabel;
+  warnings?: string[];
+}
+
+/** A sanitized inventory row for one provider. */
+export interface ProviderInventoryEntry extends ProviderObservationPolicy {
+  providerId: string;
+  modelIds: string[];
+  modelCount: number;
+  retryLabel: RetryLabel;
+  health: {
+    state: ProviderHealthState;
+    observedAt?: string;
+    httpStatus?: number;
+  };
+}
+
+/** Sanitized terminal assistant observation; message content is intentionally absent. */
+export interface AssistantTerminalObservation {
+  providerId: string;
+  modelId: string;
+  stopReason: string;
+  status: RequestTerminalState;
+  usage: Pick<ProviderUsage, "input" | "output" | "cacheRead" | "cacheWrite">;
+  observedAt: string;
+  hasError: boolean;
 }
 
 /** Global extension config shape. */

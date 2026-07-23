@@ -1,198 +1,171 @@
 /**
- * Provider governance extension — Phase 0: observation-only baseline.
+ * Provider governance extension — Phase 3 observation-first inventory.
  *
- * This extension is loaded by Pi auto-discovery from ~/.pi/agent/extensions/.
- * It does NOT register live custom providers, call pi.setModel(), or
- * claim to observe actual retry execution.
+ * The extension reads Pi's existing model registry and lifecycle events only.
+ * It never registers a provider, selects a model, performs inference, logs in,
+ * falls back across providers, or persists message content.
  *
- * Retry reporting scope (per spec §6.1, §6.5):
- *   Reports `configured | unknown` from resolved global settings.
- *   Does NOT report actually observed retry events — Pi 0.80.x extension API
- *   does not expose auto_retry_start/auto_retry_end events (those exist only
- *   on the RPC stdout protocol).
- *
- * Future: RPC-to-extension bridge or Pi core retry event API for live observation.
+ * Retry reporting is deliberately limited to `configured | unknown`: Pi 0.80.x
+ * exposes auto-retry events on RPC stdout, not the extension lifecycle API.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadConfig, loadConfigWithValidation, writeConfig, configPath } from "./config.ts";
 import type { RetryLabel } from "./types.ts";
-import { info, warn, error, logPath, readRecentLogs, getErrorCounters, clearLog } from "./logger.ts";
+import { info, error, logPath, readRecentLogs, getErrorCounters, clearLog } from "./logger.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { validateConfig, checkRegistrationGate } from "./policy.ts";
+import { validateConfig, checkRegistrationGate, resolveRetryLabel as resolveRetryLabelFromSettings } from "./policy.ts";
+import {
+  formatProviderStatus,
+  inventoryModels,
+  isAssistantMessage,
+  observeAssistantMessage,
+  observeProviderResponse,
+  anthropicExtraUsageWarning,
+  type HealthObservationInput,
+} from "./observation.ts";
+
+let healthByProvider: Record<string, HealthObservationInput> = {};
+let selectedModel: string | undefined;
+let lastTerminal: ReturnType<typeof observeAssistantMessage>;
 
 export default function (pi: ExtensionAPI) {
   const config = loadConfig();
-
   if (!config.governanceEnabled) return;
 
-  // ───────── Commands ─────────
-
   pi.registerCommand("provider-status", {
-    description: "Show provider/model status, retry policy, and warnings",
-    handler: async (_args: string, ctx) => {
+    description: "Show read-only provider/model status, health, retry policy, and warnings",
+    handler: async (_args, ctx) => {
       try {
         const cfg = loadConfig();
         const validation = validateConfig(cfg);
-        const lines: string[] = [];
-
-        lines.push("Provider Governance Status");
-        lines.push(`  Config: ${configPath()}`);
-        lines.push(`  Enabled: ${cfg.governanceEnabled}`);
-        lines.push(`  Live Registration: ${cfg.registrationEnabled ? "ENABLED" : "DISABLED"}`);
-
-        // Show validation errors/warnings
-        if (!validation.valid) {
-          for (const err of validation.errors) {
-            lines.push(`  ⚠ Config error: ${err.field} — ${err.message}`);
-          }
-        }
-        for (const warn of validation.warnings) {
-          lines.push(`  ⚠ Config warning: ${warn.field} — ${warn.message}`);
-        }
-
         const retryLabel = resolveRetryLabel();
-        lines.push(`    Note: reports configured|unknown only. Pi 0.80.x extension API`);
-        lines.push(`    does not expose auto_retry events. See RPC stdout for observed retries.`);
-
-        if (cfg.acpDelegate) {
-          lines.push(`  ACP Delegate: ${cfg.acpDelegate.routeEnabled ? "ENABLED" : "DISABLED"}`);
-          lines.push(`    Route reports: automatic retry unknown`);
+        const entries = inventoryModels(ctx.modelRegistry.getAll(), retryLabel, healthByProvider);
+        const lines = [
+          formatProviderStatus(entries, selectedModel, lastTerminal),
+          `Config: ${configPath()}`,
+          `Enabled: ${cfg.governanceEnabled}`,
+          `Live Registration: ${cfg.registrationEnabled ? "ENABLED" : "DISABLED"}`,
+          `Retry: ${retryLabel} (configured|unknown only; actual retry events require RPC stdout)`,
+        ];
+        if (!validation.valid) {
+          for (const item of validation.errors) lines.push(`Config error: ${item.field} — ${item.message}`);
         }
-
-        lines.push("");
-        lines.push("Model Registry:");
-        const models = ctx.modelRegistry.getAll();
-        if (models.length === 0) {
-          lines.push("  (no models registered)");
-        } else {
-          for (const m of models.slice(0, 20)) {
-            const billing = m.cost
-              ? `cost: i=${m.cost.input}/o=${m.cost.output}`
-              : "billing: unknown";
-            lines.push(`  ${m.provider}/${m.id}  [${billing}]`);
-          }
-          if (models.length > 20) {
-            lines.push(`  ... and ${models.length - 20} more`);
-          }
-        }
-
+        for (const item of validation.warnings) lines.push(`Config warning: ${item.field} — ${item.message}`);
+        if (cfg.acpDelegate) lines.push(`ACP Delegate: ${cfg.acpDelegate.routeEnabled ? "ENABLED" : "DISABLED"}; retry=automatic retry unknown`);
         ctx.ui.notify(lines.join("\n"), "info");
-      } catch (err) {
-        error("provider-status", "command failed", err);
-        ctx.ui.notify(`provider-status error: ${err}`, "error");
+      } catch (caught) {
+        error("provider-status", "command failed", caught);
+        ctx.ui.notify("provider-status failed; see provider-logs.", "error");
       }
     },
   });
 
   pi.registerCommand("provider-doctor", {
-    description: "Run observational diagnostics (no inference)",
-    handler: async (_args: string, ctx) => {
+    description: "Run observational provider diagnostics without inference",
+    handler: async (_args, ctx) => {
       try {
         const { config: cfg, validation } = loadConfigWithValidation();
-        const lines: string[] = [];
-
-        lines.push("Provider Doctor");
-        lines.push(`  Config file: ${configPath()}`);
-        lines.push(`  Config valid: ${validation.valid ? "yes" : "NO — issues found"}`);
-        if (!validation.valid) {
-          for (const err of validation.errors) {
-            lines.push(`    ✗ ${err.field}: ${err.message}`);
-          }
-        }
-        for (const w of validation.warnings) {
-          lines.push(`    ⚠ ${w.field}: ${w.message}`);
-        }
-        lines.push(`  Retry (from global settings):`);
-        lines.push(`    governance extension reports: ${resolveRetryLabel()}`);
-        lines.push(`    Actual retry events: only visible via RPC stdout`);
-        lines.push(`    See: scripts/rpc-retry-probe.ts`);
-        lines.push(`  ACP config: ${cfg.acpDelegate ? "present" : "missing — using built-in defaults"}`);
-        lines.push(`  Telemetry sink: ${cfg.telemetry?.sink ?? "unset"}`);
-        lines.push(`  Registration gate: ${checkRegistrationGate(cfg, false).allowed ? "OPEN" : "BLOCKED"}`);
-        lines.push("");
-        lines.push("  No inference was sent for diagnostics.");
-        lines.push("  No provider was registered or enabled by this command.");
-
-        ctx.ui.notify(lines.join("\n"), "info");
-      } catch (err) {
-        error("provider-doctor", "command failed", err);
-        ctx.ui.notify(`provider-doctor error: ${err}`, "error");
+        const entries = inventoryModels(ctx.modelRegistry.getAll(), resolveRetryLabel(), healthByProvider);
+        const lines = [
+          "Provider Doctor",
+          `Config file: ${configPath()}`,
+          `Config valid: ${validation.valid ? "yes" : "NO — issues found"}`,
+          `Providers observed: ${entries.length}`,
+          `Retry: ${resolveRetryLabel()} (actual retry events only visible via RPC stdout)`,
+          `ACP config: ${cfg.acpDelegate ? "present" : "missing — using built-in defaults"}`,
+          `Telemetry sink: ${cfg.telemetry?.sink ?? "unset"}`,
+          `Registration gate: ${checkRegistrationGate(cfg, false).allowed ? "OPEN" : "BLOCKED"}`,
+          "No inference was sent; no provider was registered or enabled.",
+        ];
+        for (const item of validation.errors) lines.push(`Config error: ${item.field}: ${item.message}`);
+        for (const item of validation.warnings) lines.push(`Config warning: ${item.field}: ${item.message}`);
+        ctx.ui.notify(lines.join("\n"), validation.valid ? "info" : "warning");
+      } catch (caught) {
+        error("provider-doctor", "command failed", caught);
+        ctx.ui.notify("provider-doctor failed; see provider-logs.", "error");
       }
     },
   });
 
   pi.registerCommand("provider-policy", {
-    description: "Show provider policy configuration",
-    handler: async (_args: string, ctx) => {
+    description: "Show provider governance policy configuration",
+    handler: async (_args, ctx) => {
       try {
         const cfg = loadConfig();
-        const lines: string[] = [];
-
-        lines.push("Provider Policy");
-        lines.push(`  Cross-provider fallback: ${cfg.allowAutomaticCrossProviderFallback ? "ALLOWED" : "PROHIBITED"}`);
-        lines.push(`  Config scope: ${cfg.configScope}`);
-        lines.push(`  Live registration: ${cfg.registrationEnabled ? "ENABLED" : "DISABLED"}`);
+        const lines = [
+          "Provider Policy",
+          `Cross-provider fallback: ${cfg.allowAutomaticCrossProviderFallback ? "ALLOWED" : "PROHIBITED"}`,
+          `Config scope: ${cfg.configScope}`,
+          `Live registration: ${cfg.registrationEnabled ? "ENABLED" : "DISABLED"}`,
+          "Diagnostics: observational only; no inference",
+        ];
         if (cfg.acpDelegate) {
-          lines.push(`  ACP default tools: none (allowlist per work-type)`);
-          lines.push(`  ACP disallowed: ${cfg.acpDelegate.disallowedTools.join(", ")}`);
-          lines.push(`  ACP circuit breaker: finite budgets, zero auto-restart`);
+          lines.push("ACP default tools: none (allowlist per work-type)");
+          lines.push(`ACP disallowed: ${cfg.acpDelegate.disallowedTools.join(", ")}`);
+          lines.push("ACP circuit breaker: finite budgets, zero auto-restart");
         }
-
         ctx.ui.notify(lines.join("\n"), "info");
-      } catch (err) {
-        error("provider-policy", "command failed", err);
-        ctx.ui.notify(`provider-policy error: ${err}`, "error");
+      } catch (caught) {
+        error("provider-policy", "command failed", caught);
+        ctx.ui.notify("provider-policy failed; see provider-logs.", "error");
       }
     },
   });
 
-  // ───────── Events (observation-only) ─────────
-
+  // Post-selection is advisory. There is intentionally no pre-selection veto.
   pi.on("model_select", async (event, ctx) => {
     try {
-      const { model, source } = event;
-      const next = `${model.provider}/${model.id}`;
-
-      // Update status bar (advisory only — governance never vetoes model changes)
-      ctx.ui.setStatus("model", `${model.id}`);
-
-      // Log non-restore changes
-      if (source !== "restore") {
-        info("model_select", `model changed to ${next} (${source})`);
-      }
-    } catch (err) {
-      error("model_select", "handler failed", err);
+      const next = `${event.model.provider}/${event.model.id}`;
+      selectedModel = next;
+      if (ctx.hasUI) ctx.ui.setStatus("provider-governance", event.model.id);
+      const warning = anthropicExtraUsageWarning(event.model.provider);
+      if (warning && event.source !== "restore" && ctx.hasUI) ctx.ui.notify(warning, "warning");
+      if (event.source !== "restore") info("model_select", `model changed to ${next} (${event.source})`);
+    } catch (caught) {
+      error("model_select", "handler failed", caught);
     }
   });
 
-  pi.on("message_end", async (_event, _ctx) => {
-    // Observation point only — no transformation or veto
+  // Assistant terminal metadata only: content and error text never enter logs.
+  pi.on("message_end", async (event) => {
+    if (!isAssistantMessage(event.message)) return;
+    const observation = observeAssistantMessage(event.message);
+    if (!observation) return;
+    lastTerminal = observation;
+    info("message_end", "assistant terminal observed", {
+      provider: observation.providerId,
+      model: observation.modelId,
+      status: observation.status,
+      stopReason: observation.stopReason,
+      input: observation.usage.input,
+      output: observation.usage.output,
+    });
   });
 
-  // Unhandled rejections are caught by Node.js process.on('unhandledRejection')
-  // The extension_error event is an RPC protocol event, not an extension lifecycle event.
-
-  // ───────── Logging ─────────
-
-  info("index", "extension loaded", {
-    config: configPath(),
-    governanceEnabled: config.governanceEnabled,
+  // Response lifecycle is observational and does not trigger a health request.
+  pi.on("after_provider_response", async (event, ctx) => {
+    const providerId = ctx.model?.provider;
+    if (!providerId) return;
+    healthByProvider = {
+      ...healthByProvider,
+      [providerId]: observeProviderResponse(event.status),
+    };
   });
 
+  info("index", "extension loaded", { config: configPath(), governanceEnabled: config.governanceEnabled });
   pi.registerCommand("provider-logs", {
     description: "Show recent governance extension logs",
-    handler: async (_args: string, ctx) => {
+    handler: async (_args, ctx) => {
       const logs = readRecentLogs(30);
       const counters = getErrorCounters();
-      const lines: string[] = [];
-      lines.push(`Log file: ${logPath()}`);
-      lines.push(`Error counters: ${JSON.stringify(counters)}`);
-      lines.push("");
+      const lines = [`Log file: ${logPath()}`, `Error counters: ${JSON.stringify(counters)}`, ""];
       for (const entry of logs) {
-        const marker = entry.level === "ERROR" ? "✗" : entry.level === "WARN" ? "⚠" : "·";
+        let marker = "·";
+        if (entry.level === "ERROR") marker = "✗";
+        else if (entry.level === "WARN") marker = "⚠";
         lines.push(`${marker} [${entry.ts.slice(11, 19)}] ${entry.level} ${entry.source}: ${entry.message}`);
         if (entry.error) lines.push(`  └─ ${entry.error.slice(0, 200)}`);
       }
@@ -202,43 +175,23 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerCommand("provider-logs-clear", {
     description: "Clear the governance extension log file",
-    handler: async (_args: string, ctx) => {
+    handler: async (_args, ctx) => {
       clearLog();
       info("index", "log cleared by user");
       ctx.ui.notify("Log cleared.", "info");
     },
   });
 
-  // ───────── Config lock ─────────
-
-  // Ensure the config file exists with defaults on first load
-  // (writes only if missing — existing config is not silently rewritten)
-  writeConfig(config);
+  // Keep the existing global config untouched except for first-run creation.
+  if (!existsSync(configPath())) writeConfig(config);
 }
 
-// ───────── Helpers ─────────
-
 function resolveRetryLabel(): RetryLabel {
-  // Phase 0: parse global settings.json for retry defaults.
-  // This reads the file directly rather than through an extension API
-  // because Pi 0.80.x provides no extension API for effective retry state.
   try {
     const settingsPath = join(homedir(), ".pi", "agent", "settings.json");
-
     if (!existsSync(settingsPath)) return "unknown";
-
-    const raw = readFileSync(settingsPath, "utf8");
-    const settings = JSON.parse(raw);
-
-    const enabled = settings.retry?.enabled;
-    const maxRetries = settings.retry?.maxRetries;
-    const providerMaxRetries = settings.retry?.provider?.maxRetries;
-
-    if (enabled === false) return "configured"; // deliberately disabled
-    if (enabled === true && maxRetries != null && providerMaxRetries != null) {
-      return "configured";
-    }
-    return "unknown";
+    const settings = JSON.parse(readFileSync(settingsPath, "utf8")) as unknown;
+    return resolveRetryLabelFromSettings(settings);
   } catch {
     return "unknown";
   }
