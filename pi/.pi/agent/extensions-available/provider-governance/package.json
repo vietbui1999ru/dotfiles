@@ -1,0 +1,23 @@
+{
+  "name": "provider-governance",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pi provider governance extension — observation-first, ACP bounded-delegate bridge",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.scripts.json --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "probe:retry": "tsx scripts/rpc-retry-probe.ts",
+    "conformance": "tsx --test test/phase-2-conformance.test.ts test/phase-2-acp-mock.test.ts",
+    "manual:phase2": "tsx scripts/manual-phase-2.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.80.10",
+    "@earendil-works/pi-ai": "0.80.10"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "@types/node": "^22.0.0"
+  }
+}
