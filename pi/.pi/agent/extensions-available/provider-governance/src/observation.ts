@@ -1,14 +1,7 @@
 /** Pure observation helpers for Phase 3 provider governance. */
 
 import type {
-  AssistantMessage,
-  Api,
-  Model,
-} from "@earendil-works/pi-ai";
-import type {
   AssistantTerminalObservation,
-  BillingLabel,
-  ProviderClass,
   ProviderHealthState,
   ProviderInventoryEntry,
   ProviderObservationPolicy,
@@ -109,6 +102,16 @@ export interface HealthObservationInput {
   httpStatus?: number;
 }
 
+/** Minimal registry shape keeps this pure module independent of Pi packages. */
+export interface RegistryModel {
+  provider: string;
+  id: string;
+}
+
+export interface AssistantMessageLike {
+  role: "assistant";
+}
+
 /** Convert an already-received response into a bounded health observation. */
 export function observeProviderResponse(
   status: number,
@@ -130,7 +133,7 @@ export function observeProviderResponse(
 
 /** Inventory models from Pi's existing registry without registering or changing anything. */
 export function inventoryModels(
-  models: readonly Model<Api>[],
+  models: readonly RegistryModel[],
   retryLabel: RetryLabel,
   health: Readonly<Record<string, HealthObservationInput>> = {},
   policyOverrides: Readonly<Record<string, ProviderObservationPolicy>> = {},
@@ -239,6 +242,6 @@ export function anthropicExtraUsageWarning(providerId: string): string | undefin
   return providerId === "anthropic" ? ANTHROPIC_WARNING : undefined;
 }
 
-export function isAssistantMessage(message: unknown): message is AssistantMessage {
+export function isAssistantMessage(message: unknown): message is AssistantMessageLike {
   return typeof message === "object" && message !== null && (message as { role?: unknown }).role === "assistant";
 }
