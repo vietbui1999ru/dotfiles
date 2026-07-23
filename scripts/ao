@@ -18,6 +18,8 @@ Commands:
   status        Show vault status and plugin guard state
   repair        Auto-repair missing plugins
   note <text>   Quick capture a note to Inbox
+  spec <title>  Scaffold a SPEC note in Projects/ (from System/Templates/Spec.md)
+  plan <title>  Scaffold a PLAN note in Projects/
   help          Show this help
 
 Environment:
@@ -305,13 +307,68 @@ cmd_note() {
 	info "Note saved: $file"
 }
 
+# Scaffold a spec/plan note into Projects/ from a template.
+# Renders {{project}}/{{created}}/{{title}} placeholders; falls back to an
+# inline skeleton when no matching template exists (e.g. plan).
+scaffold() {
+	local kind="$1"; shift
+	local title="${*:?Usage: ao $kind <title>}"
+	check_vault
+
+	local slug created file tmpl
+	slug=$(echo "$title" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g;s/--*/-/g;s/^-//;s/-$//' | cut -c1-60)
+	created=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+	file="$AGENTOPS_VAULT/Projects/$(date +%Y%m%d)_${slug}-${kind}.md"
+	mkdir -p "$AGENTOPS_VAULT/Projects"
+	[[ -e "$file" ]] && die "Already exists: $file"
+
+	# Template name is the capitalized kind: Spec.md, Plan.md
+	tmpl="$AGENTOPS_VAULT/System/Templates/$(tr '[:lower:]' '[:upper:]' <<<"${kind:0:1}")${kind:1}.md"
+	if [[ -f "$tmpl" ]]; then
+		# In bash 5+, '&' and '\' are special in ${//} replacements; escape them.
+		local safe_title=${title//\\/\\\\}
+		safe_title=${safe_title//&/\\&}
+		local content
+		content=$(<"$tmpl")
+		content=${content//\{\{project\}\}/agentops}
+		content=${content//\{\{created\}\}/$created}
+		content=${content//\{\{title\}\}/$safe_title}
+		printf '%s\n' "$content" > "$file"
+	else
+		cat > "$file" <<-EOF
+		---
+		type: $kind
+		project: agentops
+		status: draft
+		created: $created
+		updated: $created
+		tags: [agentops, $kind]
+		---
+
+		# $title
+
+		## Goal
+
+		## Steps
+
+		## Risks
+
+		## Next Steps
+		EOF
+	fi
+	info "${kind} scaffolded: $file"
+}
+
+cmd_spec() { scaffold spec "$@"; }
+cmd_plan() { scaffold plan "$@"; }
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 cmd="${1:-open}"
 shift 2>/dev/null || true
 
 case "$cmd" in
-	open|status|repair|note)
+	open|status|repair|note|spec|plan)
 		"cmd_$cmd" "$@"
 		;;
 	help|--help|-h)
