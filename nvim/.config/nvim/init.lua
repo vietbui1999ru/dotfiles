@@ -767,6 +767,7 @@ vim.api.nvim_create_autocmd("BufReadPre", {
 			rust_analyzer = {},
 			bashls = {},
 			gopls = {},
+			svelte = {},
 		}
 
 		local ensure_installed = vim.tbl_keys(servers or {})
