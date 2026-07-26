@@ -650,6 +650,7 @@ vim.api.nvim_create_autocmd("BufReadPre", {
 				"markdown",
 				"markdown_inline",
 				"query",
+				"svelte",
 				"vim",
 				"vimdoc",
 			},
