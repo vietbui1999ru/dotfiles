@@ -305,7 +305,7 @@ keymaps:
     hold for back button: null
     hold for drag: CommandLeft
     hold for forward button: null
-    hold for free mode: null
+    hold for free mode: ControlLeft
     hold for middle button: null
     hold for move: OptionLeft
     hold for right button: CommandRight
@@ -353,7 +353,7 @@ keymaps:
     toggle app enabled: null
     toggle continuous mode: null
     toggle continuous mode until closed: '1'
-    toggle free mode: ControlLeft double tap
+    toggle free mode: null
     toggle overlay: null
     toggle overlay lock: null
     undo last key: Backspace
