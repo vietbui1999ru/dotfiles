@@ -90,7 +90,12 @@ function M.statusline()
 	end
 
 	local indicator = any_active and "▶" or "●"
-	return string.format("%s%d %s %d%%", indicator, count, model_label, math.floor(top_ctx + 0.5))
+	local text = string.format("%s%d %s %d%%", indicator, count, model_label, math.floor(top_ctx + 0.5))
+	-- lualine embeds this raw into &statusline/&winbar; unescaped '%' next to
+	-- an adjacent segment's text (e.g. "109%utf-8") is read as a statusline
+	-- directive and raises E539. Built-in lualine components escape via
+	-- stl_escape() for the same reason; this component isn't one of those.
+	return (text:gsub("%%", "%%%%"))
 end
 
 -- ─── Session Viewer (floating window) ───────────────────────────────────────
