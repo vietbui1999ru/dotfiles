@@ -21,6 +21,7 @@ Provisioning uses three mechanisms — know which applies before editing a packa
 | `git/` | `~/.gitconfig` | stow |
 | `jj/` | `~/.config/jj/config.toml` | stow — **not currently applied on this machine** |
 | `aerospace/` | `~/.aerospace.toml` | stow (macOS tiling WM) — not in the `stow` line above; add when used |
+| `mouseless/` | `~/Library/Application Support/Mouseless/configs/config.yaml` | stow (macOS Mouseless app) — not in the `stow` line above; back up the live file before first `stow mouseless`, restart the app after |
 | `i3/` | `~/.config/i3/config` | Linux-only, applied via Ansible (not macOS stow) |
 | `claude/` | `~/.claude/` | stow (partial) — files symlinked; `skills/`+`agents/` mix dotfiles and `llm-wiki` sources |
 | `opencode/` | `~/.config/opencode/` | partial — `plugins/` stow; `opencode.json` materialized; `agents/`/`skills/` unmanaged |
