@@ -778,18 +778,22 @@ vim.api.nvim_create_autocmd("BufReadPre", {
 		vim.list_extend(ensure_installed, { "stylua", "prettierd", "eslint_d" })
 		require("mason-tool-installer").setup({ ensure_installed = ensure_installed })
 
+		-- mason-lspconfig v2 dropped the `handlers` option in favor of the
+		-- native vim.lsp.config()/vim.lsp.enable() API; config('*', ...) is
+		-- merged into every server, including ones auto-enabled outside the
+		-- `servers` table above (e.g. jsonls).
+		vim.lsp.config("*", {
+			capabilities = capabilities,
+			-- workaround: nvim 0.12.x incremental sync assertion bug (sync.lua:136)
+			flags = { allow_incremental_sync = false },
+		})
+		for server_name, server in pairs(servers) do
+			vim.lsp.config(server_name, server)
+		end
+
 		require("mason-lspconfig").setup({
 			ensure_installed = {},
-			automatic_installation = true,
-			handlers = {
-				function(server_name)
-					local server = servers[server_name] or {}
-					server.capabilities = vim.tbl_deep_extend("force", {}, capabilities, server.capabilities or {})
-					-- workaround: nvim 0.12.x incremental sync assertion bug (sync.lua:136)
-					server.flags = vim.tbl_deep_extend("force", { allow_incremental_sync = false }, server.flags or {})
-					require("lspconfig")[server_name].setup(server)
-				end,
-			},
+			automatic_enable = true,
 		})
 
 		require("custom.plugins.lsp-ocaml")
