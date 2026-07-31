@@ -1,9 +1,193 @@
 {
+  "agentPushNotifEnabled": true,
+  "autoCompactEnabled": false,
+  "editorMode": "vim",
+  "effortLevel": "high",
+  "enabledPlugins": {
+    "agent-sdk-dev@claude-plugins-official": true,
+    "basedpyright@claude-code-lsps": false,
+    "caveman@caveman": true,
+    "clangd@claude-code-lsps": false,
+    "claude-code-setup@claude-plugins-official": true,
+    "claude-md-management@claude-plugins-official": true,
+    "code-review@claude-plugins-official": true,
+    "code-simplifier@claude-plugins-official": true,
+    "context7@claude-plugins-official": true,
+    "explanatory-output-style@claude-plugins-official": true,
+    "feature-dev@claude-plugins-official": true,
+    "frontend-design@claude-plugins-official": true,
+    "gopls@claude-code-lsps": false,
+    "graphql-lsp@claude-code-lsps": true,
+    "haskell-language-server@claude-code-lsps": true,
+    "jdtls@claude-code-lsps": true,
+    "kotlin-lsp@claude-code-lsps": true,
+    "lean4-lake-lsp@claude-code-lsps": true,
+    "lean4-lean-lsp@claude-code-lsps": true,
+    "learning-output-style@claude-plugins-official": true,
+    "mdbase-lsp@claude-code-lsps": true,
+    "ocaml-lsp@claude-code-lsps": false,
+    "omnisharp@claude-code-lsps": false,
+    "playwright@claude-plugins-official": true,
+    "pyright-lsp@claude-plugins-official": false,
+    "pyright@claude-code-lsps": false,
+    "qmd@qmd": true,
+    "ralph-loop@claude-plugins-official": true,
+    "ruby-lsp@claude-code-lsps": false,
+    "rust-analyzer@claude-code-lsps": false,
+    "security-guidance@claude-plugins-official": true,
+    "sentry@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true,
+    "svelte-lsp@claude-code-lsps": true,
+    "typescript-lsp@claude-plugins-official": false,
+    "vscode-langservers@claude-code-lsps": false,
+    "vtsls@claude-code-lsps": false,
+    "vue-volar@claude-code-lsps": true
+  },
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
-    "teammateMode": "in-process",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet",
     "MAX_THINKING_TOKENS": "10000",
-    "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"
+    "teammateMode": "in-process"
+  },
+  "extraKnownMarketplaces": {
+    "caveman": {
+      "source": {
+        "repo": "JuliusBrussee/caveman",
+        "source": "github"
+      }
+    },
+    "qmd": {
+      "source": {
+        "repo": "tobi/qmd",
+        "source": "github"
+      }
+    }
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "~/.claude/hooks/context-threshold-notify.sh",
+            "type": "command"
+          }
+        ],
+        "matcher": ".*"
+      },
+      {
+        "hooks": [
+          {
+            "command": "~/.claude/hooks/observe-session.sh",
+            "type": "command"
+          }
+        ],
+        "matcher": ".*"
+      },
+      {
+        "hooks": [
+          {
+            "command": "cd ~/repos/llm-wiki && git diff --name-only HEAD 2>/dev/null | grep -q 'log\\.md' && ./scripts/publish-ai-kb.sh || true",
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      },
+      {
+        "hooks": [
+          {
+            "command": "~/.claude/hooks/lint-on-write.sh",
+            "type": "command"
+          },
+          {
+            "command": "~/.claude/hooks/judge-reminder.sh",
+            "type": "command"
+          }
+        ],
+        "matcher": "Write|Edit|MultiEdit"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "~/.claude/hooks/context-threshold-check.sh",
+            "type": "command"
+          }
+        ],
+        "matcher": ".*"
+      },
+      {
+        "hooks": [
+          {
+            "command": "~/.claude/hooks/enforce-agent-whitelist.sh",
+            "type": "command"
+          }
+        ],
+        "matcher": "Agent"
+      },
+      {
+        "hooks": [
+          {
+            "command": "~/.claude/hooks/protect-lint-configs.sh",
+            "type": "command"
+          }
+        ],
+        "matcher": "Write|Edit|MultiEdit"
+      },
+      {
+        "hooks": [
+          {
+            "command": "~/.claude/hooks/enforce-bash-safety.sh",
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      },
+      {
+        "hooks": [
+          {
+            "command": "rtk hook claude",
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "bash '/Users/vietquocbui/.claude/hooks/herdr-agent-state.sh' session",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "*"
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "~/.claude/hooks/lint-autofix.sh",
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  },
+  "inputNeededNotifEnabled": true,
+  "mcpServers": {
+    "firecrawl": {
+      "args": [
+        "-lc",
+        "set -a; [ -f \"$HOME/secrets/.env\" ] && source \"$HOME/secrets/.env\"; exec npx -y firecrawl-mcp"
+      ],
+      "command": "bash"
+    },
+    "shadcn": {
+      "url": "https://www.shadcn.io/api/mcp"
+    }
   },
   "permissions": {
     "allow": [
@@ -13,184 +197,12 @@
     ],
     "defaultMode": "default"
   },
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/context-threshold-check.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "Agent",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/enforce-agent-whitelist.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/protect-lint-configs.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/enforce-bash-safety.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "rtk hook claude"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/context-threshold-notify.sh"
-          }
-        ]
-      },
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/observe-session.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "cd ~/repos/llm-wiki && git diff --name-only HEAD 2>/dev/null | grep -q 'log\\.md' && ./scripts/publish-ai-kb.sh || true"
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/lint-on-write.sh"
-          },
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/judge-reminder.sh"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/lint-autofix.sh"
-          }
-        ]
-      }
-    ]
-  },
-  "statusLine": {
-    "type": "command",
-    "command": "~/.claude/statusline-command.sh"
-  },
-  "enabledPlugins": {
-    "frontend-design@claude-plugins-official": true,
-    "playwright@claude-plugins-official": true,
-    "context7@claude-plugins-official": true,
-    "code-review@claude-plugins-official": true,
-    "feature-dev@claude-plugins-official": true,
-    "code-simplifier@claude-plugins-official": true,
-    "superpowers@claude-plugins-official": true,
-    "security-guidance@claude-plugins-official": true,
-    "claude-md-management@claude-plugins-official": true,
-    "agent-sdk-dev@claude-plugins-official": true,
-    "explanatory-output-style@claude-plugins-official": true,
-    "claude-code-setup@claude-plugins-official": true,
-    "learning-output-style@claude-plugins-official": true,
-    "sentry@claude-plugins-official": true,
-    "pyright-lsp@claude-plugins-official": false,
-    "omnisharp@claude-code-lsps": false,
-    "ralph-loop@claude-plugins-official": true,
-    "basedpyright@claude-code-lsps": false,
-    "clangd@claude-code-lsps": false,
-    "gopls@claude-code-lsps": false,
-    "ocaml-lsp@claude-code-lsps": false,
-    "ruby-lsp@claude-code-lsps": false,
-    "rust-analyzer@claude-code-lsps": false,
-    "vscode-langservers@claude-code-lsps": false,
-    "vtsls@claude-code-lsps": false,
-    "pyright@claude-code-lsps": false,
-    "typescript-lsp@claude-plugins-official": false,
-    "caveman@caveman": true,
-    "qmd@qmd": true,
-    "graphql-lsp@claude-code-lsps": true,
-    "haskell-language-server@claude-code-lsps": true,
-    "jdtls@claude-code-lsps": true,
-    "kotlin-lsp@claude-code-lsps": true,
-    "lean4-lake-lsp@claude-code-lsps": true,
-    "lean4-lean-lsp@claude-code-lsps": true,
-    "mdbase-lsp@claude-code-lsps": true,
-    "svelte-lsp@claude-code-lsps": true,
-    "vue-volar@claude-code-lsps": true
-  },
-  "extraKnownMarketplaces": {
-    "caveman": {
-      "source": {
-        "source": "github",
-        "repo": "JuliusBrussee/caveman"
-      }
-    },
-    "qmd": {
-      "source": {
-        "source": "github",
-        "repo": "tobi/qmd"
-      }
-    }
-  },
-  "effortLevel": "high",
-  "tui": "fullscreen",
   "skipWorkflowUsageWarning": true,
-  "editorMode": "vim",
-  "verbose": true,
-  "autoCompactEnabled": false,
+  "statusLine": {
+    "command": "~/.claude/statusline-command.sh",
+    "type": "command"
+  },
   "teammateMode": "in-process",
-  "inputNeededNotifEnabled": true,
-  "agentPushNotifEnabled": true,
-  "mcpServers": {
-    "shadcn": {
-      "url": "https://www.shadcn.io/api/mcp"
-    },
-    "firecrawl": {
-      "command": "bash",
-      "args": [
-        "-lc",
-        "set -a; [ -f \"$HOME/secrets/.env\" ] && source \"$HOME/secrets/.env\"; exec npx -y firecrawl-mcp"
-      ]
-    }
-  }
+  "tui": "fullscreen",
+  "verbose": true
 }
