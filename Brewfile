@@ -23,6 +23,7 @@ cask "font-hack-nerd-font"
 
 # Multiplexer
 brew "tmux"
+brew "herdr"
 
 # Editor
 brew "neovim"
