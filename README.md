@@ -27,6 +27,7 @@ Provisioning uses three mechanisms — know which applies before editing a packa
 | `opencode/` | `~/.config/opencode/` | partial — `plugins/` stow; `opencode.json` materialized; `agents/`/`skills/` unmanaged |
 | `codex/` | `~/.codex/` | **no-op stub today** — Codex is sync-pushed via `sync-agent-rules.sh`, not stowed |
 | `pi/` | `~/.pi/` | stow (extensions only); `~/.pi/agent/` runtime state is unmanaged |
+| `herdr/` | `~/.config/herdr/config.toml` | stow — not in the `stow` line above; back up the live file before first `stow herdr`; `~/.config/herdr/` logs/sockets/session-history are unmanaged runtime state; `herdr server reload-config` after edits |
 
 ## Quick start (macOS)
 
