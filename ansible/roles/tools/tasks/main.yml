@@ -125,6 +125,13 @@
     creates: "{{ ansible_env.HOME }}/.local/bin/rtk"
   when: ansible_os_family != "Darwin"
 
+- name: Install herdr (Linux)
+  ansible.builtin.shell: |
+    curl -fsSL https://herdr.dev/install.sh | sh
+  args:
+    creates: "{{ ansible_env.HOME }}/.local/bin/herdr"
+  when: ansible_os_family != "Darwin"
+
 - name: Check Obsidian CLI registration (Linux)
   ansible.builtin.command: bash -lc 'command -v obsidian'
   register: obsidian_cli_linux
