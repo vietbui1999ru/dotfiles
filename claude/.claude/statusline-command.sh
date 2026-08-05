@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Catppuccin Macchiato palette (ANSI 256-color, mirrors starship.toml)
-PEACH='\033[38;5;216m'
-GREEN='\033[38;5;150m'
-TEAL='\033[38;5;116m'
-LAVENDER='\033[38;5;183m'
-YELLOW='\033[38;5;222m'
-RED='\033[38;5;210m'
-SURFACE2='\033[38;5;60m'
-MAUVE='\033[38;5;141m'
+# Gruvbox Material Dark Soft palette (ANSI 256-color, matches kitty/tmux)
+PEACH='\033[38;5;173m'
+GREEN='\033[38;5;143m'
+TEAL='\033[38;5;109m'
+LAVENDER='\033[38;5;175m'
+YELLOW='\033[38;5;179m'
+RED='\033[38;5;167m'
+SURFACE2='\033[38;5;102m'
+MAUVE='\033[38;5;175m'
 RESET='\033[0m'
 
 input=$(cat)

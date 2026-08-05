@@ -8,15 +8,15 @@ import { homedir } from "node:os";
 
 const execFileAsync = promisify(execFile);
 
-// ── Catppuccin Macchiato palette (ANSI 256) ──────────────────────────────
+// ── Gruvbox Material Dark Soft palette (ANSI 256, matches kitty/tmux) ────
 const C = {
-	peach: "38;5;216",
-	green: "38;5;150",
-	yellow: "38;5;222",
-	red: "38;5;210",
-	lavender: "38;5;183",
-	teal: "38;5;116",
-	dim: "38;5;60",
+	peach: "38;5;173",
+	green: "38;5;143",
+	yellow: "38;5;179",
+	red: "38;5;167",
+	lavender: "38;5;175",
+	teal: "38;5;109",
+	dim: "38;5;102",
 };
 const RESET = "\x1b[0m";
 
