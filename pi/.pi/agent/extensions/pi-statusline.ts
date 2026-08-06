@@ -5,6 +5,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { readOpenAIUsage, type OpenAIUsageConfig } from "./lib/openai-usage.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -83,8 +84,10 @@ async function readWorkflowConfig(cwd: string): Promise<{
 	piStatusline?: boolean;
 	piStatuslineIcons?: string;
 	piStatuslineSegments?: string[];
+	piStatuslinePanelOwned?: string[];
 	piStatuslineDailyCostLimit?: number;
 	piStatuslineWeeklyCostLimit?: number;
+	piOpenAIUsage?: OpenAIUsageConfig;
 }> {
 	const paths = [join(homedir(), ".config", "agent-workflow", "config.json")];
 	// Repo-local
@@ -118,6 +121,30 @@ async function readWorkflowConfig(cwd: string): Promise<{
 		}
 	}
 	return cfg as any;
+}
+
+/**
+ * A live pi-side-panel owns its configured segments. Detected via the
+ * heartbeat file the pane process writes (.pi/panel.state.json): pid liveness
+ * probe first, fresh-file fallback for the just-spawned window.
+ */
+async function panelActive(cwd: string): Promise<boolean> {
+	try {
+		const raw = await readFile(join(cwd, ".pi", "panel.state.json"), "utf8");
+		const state = JSON.parse(raw);
+		if (!state?.active) return false;
+		if (state?.pid) {
+			try {
+				process.kill(state.pid, 0);
+				return true;
+			} catch {
+				return false;
+			}
+		}
+		return Date.now() - Date.parse(state.startedAt ?? 0) < 30_000;
+	} catch {
+		return false;
+	}
 }
 
 async function gitInfo(cwd: string, icons: Icons): Promise<string> {
@@ -317,6 +344,7 @@ async function usageLimitsSegment(
 	cfg: {
 		piStatuslineDailyCostLimit?: number;
 		piStatuslineWeeklyCostLimit?: number;
+		piOpenAIUsage?: OpenAIUsageConfig;
 	},
 ): Promise<string> {
 	try {
@@ -349,26 +377,39 @@ async function usageLimitsSegment(
 			if (age <= 24 * 60 * 60 * 1000) daily += entry.cost;
 			if (age <= 7 * 24 * 60 * 60 * 1000) weekly += entry.cost;
 		}
-		if (daily === 0 && weekly === 0) return "";
 
-		const dailyLimit = cfg.piStatuslineDailyCostLimit;
-		const weeklyLimit = cfg.piStatuslineWeeklyCostLimit;
-		const dailyPct = dailyLimit ? (daily / dailyLimit) * 100 : undefined;
-		const weeklyPct = weeklyLimit ? (weekly / weeklyLimit) * 100 : undefined;
-		const dailyText = dailyLimit
-			? `24h:${Math.round(dailyPct ?? 0)}%`
-			: `24h:${fmtCost(daily)}`;
-		const weeklyText = weeklyLimit
-			? `7d:${Math.round(weeklyPct ?? 0)}%`
-			: `7d:${fmtCost(weekly)}`;
+		const segments: string[] = [];
+		if (daily > 0 || weekly > 0) {
+			const dailyLimit = cfg.piStatuslineDailyCostLimit;
+			const weeklyLimit = cfg.piStatuslineWeeklyCostLimit;
+			const dailyPct = dailyLimit ? (daily / dailyLimit) * 100 : undefined;
+			const weeklyPct = weeklyLimit ? (weekly / weeklyLimit) * 100 : undefined;
+			const dailyText = dailyLimit
+				? `24h:${Math.round(dailyPct ?? 0)}%`
+				: `24h:${fmtCost(daily)}`;
+			const weeklyText = weeklyLimit
+				? `7d:${Math.round(weeklyPct ?? 0)}%`
+				: `7d:${fmtCost(weekly)}`;
+			segments.push(
+				color(dailyText, limitColor(dailyPct)) +
+					" " +
+					color(weeklyText, limitColor(weeklyPct)),
+			);
+		}
 
-		return (
-			dim(icons.sep) +
-			dim(icons.limits) +
-			color(dailyText, limitColor(dailyPct)) +
-			" " +
-			color(weeklyText, limitColor(weeklyPct))
-		);
+		const openAI = await readOpenAIUsage(cwd, cfg.piOpenAIUsage);
+		if (openAI) {
+			const windows = openAI.windows.map((window) => {
+				const text = window.limit
+					? `${window.label}:${Math.round(window.percent ?? 0)}%`
+					: `${window.label}:${fmtCost(window.cost)}`;
+				return color(text, limitColor(window.percent));
+			});
+			segments.push(color("OA", C.teal) + " " + windows.join(" "));
+		}
+
+		if (segments.length === 0) return "";
+		return dim(icons.sep) + dim(icons.limits) + segments.join(dim(" · "));
 	} catch {
 		return "";
 	}
@@ -386,13 +427,21 @@ async function composeStatusline(cwd: string, model: string): Promise<string> {
 
 	const iconMode = cfg.piStatuslineIcons || "nerd";
 	const icons = iconMode === "ascii" ? ASCII_ICONS : NERD_ICONS;
-	const segments = cfg.piStatuslineSegments || [
+	let segments = cfg.piStatuslineSegments || [
 		"dir",
 		"git",
 		"ctx",
 		"limits",
 		"model",
 	];
+	if (await panelActive(cwd)) {
+		// The panel owns detailed telemetry; keep the current model visible in the
+		// footer so model switches remain visible while the agent is running.
+		const owned = new Set(
+			cfg.piStatuslinePanelOwned ?? ["git", "ctx", "limits"],
+		);
+		segments = segments.filter((segment) => !owned.has(segment));
+	}
 
 	let line = dirSegment(cwd, icons);
 	if (segments.includes("git")) {
@@ -419,6 +468,7 @@ export default function piStatusline(pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		currentCwd = ctx.cwd;
+		currentModel = ctx.model?.name || ctx.model?.id || "";
 		const line = await composeStatusline(ctx.cwd, currentModel);
 		if (line && ctx.hasUI) ctx.ui.setStatus("pi-statusline", line);
 	});
