@@ -455,9 +455,9 @@ export default function piSession(pi: ExtensionAPI) {
 					{ timeout: 5000 },
 				);
 				const lines = stdout.split("\n");
-				const GREEN = "\x1b[38;5;150m";
-				const RED = "\x1b[38;5;210m";
-				const DIM = "\x1b[38;5;60m";
+				const GREEN = "\x1b[38;5;143m";
+				const RED = "\x1b[38;5;167m";
+				const DIM = "\x1b[38;5;102m";
 				const RST = "\x1b[0m";
 				const rendered = lines.map((line) => {
 					if (
