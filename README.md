@@ -17,6 +17,7 @@ Provisioning uses three mechanisms — know which applies before editing a packa
 | `starship/` | `~/.config/starship.toml` | stow |
 | `nvim/` | `~/.config/nvim/` | stow |
 | `tmux/` | `~/.tmux.conf`, `~/.local/bin/tmux-cht` | stow |
+| `tmuxinator/` | `~/.config/tmuxinator/dotfiles.yml` | stow |
 | `kitty/` | `~/.config/kitty/` | stow |
 | `git/` | `~/.gitconfig` | stow |
 | `jj/` | `~/.config/jj/config.toml` | stow — **not currently applied on this machine** |
@@ -45,7 +46,7 @@ cd ~/dotfiles && brew bundle
 ./scripts/bootstrap-dirs.sh
 
 # 5. Symlink configs
-stow zsh starship nvim tmux kitty git jj claude opencode codex pi
+stow zsh starship nvim tmux tmuxinator kitty git jj claude opencode codex pi
 
 # 6. Sync AI tool rules (AGENTS.md + MCP servers)
 ./scripts/sync-agent-rules.sh
