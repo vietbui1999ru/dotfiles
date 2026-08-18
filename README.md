@@ -92,6 +92,7 @@ git add repos/llm-wiki && git commit -m "chore(submodule): bump llm-wiki"
 | Tool | Install |
 |---|---|
 | `pi` (pi-coding-agent) | `npm install -g @earendil-works/pi-coding-agent` |
+| GitHub stacked PRs | `gh extension install github/gh-stack` (skill synced by `bootstrap-dirs.sh`) |
 | `omp` (oh-my-pi) | `curl -fsSL https://omp.sh/install \| sh` |
 | `rtk` (Rust Token Killer) | `brew install rtk` (included in `Brewfile`) |
 
@@ -122,7 +123,9 @@ Research tools have exclusive primary scopes:
 
 Fallback is allowed only when the primary tool lacks coverage. Canonical policy
 lives in `shared/research-tool-routing.md`; `bootstrap-dirs.sh` syncs the scoped
-Firecrawl skill to `~/.agents/skills/firecrawl`.
+Firecrawl skill to `~/.agents/skills/firecrawl`. It also syncs GitHub's
+`gh-stack` skill to `~/.agents/skills/gh-stack` for Pi and other compatible
+agent harnesses.
 
 ### Agent workflow automation
 
@@ -144,6 +147,29 @@ scripts/agent-workflow status ~/repos/example
 # Remove only the managed hook; keep task history by default
 scripts/agent-workflow detach ~/repos/example
 ```
+
+### Stacked pull requests
+
+Use GitHub's `gh stack` extension for a single feature split into dependent,
+reviewable layers. Plan layer boundaries before coding; review and approve each
+layer through the existing review gate before committing it. Keep unrelated work
+in separate stacks.
+
+```sh
+# From a clean trunk, create the first named layer (never invoke bare init).
+gh stack init feature/foundation
+# Commit its reviewed changes, then add the dependent layer.
+gh stack add feature/integration
+# Publish draft PRs without interactive prompts.
+gh stack submit --auto
+# Inspect or update the stack non-interactively.
+gh stack view --json
+gh stack sync --remote origin
+```
+
+Agent invocations must use named `init`/`add` branches, `submit --auto`, and
+`view --json`; see `docs/workflows/stacked-prs.md` for recovery and review
+rules.
 
 ### Pi-first workflow
 
