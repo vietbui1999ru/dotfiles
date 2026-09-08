@@ -14,7 +14,10 @@
   "universalSessionInbox": true,
   "piStatusline": true,
   "piStatuslineIcons": "nerd",
-  "piStatuslineSegments": ["dir", "git", "ctx", "model"],
+  "piStatuslineSegments": ["dir", "git", "ctx", "limits", "model"],
+  "piOpenAIUsage": {
+    "enabled": true
+  },
   "piSessionInbox": true,
   "autoInjectSessionState": true,
   "specTemplates": true,

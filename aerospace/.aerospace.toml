@@ -8,6 +8,11 @@
 #   'exec-and-forget defaults write NSGlobalDomain NSWindowShouldDragOnGesture -bool true',
 #   'exec-and-forget defaults write NSGlobalDomain NSAutomaticWindowAnimationsEnabled -bool false'
 # ]
+# Config version for compatibility and deprecations
+# See: https://nikitabobko.github.io/AeroSpace/guide#config-version
+# Fallback value (if you omit the key): config-version = 1
+config-version = 2
+
 # You can use it to add commands that run after AeroSpace startup.
 # 'after-startup-command' is run after 'after-login-command'
 # Available commands : https://nikitabobko.github.io/AeroSpace/commands
@@ -55,6 +60,12 @@ default-root-container-orientation = 'auto'
 # Also see: https://nikitabobko.github.io/AeroSpace/goodies#disable-hide-app
 automatically-unhide-macos-hidden-apps = true
 
+# List of workspaces that should stay alive even when they contain no windows,
+# even when they are invisible.
+# config-version = 2 fallback for this is an empty array (v1 inferred it from
+# keybinding right-hand sides) — listed explicitly here to keep prior behavior.
+persistent-workspaces = ['0', '1', '2', '3', 'B', 'C', 'M', 'N', 'O', 'P', 'R', 'S', 'T']
+
 # Possible values: (qwerty|dvorak|colemak)
 # See https://nikitabobko.github.io/AeroSpace/guide#key-mapping
 [key-mapping]
@@ -69,15 +80,15 @@ automatically-unhide-macos-hidden-apps = true
 #                 See:
 #                 https://nikitabobko.github.io/AeroSpace/guide#assign-workspaces-to-monitors
 [gaps]
-    inner.horizontal = 15
-    inner.vertical =   15
-    outer.left =       15
-    outer.bottom =     15
+    inner.horizontal = 30
+    inner.vertical =   30
+    outer.left =       30
+    outer.bottom =     30
     outer.top = [
-      { monitor."Built-in Retina Display" = 30 },
-      67  # 37 bar + 15 margin + 15 y_offset
+      { monitor."Built-in Retina Display" = 23 },
+      60  # 37 bar + 15 margin + 15 y_offset
     ]
-    outer.right =      15
+    outer.right =      30
 
 # 'main' binding mode declaration
 # See: https://nikitabobko.github.io/AeroSpace/guide#binding-modes
@@ -154,22 +165,22 @@ automatically-unhide-macos-hidden-apps = true
 #   alt-8 = 'workspace 8'
 #   alt-9 = 'workspace 9'
     alt-0 = 'workspace 0'
-#   alt-a = 'workspace A'
-    alt-b = 'workspace B'
-    alt-c = 'workspace C'
+#   alt-a = 'workspace A' # In your config, you can drop workspace bindings that you don't need
+   alt-b = 'workspace B'
+   alt-c = 'workspace C'
 #   alt-d = 'workspace D'
 #   alt-e = 'workspace E'
 #   alt-f = 'workspace F'
 #   alt-g = 'workspace G'
 #   alt-i = 'workspace I'
-    alt-m = 'workspace M'
-    alt-n = 'workspace N'
-    alt-o = 'workspace O'
-    alt-p = 'workspace P'
+   alt-m = 'workspace M'
+   alt-n = 'workspace N'
+   alt-o = 'workspace O'
+   alt-p = 'workspace P'
 #   alt-q = 'workspace Q'
-    alt-r = 'workspace R'
-    alt-s = 'workspace S'
-    alt-t = 'workspace T'
+   alt-r = 'workspace R'
+   alt-s = 'workspace S'
+   alt-t = 'workspace T'
 #   alt-u = 'workspace U'
 #   alt-v = 'workspace V'
 #   alt-w = 'workspace W'
@@ -189,35 +200,90 @@ automatically-unhide-macos-hidden-apps = true
 #   alt-shift-9 = 'move-node-to-workspace 9'
     alt-shift-0 = 'move-node-to-workspace 0'
 #   alt-shift-a = 'move-node-to-workspace A'
-    alt-shift-b = 'move-node-to-workspace B'
-    alt-shift-c = 'move-node-to-workspace C'
+   alt-shift-b = 'move-node-to-workspace B'
+   alt-shift-c = 'move-node-to-workspace C'
 #   alt-shift-d = 'move-node-to-workspace D'
 #   alt-shift-e = 'move-node-to-workspace E'
 #   alt-shift-f = 'move-node-to-workspace F'
 #   alt-shift-g = 'move-node-to-workspace G'
 #   alt-shift-i = 'move-node-to-workspace I'
-    alt-shift-m = 'move-node-to-workspace M'
-    alt-shift-n = 'move-node-to-workspace N'
-    alt-shift-o = 'move-node-to-workspace O'
-    alt-shift-p = 'move-node-to-workspace P'
+   alt-shift-m = 'move-node-to-workspace M'
+   alt-shift-n = 'move-node-to-workspace N'
+   alt-shift-o = 'move-node-to-workspace O'
+   alt-shift-p = 'move-node-to-workspace P'
 #   alt-shift-q = 'move-node-to-workspace Q'
-    alt-shift-r = 'move-node-to-workspace R'
-    alt-shift-s = 'move-node-to-workspace S'
-    alt-shift-t = ['move-node-to-workspace T', 'workspace T']
+   alt-shift-r = 'move-node-to-workspace R'
+   alt-shift-s = 'move-node-to-workspace S'
+   alt-shift-t = ['move-node-to-workspace T', 'workspace T']
 #   alt-shift-u = 'move-node-to-workspace U'
 #   alt-shift-v = 'move-node-to-workspace V'
 #   alt-shift-w = 'move-node-to-workspace W'
 #   alt-shift-x = 'move-node-to-workspace X'
 #   alt-shift-y = 'move-node-to-workspace Y'
 #   alt-shift-z = 'move-node-to-workspace Z'
+# alt-1 = 'workspace 1'
+# 
+# alt-2 = 'workspace 2'
+# 
+# alt-3 = 'workspace 3'
+# 
+# alt-4 = 'workspace 4'
+# 
+# alt-5 = 'workspace 5'
+# 
+# alt-6 = 'workspace 6'
+# 
+# alt-7 = 'workspace 7'
+# 
+# alt-8 = 'workspace 8'
+# 
+# alt-9 = 'workspace 9'
+# 
+# alt-shift-1 = 'move-node-to-workspace 1'
+# 
+# alt-shift-2 = 'move-node-to-workspace 2'
+# 
+# alt-shift-3 = 'move-node-to-workspace 3'
+# 
+# alt-shift-4 = 'move-node-to-workspace 4'
+# 
+# alt-shift-5 = 'move-node-to-workspace 5'
+# 
+# alt-shift-6 = 'move-node-to-workspace 6'
+# 
+# alt-shift-7 = 'move-node-to-workspace 7'
+# 
+# alt-shift-8 = 'move-node-to-workspace 8'
+# 
+# alt-shift-9 = 'move-node-to-workspace 9'
 
-    # See: https://nikitabobko.github.io/AeroSpace/commands#workspace-back-and-forth
-    alt-tab = 'workspace-back-and-forth'
-    # See: https://nikitabobko.github.io/AeroSpace/commands#move-workspace-to-monitor
-    alt-shift-tab = 'move-workspace-to-monitor --wrap-around next'
+# [workspace-to-monitor-force-assignment]
 
-    # See: https://nikitabobko.github.io/AeroSpace/commands#mode
-    alt-shift-a = 'mode service'
+# 1 = 'main'
+
+# 2 = 'main'
+# 
+# 3 = 'main'
+# 
+# 4 = 'main'
+# 
+# 5 = 'main'
+# 
+# 6 = ['secondary', 'main']
+# 
+# 7 = ['secondary', 'main']
+# 
+# 8 = ['secondary', 'main']
+# 
+# 9 = ['secondary', 'main']
+
+# See: https://nikitabobko.github.io/AeroSpace/commands#workspace-back-and-forth
+alt-tab = 'workspace-back-and-forth'
+# See: https://nikitabobko.github.io/AeroSpace/commands#move-workspace-to-monitor
+alt-shift-tab = 'move-workspace-to-monitor --wrap-around next'
+
+# See: https://nikitabobko.github.io/AeroSpace/commands#mode
+alt-shift-a = 'mode service'
 
 # 'service' binding mode declaration.
 # See: https://nikitabobko.github.io/AeroSpace/guide#binding-modes
@@ -239,106 +305,91 @@ automatically-unhide-macos-hidden-apps = true
     up = 'volume up'
     shift-down = ['volume set 0', 'mode main']
 
-# Window assignment rules
-# Workspace legend:
-#   T = Terminal (kitty)
-#   B = Browser (Brave, Firefox)
-#   M = Music/Media (Spotify, Vinyls)
-#   N = Notifications/Chat (Slack, Discord)
-#   O = Obsidian (notes)
-#   P = Programming/Editor (VSCode, Emacs, Cursor)
-#   S = Services (Postman, Docker)
-#   C = Chat/AI (ChatGPT, Claude)
-#   R = Reading (Books, Preview)
-#   0 = Misc (tablet server)
-#   1,2,3 = General purpose
-
 [[on-window-detected]]
     if.app-id = 'com.apple.iBooksX'
     check-further-callbacks = true
-    run = ['layout tiling', 'move-node-to-workspace R']
+    run = ['layout tiling', 'move-node-to-workspace R']  # The callback itself
 
 [[on-window-detected]]
     if.app-id = 'com.apple.Preview'
     check-further-callbacks = true
-    run = ['layout tiling', 'move-node-to-workspace R']
+    run = ['layout tiling', 'move-node-to-workspace R']  # The callback itself
 
 [[on-window-detected]]
     if.app-id = 'net.kovidgoyal.kitty'
     check-further-callbacks = true
-    run = ['layout tiling', 'move-node-to-workspace T']
+    run = ['layout tiling', 'move-node-to-workspace T']  # The callback itself
 
 [[on-window-detected]]
     if.app-id = 'com.brave.Browser'
     check-further-callbacks = true
-    run = ['layout tiling', 'move-node-to-workspace B']
+    run = ['layout tiling', 'move-node-to-workspace B']  # The callback itself
 
 [[on-window-detected]]
     if.app-id = 'org.mozilla.firefox'
     check-further-callbacks = true
-    run = ['layout tiling', 'move-node-to-workspace B']
+    run = ['layout tiling', 'move-node-to-workspace B']  # The callback itself
 
 [[on-window-detected]]
     if.app-id = 'com.spotify.client'
     check-further-callbacks = true
-    run = ['layout tiling', 'move-node-to-workspace M']
+    run = ['layout tiling', 'move-node-to-workspace M']  # The callback itself
 
 [[on-window-detected]]
     if.app-id = 'com.tinyspeck.slackmacgap'
     check-further-callbacks = true
-    run = ['layout tiling', 'move-node-to-workspace N']
-
+    run = ['layout tiling', 'move-node-to-workspace N']  # The callback itself
+	
 [[on-window-detected]]
     if.app-id = 'com.hnc.Discord'
     check-further-callbacks = true
-    run = ['layout tiling', 'move-node-to-workspace N']
+    run = ['layout tiling', 'move-node-to-workspace N']  # The callback itself
 
 [[on-window-detected]]
     if.app-id = 'md.obsidian'
     check-further-callbacks = true
-    run = ['layout tiling', 'move-node-to-workspace O']
-
+    run = ['layout tiling', 'move-node-to-workspace O']  # The callback itself
 [[on-window-detected]]
     if.app-id = 'com.microsoft.VSCode'
     check-further-callbacks = true
-    run = ['layout tiling', 'move-node-to-workspace P']
+    run = ['layout tiling', 'move-node-to-workspace P']  # The callback itself
 
 [[on-window-detected]]
     if.app-id = 'org.gnu.Emacs'
     check-further-callbacks = true
-    run = ['layout tiling', 'move-node-to-workspace P']
+    run = ['layout tiling', 'move-node-to-workspace P']  # The callback itself
 
 [[on-window-detected]]
     if.app-id = 'com.todesktop.230313mzl4w4u92'
     check-further-callbacks = true
-    run = ['layout tiling', 'move-node-to-workspace P']
+    run = ['layout tiling', 'move-node-to-workspace P']  # The callback itself
 
 [[on-window-detected]]
     if.app-id = 'com.postmanlabs.mac'
     check-further-callbacks = true
-    run = ['layout tiling', 'move-node-to-workspace S']
-
+    run = ['layout tiling', 'move-node-to-workspace S']  # The callback itself
 [[on-window-detected]]
     if.app-id = 'com.electron.dockerdesktop'
     check-further-callbacks = true
-    run = ['layout tiling', 'move-node-to-workspace S']
-
+    run = ['layout tiling', 'move-node-to-workspace S']  # The callback itself
 [[on-window-detected]]
     if.app-id = 'com.sunnysidesoft.virtualtablet.server'
     check-further-callbacks = true
-    run = ['layout tiling', 'move-node-to-workspace 0']
-
+    run = ['layout tiling', 'move-node-to-workspace 0']  # The callback itself
+ 
 [[on-window-detected]]
     if.app-id = 'com.openai.chat'
     check-further-callbacks = true
-    run = ['layout tiling', 'move-node-to-workspace C']
-
+    run = ['layout tiling', 'move-node-to-workspace C']  # The callback itself
 [[on-window-detected]]
     if.app-id = 'com.anthropicfordesktop'
     check-further-callbacks = true
-    run = ['layout tiling', 'move-node-to-workspace C']
-
+    run = ['layout tiling', 'move-node-to-workspace C']  # The callback itself
 [[on-window-detected]]
-    if.app-id = 'org.Petrichor'
+    if.app-id = 'com.todesktop.230313mzl4w4u92'
     check-further-callbacks = true
-    run = ['layout tiling', 'move-node-to-workspace M']
+    run = ['layout tiling', 'move-node-to-workspace P']  # The callback itself
+[[on-window-detected]]
+    if.app-id = 'com.monochrome-music.monochrome'
+    check-further-callbacks = true
+    run = ['layout tiling', 'move-node-to-workspace M']  # The callback itself

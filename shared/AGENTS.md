@@ -227,7 +227,7 @@ Search methods:
 - CLI: qmd query "<topic>" --files --min-score 0.4
 - MCP: use qmd tool if connected (Claude Code, Gemini, Cursor, OpenCode with MCP configured)
 
-When a relevant wiki page exists, apply the pattern and cite it: "Per [[concepts/...]]"
+When a relevant wiki page exists, apply the pattern and cite it, for example: `Per [[concepts/<page>]]`.
 When you discover a reusable pattern not in the wiki, flag: WIKI-CANDIDATE: <description>
 
 ### Wiki index snapshot
@@ -307,6 +307,30 @@ compatibility surfaces until the AgentOps-backed Pi session queue is complete.
 They are not the long-term canonical store. Pi `/clear-context` saves the
 AgentOps checkpoint before starting a fresh session.
 
+## GitHub stacked pull requests
+
+Use `gh stack` only when one feature has ordered, dependent review layers.
+Plan the layer boundaries before coding; keep unrelated changes in separate
+stacks. The existing review gate remains mandatory before each layer commit.
+
+Agent-safe commands are non-interactive:
+
+- `gh stack init <first-branch>` and `gh stack add <next-branch>`: always name
+  the branch; never invoke either command bare.
+- `gh stack submit --auto`: required when creating or updating PRs.
+- `gh stack view --json`: required for inspection; the default view is a TUI.
+- `gh stack sync --remote origin`: routine update; add `--prune` only when
+  explicitly deleting merged local branches.
+- Edit a lower layer on its own branch, then run `gh stack rebase --upstack`.
+  Resolve conflicts with `gh stack rebase --continue` or restore with
+  `gh stack rebase --abort`.
+- Merge only with explicit user approval via `gh stack merge --yes`.
+
+`git rerere.enabled=true` and `remote.pushDefault=origin` prevent the rerere
+confirmation and remote-selection prompts. Other stack commands still require
+the explicit non-interactive flags above. The canonical skill is
+`shared/skills/gh-stack/SKILL.md`, synchronized by `bootstrap-dirs.sh`.
+
 ## Engineering golden rules
 
 Apply these at all times when writing, reviewing, or designing code. No retrieval needed — these are always in context.
@@ -321,7 +345,7 @@ Apply these at all times when writing, reviewing, or designing code. No retrieva
 
 **Concurrency**: Shared mutable state is the root cause. Prefer immutability. Lock minimum scope for minimum duration. Prefer message passing over shared memory.
 
-**Patterns retrieval**: When a design decision feels non-trivial, run `qmd query "<pattern>" --files --min-score 0.4`. Full pattern library in `wiki/patterns/` and `wiki/systems/`. Cite as [[patterns/...]] or [[systems/...]].
+**Patterns retrieval**: When a design decision feels non-trivial, run `qmd query "<pattern>" --files --min-score 0.4`. Full pattern library in `wiki/patterns/` and `wiki/systems/`. Cite as `[[patterns/<page>]]` or `[[systems/<page>]]`.
 
 ---
 

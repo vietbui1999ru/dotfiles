@@ -22,6 +22,17 @@ if [ -d "$FIRECRAWL_SKILL_SRC" ]; then
 	echo "✓ ~/.agents/skills/firecrawl (synced research routing)"
 fi
 
+# Mirror GitHub's gh-stack skill for Pi and other Agent Skills-compatible
+# harnesses. The tracked source makes the non-interactive stack workflow
+# available after bootstrap, instead of relying on a Claude-only installation.
+GH_STACK_SKILL_SRC="$HOME/dotfiles/shared/skills/gh-stack"
+GH_STACK_SKILL_DEST="$HOME/.agents/skills/gh-stack"
+if [ -f "$GH_STACK_SKILL_SRC/SKILL.md" ]; then
+	mkdir -p "$GH_STACK_SKILL_DEST"
+	cp "$GH_STACK_SKILL_SRC/SKILL.md" "$GH_STACK_SKILL_DEST/SKILL.md"
+	echo "✓ ~/.agents/skills/gh-stack (synced GitHub stacked-PR workflow)"
+fi
+
 if [ -x "$HOME/dotfiles/scripts/agent-workflow" ]; then
 	ln -sf "$HOME/dotfiles/scripts/agent-workflow" "$HOME/.local/bin/agent-workflow"
 	echo "✓ ~/.local/bin/agent-workflow → ~/dotfiles/scripts/agent-workflow"
