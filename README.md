@@ -46,7 +46,7 @@ cd ~/dotfiles && brew bundle
 ./scripts/bootstrap-dirs.sh
 
 # 5. Symlink configs
-stow zsh starship nvim tmux tmuxinator kitty git jj claude opencode codex pi
+./scripts/restow.sh
 
 # 6. Sync AI tool rules (AGENTS.md + MCP servers)
 ./scripts/sync-agent-rules.sh
@@ -72,6 +72,7 @@ ansible-playbook ansible/site.yml --limit admin_redhat -i ansible/inventory/host
 | Script | Purpose |
 |---|---|
 | `scripts/bootstrap-dirs.sh` | Create directories, sync shared skills, and materialize default configs |
+| `scripts/restow.sh` | Restow all managed packages — single source of truth for the package list |
 | `scripts/sync-agent-rules.sh` | Sync `shared/AGENTS.md` and MCP servers to Claude Code, Codex, OpenCode |
 | `scripts/agent-workflow` | Attach/detach/status/doctor for per-repo Commandr/Pi/Neovim workflow |
 | `scripts/agent-session` | Legacy per-repo session inbox used during migration to the Pi + AgentOps session API |
