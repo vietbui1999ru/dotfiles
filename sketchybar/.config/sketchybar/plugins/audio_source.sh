@@ -53,13 +53,15 @@ OLD=$(cat "$CACHE" 2>/dev/null)
 [[ "$NEW" == "$OLD" ]] && exit 0
 printf '%s' "$NEW" > "$CACHE"
 
+# Item stays drawing=on always — only the icon color and label text change.
+# Toggling drawing=off/on used to add/remove this item's whole box
+# (~110-130px) from left_pill's raw content width every time playback
+# started or stopped, which is the same "real content-width change"
+# class of bug as the unbounded labels fixed earlier, just via presence
+# instead of text length. Dimming the icon instead means the reserved
+# label.width box never disappears, so left_pill's width never moves.
 if [[ "$NEW" == on* ]]; then
-  sketchybar --set "$NAME" drawing=on label="${NEW#on|}"
+  sketchybar --set "$NAME" icon.color="$AUDIO_SOURCE_ICON_COLOR" label="${NEW#on|}"
 else
-  sketchybar --set "$NAME" drawing=off
-fi
-
-# Visibility flips change left_pill's width (label.width is otherwise fixed).
-if [[ "${OLD%%|*}" != "${NEW%%|*}" ]]; then
-  "$CONFIG_DIR/plugins/balance_pills.sh"
+  sketchybar --set "$NAME" icon.color="$AUDIO_SOURCE_IDLE_COLOR" label=""
 fi

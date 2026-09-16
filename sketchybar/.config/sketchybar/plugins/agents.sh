@@ -11,4 +11,4 @@ if [[ "$SENDER" == "mouse.clicked" ]]; then
 fi
 
 sketchybar --set "$NAME" label="${LABEL:-plan ? unknown │ build ? unknown}"
-"$CONFIG_DIR/plugins/balance_pills.sh"
+CALLER=agents "$CONFIG_DIR/plugins/balance_pills.sh"
