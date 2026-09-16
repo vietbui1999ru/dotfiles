@@ -4,9 +4,33 @@
 # a single startup correction goes stale as soon as content changes.
 #
 # aerospace_workspace_change broadcasts to all 14 space.* items at once,
-# so this can run 14x concurrently per event — the sleep lets sibling
-# --set calls land before this measures, avoiding a stale-width race.
+# so this runs 14x concurrently per event. Two problems follow from that:
+#  1. Debounce — only the LAST of the 14 should actually measure, so it
+#     sees every sibling's --set already landed instead of a half-updated
+#     pill. Each invocation stamps a generation token, waits, then bows
+#     out if a newer invocation has since taken over.
+#  2. Mutual exclusion — even the "last" invocation can still tie with
+#     another one. Without a lock, one instance's zero-spacers step can
+#     land between a sibling's zero and measure, producing a genuinely
+#     corrupted reading (reproduced live: left_pill briefly read 444
+#     against a steady 511). The lock makes zero+measure+set atomic.
+GEN_FILE="${TMPDIR:-/tmp}/sketchybar_balance.gen"
+MY_GEN="$$-$RANDOM"
+printf '%s' "$MY_GEN" > "$GEN_FILE"
+
 sleep 0.15
+
+# A later invocation already claimed the token — it supersedes us.
+[[ "$(cat "$GEN_FILE" 2>/dev/null)" != "$MY_GEN" ]] && exit 0
+
+LOCK_DIR="${TMPDIR:-/tmp}/sketchybar_balance.lock"
+# Stale-lock guard: a crashed holder shouldn't wedge every future run.
+if [[ -d "$LOCK_DIR" ]]; then
+  age=$(( $(date +%s) - $(stat -f %m "$LOCK_DIR" 2>/dev/null || echo 0) ))
+  (( age > 2 )) && rmdir "$LOCK_DIR" 2>/dev/null
+fi
+mkdir "$LOCK_DIR" 2>/dev/null || exit 0
+trap 'rmdir "$LOCK_DIR" 2>/dev/null' EXIT
 
 pill_width() {
   sketchybar --query "$1" | /usr/bin/python3 -c "
