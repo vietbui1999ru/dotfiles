@@ -167,7 +167,6 @@ vim.pack.add({
 	gh("HakonHarnes/img-clip.nvim"),
 	gh("zbirenbaum/copilot.lua"),
 	gh("ravitemer/mcphub.nvim"),
-	gh("epwalsh/obsidian.nvim"),
 	{ src = gh("kawre/leetcode.nvim"), name = "leetcode.nvim" },
 	gh("Julian/lean.nvim"),
 	gh("pwntester/octo.nvim"),
@@ -424,9 +423,6 @@ vim.api.nvim_create_autocmd("VimEnter", {
 				lualine_x = {
 					{
 						function()
-							if not workflow_enabled("neovimCockpit") then
-								return ""
-							end
 							local ok, pi = pcall(require, "custom.plugins.pi-status")
 							return ok and pi.statusline() or ""
 						end,
@@ -520,10 +516,8 @@ vim.api.nvim_create_autocmd("VimEnter", {
 		vim.cmd.packadd("octo.nvim")
 		require("custom.plugins.octo")
 
-		if workflow_enabled("neovimCockpit") then
-			require("custom.plugins.pi-status")
-			require("custom.plugins.pi-ai")
-		end
+		require("custom.plugins.pi-status")
+		require("custom.plugins.pi-ai")
 		if commandr_ready() then
 			require("custom.plugins.commandr-board")
 			require("custom.plugins.evidence")
@@ -542,17 +536,15 @@ vim.api.nvim_create_autocmd("VimEnter", {
 				{ "<leader>ah", desc = "Evidence: pin diff hunk" },
 			})
 		end
-		if workflow_enabled("neovimCockpit") then
-			vim.list_extend(wk_spec, {
-				{ "<leader>as", desc = "Pi: list sessions" },
-				{ "<leader>ap", desc = "AI: queue prompt to active Pi" },
-				{ "<leader>aa", desc = "AI: ask Pi about context" },
-				{ "<leader>aA", desc = "AI: ask OMP about context" },
-				{ "<leader>aC", desc = "AI: export Neovim context" },
-				{ "<leader>ai", desc = "AI: open Pi TUI" },
-				{ "<leader>aO", desc = "AI: open OMP TUI" },
-			})
-		end
+		vim.list_extend(wk_spec, {
+			{ "<leader>as", desc = "Pi: list sessions" },
+			{ "<leader>ap", desc = "AI: queue prompt to active Pi" },
+			{ "<leader>aa", desc = "AI: ask Pi about context" },
+			{ "<leader>aA", desc = "AI: ask OMP about context" },
+			{ "<leader>aC", desc = "AI: export Neovim context" },
+			{ "<leader>ai", desc = "AI: open Pi TUI" },
+			{ "<leader>aO", desc = "AI: open OMP TUI" },
+		})
 		require("which-key").add(wk_spec)
 	end,
 })
@@ -800,12 +792,3 @@ vim.api.nvim_create_autocmd("BufReadPre", {
 	end,
 })
 
-vim.api.nvim_create_autocmd("FileType", {
-	pattern = "markdown",
-	once = true,
-	group = vim.api.nvim_create_augroup("pack-obsidian", { clear = true }),
-	callback = function()
-		vim.cmd.packadd("obsidian.nvim")
-		require("custom.plugins.obsidian")
-	end,
-})

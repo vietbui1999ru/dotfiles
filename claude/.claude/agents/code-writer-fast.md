@@ -1,1 +1,0 @@
-../../../../repos/llm-wiki/claude-setup/agents/code-writer-fast.md

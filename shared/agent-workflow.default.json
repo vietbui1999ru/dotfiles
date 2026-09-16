@@ -1,13 +1,10 @@
 {
   "primaryHarness": "pi",
-  "agentOpsCanonical": true,
   "providerAdapters": true,
   "externalHarnessAdapters": false,
   "commandr": true,
   "preCommitGate": true,
   "diffviewer": true,
-  "neovimCockpit": true,
-  "piCockpit": true,
   "opencodeAdapters": false,
   "claudeHooks": false,
   "autoOpenNeovimBoard": false,
@@ -21,9 +18,9 @@
   "piSessionInbox": true,
   "autoInjectSessionState": true,
   "specTemplates": true,
-  "obsidianBridge": true,
+  "obsidianBridge": false,
   "obsidianCli": "obsidian",
-  "obsidianVault": "~/repos/AgentOps",
+  "obsidianVault": "~/repos/Obsidian",
   "obsidianFolders": {
     "spec": "Projects",
     "design": "Projects",
@@ -33,7 +30,7 @@
     "review": "Reviews",
     "note": "Inbox"
   },
-  "obsidianContextCapture": true,
+  "obsidianContextCapture": false,
   "obsidianDefaultContextMode": "since-compaction",
   "obsidianHistoryLimit": 10,
   "obsidianDiffTimeoutMs": 3500,
@@ -44,10 +41,10 @@
     "repos": ["~/dotfiles", "~/repos/Commandr"]
   },
   "controlPlane": {
-    "enabled": true,
+    "enabled": false,
     "host": "127.0.0.1",
     "port": 3340,
-    "openBrowser": true,
+    "openBrowser": false,
     "multiRepo": false
   },
   "diffThemeOverride": true

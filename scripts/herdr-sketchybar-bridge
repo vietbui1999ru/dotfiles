@@ -1,0 +1,228 @@
+#!/opt/homebrew/bin/node
+/**
+ * Herdr → Sketchybar bridge.
+ *
+ * The bridge owns all plan/build status and NEXT state, then sends one complete
+ * LABEL per event. Sketchybar never merges concurrent partial updates.
+ * Subscriptions are per fixed plan/build pane and rebuild on topology changes.
+ */
+
+import { execFile } from "node:child_process";
+import net from "node:net";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+const SOCKET = process.env.HERDR_SOCKET_PATH ?? join(homedir(), ".config", "herdr", "herdr.sock");
+const SKETCHYBAR = process.env.SKETCHYBAR_BIN ?? "/opt/homebrew/bin/sketchybar";
+const ROLE_BY_AGENT = new Map([["claude", "plan"], ["pi", "build"]]);
+const ROLE_LABELS = new Set(["plan", "build"]);
+const TOPOLOGY_EVENTS = new Set([
+	"workspace.created",
+	"workspace.closed",
+	"pane.created",
+	"pane.closed",
+]);
+
+let roleByWorkspace = new Map();
+let roleByPane = new Map(); // pane ID → plan|build
+let statusByRole = new Map();
+let nextByRole = new Map(); // role → { text, sequence }
+let sequence = 0;
+let reconnectMs = 1_000;
+let socket;
+let buffer = "";
+let subscriptionRequestId;
+let topologyTimer;
+let hasSeeded = false;
+
+function logError(message, detail) {
+	console.error(`[herdr-sketchybar-bridge] ${message}${detail ? `: ${detail}` : ""}`);
+}
+
+function statusText(status) {
+	switch (status) {
+		case "working": return "● working";
+		case "blocked": return "! blocked";
+		case "done": return "✓ done";
+		case "idle": return "○ idle";
+		default: return "? unknown";
+	}
+}
+
+function label() {
+	const plan = statusText(statusByRole.get("plan"));
+	const build = statusText(statusByRole.get("build"));
+	const latest = [...nextByRole.entries()]
+		.sort(([, left], [, right]) => right.sequence - left.sequence)[0];
+	return latest
+		? `plan ${plan} │ build ${build} │ ${latest[0]}: ${latest[1].text}`
+		: `plan ${plan} │ build ${build}`;
+}
+
+function trigger() {
+	void execFileAsync(SKETCHYBAR, ["--trigger", "agent_state", `LABEL=${label()}`])
+		.catch((error) => logError("Sketchybar trigger failed", String(error)));
+}
+
+function roleFor(agent, workspaceId, paneId) {
+	return roleByPane.get(paneId) ??
+		roleByWorkspace.get(workspaceId) ??
+		(roleByWorkspace.size === 0 ? ROLE_BY_AGENT.get(agent) : undefined);
+}
+
+function publishStatus(role, status, initial = false) {
+	statusByRole.set(role, status);
+	if (status === "working") {
+		nextByRole.delete(role);
+	} else if ((status === "done" || status === "idle") && !nextByRole.has(role) && !initial) {
+		nextByRole.set(role, { text: "done — no next step", sequence: ++sequence });
+	}
+	trigger();
+}
+
+async function refreshTopology(initial = false) {
+	const [{ stdout: workspaceJson }, { stdout: agentJson }] = await Promise.all([
+		execFileAsync("herdr", ["workspace", "list"], { timeout: 3_000 }),
+		execFileAsync("herdr", ["agent", "list"], { timeout: 3_000 }),
+	]);
+	const workspaces = JSON.parse(workspaceJson).result?.workspaces ?? [];
+	roleByWorkspace = new Map(
+		workspaces
+			.filter((workspace) => ROLE_LABELS.has(workspace.label))
+			.map((workspace) => [workspace.workspace_id, workspace.label]),
+	);
+
+	const agents = JSON.parse(agentJson).result?.agents ?? [];
+	roleByPane = new Map();
+	for (const agent of agents) {
+		const role = roleByWorkspace.get(agent.workspace_id) ??
+			(roleByWorkspace.size === 0 ? ROLE_BY_AGENT.get(agent.agent) : undefined);
+		if (role && agent.pane_id) roleByPane.set(agent.pane_id, role);
+	}
+	for (const agent of agents) {
+		const role = roleFor(agent.agent, agent.workspace_id, agent.pane_id);
+		if (role && agent.agent_status) publishStatus(role, agent.agent_status, initial);
+	}
+}
+
+function subscriptions() {
+	const paneSubscriptions = [...roleByPane.keys()].flatMap((paneId) => [
+		{ type: "pane.agent_status_changed", pane_id: paneId },
+		{
+			type: "pane.output_matched",
+			pane_id: paneId,
+			source: "recent_unwrapped",
+			match: { type: "regex", value: "^\\s*NEXT: " },
+			strip_ansi: true,
+		},
+	]);
+	return [
+		{ type: "workspace.created" },
+		{ type: "workspace.closed" },
+		{ type: "pane.created" },
+		{ type: "pane.closed" },
+		...paneSubscriptions,
+	];
+}
+
+async function subscribe(next) {
+	try {
+		await refreshTopology(!hasSeeded);
+		hasSeeded = true;
+		if (socket !== next || next.destroyed) return;
+		subscriptionRequestId = `herdr-sketchybar-${Date.now()}`;
+		next.write(`${JSON.stringify({
+			id: subscriptionRequestId,
+			method: "events.subscribe",
+			params: { subscriptions: subscriptions() },
+		})}\n`);
+	} catch (error) {
+		logError("Topology refresh failed", String(error));
+	}
+}
+
+function scheduleTopologyRefresh(reason) {
+	if (topologyTimer) return;
+	topologyTimer = setTimeout(() => {
+		topologyTimer = undefined;
+		if (socket && !socket.destroyed) void subscribe(socket);
+	}, 100);
+	console.error(`[herdr-sketchybar-bridge] rebuilding subscriptions: ${reason}`);
+}
+
+function handleEvent(message) {
+	if (TOPOLOGY_EVENTS.has(message?.event)) {
+		scheduleTopologyRefresh(message.event);
+		return;
+	}
+	if (message?.event === "pane.agent_status_changed") {
+		const event = message.data;
+		const role = roleFor(event?.agent, event?.workspace_id, event?.pane_id);
+		if (!role) {
+			scheduleTopologyRefresh(`unknown status pane ${event?.pane_id ?? "?"}`);
+			return;
+		}
+		if (event?.agent_status) publishStatus(role, event.agent_status);
+		return;
+	}
+	if (message?.event === "pane.output_matched") {
+		const event = message.data;
+		const role = roleFor(undefined, event?.read?.workspace_id, event?.pane_id);
+		if (!role) {
+			scheduleTopologyRefresh(`unknown output pane ${event?.pane_id ?? "?"}`);
+			return;
+		}
+		const next = typeof event?.matched_line === "string" ? event.matched_line.trim() : undefined;
+		if (!next?.startsWith("NEXT: ")) return;
+		nextByRole.set(role, { text: next, sequence: ++sequence });
+		trigger();
+	}
+}
+
+function scheduleReconnect() {
+	const delay = reconnectMs;
+	reconnectMs = Math.min(reconnectMs * 2, 30_000);
+	setTimeout(connect, delay);
+}
+
+function handleFrame(message) {
+	if (message?.error) {
+		logError(`Herdr API error frame${message.id ? ` (${message.id})` : ""}`, message.error.message);
+		return;
+	}
+	if (message?.id === subscriptionRequestId && message?.result?.type === "subscription_started") {
+		reconnectMs = 1_000;
+		console.error("[herdr-sketchybar-bridge] subscription_started");
+		return;
+	}
+	handleEvent(message);
+}
+
+function connect() {
+	buffer = "";
+	const next = net.createConnection(SOCKET);
+	socket = next;
+	next.on("connect", () => void subscribe(next));
+	next.on("data", (chunk) => {
+		buffer += chunk.toString("utf8");
+		for (;;) {
+			const newline = buffer.indexOf("\n");
+			if (newline < 0) return;
+			const line = buffer.slice(0, newline);
+			buffer = buffer.slice(newline + 1);
+			try {
+				handleFrame(JSON.parse(line));
+			} catch (error) {
+				logError("Malformed Herdr transport frame", String(error));
+			}
+		}
+	});
+	next.on("error", (error) => logError("Socket error", error.message));
+	next.on("close", () => {
+		if (socket === next) scheduleReconnect();
+	});
+}
+
+connect();

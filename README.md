@@ -30,6 +30,7 @@ Provisioning uses three mechanisms — know which applies before editing a packa
 | `codex/` | `~/.codex/` | **no-op stub today** — Codex is sync-pushed via `sync-agent-rules.sh`, not stowed |
 | `pi/` | `~/.pi/` | stow (extensions only); `~/.pi/agent/` runtime state is unmanaged |
 | `herdr/` | `~/.config/herdr/config.toml` | stow — not in the `stow` line above; back up the live file before first `stow herdr`; `~/.config/herdr/` logs/sockets/session-history are unmanaged runtime state; `herdr server reload-config` after edits |
+| `launchd/` | `~/Library/LaunchAgents/` | stow — user LaunchAgents such as the Herdr→Sketchybar bridge |
 
 ## Quick start (macOS)
 
@@ -43,7 +44,7 @@ git clone --recurse-submodules git@github.com:vietbui99/dotfiles.git ~/dotfiles
 # 3. Install packages
 cd ~/dotfiles && brew bundle
 
-# 4. Create expected directories and ~/repos/llm-wiki symlink
+# 4. Create expected directories (uses a standalone ~/repos/llm-wiki clone if present)
 ./scripts/bootstrap-dirs.sh
 
 # 5. Symlink configs
@@ -76,7 +77,7 @@ ansible-playbook ansible/site.yml --limit admin_redhat -i ansible/inventory/host
 | `scripts/restow.sh` | Restow all managed packages — single source of truth for the package list |
 | `scripts/sync-agent-rules.sh` | Sync `shared/AGENTS.md` and MCP servers to Claude Code, Codex, OpenCode |
 | `scripts/agent-workflow` | Attach/detach/status/doctor for per-repo Commandr/Pi/Neovim workflow |
-| `scripts/agent-session` | Legacy per-repo session inbox used during migration to the Pi + AgentOps session API |
+| `scripts/agent-session` | Legacy per-repo session inbox kept for migration compatibility |
 
 ## Submodules
 
@@ -88,7 +89,7 @@ git submodule update --remote repos/llm-wiki
 git add repos/llm-wiki && git commit -m "chore(submodule): bump llm-wiki"
 ```
 
-`bootstrap-dirs.sh` creates `~/repos/llm-wiki` as a symlink → the submodule, so existing paths in `~/.claude/` resolve correctly without changing any symlinks.
+`~/repos/llm-wiki` and `~/dotfiles/repos/llm-wiki` are independent clones on this machine. `bootstrap-dirs.sh` creates a redirect to the submodule only when no standalone clone exists; it never replaces an existing clone. Claude rules, agents, and skills resolve to the standalone clone.
 
 ## AI Agents
 
@@ -103,26 +104,35 @@ git add repos/llm-wiki && git commit -m "chore(submodule): bump llm-wiki"
 
 The `pi/` stow package includes these Pi extensions:
 
-- `neovim-cockpit.ts` — `/cockpit`, `/nvim-context`, `/nvim-refresh`,
-  `nvim_context` tool, `#TASK` autocomplete
 - `pi-statusline.ts` — Catppuccin footer statusline (dir, git, ctx%, model)
   with Nerd Font icons
-- `pi-session.ts` — `/save-session`, `/clear-context` (new session = 0%),
-  `/sessions`, `/resume`, `/spec`, `/plan`, `/design`, `/arch`, `/pr`,
-  `/review`, `/open`, `/diff` (red-for-deletions fix)
-- `post-run-verifier.ts` — budgeted post-run verification at completed-run
-  boundaries (format → lint → typecheck → focused tests), inferred per-project
-  config persisted under `~/.pi/agent/verification/projects/`, max 3 automatic
-  repair cycles; `/verify`, `/verify-final`, `/verify-status`, `/verify-config`,
-  `/verify-init`. When a trusted project re-enables pi-lens format/autofix via
-  `.pi-lens.json`, both pi-lens and the verifier may format at `agent_end` — the
-  verifier's format stage runs regardless.
+- `~/repos/DiffViewer/pi-extension` — Pi package for the measured review gate:
+  persistent `.pi/diff-review/` drafts and submitted decisions
+- `pi-side-panel/` — persistent tmux/herdr side panel (session, DiffViewer
+  review, verification, Commandr, Neovim, git); `/panel` toggles
+- `post-run-verifier.ts` — owns completed-run verification (format → lint →
+  typecheck → focused tests), inferred per-project config persisted under
+  `~/.pi/agent/verification/projects/`, max 3 automatic repair cycles;
+  `/verify`, `/verify-final`, `/verify-status`, `/verify-config`, `/verify-init`.
 - `rtk.ts` — transparently rewrites supported Bash commands through RTK to
   reduce tool-output tokens; set `RTK_DISABLED=1` for passthrough
 
-`pi/.pi-lens/config.json` is the stow-provisioned global pi-lens config: LSP
-automated checks are disabled (verification is owned by `post-run-verifier.ts`),
-while non-LSP checks remain surfaced at turn end.
+`pi/.pi-lens/config.json` is the stow-provisioned global pi-lens config:
+pi-lens owns non-mutating turn-end static safety/context signals; its LSP,
+test, format, and autofix runners are disabled. `post-run-verifier.ts` alone
+owns format, lint, typecheck, and focused behavioral tests.
+
+### Intentional generated/config forks
+
+- `shared/AGENTS.md` is one-way sync-pushed to OpenCode and Codex by
+  `scripts/sync-agent-rules.sh`; edit the shared source, never the generated
+  targets.
+- `~/.claude/plugins/known_marketplaces.json` is materialized once from the
+  llm-wiki template, then Claude Code manages it. Treat it as a deliberate
+  local fork.
+- `~/.config/agent-workflow/config.json` is materialized once from
+  `shared/agent-workflow.default.json`. Treat it as a deliberate local fork;
+  change the template for new machines and the local file for this machine.
 
 Claude Code uses the equivalent `rtk hook claude` `PreToolUse` hook from
 `claude/.claude/settings.json`, with usage instructions in `~/.claude/RTK.md`.
@@ -140,6 +150,15 @@ lives in `shared/research-tool-routing.md`; `bootstrap-dirs.sh` syncs the scoped
 Firecrawl skill to `~/.agents/skills/firecrawl`. It also syncs GitHub's
 `gh-stack` skill to `~/.agents/skills/gh-stack` for Pi and other compatible
 agent harnesses.
+
+### Herdr agent flow
+
+Herdr owns the live `pi`, `claude`, and `codex` integration files; do **not**
+stow them. `scripts/bootstrap-dirs.sh` runs `herdr integration install` for
+all three. The persistent Herdr workspaces are `plan` (Claude) and `build`
+(Pi). `com.vietbui.herdr-sketchybar-bridge` subscribes to Herdr agent-state
+events and drives Sketchybar's `agents` pill; clicking it focuses Pi and opens
+AeroSpace workspace `T`.
 
 ### Agent workflow automation
 
@@ -187,30 +206,20 @@ rules.
 
 ### Pi-first workflow
 
-Pi is the only supported agent harness. AgentOps is the durable context plane,
-Commandr is the task service, DiffView is the review service, and Obsidian is
-the human UI. Other vendors are model providers or explicit CLI bridges, not
-parallel harnesses.
+Pi is the only supported agent harness. Commandr is the task service,
+DiffView is the review service, and Obsidian is the human UI. Other vendors
+are model providers or explicit CLI bridges, not parallel harnesses.
 
 ```sh
-# AgentOps-backed Pi workflow (target contract)
-agentops context <work-item>
-agentops session checkpoint
-agentops spec create
-agentops plan create
-agentops review start
-
 # Pi TUI
 /clear-context
 /sessions
-/spec
-/plan
 /review
 ```
 
 Legacy `scripts/agent-session` and `.agents/sessions/` remain compatibility
-surfaces during migration. New workflow features should target AgentOps and
-Pi, not add another harness-specific state store.
+surfaces. New workflow features should target Pi and Commandr, not add another
+harness-specific state store.
 
 RTK is a rewrite-only optimization layer: it does not replace permission gates
 or context-mode. Inspect savings with `rtk gain` or `rtk gain --history`.

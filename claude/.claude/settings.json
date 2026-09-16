@@ -68,16 +68,7 @@
       {
         "hooks": [
           {
-            "command": "~/.claude/hooks/context-threshold-notify.sh",
-            "type": "command"
-          }
-        ],
-        "matcher": ".*"
-      },
-      {
-        "hooks": [
-          {
-            "command": "~/.claude/hooks/observe-session.sh",
+            "command": "~/.claude/hooks/context-threshold.sh",
             "type": "command"
           }
         ],
@@ -97,10 +88,6 @@
           {
             "command": "~/.claude/hooks/lint-on-write.sh",
             "type": "command"
-          },
-          {
-            "command": "~/.claude/hooks/judge-reminder.sh",
-            "type": "command"
           }
         ],
         "matcher": "Write|Edit|MultiEdit"
@@ -110,20 +97,11 @@
       {
         "hooks": [
           {
-            "command": "~/.claude/hooks/context-threshold-check.sh",
+            "command": "~/.claude/hooks/context-threshold.sh",
             "type": "command"
           }
         ],
         "matcher": ".*"
-      },
-      {
-        "hooks": [
-          {
-            "command": "~/.claude/hooks/enforce-agent-whitelist.sh",
-            "type": "command"
-          }
-        ],
-        "matcher": "Agent"
       },
       {
         "hooks": [
@@ -163,6 +141,15 @@
           }
         ],
         "matcher": "*"
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/trial-expiry.sh"
+          }
+        ]
       }
     ],
     "Stop": [

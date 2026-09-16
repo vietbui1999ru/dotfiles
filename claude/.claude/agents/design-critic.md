@@ -1,1 +1,0 @@
-../../../../repos/llm-wiki/claude-setup/agents/design-critic.md

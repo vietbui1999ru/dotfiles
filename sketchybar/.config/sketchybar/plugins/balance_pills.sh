@@ -30,13 +30,27 @@ sleep 0.15
 [[ "$(cat "$GEN_FILE" 2>/dev/null)" != "$MY_GEN" ]] && exit 0
 
 LOCK_DIR="${TMPDIR:-/tmp}/sketchybar_balance.lock"
+DIRTY_FILE="${TMPDIR:-/tmp}/sketchybar_balance.dirty"
 # Stale-lock guard: a crashed holder shouldn't wedge every future run.
 if [[ -d "$LOCK_DIR" ]]; then
   age=$(( $(date +%s) - $(stat -f %m "$LOCK_DIR" 2>/dev/null || echo 0) ))
   (( age > 2 )) && rmdir "$LOCK_DIR" 2>/dev/null
 fi
-mkdir "$LOCK_DIR" 2>/dev/null || exit 0
-trap 'rmdir "$LOCK_DIR" 2>/dev/null' EXIT
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+  # A concurrent width-changing event arrived while a holder was measuring.
+  # The holder consumes this marker after unlock and starts one fresh pass.
+  touch "$DIRTY_FILE"
+  exit 0
+fi
+
+release_lock() {
+  rmdir "$LOCK_DIR" 2>/dev/null || true
+  if [[ -e "$DIRTY_FILE" ]]; then
+    rm -f "$DIRTY_FILE"
+    "$0" &
+  fi
+}
+trap release_lock EXIT
 
 pill_width() {
   sketchybar --query "$1" | /usr/bin/python3 -c "

@@ -4,6 +4,16 @@ Replaces superpowers "1% chance" heuristic with deterministic triggers. User ins
 
 **Decision**: user names skill → invoke immediately. User says "skip/just answer" → skip. Otherwise check trigger table.
 
+## Superpowers integration
+
+These overrides apply where superpowers defaults conflict with personal rules:
+
+- **TDD**: active for Web/Backend/API, DevOps, Testing, System Engineering. Skip for learning domains (Embedded, C, Go, C++, CUDA, Shaders, Interpreters, Ansible, Terraform, K8s). Exception: user explicitly requests TDD.
+- **Brainstorming**: NEVER auto-commit. Present doc path + content, ask before writing or committing. Hard gate honored — no code until design approved.
+- **Skill ordering**: this file is authoritative. Order: wiki-context → superpowers process skills → domain/implementation skills.
+- **Caveman + artifacts**: core.md's caveman section is single source of truth. Skill artifacts on disk use clear prose.
+- **Agent spawns** (writing-plans and any parallel dispatch): always set an explicit `model:` param per model routing policy.
+
 ## Domain Trigger Table
 
 | Task Type | Skills (in order) | Trigger Pattern |

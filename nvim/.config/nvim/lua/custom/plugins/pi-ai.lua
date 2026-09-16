@@ -4,8 +4,7 @@
 ---   - export current file/selection/diagnostics to .pi/nvim-context.json and
 ---     ~/.cache/pi-nvim/context.json
 ---   - launch Pi or OMP in a terminal with that context attached as @file
----   - provide a stable handoff file that the Pi TUI neovim-cockpit extension
----     can read via /nvim-context or the nvim_context tool.
+---   - provide a stable handoff file that the Pi side panel can display.
 ---
 --- Keymaps:
 ---   <leader>aC  export current Neovim context

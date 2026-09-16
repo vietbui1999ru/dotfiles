@@ -22,16 +22,25 @@ if [ -d "$FIRECRAWL_SKILL_SRC" ]; then
 	echo "✓ ~/.agents/skills/firecrawl (synced research routing)"
 fi
 
-# Mirror GitHub's gh-stack skill for Pi and other Agent Skills-compatible
-# harnesses. The tracked source makes the non-interactive stack workflow
-# available after bootstrap, instead of relying on a Claude-only installation.
-GH_STACK_SKILL_SRC="$HOME/dotfiles/shared/skills/gh-stack"
-GH_STACK_SKILL_DEST="$HOME/.agents/skills/gh-stack"
-if [ -f "$GH_STACK_SKILL_SRC/SKILL.md" ]; then
-	mkdir -p "$GH_STACK_SKILL_DEST"
-	cp "$GH_STACK_SKILL_SRC/SKILL.md" "$GH_STACK_SKILL_DEST/SKILL.md"
-	echo "✓ ~/.agents/skills/gh-stack (synced GitHub stacked-PR workflow)"
-fi
+# Shared personal skills are symlinked so Claude and Pi cannot drift. Never
+# overwrite a real existing destination: it may be a user-managed fork.
+link_shared_skill() {
+	local name="$1"
+	local src="$HOME/dotfiles/shared/skills/$name"
+	local dest="$HOME/.agents/skills/$name"
+	[[ -f "$src/SKILL.md" ]] || return 0
+	if [[ -e "$dest" && ! -L "$dest" ]]; then
+		echo "⚠ ~/.agents/skills/$name is a real directory; left as a deliberate fork"
+		return 0
+	fi
+	mkdir -p "$(dirname "$dest")"
+	ln -sfn "$src" "$dest"
+	echo "✓ ~/.agents/skills/$name → shared/skills/$name"
+}
+
+for shared_skill in gh-stack approval-workflow delegate-pi kanban-status; do
+	link_shared_skill "$shared_skill"
+done
 
 if [ -x "$HOME/dotfiles/scripts/agent-workflow" ]; then
 	ln -sf "$HOME/dotfiles/scripts/agent-workflow" "$HOME/.local/bin/agent-workflow"
@@ -41,6 +50,17 @@ fi
 if [ -x "$HOME/dotfiles/scripts/agent-session" ]; then
 	ln -sf "$HOME/dotfiles/scripts/agent-session" "$HOME/.local/bin/agent-session"
 	echo "✓ ~/.local/bin/agent-session → ~/dotfiles/scripts/agent-session"
+fi
+
+# Herdr owns these integration files and overwrites them on reinstall. Keep
+# them out of stow; bootstrap is the reproducible installer.
+if command -v herdr >/dev/null 2>&1; then
+	for integration in pi claude codex; do
+		herdr integration install "$integration"
+	done
+	echo "✓ Herdr integrations: pi, claude, codex"
+else
+	echo "⚠ herdr missing — skipped managed agent integrations"
 fi
 
 # llm-wiki is a git submodule at ~/dotfiles/repos/llm-wiki.
