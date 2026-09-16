@@ -237,7 +237,7 @@ shelling out to `qmd query`.
 
 **Entities:** agent-harness, agent-skills, agent-subagents, agent-teams, docling,
 eggroll, qmd, pydoll, firecrawl, ai-coding-agents, gemini-cli, opencode, sandcastle,
-dangeresque, mnemory, agentops, karpathy-llm-council, agents-md-format, codex,
+dangeresque, mnemory, karpathy-llm-council, agents-md-format, codex,
 opencode-dcp, lean-session, pi-agent, dspy.
 
 **Concepts:** context-degradation (5 failure modes), context-compression (anchored
@@ -277,21 +277,9 @@ ai-ml (training-pipeline/feature-stores/model-serving/A-B-testing/drift-monitori
 
 ## Pi-first session and provider workflow
 
-**Adopted architecture:** Pi is the only supported agent harness. AgentOps is
-the durable context plane; Commandr is the task service; DiffView is the review
-service; Obsidian is the human UI. Claude Code, Codex, and OpenCode are not
-parallel workflow targets.
-
-Pi writes durable session/spec/plan/review state through the AgentOps contract:
-
-```sh
-agentops session start|checkpoint|pause|resume|done
-agentops context <work-item-or-session>
-agentops spec create|update
-agentops plan create|update
-agentops review start|event|verdict
-agentops handoff create|read
-```
+**Adopted architecture:** Pi is the only supported agent harness. Commandr is
+the task service; Pi's built-in review gate owns review; Obsidian is the human
+UI. Claude Code, Codex, and OpenCode are not parallel workflow targets.
 
 Provider adapters are selected inside Pi:
 
@@ -303,9 +291,8 @@ bounded CLI bridge only when no supported API exists
 ```
 
 Legacy `scripts/agent-session` and `.agents/sessions/` remain migration and
-compatibility surfaces until the AgentOps-backed Pi session queue is complete.
-They are not the long-term canonical store. Pi `/clear-context` saves the
-AgentOps checkpoint before starting a fresh session.
+compatibility surfaces. Pi `/clear-context` saves its checkpoint before
+starting a fresh session.
 
 ## GitHub stacked pull requests
 

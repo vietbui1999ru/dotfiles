@@ -9,7 +9,6 @@ local M = {}
 local DEFAULTS = {
 	commandr = true,
 	preCommitGate = true,
-	diffviewer = true,
 	neovimCockpit = true,
 	piCockpit = true,
 	opencodeAdapters = true,

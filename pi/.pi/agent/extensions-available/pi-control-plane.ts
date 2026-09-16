@@ -121,9 +121,9 @@ async function commandrEvents(cwd: string) {
 function expandVault(path?: string): string {
 	// Env vars override
 	const envVault =
-		process.env.AGENTOPS_VAULT || process.env.PI_OBSIDIAN_VAULT || "";
+		process.env.PI_OBSIDIAN_VAULT || "";
 	if (envVault) return resolve(envVault.replace(/^~\//, homedir() + "/"));
-	const raw = path || "~/repos/AgentOps";
+	const raw = path || "~/repos/Obsidian";
 	return resolve(raw.replace(/^~(?=\/|$)/, homedir()));
 }
 
@@ -381,8 +381,7 @@ export default function piControlPlane(pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("control-plane", {
-		description:
-			"Start/open local Commandr + DiffViewer + Obsidian control plane.",
+		description: "Start/open local Commandr + Obsidian control plane.",
 		handler: async (_args, ctx) => openControlPlane(ctx),
 	});
 	pi.registerCommand("cp", {

@@ -413,13 +413,6 @@ vim.api.nvim_create_autocmd("VimEnter", {
 				lualine_b = { "branch", "diff", "diagnostics", { commandr_status, color = { fg = "#cba6f7" } } },
 				lualine_c = {
 					"filename",
-					{
-						function()
-							local ok, dv = pcall(require, "diffviewer")
-							return ok and dv.statusline() or ""
-						end,
-						color = { fg = "#f38ba8" },
-					},
 				},
 				lualine_x = {
 					{

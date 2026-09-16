@@ -1,11 +1,9 @@
 {
   "primaryHarness": "pi",
-  "agentOpsCanonical": true,
   "providerAdapters": true,
   "externalHarnessAdapters": false,
   "commandr": true,
   "preCommitGate": true,
-  "diffviewer": true,
   "neovimCockpit": true,
   "piCockpit": true,
   "opencodeAdapters": false,
@@ -23,7 +21,7 @@
   "specTemplates": true,
   "obsidianBridge": true,
   "obsidianCli": "obsidian",
-  "obsidianVault": "~/repos/AgentOps",
+  "obsidianVault": "~/repos/Obsidian",
   "obsidianFolders": {
     "spec": "Projects",
     "design": "Projects",

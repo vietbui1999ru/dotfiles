@@ -12,6 +12,11 @@ import { existsSync } from "node:fs";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
+import {
+	formatCost,
+	readOpenAIUsage,
+	type OpenAIUsageConfig,
+} from "./lib/openai-usage.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -61,9 +66,9 @@ interface TaskSummary {
 interface WorkflowConfig {
 	commandr?: boolean;
 	preCommitGate?: boolean;
-	diffviewer?: boolean;
 	neovimCockpit?: boolean;
 	piCockpit?: boolean;
+	piOpenAIUsage?: OpenAIUsageConfig;
 	opencodeAdapters?: boolean;
 	claudeHooks?: boolean;
 	autoOpenNeovimBoard?: boolean;
@@ -72,9 +77,9 @@ interface WorkflowConfig {
 const DEFAULT_WORKFLOW_CONFIG: Required<WorkflowConfig> = {
 	commandr: true,
 	preCommitGate: true,
-	diffviewer: true,
 	neovimCockpit: true,
 	piCockpit: true,
+	piOpenAIUsage: {},
 	opencodeAdapters: true,
 	claudeHooks: false,
 	autoOpenNeovimBoard: false,
@@ -386,13 +391,31 @@ class CockpitPanel implements Component {
 }
 
 async function buildCockpitLines(cwd: string, theme: any): Promise<string[]> {
-	const config = await readWorkflowConfig(cwd);
-	const tasks = enabled(config, "commandr")
-		? await readTasks(cwd)
-		: { inbox: [], claimed: [], done: [] };
-	const ctx = enabled(config, "neovimCockpit")
-		? await readNvimContext(cwd)
-		: { error: "Neovim cockpit disabled by agent-workflow config" };
+	let config: WorkflowConfig;
+	try {
+		config = await readWorkflowConfig(cwd);
+	} catch {
+		config = DEFAULT_WORKFLOW_CONFIG;
+	}
+	let tasks: TaskSummary = { inbox: [], claimed: [], done: [] };
+	let ctx: { path?: string; data?: NvimContext; error?: string } = {
+		error: "failed to read context",
+	};
+	try {
+		[tasks, ctx] = await Promise.all([
+			enabled(config, "commandr")
+				? readTasks(cwd)
+				: Promise.resolve({ inbox: [], claimed: [], done: [] }),
+			enabled(config, "neovimCockpit")
+				? readNvimContext(cwd)
+				: Promise.resolve({
+						error: "Neovim cockpit disabled by agent-workflow config",
+					}),
+		]);
+	} catch {
+		// Individual fetches already catch; this outer guard prevents
+		// an unexpected rejection from crashing the entire cockpit.
+	}
 	const lines: string[] = [];
 	lines.push(
 		theme.fg("accent", theme.bold("Pi ↔ Neovim Cockpit")) +
@@ -428,6 +451,43 @@ async function buildCockpitLines(cwd: string, theme: any): Promise<string[]> {
 	} else {
 		lines.push(theme.fg("warning", "  disabled by agent-workflow config"));
 	}
+	lines.push("");
+	lines.push(theme.fg("accent", "OpenAI usage (observed cost)"));
+	let openAI: Awaited<ReturnType<typeof readOpenAIUsage>>;
+	try {
+		openAI = await readOpenAIUsage(cwd, config.piOpenAIUsage);
+	} catch {
+		// Status files are optional runtime state; a transient read failure must
+		// not prevent the rest of the cockpit from rendering.
+		openAI = undefined;
+	}
+	if (openAI) {
+		for (const window of openAI.windows) {
+			const limit = window.limit ? ` / ${formatCost(window.limit)}` : "";
+			const percent = window.limit
+				? ` (${Math.round(window.percent ?? 0)}%)`
+				: "";
+			let usageColor: "error" | "warning" | "muted" = "muted";
+			if (window.percent && window.percent >= 90) usageColor = "error";
+			else if (window.percent && window.percent >= 70) usageColor = "warning";
+			lines.push(
+				theme.fg(
+					usageColor,
+					`  ${window.label}: ${formatCost(window.cost)}${limit}${percent}`,
+				),
+			);
+		}
+		lines.push(
+			theme.fg("dim", `  ${openAI.sessions} tracked gpt/codex session(s)`),
+		);
+	} else if (config.piOpenAIUsage?.enabled === false) {
+		lines.push(theme.fg("dim", "  disabled by agent-workflow config"));
+	} else {
+		lines.push(theme.fg("dim", "  no observed gpt/codex session usage"));
+	}
+	lines.push(
+		theme.fg("dim", "  local Pi costs; not a ChatGPT/Codex subscription quota"),
+	);
 	lines.push("");
 	lines.push(theme.fg("accent", "Neovim"));
 	if (ctx.data) {
@@ -498,6 +558,12 @@ export default function neovimCockpit(pi: ExtensionAPI) {
 				? readNvimContext(ctx.cwd)
 				: Promise.resolve({ error: "disabled" }),
 		]);
+		// The persistent tmux panel already owns Nvim + Commandr details.
+		if (existsSync(join(ctx.cwd, ".pi", "panel.state.json"))) {
+			lastStatus = "";
+			ctx.ui.setStatus("neovim-cockpit", undefined);
+			return;
+		}
 		const nvimLabel = nvim.data?.relative_file
 			? `nvim:${nvim.data.relative_file}`
 			: "nvim:—";
@@ -593,7 +659,7 @@ export default function neovimCockpit(pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("cockpit", {
-		description: "Show Neovim/Commandr/DiffViewer operator cockpit panel",
+		description: "Show Neovim/Commandr operator cockpit panel",
 		handler: async (_args, ctx) => {
 			if (!ctx.hasUI || ctx.mode !== "tui") {
 				ctx.ui.notify(lastStatus || "Neovim cockpit loaded", "info");
