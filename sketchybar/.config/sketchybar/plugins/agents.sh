@@ -51,15 +51,27 @@ if [[ "$SENDER" == "agent_state" && -n "${AGENT:-}" ]]; then
   set_state "$AGENT" "${STATUS:-unknown}"
   if [[ -v NEXT && -n "$NEXT" ]]; then
     set_next "$AGENT" "$NEXT"
-  elif [[ "${STATUS:-unknown}" == "working" ]]; then
+  elif [[ "${NEXT_CLEAR:-}" == "1" || "${STATUS:-unknown}" == "working" ]]; then
     set_next "$AGENT" ""
   fi
 fi
 
 plan=$(state_for plan)
 build=$(state_for build)
-next=$(cat "$STATE_DIR/plan.next" "$STATE_DIR/build.next" 2>/dev/null | tail -1)
+latest_role=""
+latest_mtime=0
+for role in plan build; do
+  path="$STATE_DIR/${role}.next"
+  [[ -s "$path" ]] || continue
+  mtime=$(stat -f %m "$path" 2>/dev/null || echo 0)
+  if (( mtime >= latest_mtime )); then
+    latest_mtime=$mtime
+    latest_role="$role"
+  fi
+done
+next=""
+[[ -n "$latest_role" ]] && next=$(cat "$STATE_DIR/${latest_role}.next")
 label="plan ${plan} │ build ${build}"
-[[ -n "$next" ]] && label+=" │ ${next}"
+[[ -n "$next" ]] && label+=" │ ${latest_role}: ${next}"
 sketchybar --set "$NAME" label="$label"
 "$CONFIG_DIR/plugins/balance_pills.sh"

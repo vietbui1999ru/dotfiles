@@ -38,6 +38,7 @@ let socket;
 let buffer = "";
 let subscriptionRequestId;
 let topologyTimer;
+let hasSeeded = false;
 
 function logError(message, detail) {
 	console.error(`[herdr-sketchybar-bridge] ${message}${detail ? `: ${detail}` : ""}`);
@@ -52,7 +53,8 @@ function trigger(role, status, paneId, workspaceId, next) {
 		`PANE=${paneId ?? ""}`,
 		`WORKSPACE=${workspaceId ?? ""}`,
 	];
-	if (next !== undefined) args.push(`NEXT=${next}`);
+	if (next) args.push(`NEXT=${next}`);
+	if (next === "") args.push("NEXT_CLEAR=1");
 	void execFileAsync(SKETCHYBAR, args).catch((error) =>
 		logError("Sketchybar trigger failed", String(error)),
 	);
@@ -64,7 +66,7 @@ function roleFor(agent, workspaceId, paneId) {
 		(roleByWorkspace.size === 0 ? ROLE_BY_AGENT.get(agent) : undefined);
 }
 
-function publishStatus(role, status, paneId, workspaceId) {
+function publishStatus(role, status, paneId, workspaceId, initial = false) {
 	statusByRole.set(role, status);
 	if (status === "working") {
 		nextByRole.delete(role);
@@ -72,13 +74,19 @@ function publishStatus(role, status, paneId, workspaceId) {
 		return;
 	}
 	if ((status === "done" || status === "idle") && !nextByRole.has(role)) {
-		trigger(role, status, paneId, workspaceId, "done — no next step");
+		trigger(
+			role,
+			status,
+			paneId,
+			workspaceId,
+			initial ? "" : "done — no next step",
+		);
 		return;
 	}
 	trigger(role, status, paneId, workspaceId);
 }
 
-async function refreshTopology() {
+async function refreshTopology(initial = false) {
 	const [{ stdout: workspaceJson }, { stdout: agentJson }] = await Promise.all([
 		execFileAsync("herdr", ["workspace", "list"], { timeout: 3_000 }),
 		execFileAsync("herdr", ["agent", "list"], { timeout: 3_000 }),
@@ -100,7 +108,7 @@ async function refreshTopology() {
 	for (const agent of agents) {
 		const role = roleFor(agent.agent, agent.workspace_id, agent.pane_id);
 		if (role && agent.agent_status)
-			publishStatus(role, agent.agent_status, agent.pane_id, agent.workspace_id);
+			publishStatus(role, agent.agent_status, agent.pane_id, agent.workspace_id, initial);
 	}
 }
 
@@ -110,8 +118,8 @@ function subscriptions() {
 		{
 			type: "pane.output_matched",
 			pane_id: paneId,
-			source: "recent",
-			match: { type: "regex", value: "^NEXT: " },
+			source: "recent_unwrapped",
+			match: { type: "regex", value: "^\\s*NEXT: " },
 			strip_ansi: true,
 		},
 	]);
@@ -126,7 +134,9 @@ function subscriptions() {
 
 async function subscribe(next) {
 	try {
-		await refreshTopology();
+		const initial = !hasSeeded;
+		await refreshTopology(initial);
+		hasSeeded = true;
 		if (socket !== next || next.destroyed) return;
 		subscriptionRequestId = `herdr-sketchybar-${Date.now()}`;
 		next.write(
@@ -173,8 +183,10 @@ function handleEvent(message) {
 			scheduleTopologyRefresh(`unknown output pane ${event?.pane_id ?? "?"}`);
 			return;
 		}
-		const next = event?.matched_line;
-		if (typeof next !== "string" || !next.startsWith("NEXT: ")) return;
+		const next = typeof event?.matched_line === "string"
+			? event.matched_line.trim()
+			: undefined;
+		if (!next?.startsWith("NEXT: ")) return;
 		nextByRole.set(role, next);
 		trigger(
 			role,
