@@ -53,6 +53,8 @@ import {
 	type NvimPreviewAction,
 } from "./lib/nvim-rpc.ts";
 import {
+	autoApplyEnabledFromEnv,
+	DEFAULT_AUTO_REVIEW_POLICY,
 	evaluateAutoReview,
 } from "./lib/review-auto-policy.ts";
 import {
@@ -82,7 +84,7 @@ const execFileAsync = promisify(execFile);
 const DOTFILES = resolve(homedir(), "dotfiles");
 const REVIEW_GATE_DIR = ".review-gate";
 const IS_SUBAGENT_SESSION = process.env.PI_SUBAGENT_CHILD === "1";
-const AUTO_APPLY_ENABLED = process.env.PI_REVIEW_GATE_AUTO_APPLY !== "0";
+const AUTO_APPLY_ENABLED = autoApplyEnabledFromEnv(process.env);
 const RETENTION_DAYS = Math.max(
 	1,
 	Number.parseInt(process.env.PI_REVIEW_GATE_RETENTION_DAYS ?? "7", 10) || 7,
@@ -157,6 +159,7 @@ const reviewState: ReviewState = {
 };
 let currentBatch: ReviewBatch | null = null;
 let inGenerationPhase = false;
+let sessionAutoAppliedLoc = 0;
 let reviewMutationActive = false;
 let batchMutationVersion = 0;
 const reviewSuspension = new ReviewGateSuspensionController((enabled) => {
@@ -932,7 +935,11 @@ async function tryAutoApply(
 ): Promise<boolean> {
 	if (!AUTO_APPLY_ENABLED || IS_SUBAGENT_SESSION) return false;
 
-	const policy = evaluateAutoReview(batch.files);
+	const policy = evaluateAutoReview(
+		batch.files,
+		DEFAULT_AUTO_REVIEW_POLICY,
+		sessionAutoAppliedLoc,
+	);
 	if (!policy.eligible) {
 		batch.autoReview = { decision: "blocked", reasons: policy.reasons };
 		saveBatch(batch, ctx.cwd);
@@ -947,7 +954,7 @@ async function tryAutoApply(
 		batch.files.map((file) => file.path),
 		"automatic",
 		Date.now(),
-		{ cwd: batch.sandboxPath, checkOnly: true },
+		{ cwd: batch.sandboxPath, checkOnly: true, configRoot: ctx.cwd },
 	);
 	const verified =
 		report.status === "passed" &&
@@ -979,6 +986,10 @@ async function tryAutoApply(
 		result.stale.length === 0
 	) {
 		batch.autoReview.decision = "applied";
+		sessionAutoAppliedLoc += batch.files.reduce(
+			(total, file) => total + file.changedLoc,
+			0,
+		);
 		saveBatch(batch, ctx.cwd);
 		ctx.ui.notify(
 			`Auto-applied reviewed batch: ${result.applied.length} files`,
@@ -1594,6 +1605,7 @@ export default function (pi: ExtensionAPI): void {
 		reviewState.pendingBatches = [];
 		currentBatch = null;
 		inGenerationPhase = false;
+		sessionAutoAppliedLoc = 0;
 		if (IS_SUBAGENT_SESSION) {
 			ctx.ui.setStatus(
 				"review-gate",

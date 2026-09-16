@@ -69,7 +69,7 @@ export interface VerificationPlan {
 	focusedTests: string[];
 }
 
-const MANIFEST_AND_CONFIG_NAMES = new Set([
+export const MANIFEST_AND_CONFIG_NAMES = new Set([
 	"package.json",
 	"package-lock.json",
 	"pnpm-lock.yaml",
@@ -109,7 +109,7 @@ const MANIFEST_AND_CONFIG_NAMES = new Set([
 	".shfmt",
 ]);
 
-const CODE_EXTENSIONS = new Set([
+export const CODE_EXTENSIONS = new Set([
 	".js",
 	".jsx",
 	".mjs",

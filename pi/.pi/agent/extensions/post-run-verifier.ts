@@ -531,11 +531,28 @@ export async function runVerification(
 	paths: string[],
 	mode: VerificationReport["mode"],
 	runGeneration: number,
-	options: { cwd?: string; checkOnly?: boolean } = {},
+	options: { cwd?: string; checkOnly?: boolean; configRoot?: string } = {},
 ): Promise<VerificationReport> {
 	const startedAt = new Date();
 	const trusted = ctx.isProjectTrusted();
 	const project = loadProject(options.cwd ?? ctx.cwd, trusted);
+	if (options.configRoot) {
+		// Auto-apply verification executes against the sandbox, but its config
+		// (stages, budgets, commands) must come from the main tree so an
+		// agent-authored sandbox cannot weaken its own checks.
+		const mainProject = loadProject(options.configRoot, trusted);
+		if (!mainProject.config) {
+			project.config = undefined;
+			project.configError =
+				mainProject.configError ??
+				"verification config could not be resolved from the main tree";
+		} else {
+			project.config = mainProject.config;
+			project.configPath = mainProject.configPath;
+			project.snapshot = mainProject.snapshot;
+			project.regenerated = mainProject.regenerated;
+		}
+	}
 	const base: Omit<
 		VerificationReport,
 		"finishedAt" | "status" | "commands" | "skips" | "focusedTests"
