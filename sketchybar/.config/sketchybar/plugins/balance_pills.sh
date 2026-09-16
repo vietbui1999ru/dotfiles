@@ -14,6 +14,12 @@
 #     land between a sibling's zero and measure, producing a genuinely
 #     corrupted reading (reproduced live: left_pill briefly read 444
 #     against a steady 511). The lock makes zero+measure+set atomic.
+# Every resize funnels through this script, so it's the single point that
+# logs who triggered it — set CALLER before invoking (aerospace/vpn/agents/
+# startup) to identify the source of unwanted resizing after the fact.
+LOG_FILE="${XDG_CACHE_HOME:-$HOME/.cache}/sketchybar/balance.log"
+mkdir -p "$(dirname "$LOG_FILE")"
+
 GEN_FILE="${TMPDIR:-/tmp}/sketchybar_balance.gen"
 MY_GEN="$$-$RANDOM"
 printf '%s' "$MY_GEN" > "$GEN_FILE"
@@ -55,8 +61,16 @@ rw=$(pill_width right_pill)
 
 diff=$(( lw > rw ? lw - rw : rw - lw ))
 
+action="noop"
 if (( lw > rw )); then
   sketchybar --set right_spacer width=$diff
+  action="right_spacer+=$diff"
 elif (( rw > lw )); then
   sketchybar --set left_spacer width=$diff
+  action="left_spacer+=$diff"
 fi
+
+printf '%s caller=%s lw=%s rw=%s diff=%s action=%s\n' \
+  "$(date '+%Y-%m-%d %H:%M:%S')" "${CALLER:-unknown}" "$lw" "$rw" "$diff" "$action" \
+  >> "$LOG_FILE"
+tail -n 500 "$LOG_FILE" > "$LOG_FILE.tmp" 2>/dev/null && mv "$LOG_FILE.tmp" "$LOG_FILE"
