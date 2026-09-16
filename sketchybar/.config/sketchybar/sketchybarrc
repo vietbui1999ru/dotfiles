@@ -66,6 +66,7 @@ for sid in "${ORDERED_WORKSPACES[@]}"; do
       icon.padding_right=4 \
       label.font="sketchybar-app-font:Regular:16.0" \
       label.padding_right=5 \
+      label.width=120 \
       label.drawing=on \
       label.y_offset=1 \
       background.corner_radius=25 \
