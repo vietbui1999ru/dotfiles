@@ -259,3 +259,51 @@ test("repair stall: empty follow-up generation reruns against last changed files
 	);
 	assert.equal(terminalMessages.length, 1, "terminal report should display exactly once");
 });
+
+test("executeArgv settles when a grandchild holds the output pipes open", async () => {
+	const module = await import(`../post-run-verifier.ts?exec=${Date.now()}`);
+	const startedAt = Date.now();
+	const result = await module.executeArgv(
+		"bash",
+		["-c", "sleep 30 & echo ready"],
+		realpathSync(tmpdir()),
+		10_000,
+		16_000,
+	);
+	assert.equal(result.code, 0);
+	assert.equal(result.killed, false);
+	assert.match(result.output, /ready/);
+	// Old behavior settled only on `close`, which a long-lived grandchild
+	// blocks forever (the timeout killed only the direct child). The fix must
+	// settle shortly after the direct child exits, well before the timeout.
+	const elapsed = Date.now() - startedAt;
+	assert.ok(elapsed < 5_000, `settled after ${elapsed}ms; expected grandchild-independent settle`);
+});
+
+test("executeArgv kills the whole process group on timeout", async () => {
+	const module = await import(`../post-run-verifier.ts?exec2=${Date.now()}`);
+	const marker = `pi-verifier-group-test-${Date.now()}`;
+	const result = await module.executeArgv(
+		"bash",
+		["-c", `sleep 300 & echo ${marker} >&2; sleep 300`],
+		realpathSync(tmpdir()),
+		1_500,
+		16_000,
+	);
+	assert.equal(result.killed, true);
+	assert.ok(result.code !== 0);
+	// Give the SIGKILL a moment, then confirm no member of the tree survived.
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	let survivors = "";
+	try {
+		survivors = execFileSync("pgrep", ["-f", "sleep 300"], {
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "ignore"],
+		}).trim();
+	} catch (error) {
+		// pgrep exits 1 when nothing matched — exactly the expected outcome.
+		const status = (error as { status?: number }).status;
+		if (status !== 1) throw error;
+	}
+	assert.equal(survivors, "", "timeout must kill grandchildren, not only the direct child");
+});

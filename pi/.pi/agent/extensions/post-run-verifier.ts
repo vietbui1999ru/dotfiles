@@ -365,7 +365,7 @@ function appendBounded(
 	};
 }
 
-async function executeArgv(
+export async function executeArgv(
 	command: string,
 	args: string[],
 	cwd: string,
@@ -378,19 +378,37 @@ async function executeArgv(
 	killed: boolean;
 }> {
 	return new Promise((resolveResult) => {
+		// Detached makes the child a process-group leader so timeouts can kill
+		// the whole tree; workers (vitest/jest/go test/cargo) otherwise hold the
+		// stdout pipe open forever and `close` never fires.
 		const child = spawn(command, args, {
 			cwd,
 			shell: false,
+			detached: true,
 			stdio: ["ignore", "pipe", "pipe"],
 		});
 		let output = Buffer.alloc(0);
 		let truncated = false;
 		let killed = false;
 		let settled = false;
+		let exitCode: number | null = null;
+		let drainTimer: NodeJS.Timeout | undefined;
+		const killGroup = (signal: NodeJS.Signals) => {
+			if (child.pid === undefined) return;
+			try {
+				process.kill(-child.pid, signal);
+			} catch {
+				// Group already gone; fall back to the direct child.
+				child.kill(signal);
+			}
+		};
 		const finish = (code: number) => {
 			if (settled) return;
 			settled = true;
 			clearTimeout(timer);
+			if (drainTimer) clearTimeout(drainTimer);
+			// Never leave stray grandchildren behind after settling.
+			killGroup("SIGKILL");
 			resolveResult({ code, output: output.toString("utf8"), truncated, killed });
 		};
 		const capture = (chunk: Buffer) => {
@@ -404,11 +422,19 @@ async function executeArgv(
 			capture(Buffer.from(String(error)));
 			finish(127);
 		});
-		child.on("close", (code) => finish(code ?? 1));
+		// Settle on exit plus a short output-drain window, not on close:
+		// close waits for all pipe holders, including grandchildren.
+		child.on("exit", (code) => {
+			exitCode = code;
+			drainTimer = setTimeout(() => finish(exitCode ?? 1), 250);
+		});
+		child.on("close", (code) => finish(code ?? exitCode ?? 1));
 		const timer = setTimeout(() => {
 			killed = true;
-			child.kill("SIGTERM");
-			const force = setTimeout(() => child.kill("SIGKILL"), 1_000);
+			killGroup("SIGTERM");
+			const force = setTimeout(() => {
+				if (!settled) killGroup("SIGKILL");
+			}, 1_000);
 			force.unref();
 		}, timeoutMs);
 	});
