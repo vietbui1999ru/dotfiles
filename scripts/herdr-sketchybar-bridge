@@ -2,12 +2,10 @@
 /**
  * Herdr → Sketchybar bridge.
  *
- * Event-driven after one startup snapshot. Subscribes to:
- * - pane.agent_status_changed
- * - pane.output_matched for `^NEXT: ` on the fixed plan/build panes
- *
- * Reconnects use exponential backoff. The bridge never polls Herdr after
- * subscription and only emits derived Sketchybar events.
+ * Event-driven after one startup snapshot. Status and NEXT subscriptions are
+ * registered per fixed plan/build pane; pane/workspace topology events rebuild
+ * the subscription set. Reconnect backoff resets only after Herdr confirms
+ * `subscription_started`.
  */
 
 import { execFile } from "node:child_process";
@@ -24,14 +22,26 @@ const ROLE_BY_AGENT = new Map([
 	["pi", "build"],
 ]);
 const ROLE_LABELS = new Set(["plan", "build"]);
+const TOPOLOGY_EVENTS = new Set([
+	"workspace.created",
+	"workspace.closed",
+	"pane.created",
+	"pane.closed",
+]);
 
 let roleByWorkspace = new Map();
-let roleByPane = new Map();
+let roleByPane = new Map(); // pane ID → plan|build
 let statusByRole = new Map();
 let nextByRole = new Map();
 let reconnectMs = 1_000;
 let socket;
 let buffer = "";
+let subscriptionRequestId;
+let topologyTimer;
+
+function logError(message, detail) {
+	console.error(`[herdr-sketchybar-bridge] ${message}${detail ? `: ${detail}` : ""}`);
+}
 
 function trigger(role, status, paneId, workspaceId, next) {
 	const args = [
@@ -43,7 +53,9 @@ function trigger(role, status, paneId, workspaceId, next) {
 		`WORKSPACE=${workspaceId ?? ""}`,
 	];
 	if (next !== undefined) args.push(`NEXT=${next}`);
-	void execFileAsync(SKETCHYBAR, args).catch(() => undefined);
+	void execFileAsync(SKETCHYBAR, args).catch((error) =>
+		logError("Sketchybar trigger failed", String(error)),
+	);
 }
 
 function roleFor(agent, workspaceId, paneId) {
@@ -66,19 +78,103 @@ function publishStatus(role, status, paneId, workspaceId) {
 	trigger(role, status, paneId, workspaceId);
 }
 
+async function refreshTopology() {
+	const [{ stdout: workspaceJson }, { stdout: agentJson }] = await Promise.all([
+		execFileAsync("herdr", ["workspace", "list"], { timeout: 3_000 }),
+		execFileAsync("herdr", ["agent", "list"], { timeout: 3_000 }),
+	]);
+	const workspaces = JSON.parse(workspaceJson).result?.workspaces ?? [];
+	roleByWorkspace = new Map(
+		workspaces
+			.filter((workspace) => ROLE_LABELS.has(workspace.label))
+			.map((workspace) => [workspace.workspace_id, workspace.label]),
+	);
+
+	const agents = JSON.parse(agentJson).result?.agents ?? [];
+	roleByPane = new Map();
+	for (const agent of agents) {
+		const role = roleByWorkspace.get(agent.workspace_id) ??
+			(roleByWorkspace.size === 0 ? ROLE_BY_AGENT.get(agent.agent) : undefined);
+		if (role && agent.pane_id) roleByPane.set(agent.pane_id, role);
+	}
+	for (const agent of agents) {
+		const role = roleFor(agent.agent, agent.workspace_id, agent.pane_id);
+		if (role && agent.agent_status)
+			publishStatus(role, agent.agent_status, agent.pane_id, agent.workspace_id);
+	}
+}
+
+function subscriptions() {
+	const paneSubscriptions = [...roleByPane.keys()].flatMap((paneId) => [
+		{ type: "pane.agent_status_changed", pane_id: paneId },
+		{
+			type: "pane.output_matched",
+			pane_id: paneId,
+			source: "recent",
+			match: { type: "regex", value: "^NEXT: " },
+			strip_ansi: true,
+		},
+	]);
+	return [
+		{ type: "workspace.created" },
+		{ type: "workspace.closed" },
+		{ type: "pane.created" },
+		{ type: "pane.closed" },
+		...paneSubscriptions,
+	];
+}
+
+async function subscribe(next) {
+	try {
+		await refreshTopology();
+		if (socket !== next || next.destroyed) return;
+		subscriptionRequestId = `herdr-sketchybar-${Date.now()}`;
+		next.write(
+			`${JSON.stringify({
+				id: subscriptionRequestId,
+				method: "events.subscribe",
+				params: { subscriptions: subscriptions() },
+			})}\n`,
+		);
+	} catch (error) {
+		logError("Topology refresh failed", String(error));
+	}
+}
+
+function scheduleTopologyRefresh(reason) {
+	if (topologyTimer) return;
+	topologyTimer = setTimeout(() => {
+		topologyTimer = undefined;
+		if (socket && !socket.destroyed) void subscribe(socket);
+	}, 100);
+	console.error(`[herdr-sketchybar-bridge] rebuilding subscriptions: ${reason}`);
+}
+
 function handleEvent(message) {
+	if (TOPOLOGY_EVENTS.has(message?.event)) {
+		scheduleTopologyRefresh(message.event);
+		return;
+	}
 	if (message?.event === "pane.agent_status_changed") {
 		const event = message.data;
 		const role = roleFor(event?.agent, event?.workspace_id, event?.pane_id);
-		if (role && event?.agent_status)
+		if (!role) {
+			scheduleTopologyRefresh(`unknown status pane ${event?.pane_id ?? "?"}`);
+			return;
+		}
+		if (event?.agent_status)
 			publishStatus(role, event.agent_status, event.pane_id, event.workspace_id);
 		return;
 	}
 	if (message?.event === "pane.output_matched") {
 		const event = message.data;
 		const role = roleFor(undefined, event?.read?.workspace_id, event?.pane_id);
+		if (!role) {
+			scheduleTopologyRefresh(`unknown output pane ${event?.pane_id ?? "?"}`);
+			return;
+		}
 		const next = event?.matched_line;
-		if (!role || typeof next !== "string" || !next.startsWith("NEXT: ")) return;
+		if (typeof next !== "string" || !next.startsWith("NEXT: ")) return;
 		nextByRole.set(role, next);
 		trigger(
 			role,
@@ -90,68 +186,33 @@ function handleEvent(message) {
 	}
 }
 
-async function seedState() {
-	try {
-		const [{ stdout: workspaceJson }, { stdout: agentJson }] = await Promise.all([
-			execFileAsync("herdr", ["workspace", "list"], { timeout: 3_000 }),
-			execFileAsync("herdr", ["agent", "list"], { timeout: 3_000 }),
-		]);
-		const workspaces = JSON.parse(workspaceJson).result?.workspaces ?? [];
-		roleByWorkspace = new Map(
-			workspaces
-				.filter((workspace) => ROLE_LABELS.has(workspace.label))
-				.map((workspace) => [workspace.workspace_id, workspace.label]),
-		);
-		const agents = JSON.parse(agentJson).result?.agents ?? [];
-		roleByPane = new Map(
-			agents
-				.map((agent) => [roleFor(agent.agent, agent.workspace_id), agent.pane_id])
-				.filter(([role, paneId]) => role && paneId),
-		);
-		for (const agent of agents) {
-			const role = roleFor(agent.agent, agent.workspace_id, agent.pane_id);
-			if (role && agent.agent_status)
-				publishStatus(role, agent.agent_status, agent.pane_id, agent.workspace_id);
-		}
-	} catch {
-		// The event stream retries; a transient startup snapshot is non-fatal.
-	}
-}
-
-function subscriptions() {
-	return [
-		{ type: "pane.agent_status_changed" },
-		...Object.entries(Object.fromEntries(roleByPane)).map(([, paneId]) => ({
-			type: "pane.output_matched",
-			pane_id: paneId,
-			source: "recent",
-			match: { type: "regex", value: "^NEXT: " },
-			strip_ansi: true,
-		})),
-	];
-}
-
 function scheduleReconnect() {
 	const delay = reconnectMs;
 	reconnectMs = Math.min(reconnectMs * 2, 30_000);
 	setTimeout(connect, delay);
 }
 
+function handleFrame(message) {
+	if (message?.error) {
+		logError(`Herdr API error frame${message.id ? ` (${message.id})` : ""}`, message.error.message);
+		return;
+	}
+	if (
+		message?.id === subscriptionRequestId &&
+		message?.result?.type === "subscription_started"
+	) {
+		reconnectMs = 1_000;
+		console.error("[herdr-sketchybar-bridge] subscription_started");
+		return;
+	}
+	handleEvent(message);
+}
+
 function connect() {
 	buffer = "";
 	const next = net.createConnection(SOCKET);
 	socket = next;
-	next.on("connect", async () => {
-		reconnectMs = 1_000;
-		await seedState();
-		next.write(
-			`${JSON.stringify({
-				id: `herdr-sketchybar-${Date.now()}`,
-				method: "events.subscribe",
-				params: { subscriptions: subscriptions() },
-			})}\n`,
-		);
-	});
+	next.on("connect", () => void subscribe(next));
 	next.on("data", (chunk) => {
 		buffer += chunk.toString("utf8");
 		for (;;) {
@@ -160,13 +221,13 @@ function connect() {
 			const line = buffer.slice(0, newline);
 			buffer = buffer.slice(newline + 1);
 			try {
-				handleEvent(JSON.parse(line));
-			} catch {
-				// Ignore malformed transport frames; the stream stays connected.
+				handleFrame(JSON.parse(line));
+			} catch (error) {
+				logError("Malformed Herdr transport frame", String(error));
 			}
 		}
 	});
-	next.on("error", () => undefined);
+	next.on("error", (error) => logError("Socket error", error.message));
 	next.on("close", () => {
 		if (socket === next) scheduleReconnect();
 	});
