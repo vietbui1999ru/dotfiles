@@ -1,0 +1,322 @@
+#!/opt/homebrew/bin/bash
+
+source "$CONFIG_DIR/colors.sh"
+source "$CONFIG_DIR/icons.sh"
+
+PLUGIN_DIR="$CONFIG_DIR/plugins"
+
+##### Bar Appearance #####
+sketchybar --bar \
+  position=top \
+  height=40 \
+  color=$TRANSPARENT \
+  margin=7 \
+  y_offset=5 \
+  notch_width=200 \
+  sticky=on
+
+##### Defaults #####
+default=(
+  padding_left=0
+  padding_right=0
+  icon.font="Hack Nerd Font Mono:Bold:16.0"
+  label.font="SF Pro:Semibold:13.0"
+  icon.color=$ICON_COLOR
+  label.color=$LABEL_COLOR
+  icon.padding_left=5
+  icon.padding_right=5
+  label.padding_left=2
+  label.padding_right=2
+  background.corner_radius=11
+  background.height=20
+)
+sketchybar --default "${default[@]}"
+
+##### Separator helper #####
+# Usage: add_sep <name> [display]
+add_sep() {
+  local args=(
+    icon=$ICON_SEPARATOR
+    icon.color=$SEPARATOR_COLOR
+    icon.font="Hack Nerd Font Mono:Regular:16.0"
+    icon.padding_left=6
+    icon.padding_right=6
+    label.drawing=off
+    padding_left=0
+    padding_right=0
+  )
+  [[ -n "$2" ]] && args+=(display="$2")
+  sketchybar --add item "$1" right --set "$1" "${args[@]}"
+}
+
+##### Custom Events #####
+sketchybar --add event aerospace_workspace_change
+
+##### Left Side — AeroSpace Workspaces #####
+ORDERED_WORKSPACES=("1" "2" "3" "4" "0" "B" "T" "P" "C" "O" "N" "M" "S" "R")
+
+for sid in "${ORDERED_WORKSPACES[@]}"; do
+  icon="${WORKSPACE_ICONS[$sid]:-$sid}"
+  sketchybar --add item space.$sid left \
+    --subscribe space.$sid aerospace_workspace_change display_change system_woke mouse.entered mouse.exited \
+    --set space.$sid \
+      icon="$icon" \
+      icon.font="Hack Nerd Font Mono:Bold:16.0" \
+      icon.padding_left=5 \
+      icon.padding_right=4 \
+      label.font="sketchybar-app-font:Regular:16.0" \
+      label.padding_right=5 \
+      label.drawing=on \
+      label.y_offset=1 \
+      background.corner_radius=25 \
+      background.height=26 \
+      padding_right=0 \
+      click_script="aerospace workspace $sid" \
+      script="$PLUGIN_DIR/aerospace.sh $sid"
+done
+sketchybar --set space.1 padding_left=5
+
+##### Left Side — Chevron + Front App #####
+sketchybar --add item chevron left \
+           --set chevron \
+                 display=$MAIN_DISPLAY \
+                 icon=$ICON_CHEVRON \
+                 icon.color=$CHEVRON_COLOR \
+                 icon.font="Hack Nerd Font Mono:Bold:12.0" \
+                 label.drawing=off \
+                 padding_left=2 \
+                 padding_right=0
+
+sketchybar --add item front_app left \
+           --set front_app \
+                 display=$MAIN_DISPLAY \
+                 icon.drawing=off \
+                 label.font="SF Pro:Bold:13.0" \
+                 label.color=$APP_NAME_COLOR \
+                 width=80 \
+                 script="$PLUGIN_DIR/front_app.sh" \
+           --subscribe front_app front_app_switched
+
+sketchybar --add item window_title left \
+           --set window_title \
+                 display=$MAIN_DISPLAY \
+                 icon.drawing=off \
+                 label.font="SF Pro:Regular:12.0" \
+                 label.color=$WINDOW_TITLE_COLOR \
+                 label.max_chars=50 \
+                 scroll_texts=on \
+                 width=150 \
+                 script="$PLUGIN_DIR/front_app.sh" \
+           --subscribe window_title front_app_switched
+
+sketchybar --add item left_spacer left \
+           --set left_spacer \
+                 label.drawing=off \
+                 icon.drawing=off \
+                 background.drawing=off \
+                 padding_right=5 \
+                 width=0
+
+##### Center — Spotify #####
+# source "$CONFIG_DIR/items/spotify.sh"
+
+##### Right Side — System Items #####
+# Items are added right-to-left (first added = rightmost)
+
+sketchybar --add item clock right \
+           --set clock \
+                 icon=$ICON_CLOCK \
+                 padding_right=5 \
+                 update_freq=60 \
+                 script="$PLUGIN_DIR/clock.sh"
+
+add_sep sep.cal
+
+sketchybar --add item calendar right \
+           --set calendar \
+                 padding_right=-1 \
+                 icon=$ICON_CALENDAR \
+                 update_freq=3600 \
+                 script="$PLUGIN_DIR/calendar.sh"
+
+add_sep sep.bat $MAIN_DISPLAY
+
+sketchybar --add item battery right \
+           --set battery \
+                 display=$MAIN_DISPLAY \
+                 update_freq=120 \
+                 script="$PLUGIN_DIR/battery.sh" \
+           --subscribe battery system_woke power_source_change
+
+add_sep sep.mic $MAIN_DISPLAY
+
+sketchybar --add item mic right \
+           --set mic \
+                 icon=$ICON_MIC \
+                 update_freq=3 \
+                 script="$PLUGIN_DIR/mic.sh" \
+                 click_script="$PLUGIN_DIR/mic_click.sh"
+
+# add_sep sep.claude $MAIN_DISPLAY
+# 
+# sketchybar --add item claude right \
+#            --set claude \
+#                  icon=$ICON_CLAUDE \
+#                  update_freq=120 \
+#                  script="$HOME/repos/RustProjects/claude-tui/scripts/sketchybar/claude_plugin.sh"
+
+add_sep sep.vol $MAIN_DISPLAY
+
+sketchybar --add item volume right \
+           --set volume \
+                 padding_right=-1 \
+                 script="$PLUGIN_DIR/volume.sh" \
+           --subscribe volume volume_change
+
+# add_sep sep.cpu $MAIN_DISPLAY
+# 
+# sketchybar --add graph cpu right 30 \
+#            --set cpu \
+#                  icon=$ICON_CPU \
+#                  icon.padding_right=2 \
+#                  label.font="SF Pro:Semibold:10.0" \
+#                  label.padding_left=0 \
+#                  label.y_offset=-2 \
+#                  graph.color=$SAGE \
+#                  graph.fill_color=0x207B9C98 \
+#                  graph.line_width=1.5 \
+#                  background.drawing=off \
+#                  update_freq=5 \
+#                  padding_right=-3 \
+#                  script="$PLUGIN_DIR/cpu.sh"
+
+add_sep sep.vpn $MAIN_DISPLAY
+
+sketchybar --add item vpn right \
+           --set vpn \
+                 display=$MAIN_DISPLAY \
+                 icon=$ICON_VPN \
+                 padding_left=5 \
+                 update_freq=30 \
+                 script="$PLUGIN_DIR/vpn.sh"
+
+# add_sep sep.wifi $MAIN_DISPLAY
+# 
+# sketchybar --add item wifi right \
+#            --set wifi \
+#                  display=$MAIN_DISPLAY \
+#                  icon=$ICON_WIFI \
+#                  update_freq=30 \
+#                  script="$PLUGIN_DIR/wifi.sh"
+
+# add_sep sep.bright $MAIN_DISPLAY
+# 
+# sketchybar --add item brightness right \
+#            --set brightness \
+#                  display=$MAIN_DISPLAY \
+#                  icon=$ICON_BRIGHTNESS \
+#                  update_freq=30 \
+#                  script="$PLUGIN_DIR/brightness.sh"
+#
+add_sep sep.media $MAIN_DISPLAY
+
+sketchybar --add item sep.media right \
+           --set sep.media \
+                 icon=$ICON_SEPARATOR \
+                 icon.color=$SEPARATOR_COLOR \
+                 icon.font="Hack Nerd Font Mono:Regular:16.0" \
+                 icon.padding_left=6 \
+                 icon.padding_right=6 \
+                 label.drawing=off \
+                 padding_left=0 \
+                 padding_right=0 \
+                 drawing=off
+
+sketchybar --add item media right \
+           --set media \
+                 icon=$ICON_MEDIA \
+                 icon.color=$MEDIA_ICON_COLOR \
+                 icon.font="Hack Nerd Font Mono:Bold:16.0" \
+                 label.color=$MEDIA_LABEL_COLOR \
+                 label.font="SF Pro:Regular:12.0" \
+                 label.max_chars=40 \
+                 scroll_texts=on \
+                 drawing=off \
+                 update_freq=5 \
+                 script="$PLUGIN_DIR/media.sh" \
+                 click_script="nowplaying-cli togglePlayPause" \
+           --subscribe media media_change
+
+sketchybar --add item right_spacer right \
+           --set right_spacer \
+                 label.drawing=off \
+                 icon.drawing=off \
+                 background.drawing=off \
+                 padding_left=5 \
+                 width=0
+
+# add_sep sep.timer
+# 
+# ##### Timer (Pomodoro) #####
+# sketchybar --add item timer left \
+#            --set timer \
+#                  label="No Timer" \
+#                  icon=$ICON_TIMER \
+#                  icon.color=$ICON_COLOR \
+#                  icon.padding_right=6 \
+#                  background.drawing=off \
+#                  y_offset=1 \
+#                  script="$PLUGIN_DIR/timer.sh" \
+#                  click_script="SENDER=mouse.clicked $PLUGIN_DIR/timer.sh" \
+#                  popup.background.corner_radius=10 \
+#                  popup.background.color=$ICE \
+#                  popup.background.border_width=1 \
+#                  popup.background.border_color=0xFF45475A
+# 
+# sketchybar --subscribe timer mouse.entered mouse.exited mouse.exited.global
+# 
+# for duration in "5" "10" "15" "25" "30" "45"; do
+#   sketchybar --add item "timer.${duration}" popup.timer \
+#              --set "timer.${duration}" \
+#                    label="${duration} Minutes" \
+#                    padding_left=16 \
+#                    padding_right=16 \
+#                    click_script="$PLUGIN_DIR/timer.sh $((duration * 60)); sketchybar --set timer popup.drawing=off"
+# done
+
+
+##### Pill Brackets #####
+sketchybar --add bracket left_pill \
+             space.1 space.2 space.3 space.4 space.0 \
+             space.B space.T space.P space.C space.O \
+             space.N space.M space.S space.R \
+             chevron front_app window_title left_spacer \
+           --set left_pill \
+             background.color=$ISLAND_BG \
+             background.corner_radius=25 \
+             background.height=37 \
+             background.padding_left=7 \
+             background.drawing=on
+
+sketchybar --add bracket right_pill \
+             right_spacer media sep.media \
+             vpn sep.vpn \
+             volume sep.vol \
+             mic sep.mic \
+             battery sep.bat \
+             calendar sep.cal \
+             clock \
+           --set right_pill \
+             background.color=$ISLAND_BG \
+             background.corner_radius=25 \
+             background.height=37 \
+             background.padding_right=7 \
+             background.drawing=on
+
+##### Force Initial Update #####
+sketchybar --update
+
+##### Equalize pill widths (deferred — bar must finish drawing first) #####
+# Initial paint only; ongoing balance is re-triggered from aerospace.sh and
+# vpn.sh on every event that can change either pill's width.
+( sleep 3; "$PLUGIN_DIR/balance_pills.sh" ) &

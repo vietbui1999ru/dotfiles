@@ -23,6 +23,7 @@ Provisioning uses three mechanisms — know which applies before editing a packa
 | `jj/` | `~/.config/jj/config.toml` | stow — **not currently applied on this machine** |
 | `aerospace/` | `~/.aerospace.toml` | stow (macOS tiling WM) — not in the `stow` line above; add when used |
 | `mouseless/` | `~/Library/Application Support/Mouseless/configs/config.yaml` | stow (macOS Mouseless app) — not in the `stow` line above; back up the live file before first `stow mouseless`, restart the app after |
+| `sketchybar/` | `~/.config/sketchybar/` | stow (macOS status bar) — not in the `stow` line above; add when used; `sketchybar --reload` after edits |
 | `i3/` | `~/.config/i3/config` | Linux-only, applied via Ansible (not macOS stow) |
 | `claude/` | `~/.claude/` | stow (partial) — files symlinked; `skills/`+`agents/` mix dotfiles and `llm-wiki` sources |
 | `opencode/` | `~/.config/opencode/` | partial — `plugins/` stow; `opencode.json` materialized; `agents/`/`skills/` unmanaged |
@@ -109,8 +110,19 @@ The `pi/` stow package includes these Pi extensions:
 - `pi-session.ts` — `/save-session`, `/clear-context` (new session = 0%),
   `/sessions`, `/resume`, `/spec`, `/plan`, `/design`, `/arch`, `/pr`,
   `/review`, `/open`, `/diff` (red-for-deletions fix)
+- `post-run-verifier.ts` — budgeted post-run verification at completed-run
+  boundaries (format → lint → typecheck → focused tests), inferred per-project
+  config persisted under `~/.pi/agent/verification/projects/`, max 3 automatic
+  repair cycles; `/verify`, `/verify-final`, `/verify-status`, `/verify-config`,
+  `/verify-init`. When a trusted project re-enables pi-lens format/autofix via
+  `.pi-lens.json`, both pi-lens and the verifier may format at `agent_end` — the
+  verifier's format stage runs regardless.
 - `rtk.ts` — transparently rewrites supported Bash commands through RTK to
   reduce tool-output tokens; set `RTK_DISABLED=1` for passthrough
+
+`pi/.pi-lens/config.json` is the stow-provisioned global pi-lens config: LSP
+automated checks are disabled (verification is owned by `post-run-verifier.ts`),
+while non-LSP checks remain surfaced at turn end.
 
 Claude Code uses the equivalent `rtk hook claude` `PreToolUse` hook from
 `claude/.claude/settings.json`, with usage instructions in `~/.claude/RTK.md`.
