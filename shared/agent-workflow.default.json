@@ -4,8 +4,6 @@
   "externalHarnessAdapters": false,
   "commandr": true,
   "preCommitGate": true,
-  "neovimCockpit": true,
-  "piCockpit": true,
   "opencodeAdapters": false,
   "claudeHooks": false,
   "autoOpenNeovimBoard": false,
