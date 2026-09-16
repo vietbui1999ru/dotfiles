@@ -1,1 +1,0 @@
-../../../../repos/llm-wiki/claude-setup/rules/editing.md
