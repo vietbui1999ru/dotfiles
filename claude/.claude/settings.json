@@ -77,15 +77,6 @@
       {
         "hooks": [
           {
-            "command": "~/.claude/hooks/observe-session.sh",
-            "type": "command"
-          }
-        ],
-        "matcher": ".*"
-      },
-      {
-        "hooks": [
-          {
             "command": "cd ~/repos/llm-wiki && git diff --name-only HEAD 2>/dev/null | grep -q 'log\\.md' && ./scripts/publish-ai-kb.sh || true",
             "type": "command"
           }
@@ -96,10 +87,6 @@
         "hooks": [
           {
             "command": "~/.claude/hooks/lint-on-write.sh",
-            "type": "command"
-          },
-          {
-            "command": "~/.claude/hooks/judge-reminder.sh",
             "type": "command"
           }
         ],

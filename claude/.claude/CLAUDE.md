@@ -36,7 +36,6 @@ When sources conflict: higher number loses. Explicit always beats implicit.
 
 ## Quality rules (judge-extracted)
 
-# @~/.claude/rules/quality.md — uncomment when judge populates it
 
 # graphify
 
