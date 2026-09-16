@@ -70,9 +70,16 @@ case "$SENDER" in
     WINDOW_JSON=$(aerospace list-windows --workspace "$SID" --json \
       --format '%{monitor-appkit-nsscreen-screens-id}%{app-name}' 2>/dev/null)
 
-    # Build app icon string from window list
+    # Build app icon string from window list, capped at MAX_ICONS distinct
+    # apps so this label can have a fixed width — an unbounded icon list
+    # was the one thing still making left_pill resize on every workspace
+    # switch. Apps beyond the cap collapse into a "+N" badge instead of
+    # being silently dropped.
+    MAX_ICONS=4
     icons=""
     monitor=""
+    icon_count=0
+    overflow=0
 
     if [[ -n "$WINDOW_JSON" && "$WINDOW_JSON" != "[]" ]]; then
       # Use a seen-set to deduplicate app names
@@ -85,10 +92,17 @@ case "$SENDER" in
         [[ -n "${seen_apps[$app_name]}" ]] && continue
         seen_apps[$app_name]=1
 
-        # Map app name to sketchybar-app-font icon
-        __icon_map "$app_name"
-        icons+="${icon_result} "
+        if (( icon_count < MAX_ICONS )); then
+          # Map app name to sketchybar-app-font icon
+          __icon_map "$app_name"
+          icons+="${icon_result} "
+          (( icon_count++ ))
+        else
+          (( overflow++ ))
+        fi
       done < <(echo "$WINDOW_JSON" | sed -n 's/.*"app-name" *: *"\([^"]*\)".*/\1/p')
+
+      (( overflow > 0 )) && icons+="+${overflow} "
 
       # Extract monitor ID from first window entry (default "1")
       monitor=$(echo "$WINDOW_JSON" | sed -n 's/.*"monitor-appkit-nsscreen-screens-id" *: *\([0-9]*\).*/\1/p' | head -1)

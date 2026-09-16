@@ -34,6 +34,7 @@ export WINDOW_TITLE_COLOR=$SAGE
 # ── Audio source ─────────────────────────────────
 export AUDIO_SOURCE_ICON_COLOR=$SAGE
 export AUDIO_SOURCE_LABEL_COLOR=$SAGE
+export AUDIO_SOURCE_IDLE_COLOR=$MUTED_TEAL
 
 # ── VPN ──────────────────────────────────────────
 export VPN_ON_COLOR=$SAGE
