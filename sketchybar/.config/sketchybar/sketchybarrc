@@ -103,7 +103,8 @@ sketchybar --add item window_title left \
                  icon.drawing=off \
                  label.font="SF Pro:Regular:12.0" \
                  label.color=$WINDOW_TITLE_COLOR \
-                 label.max_chars=50 \
+                 label.max_chars=24 \
+                 label.width=150 \
                  scroll_texts=on \
                  width=150 \
                  script="$PLUGIN_DIR/front_app.sh" \
@@ -153,6 +154,8 @@ add_sep sep.mic $MAIN_DISPLAY
 sketchybar --add item mic right \
            --set mic \
                  icon=$ICON_MIC \
+                 label.width=42 \
+                 label.align=right \
                  update_freq=3 \
                  script="$PLUGIN_DIR/mic.sh" \
                  click_script="$PLUGIN_DIR/mic_click.sh"
@@ -170,6 +173,8 @@ add_sep sep.vol $MAIN_DISPLAY
 sketchybar --add item volume right \
            --set volume \
                  padding_right=-1 \
+                 label.width=36 \
+                 label.align=right \
                  script="$PLUGIN_DIR/volume.sh" \
            --subscribe volume volume_change
 
@@ -218,28 +223,23 @@ sketchybar --add item vpn right \
 #                  update_freq=30 \
 #                  script="$PLUGIN_DIR/brightness.sh"
 #
+# Media is the single now-playing surface (any app, via nowplaying-cli).
+# Hidden until something plays; media.sh toggles it together with sep.media.
 add_sep sep.media $MAIN_DISPLAY
+sketchybar --set sep.media drawing=off
 
-sketchybar --add item sep.media right \
-           --set sep.media \
-                 icon=$ICON_SEPARATOR \
-                 icon.color=$SEPARATOR_COLOR \
-                 icon.font="Hack Nerd Font Mono:Regular:16.0" \
-                 icon.padding_left=6 \
-                 icon.padding_right=6 \
-                 label.drawing=off \
-                 padding_left=0 \
-                 padding_right=0 \
-                 drawing=off
-
+# label.width pins the pill geometry: SF Pro is proportional, so without it
+# the pill resizes on every track change and every scroll tick.
 sketchybar --add item media right \
            --set media \
+                 display=$MAIN_DISPLAY \
                  icon=$ICON_MEDIA \
                  icon.color=$MEDIA_ICON_COLOR \
                  icon.font="Hack Nerd Font Mono:Bold:16.0" \
                  label.color=$MEDIA_LABEL_COLOR \
                  label.font="SF Pro:Regular:12.0" \
-                 label.max_chars=40 \
+                 label.width=180 \
+                 label.max_chars=30 \
                  scroll_texts=on \
                  drawing=off \
                  update_freq=5 \
