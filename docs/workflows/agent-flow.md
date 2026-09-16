@@ -164,6 +164,13 @@ Hard limits, enforced by the bridge: at most 3 plan↔build round-trips per phas
 post-run-verifier's 3-cycle cap. At the limit the chain stops and routes to `[you]`. The bridge
 never prompts across a phase boundary.
 
+**Human diff review:** `agent-review.md` adds a pending-review state. A pending review makes Pi
+not-idle for the bridge regardless of herdr status: no prompts to Pi and no chaining of Pi's
+`NEXT:` until the review is decided. Review-driven fix runs don't count toward the round-trip
+cap. When dispatching an approved phase, the bridge sets review mode from the phase's `Review:`
+line (`setBy: "bridge"`). The pill shows `build ⧗ review N files`, and a pending review escalates
+like `blocked` (slice 3).
+
 ## Optional — parking lot
 
 A one-keystroke way to dump an intrusive thought instead of following it: e.g. an AeroSpace

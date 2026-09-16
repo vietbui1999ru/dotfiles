@@ -166,6 +166,11 @@ completed the AgentOps teardown deliberately, so those parts remain removed;
 the DiffViewer sidecar/workflow/nvim/review-gate-bridge integration and the
 Pi package entry are restored. Phase 5 may now delete `pi-review-gate.ts`.
 
+**Update (2026-09-16):** a Neovim per-run replacement, `agent-review`, is being built as a
+**trial** against `pi-diff-review` — see `agent-review.md`. It is planned work, not scope creep.
+Do not delete DiffViewer's `pi-extension/`: while the trial runs it is disabled by default (never
+both active at once), and `scripts/trial-usage.sh` decides the survivor at trial expiry.
+
 **Do not delete anything else here until Pi-side usage has been measured the
 way Claude Code's was.** All other evidence in this document is Claude Code
 only. Deleting the wrong review gate is the most expensive available mistake.
