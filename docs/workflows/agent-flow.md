@@ -49,6 +49,26 @@ A single small bridge daemon subscribes to these and drives sketchybar via
 `sketchybar --trigger`. Event-driven, no polling. Inspect the contract with
 `herdr api schema --json`.
 
+What herdr does and does not provide (verified from local `--help`, `herdr --skill`, and the
+API schema; prompt delivery itself was not exercised against a live pane):
+
+- **No agent-to-agent message channel.** The schema has no mailbox or message method.
+  Cross-agent communication is `agent.prompt` / `agent.send_keys` (write to a pane) plus
+  `agent.read` / `agent.wait` / `events.subscribe` (observe a pane).
+- **`herdr agent prompt <target> "<text>"` is keystroke injection:** it types the text into the
+  target pane and submits Enter, exactly as a human typing there. Targets are a live agent name
+  or pane id (e.g. `w3:p1`) and work across workspaces on the same herdr server.
+- **Busy targets are not guarded.** herdr rejects a prompt with `agent_blocked` if the target is
+  at an approval/question prompt, but nothing prevents injecting into an agent that is
+  `working` — the text lands in its input mid-run.
+- **No delivery acknowledgement.** `--wait` can return `agent_prompt_stalled` or time out even
+  when the text was written; herdr's own guidance is not to blindly resubmit.
+- **No trust boundary.** herdr does not sanitize prompt text. Anything one agent's output
+  contributes to another agent's prompt is executed as instructions.
+
+Claude Code's own cross-session messaging only reaches other Claude Code sessions and cannot
+reach Pi, so herdr is the only available bridge between the two.
+
 ## Slice 1 — see state, jump to it
 
 1. **Update integrations.** All are outdated (Pi v6<v8, Claude v7<v9, Codex v6<v8), which is a
@@ -74,9 +94,20 @@ Done when: finishing a Pi run changes the pill within a second, and clicking it 
 
 1. **Convention:** every agent ends every run with exactly one line, `NEXT: <action> [plan|build|you]`.
    Add it to `shared/AGENTS.md` (Pi/Codex) and the Claude `core.md` rule.
-2. **Capture:** the bridge subscribes with a `^NEXT: ` output match and shows the latest line in
-   the pill. Before building, verify from the schema how a subscription registers its match
-   pattern; that request format was not confirmed during design.
+2. **Capture:** the bridge subscribes to output matches and shows the latest `NEXT:` line in the
+   pill. Request shape, from the schema (`match.type` is `substring` or `regex`):
+
+   ```json
+   {"method": "events.subscribe", "params": {"subscriptions": [
+     {"type": "pane.output_matched", "pane_id": "w3:p1",
+      "source": "recent_unwrapped", "strip_ansi": true,
+      "match": {"type": "regex", "value": "^NEXT: "}}
+   ]}}
+   ```
+
+   Subscribe once per agent pane. The event carries `matched_line`. Resolve pane ids from
+   `herdr agent list` at startup and again whenever a status event names an unknown pane, since
+   pane ids change when panes are recreated.
 3. **Fallback for a missing NEXT line:** a rule is not reliable enforcement. If an agent reaches
    `done` or `idle` without printing one, the pill shows `done — no next step`. The gap is
    visible instead of silent.
@@ -101,6 +132,30 @@ Routing, driven by `NEXT:` targets:
   against a named work-order phase.
 - `[build]` from Claude → bridge prompts Pi with the fixes to make.
 - `[you]` from either → chain stops; pill shows `Phase N ready — approve?`.
+
+**The bridge is the only sender.** herdr injects `HERDR_PANE_ID` and related variables into
+every pane, so agents could run `herdr agent prompt` themselves. They must not: the guards
+below only hold if every cross-agent prompt goes through the bridge. Add this to
+`shared/AGENTS.md` and the Claude `core.md` rule. This is a rule, not enforcement: herdr cannot
+distinguish an agent's own `herdr agent prompt` call from a human typing in the pane, so the
+bridge cannot detect violations.
+
+Prompt guards, enforced by the bridge because herdr enforces none of them:
+
+1. **Only prompt an idle target.** Immediately before `herdr agent prompt`, read the target's
+   current `agent_status`. Send only if it is `idle` or `done`. If it is `working` or `blocked`,
+   do not send; hold the handoff and retry when a `pane.agent_status_changed` event reports
+   `idle`/`done`. This closes the gap where herdr would type into a running agent.
+2. **At most one prompt per state change.** Key each handoff on the source agent's
+   `state_change_seq`. Record it before sending; never send twice for the same sequence number.
+3. **No blind retries.** If `--wait` stalls or times out, do not resubmit — delivery may have
+   succeeded. Route to `[you]` with the pill showing `handoff unconfirmed`.
+4. **Never paste agent output into a prompt.** A prompt the bridge sends contains only a fixed
+   template plus file paths, commit hashes, and a work-order phase reference, e.g.
+   `Review commit 4f2a9c1 against docs/workflows/consolidation-fixes.md item 3. End with NEXT:`.
+   The `NEXT:` action text is shown to you in the pill but is never forwarded into another
+   agent's prompt. Validate that referenced paths exist in the repo and commits exist in
+   `git log` before sending; drop the handoff to `[you]` if not.
 
 Handoff content rules: **reference files and commits, never paste them**, and the receiver must
 verify the reference against the actual repo before acting, since a stale plan is not authority.
@@ -131,3 +186,9 @@ externalizing is the most-reported effective strategy. Upkeep near zero. Adopt o
 - Slice 3: ignore a finished agent past N minutes; exactly one escalation fires.
 - Slice 4: a phase that exceeds 3 round-trips stops and routes to `[you]`; a phase boundary never
   triggers a prompt on its own.
+- Slice 4 guards, tested against a scratch herdr pane, never a live working session:
+  - handoff while the target is `working` → nothing is sent until it reaches `idle`/`done`;
+  - duplicate status event with the same `state_change_seq` → exactly one prompt;
+  - `--wait` timeout → no resubmission, pill shows `handoff unconfirmed`;
+  - a `NEXT:` line containing instructions → does not appear in the sent prompt;
+  - a reference to a nonexistent path or commit → handoff routes to `[you]`, nothing is sent.
