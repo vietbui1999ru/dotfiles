@@ -53,31 +53,46 @@ export async function latestLiveStatus(cwd) {
 	return best;
 }
 
-/** Unsettled native Pi Review Gate batches and their per-file decisions. */
-export async function reviewGateState(cwd) {
-	const dir = join(cwd, ".review-gate", "batches");
-	let entries;
+/**
+ * Active DiffViewer review state. A review counts as queued until its decision
+ * reaches submitted/parked. Live hunk progress uses the saved draft decision,
+ * falling back to the review payload.
+ */
+export async function reviewState(cwd) {
+	const dir = join(cwd, ".pi", "diff-review");
+	let files;
 	try {
-		entries = await readdir(dir, { withFileTypes: true });
+		files = await readdir(dir);
 	} catch {
 		return { queue: 0, active: undefined };
 	}
 	let queue = 0;
 	let active;
-	for (const entry of entries) {
-		if (!entry.isDirectory()) continue;
-		const batch = await readJson(join(dir, entry.name, "batch.json"));
-		if (!batch?.batchId || ["applied", "cancelled"].includes(batch.overallStatus)) continue;
+	for (const file of files) {
+		if (!file.startsWith("review-") || !file.endsWith(".json")) continue;
+		const id = file.slice("review-".length, -".json".length);
+		const review = await readJson(join(dir, file));
+		if (!review?.id) continue;
+		const decision = await readJson(join(dir, `decision-${id}.json`));
+		if (decision?.status === "submitted" || decision?.status === "parked") continue;
 		queue++;
-		if (!active || Number(batch.updatedAt ?? 0) > Number(active.updatedAt ?? 0)) active = batch;
+		if (!active || (review.createdAt ?? "") > (active.review.createdAt ?? ""))
+			active = { review, decision };
 	}
 	return { queue, active };
 }
 
-export function fileProgress(files) {
-	const progress = { total: files?.length ?? 0, pending: 0, approved: 0, rejected: 0, deferred: 0 };
-	for (const file of files ?? []) {
-		if (progress[file?.status] !== undefined) progress[file.status]++;
+export function hunkProgress(hunks) {
+	const progress = {
+		total: hunks?.length ?? 0,
+		viewed: 0,
+		accepted: 0,
+		rejected: 0,
+		changeRequested: 0,
+	};
+	for (const hunk of hunks ?? []) {
+		const state = hunk?.state === "change-requested" ? "changeRequested" : hunk?.state;
+		if (progress[state] !== undefined) progress[state]++;
 	}
 	return progress;
 }
@@ -340,19 +355,20 @@ export async function gitState(cwd, exec = execFileAsync) {
 export async function collectPanelData(cwd, exec = execFileAsync) {
 	const [live, review, verification, nvim, git, agents, opencode] = await Promise.all([
 		latestLiveStatus(cwd),
-		reviewGateState(cwd),
+		reviewState(cwd),
 		verificationState(cwd),
 		nvimState(cwd),
 		gitState(cwd, exec),
 		agentsState(cwd, exec),
 		opencodeUsageState(cwd, exec),
 	]);
+	const hunks = review.active?.decision?.hunks ?? review.active?.review?.hunks;
 	return {
 		live,
 		review: {
 			queue: review.queue,
-			path: review.active?.files?.[0]?.path,
-			progress: fileProgress(review.active?.files),
+			path: review.active?.review?.path,
+			progress: hunkProgress(hunks),
 		},
 		verification,
 		nvim,
@@ -482,13 +498,13 @@ export function renderLines(data, width, actionHints = "") {
 	} else {
 		lines.push("SESSION", clip("(no live status)", w));
 	}
-	lines.push("", "REVIEW GATE");
+	lines.push("", "DIFF REVIEW");
 	if (data.review.queue > 0) {
 		const p = data.review.progress;
 		lines.push(clip(`queue ${data.review.queue}`, w));
 		if (data.review.path) lines.push(clip(basename(data.review.path), w));
-		lines.push(clip(`files ${p.approved + p.rejected + p.deferred}/${p.total}`, w));
-		lines.push(clip(`a:${p.approved} r:${p.rejected} d:${p.deferred} p:${p.pending}`, w));
+		lines.push(clip(`viewed ${p.viewed}/${p.total}`, w));
+		lines.push(clip(`a:${p.accepted} r:${p.rejected} c:${p.changeRequested}`, w));
 	} else {
 		lines.push(clip("queue 0", w));
 	}
@@ -540,8 +556,8 @@ async function heartbeat(cwd) {
 	} catch { /* heartbeat is advisory */ }
 }
 
-/** Parse "g=/review-gate,r=/diff-review-toggle" into [key, label, command] rows. */
-export function parseActions(spec = "g=/review-gate,v=/verify,m=/model") {
+/** Parse "r=/diff-review-toggle,v=/verify,m=/model" into [key, label, command] rows. */
+export function parseActions(spec = "r=/diff-review-toggle,v=/verify,m=/model") {
 	return spec.split(",").flatMap((entry) => {
 		const [key, command] = entry.split("=");
 		if (!key || !command) return [];
@@ -551,7 +567,7 @@ export function parseActions(spec = "g=/review-gate,v=/verify,m=/model") {
 }
 
 /** Display-only main-Pi shortcut history; panel keys never invoke commands. */
-export function parseKeymapHistory(spec = "C-A-g=toggle review gate,C-A-v=run verification,C-A-m=search models,?=toggle this keymap help") {
+export function parseKeymapHistory(spec = "C-A-r=toggle diff review,C-A-v=run verification,C-A-m=search models,?=toggle this keymap help") {
 	return spec.split(",").flatMap((entry) => {
 		const [key, label] = entry.split("=");
 		return key && label ? [{ key: key.trim(), label: label.trim() }] : [];
@@ -601,12 +617,12 @@ export function renderStyledLines(data, width, actionHints = "") {
 	}
 	lines.push("");
 
-	section(ICONS.review, "REVIEW GATE", ANSI.peach);
+	section(ICONS.review, "DIFF REVIEW", ANSI.peach);
 	if (data.review.queue > 0) {
 		const p = data.review.progress;
 		line(`queue ${data.review.queue}`, ANSI.yellow, ANSI.bold);
 		if (data.review.path) line(basename(data.review.path));
-		parts([[`files ${p.approved + p.rejected + p.deferred}/${p.total}  `], [`a:${p.approved} `, ANSI.green], [`r:${p.rejected} `, ANSI.red], [`d:${p.deferred} `, ANSI.yellow], [`p:${p.pending}`, ANSI.dim]]);
+		parts([[`viewed ${p.viewed}/${p.total}  `], [`a:${p.accepted} `, ANSI.green], [`r:${p.rejected} `, ANSI.red], [`c:${p.changeRequested}`, ANSI.yellow]]);
 	} else {
 		line("queue 0", ANSI.dim);
 	}
@@ -699,7 +715,7 @@ async function main() {
 		dirty = true;
 		setTimeout(() => { if (dirty) void refresh(); }, 200);
 	};
-	for (const dir of [join(cwd, ".pi", "status"), join(cwd, ".review-gate", "batches")]) {
+	for (const dir of [join(cwd, ".pi", "status"), join(cwd, ".pi", "diff-review")]) {
 		if (existsSync(dir)) {
 			try { watch(dir, { persistent: true }, mark); } catch { /* watch is best-effort */ }
 		}

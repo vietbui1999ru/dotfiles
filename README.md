@@ -105,24 +105,21 @@ The `pi/` stow package includes these Pi extensions:
 
 - `pi-statusline.ts` — Catppuccin footer statusline (dir, git, ctx%, model)
   with Nerd Font icons
-- `pi-review-gate.ts` — sandboxed codegen review gate with fail-closed
-  auto-apply policy (`PI_REVIEW_GATE_AUTO_APPLY=1` to opt in), batch ledger
-  under `.review-gate/`, and Neovim diff previews
-- `pi-side-panel/` — persistent tmux/herdr side panel (session, review gate,
-  verification, Commandr, Neovim, git); `/panel` toggles
-- `post-run-verifier.ts` — budgeted post-run verification at completed-run
-  boundaries (format → lint → typecheck → focused tests), inferred per-project
-  config persisted under `~/.pi/agent/verification/projects/`, max 3 automatic
-  repair cycles; `/verify`, `/verify-final`, `/verify-status`, `/verify-config`,
-  `/verify-init`. When a trusted project re-enables pi-lens format/autofix via
-  `.pi-lens.json`, both pi-lens and the verifier may format at `agent_end` — the
-  verifier's format stage runs regardless.
+- `~/repos/DiffViewer/pi-extension` — Pi package for the measured review gate:
+  persistent `.pi/diff-review/` drafts and submitted decisions
+- `pi-side-panel/` — persistent tmux/herdr side panel (session, DiffViewer
+  review, verification, Commandr, Neovim, git); `/panel` toggles
+- `post-run-verifier.ts` — owns completed-run verification (format → lint →
+  typecheck → focused tests), inferred per-project config persisted under
+  `~/.pi/agent/verification/projects/`, max 3 automatic repair cycles;
+  `/verify`, `/verify-final`, `/verify-status`, `/verify-config`, `/verify-init`.
 - `rtk.ts` — transparently rewrites supported Bash commands through RTK to
   reduce tool-output tokens; set `RTK_DISABLED=1` for passthrough
 
-`pi/.pi-lens/config.json` is the stow-provisioned global pi-lens config: LSP
-automated checks are disabled (verification is owned by `post-run-verifier.ts`),
-while non-LSP checks remain surfaced at turn end.
+`pi/.pi-lens/config.json` is the stow-provisioned global pi-lens config:
+pi-lens owns non-mutating turn-end static safety/context signals; its LSP,
+test, format, and autofix runners are disabled. `post-run-verifier.ts` alone
+owns format, lint, typecheck, and focused behavioral tests.
 
 Claude Code uses the equivalent `rtk hook claude` `PreToolUse` hook from
 `claude/.claude/settings.json`, with usage instructions in `~/.claude/RTK.md`.
