@@ -174,6 +174,17 @@ test("a delete of a protected file is blocked via its old path", () => {
 	assert.match(decision.reasons.join("\n"), /protected path/);
 });
 
+test("binary files are never eligible for auto-apply", () => {
+	const decision = evaluateAutoReview([
+		{ path: "assets/logo.png", action: "modify", changedLoc: 0, binary: true },
+	]);
+	assert.equal(decision.eligible, false);
+	assert.match(
+		decision.reasons.join("\n"),
+		/binary file; manual review required/,
+	);
+});
+
 test("an ordinary source rename stays eligible", () => {
 	assert.deepEqual(
 		evaluateAutoReview([

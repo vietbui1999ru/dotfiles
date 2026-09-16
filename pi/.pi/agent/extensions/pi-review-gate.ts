@@ -62,24 +62,6 @@ import {
 	runVerification,
 	type VerificationReport,
 } from "./post-run-verifier.ts";
-import {
-	REVIEW_GATE_BEGIN_PUBLICATION_EVENT,
-	REVIEW_GATE_BEGIN_REPLACEMENT_EVENT,
-	REVIEW_GATE_END_PUBLICATION_EVENT,
-	REVIEW_GATE_RESUME_EVENT,
-	REVIEW_GATE_SUSPEND_EVENT,
-	REVIEW_GATE_VALIDATE_EVENT,
-	ReviewGateSuspensionController,
-	SyncControlRequest,
-	suspendFailure,
-	type ReviewGateControlResult,
-	type ReviewGateEndPublicationPayload,
-	type ReviewGatePublicationResult,
-	type ReviewGateResumePayload,
-	type ReviewGateSuspendPayload,
-	type ReviewGateSuspendResult,
-	type ReviewGateTokenPayload,
-} from "./lib/review-gate-suspension.ts";
 
 const execFileAsync = promisify(execFile);
 const DOTFILES = resolve(homedir(), "dotfiles");
@@ -127,6 +109,7 @@ interface FileReview {
 		| "conflicted";
 	rejectionReason?: string;
 	oversizedAck?: boolean;
+	binary?: boolean;
 }
 
 interface ReviewBatch {
@@ -163,23 +146,24 @@ let currentBatch: ReviewBatch | null = null;
 let inGenerationPhase = false;
 let sessionAutoAppliedLoc = 0;
 let reviewMutationActive = false;
-let batchMutationVersion = 0;
-const reviewSuspension = new ReviewGateSuspensionController((enabled) => {
-	reviewState.enabled = enabled;
-});
 
 // ─── Hash helpers ───────────────────────────────────────────────────────────
 
-function fileHash(content: string): string {
+function fileHash(content: string | Buffer): string {
 	return createHash("sha256").update(content).digest("hex").slice(0, 16);
 }
 
 function fileHashFromPath(p: string): string | null {
 	try {
-		return fileHash(readFileSync(p, "utf8"));
+		return fileHash(readFileSync(p));
 	} catch {
 		return null;
 	}
+}
+
+/** NUL byte in the head of the content marks a file as binary. */
+function isBinaryContent(content: Buffer): boolean {
+	return content.subarray(0, 8_000).includes(0);
 }
 
 function safeProjectPath(root: string, filePath: string): string {
@@ -436,22 +420,22 @@ function padDiffPane(text: string, width: number): string {
 }
 
 const EXCLUDED_PATTERNS = [
-	/\/node_modules\//,
-	/\/\.git\//,
-	/\/dist\//,
-	/\/build\//,
-	/\/\.next\//,
-	/\/coverage\//,
-	/package-lock\.json$/,
-	/yarn\.lock$/,
-	/pnpm-lock\.yaml$/,
-	/\/\.DS_Store$/,
-	/\.min\.(js|css)$/,
-	/\.generated\./,
-	/\/snapshots?\//,
-	/\/__snapshots__\//,
-	/\/vendor\//,
-	/\/\.venv\//,
+	/(^|\/)node_modules\//,
+	/(^|\/)\.git\//,
+	/(^|\/)dist\//,
+	/(^|\/)build\//,
+	/(^|\/)\.next\//,
+	/(^|\/)coverage\//,
+	/(^|\/)package-lock\.json$/,
+	/(^|\/)yarn\.lock$/,
+	/(^|\/)pnpm-lock\.yaml$/,
+	/(^|\/)\.DS_Store$/,
+	/(^|\/)[^/]+\.min\.(js|css)$/,
+	/(^|\/)[^/]+\.generated\.[^/]+$/,
+	/(^|\/)snapshots?\//,
+	/(^|\/)__snapshots__\//,
+	/(^|\/)vendor\//,
+	/(^|\/)\.venv\//,
 ];
 
 const DOCS_PATTERNS = [
@@ -520,7 +504,6 @@ const UNRESOLVED_FILE_STATUSES = new Set<FileReview["status"]>([
 
 function withReviewMutation<T>(operation: string, callback: () => T): T {
 	if (reviewMutationActive) throw new Error(`Review state is busy: ${operation}`);
-	if (reviewSuspension.isActive()) throw new Error("Review state is suspended for clear-context");
 	reviewMutationActive = true;
 	try {
 		return callback();
@@ -573,7 +556,11 @@ function reconcilePendingBatches(cwd: string):
 	const loaded = new Map<string, ReviewBatch>();
 	for (const entry of entries) {
 		const path = join(dirPath, entry.name, "batch.json");
-		if (!existsSync(path)) return { ok: false, error: `Review batch is missing batch.json: ${entry.name}` };
+		if (!existsSync(path)) {
+			// A batch whose creation failed is persisted as blocked.json only.
+			if (existsSync(join(dirPath, entry.name, "blocked.json"))) continue;
+			return { ok: false, error: `Review batch is missing batch.json: ${entry.name}` };
+		}
 		let batch: ReviewBatch;
 		try {
 			const stat = lstatSync(path);
@@ -620,7 +607,6 @@ function saveBatch(batch: ReviewBatch, cwd: string): void {
 				);
 			}
 		}
-		batchMutationVersion += 1;
 		reconcilePendingBatches(cwd);
 	});
 }
@@ -765,11 +751,13 @@ async function createBatchFromSandbox(
 			const mainPath = safeProjectPath(cwd, oldPath ?? filePath);
 			const destinationPath = safeProjectPath(cwd, filePath);
 			const sandboxContent = existsSync(resolvedPath)
-				? readFileSync(resolvedPath, "utf8")
-				: "";
+				? readFileSync(resolvedPath)
+				: Buffer.alloc(0);
 			const mainBeforeContent = existsSync(mainPath)
-				? readFileSync(mainPath, "utf8")
-				: "";
+				? readFileSync(mainPath)
+				: Buffer.alloc(0);
+			const binary =
+				isBinaryContent(sandboxContent) || isBinaryContent(mainBeforeContent);
 
 			const fileDiff = await git(
 				["diff", baseCommit, sandboxCommit || "HEAD", "--", filePath],
@@ -806,6 +794,7 @@ async function createBatchFromSandbox(
 				sandboxHash: fileHash(sandboxContent),
 				patchHash: fileHash(fileDiff),
 				changedLoc,
+				binary,
 				locExempt: isDocsOrTest(filePath),
 				excluded: false,
 				chunks,
@@ -829,8 +818,29 @@ async function createBatchFromSandbox(
 		saveBatch(batch, cwd);
 		return batch;
 	} catch (err: any) {
-		console.error("Failed to create batch from sandbox:", err.message);
-		return null;
+		// Persist the failure so a dropped batch is visible, then surface it.
+		const blockedId = `review-${new Date().toISOString().slice(0, 10)}-blocked-${randomUUID().slice(0, 8)}`;
+		try {
+			const dir = batchDir(cwd, blockedId);
+			mkdirSync(dir, { recursive: true });
+			writeFileSync(
+				join(dir, "blocked.json"),
+				JSON.stringify(
+					{
+						type: "review-batch-blocked",
+						error: String(err?.message ?? err),
+						sandboxPath,
+						generatedBy,
+						createdAt: Date.now(),
+					},
+					null,
+					2,
+				),
+			);
+		} catch {
+			/* persistence is best-effort; the rethrow still notifies */
+		}
+		throw err;
 	}
 }
 
@@ -893,7 +903,7 @@ async function applyApproved(
 				continue;
 			}
 			const sandboxContent =
-				file.action === "delete" ? "" : readFileSync(sandboxFile, "utf8");
+				file.action === "delete" ? Buffer.alloc(0) : readFileSync(sandboxFile);
 			if (fileHash(sandboxContent) !== file.sandboxHash) {
 				file.status = "stale";
 				stale.push(file.path);
@@ -1278,81 +1288,16 @@ export default function (pi: ExtensionAPI): void {
 
 	const showGateStatus = (ctx: ExtensionContext, message?: string) => {
 		if (!ctx.hasUI) return;
-		const suspended = reviewSuspension.isActive();
-		const enabled = reviewState.enabled;
 		ctx.ui.setStatus(
 			"review-gate",
 			ctx.ui.theme.fg(
-				suspended || !enabled ? "warning" : "accent",
-				message || (suspended ? "gate suspended (clear-context)" : `gate ${enabled ? "enabled" : "disabled"}`),
+				reviewState.enabled ? "accent" : "warning",
+				message || `gate ${reviewState.enabled ? "enabled" : "disabled"}`,
 			),
 		);
 	};
 
-	pi.events.on(REVIEW_GATE_SUSPEND_EVENT, (raw) => {
-		const request = raw as SyncControlRequest<ReviewGateSuspendPayload, ReviewGateSuspendResult>;
-		request.tryHandle(() => {
-			const { ctx, reason, ttlMs, publicationDeadlineMs } = request.payload;
-			if (IS_SUBAGENT_SESSION || !ctx.hasUI || ctx.mode !== "tui") {
-				return suspendFailure("Review-gate suspension requires the direct interactive TUI");
-			}
-			if (reason !== "clear-context-checkpoint") return suspendFailure("Unsupported review-gate suspension reason");
-			if (decisionBusy || reviewMutationActive) return suspendFailure("Review state is currently mutating");
-			reviewMutationActive = true;
-			try {
-				const version = batchMutationVersion;
-				const reconciled = reconcilePendingBatches(ctx.cwd);
-				if (!reconciled.ok) return suspendFailure(reconciled.error);
-				if (reconciled.unresolved.length > 0) {
-					return suspendFailure(`Resolve ${reconciled.unresolved.length} review batch(es) before clearing context`);
-				}
-				if (version !== batchMutationVersion) return suspendFailure("Review state changed during reconciliation");
-				const result = reviewSuspension.suspend(reviewState.enabled, ttlMs, publicationDeadlineMs);
-				if (!result.ok) return result;
-				reviewState.enabled = false;
-				decisionGeneration += 1;
-				if (decisionTimer) clearInterval(decisionTimer);
-				decisionTimer = undefined;
-				return result;
-			} finally {
-				reviewMutationActive = false;
-			}
-		});
-		if (request.result?.ok) showGateStatus(request.payload.ctx, "gate suspended (clear-context)");
-	});
-
-	pi.events.on(REVIEW_GATE_BEGIN_PUBLICATION_EVENT, (raw) => {
-		const request = raw as SyncControlRequest<ReviewGateTokenPayload, ReviewGatePublicationResult>;
-		request.tryHandle(() => reviewSuspension.beginPublication(request.payload.token));
-	});
-
-	pi.events.on(REVIEW_GATE_END_PUBLICATION_EVENT, (raw) => {
-		const request = raw as SyncControlRequest<ReviewGateEndPublicationPayload, ReviewGateControlResult>;
-		request.tryHandle(() => reviewSuspension.endPublication(request.payload.token, request.payload.success));
-		if (!request.result?.ok) showGateStatus(request.payload.ctx);
-	});
-
-	pi.events.on(REVIEW_GATE_BEGIN_REPLACEMENT_EVENT, (raw) => {
-		const request = raw as SyncControlRequest<ReviewGateTokenPayload, ReviewGateControlResult>;
-		request.tryHandle(() => reviewSuspension.beginReplacement(request.payload.token));
-	});
-
-	pi.events.on(REVIEW_GATE_VALIDATE_EVENT, (raw) => {
-		const request = raw as SyncControlRequest<ReviewGateTokenPayload, ReviewGateControlResult>;
-		request.tryHandle(() => reviewSuspension.validate(request.payload.token));
-	});
-
-	pi.events.on(REVIEW_GATE_RESUME_EVENT, (raw) => {
-		const request = raw as SyncControlRequest<ReviewGateResumePayload, ReviewGateControlResult>;
-		request.tryHandle(() => reviewSuspension.restore(request.payload.token, request.payload.boundaryCrossed));
-		if (request.result?.ok) showGateStatus(request.payload.ctx);
-	});
-
 	const toggleReviewGate = (ctx: ExtensionContext) => {
-		if (reviewSuspension.isActive()) {
-			ctx.ui.notify("Review gate is suspended for clear-context and cannot be toggled", "warning");
-			return;
-		}
 		if (IS_SUBAGENT_SESSION) {
 			reviewState.enabled = false;
 			ctx.ui.setStatus(
@@ -1390,12 +1335,6 @@ export default function (pi: ExtensionAPI): void {
 		toggleReviewGate(ctx as ExtensionContext),
 	);
 
-	const reviewMutationBlocked = (ctx: ExtensionContext): boolean => {
-		if (!reviewSuspension.isActive()) return false;
-		ctx.ui.notify("Review actions are paused while clear-context saves its checkpoint", "warning");
-		return true;
-	};
-
 	// ── Commands ──────────────────────────────────────────────────────────
 	pi.registerCommand("review-gate", {
 		description: "Toggle review gate or show status",
@@ -1405,7 +1344,7 @@ export default function (pi: ExtensionAPI): void {
 	pi.registerCommand("review", {
 		description: "Open the review overlay for current batch",
 		handler: async (args, ctx) => {
-			if (!ctx.hasUI || reviewMutationBlocked(ctx)) return;
+			if (!ctx.hasUI) return;
 
 			// Find batch
 			let batch = currentBatch;
@@ -1472,7 +1411,6 @@ export default function (pi: ExtensionAPI): void {
 		description:
 			"Create a git worktree sandbox for review-gate codegen. Args: <branch-name>",
 		handler: async (args, ctx) => {
-			if (reviewMutationBlocked(ctx)) return;
 			const branchName = (args || "").trim() || `review-${Date.now()}`;
 			const sandboxPath = await createGitWorktree(ctx.cwd, branchName);
 			if (!sandboxPath) {
@@ -1489,7 +1427,6 @@ export default function (pi: ExtensionAPI): void {
 	pi.registerCommand("review-batch", {
 		description: "Create a review batch from a sandbox path",
 		handler: async (args, ctx) => {
-			if (reviewMutationBlocked(ctx)) return;
 			// Parse args: sandbox path and generated-by label
 			const parts = (args || "").trim().split(/\s+/);
 			const sandboxPath = parts[0] || "";
@@ -1504,11 +1441,20 @@ export default function (pi: ExtensionAPI): void {
 				return;
 			}
 
-			const batch = await createBatchFromSandbox(
-				ctx.cwd,
-				sandboxPath,
-				generatedBy,
-			);
+			let batch: ReviewBatch | null;
+			try {
+				batch = await createBatchFromSandbox(
+					ctx.cwd,
+					sandboxPath,
+					generatedBy,
+				);
+			} catch (error: any) {
+				ctx.ui.notify(
+					`Review batch blocked: ${String(error?.message ?? error)}`,
+					"error",
+				);
+				return;
+			}
 			if (!batch) {
 				ctx.ui.notify("No changes found in sandbox", "warning");
 				return;
@@ -1604,7 +1550,6 @@ export default function (pi: ExtensionAPI): void {
 	// ── Status line ──────────────────────────────────────────────────────
 
 	pi.on("session_start", async (_event, ctx) => {
-		reviewSuspension.shutdown();
 		reviewMutationActive = false;
 		reviewState.enabled = !IS_SUBAGENT_SESSION;
 		reviewState.pendingBatches = [];
@@ -1665,7 +1610,6 @@ export default function (pi: ExtensionAPI): void {
 		if (decisionTimer) clearInterval(decisionTimer);
 		decisionTimer = undefined;
 		decisionBusy = false;
-		reviewSuspension.shutdown();
 		reviewMutationActive = false;
 	});
 

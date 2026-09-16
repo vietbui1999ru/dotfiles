@@ -76,7 +76,7 @@ ansible-playbook ansible/site.yml --limit admin_redhat -i ansible/inventory/host
 | `scripts/restow.sh` | Restow all managed packages — single source of truth for the package list |
 | `scripts/sync-agent-rules.sh` | Sync `shared/AGENTS.md` and MCP servers to Claude Code, Codex, OpenCode |
 | `scripts/agent-workflow` | Attach/detach/status/doctor for per-repo Commandr/Pi/Neovim workflow |
-| `scripts/agent-session` | Legacy per-repo session inbox used during migration to the Pi + AgentOps session API |
+| `scripts/agent-session` | Legacy per-repo session inbox kept for migration compatibility |
 
 ## Submodules
 
@@ -103,13 +103,13 @@ git add repos/llm-wiki && git commit -m "chore(submodule): bump llm-wiki"
 
 The `pi/` stow package includes these Pi extensions:
 
-- `neovim-cockpit.ts` — `/cockpit`, `/nvim-context`, `/nvim-refresh`,
-  `nvim_context` tool, `#TASK` autocomplete
 - `pi-statusline.ts` — Catppuccin footer statusline (dir, git, ctx%, model)
   with Nerd Font icons
-- `pi-session.ts` — `/save-session`, `/clear-context` (new session = 0%),
-  `/sessions`, `/resume`, `/spec`, `/plan`, `/design`, `/arch`, `/pr`,
-  `/review`, `/open`, `/diff` (red-for-deletions fix)
+- `pi-review-gate.ts` — sandboxed codegen review gate with fail-closed
+  auto-apply policy (`PI_REVIEW_GATE_AUTO_APPLY=1` to opt in), batch ledger
+  under `.review-gate/`, and Neovim diff previews
+- `pi-side-panel/` — persistent tmux/herdr side panel (session, review gate,
+  verification, Commandr, Neovim, git); `/panel` toggles
 - `post-run-verifier.ts` — budgeted post-run verification at completed-run
   boundaries (format → lint → typecheck → focused tests), inferred per-project
   config persisted under `~/.pi/agent/verification/projects/`, max 3 automatic

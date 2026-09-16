@@ -8,6 +8,8 @@ export interface AutoReviewFile {
 	oldPath?: string;
 	changedLoc: number;
 	action: "create" | "modify" | "delete" | "rename";
+	/** Binary files are never auto-applied: LOC counting cannot judge them. */
+	binary?: boolean;
 }
 
 export interface AutoReviewPolicy {
@@ -206,6 +208,8 @@ export function evaluateAutoReview(
 			reasons.push(
 				`${file.path} changes ${file.changedLoc} LOC (limit ${policy.maxChangedLocPerFile})`,
 			);
+		if (file.binary)
+			reasons.push(`${file.path} is a binary file; manual review required`);
 		for (const candidate of [file.path, file.oldPath]) {
 			if (!candidate) continue;
 			const risk = pathRisk(candidate);

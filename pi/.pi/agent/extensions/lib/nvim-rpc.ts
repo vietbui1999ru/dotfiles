@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
@@ -88,14 +88,39 @@ async function nvimCall(
 	functionName: string,
 	args: unknown[],
 ): Promise<NvimRpcResult> {
+	// The lua source below interpolates these names; only word characters and
+	// dots are ever acceptable.
+	if (!/^[\w.]+$/.test(moduleName) || !/^[\w.]+$/.test(functionName)) {
+		return {
+			ok: false,
+			error: `Invalid nvim rpc target: ${moduleName}.${functionName}`,
+		};
+	}
 	const root = await resolveNvimProjectRoot(cwd);
 	const socket = await discoverNvimSocket(root);
 	if (!socket) return { ok: false, error: "No running Neovim socket found" };
+	// The socket path comes from a repo-controlled file; only a socket owned
+	// by the current user is acceptable.
+	try {
+		const stat = statSync(socket);
+		if (!stat.isSocket())
+			return { ok: false, socket, error: "Nvim path is not a socket" };
+		if (stat.uid !== process.getuid())
+			return {
+				ok: false,
+				error: "Nvim socket is not owned by the current user",
+			};
+	} catch (error) {
+		return { ok: false, socket, error: String(error) };
+	}
 
 	const callDir = await mkdtemp(join(tmpdir(), "pi-nvim-rpc-"));
 	const argsPath = join(callDir, "args.json");
 	try {
-		await writeFile(argsPath, JSON.stringify(args), "utf8");
+		await writeFile(argsPath, JSON.stringify(args), {
+			encoding: "utf8",
+			mode: 0o600,
+		});
 		const luaSource = `require('code-preview.rpc').dispatch('${moduleName}', '${functionName}', ${JSON.stringify(argsPath)})`;
 		const expression = `luaeval(${JSON.stringify(luaSource)})`;
 		await execFileAsync(
@@ -130,8 +155,14 @@ async function showNvimDiffNow(
 	const afterPath = join(previewDir, `PROPOSED${extension}`);
 	try {
 		await Promise.all([
-			writeFile(beforePath, preview.originalContent, "utf8"),
-			writeFile(afterPath, preview.proposedContent, "utf8"),
+			writeFile(beforePath, preview.originalContent, {
+				encoding: "utf8",
+				mode: 0o600,
+			}),
+			writeFile(afterPath, preview.proposedContent, {
+				encoding: "utf8",
+				mode: 0o600,
+			}),
 		]);
 		await mkdir(piDir, { recursive: true });
 		await writeFile(
