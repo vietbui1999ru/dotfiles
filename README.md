@@ -43,7 +43,7 @@ git clone --recurse-submodules git@github.com:vietbui99/dotfiles.git ~/dotfiles
 # 3. Install packages
 cd ~/dotfiles && brew bundle
 
-# 4. Create expected directories and ~/repos/llm-wiki symlink
+# 4. Create expected directories (uses a standalone ~/repos/llm-wiki clone if present)
 ./scripts/bootstrap-dirs.sh
 
 # 5. Symlink configs
@@ -88,7 +88,7 @@ git submodule update --remote repos/llm-wiki
 git add repos/llm-wiki && git commit -m "chore(submodule): bump llm-wiki"
 ```
 
-`bootstrap-dirs.sh` creates `~/repos/llm-wiki` as a symlink → the submodule, so existing paths in `~/.claude/` resolve correctly without changing any symlinks.
+`~/repos/llm-wiki` and `~/dotfiles/repos/llm-wiki` are independent clones on this machine. `bootstrap-dirs.sh` creates a redirect to the submodule only when no standalone clone exists; it never replaces an existing clone. Claude rules, agents, and skills resolve to the standalone clone.
 
 ## AI Agents
 
@@ -120,6 +120,18 @@ The `pi/` stow package includes these Pi extensions:
 pi-lens owns non-mutating turn-end static safety/context signals; its LSP,
 test, format, and autofix runners are disabled. `post-run-verifier.ts` alone
 owns format, lint, typecheck, and focused behavioral tests.
+
+### Intentional generated/config forks
+
+- `shared/AGENTS.md` is one-way sync-pushed to OpenCode and Codex by
+  `scripts/sync-agent-rules.sh`; edit the shared source, never the generated
+  targets.
+- `~/.claude/plugins/known_marketplaces.json` is materialized once from the
+  llm-wiki template, then Claude Code manages it. Treat it as a deliberate
+  local fork.
+- `~/.config/agent-workflow/config.json` is materialized once from
+  `shared/agent-workflow.default.json`. Treat it as a deliberate local fork;
+  change the template for new machines and the local file for this machine.
 
 Claude Code uses the equivalent `rtk hook claude` `PreToolUse` hook from
 `claude/.claude/settings.json`, with usage instructions in `~/.claude/RTK.md`.
