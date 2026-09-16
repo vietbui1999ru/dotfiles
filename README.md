@@ -30,6 +30,7 @@ Provisioning uses three mechanisms — know which applies before editing a packa
 | `codex/` | `~/.codex/` | **no-op stub today** — Codex is sync-pushed via `sync-agent-rules.sh`, not stowed |
 | `pi/` | `~/.pi/` | stow (extensions only); `~/.pi/agent/` runtime state is unmanaged |
 | `herdr/` | `~/.config/herdr/config.toml` | stow — not in the `stow` line above; back up the live file before first `stow herdr`; `~/.config/herdr/` logs/sockets/session-history are unmanaged runtime state; `herdr server reload-config` after edits |
+| `launchd/` | `~/Library/LaunchAgents/` | stow — user LaunchAgents such as the Herdr→Sketchybar bridge |
 
 ## Quick start (macOS)
 
@@ -149,6 +150,15 @@ lives in `shared/research-tool-routing.md`; `bootstrap-dirs.sh` syncs the scoped
 Firecrawl skill to `~/.agents/skills/firecrawl`. It also syncs GitHub's
 `gh-stack` skill to `~/.agents/skills/gh-stack` for Pi and other compatible
 agent harnesses.
+
+### Herdr agent flow
+
+Herdr owns the live `pi`, `claude`, and `codex` integration files; do **not**
+stow them. `scripts/bootstrap-dirs.sh` runs `herdr integration install` for
+all three. The persistent Herdr workspaces are `plan` (Claude) and `build`
+(Pi). `com.vietbui.herdr-sketchybar-bridge` subscribes to Herdr agent-state
+events and drives Sketchybar's `agents` pill; clicking it focuses Pi and opens
+AeroSpace workspace `T`.
 
 ### Agent workflow automation
 

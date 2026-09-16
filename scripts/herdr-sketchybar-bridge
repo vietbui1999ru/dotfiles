@@ -1,0 +1,119 @@
+#!/opt/homebrew/bin/node
+/**
+ * Herdr → Sketchybar bridge.
+ *
+ * Subscribes to Herdr's agent-status events over its Unix socket and emits
+ * `agent_state` Sketchybar events. There is no polling after the one startup
+ * snapshot used to seed the pill; reconnects use exponential backoff.
+ */
+
+import { execFile } from "node:child_process";
+import net from "node:net";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+const SOCKET = process.env.HERDR_SOCKET_PATH ?? join(homedir(), ".config", "herdr", "herdr.sock");
+const SKETCHYBAR = process.env.SKETCHYBAR_BIN ?? "/opt/homebrew/bin/sketchybar";
+const ROLE_BY_AGENT = new Map([
+	["claude", "plan"],
+	["pi", "build"],
+]);
+const ROLE_LABELS = new Set(["plan", "build"]);
+let roleByWorkspace = new Map();
+
+let reconnectMs = 1_000;
+let socket;
+let buffer = "";
+
+function trigger(role, status, paneId, workspaceId) {
+	const args = [
+		"--trigger",
+		"agent_state",
+		`AGENT=${role}`,
+		`STATUS=${status}`,
+		`PANE=${paneId ?? ""}`,
+		`WORKSPACE=${workspaceId ?? ""}`,
+	];
+	void execFileAsync(SKETCHYBAR, args).catch(() => undefined);
+}
+
+function roleFor(agent, workspaceId) {
+	return roleByWorkspace.get(workspaceId) ??
+		(roleByWorkspace.size === 0 ? ROLE_BY_AGENT.get(agent) : undefined);
+}
+
+function handleEvent(message) {
+	if (message?.event !== "pane.agent_status_changed") return;
+	const event = message.data;
+	const role = roleFor(event?.agent, event?.workspace_id);
+	if (!role || !event?.agent_status) return;
+	trigger(role, event.agent_status, event.pane_id, event.workspace_id);
+}
+
+async function seedState() {
+	try {
+		const [{ stdout: workspaceJson }, { stdout: agentJson }] = await Promise.all([
+			execFileAsync("herdr", ["workspace", "list"], { timeout: 3_000 }),
+			execFileAsync("herdr", ["agent", "list"], { timeout: 3_000 }),
+		]);
+		const workspaces = JSON.parse(workspaceJson).result?.workspaces ?? [];
+		roleByWorkspace = new Map(
+			workspaces
+				.filter((workspace) => ROLE_LABELS.has(workspace.label))
+				.map((workspace) => [workspace.workspace_id, workspace.label]),
+		);
+		const agents = JSON.parse(agentJson).result?.agents ?? [];
+		for (const agent of agents) {
+			const role = roleFor(agent.agent, agent.workspace_id);
+			if (role && agent.agent_status)
+				trigger(role, agent.agent_status, agent.pane_id, agent.workspace_id);
+		}
+	} catch {
+		// The event stream retries; a transient startup snapshot is non-fatal.
+	}
+}
+
+function scheduleReconnect() {
+	const delay = reconnectMs;
+	reconnectMs = Math.min(reconnectMs * 2, 30_000);
+	setTimeout(connect, delay);
+}
+
+function connect() {
+	buffer = "";
+	const next = net.createConnection(SOCKET);
+	socket = next;
+	next.on("connect", () => {
+		reconnectMs = 1_000;
+		next.write(
+			`${JSON.stringify({
+				id: `herdr-sketchybar-${Date.now()}`,
+				method: "events.subscribe",
+				params: { subscriptions: [{ type: "pane.agent_status_changed" }] },
+			})}\n`,
+		);
+		void seedState();
+	});
+	next.on("data", (chunk) => {
+		buffer += chunk.toString("utf8");
+		for (;;) {
+			const newline = buffer.indexOf("\n");
+			if (newline < 0) return;
+			const line = buffer.slice(0, newline);
+			buffer = buffer.slice(newline + 1);
+			try {
+				handleEvent(JSON.parse(line));
+			} catch {
+				// Ignore malformed transport frames; the stream stays connected.
+			}
+		}
+	});
+	next.on("error", () => undefined);
+	next.on("close", () => {
+		if (socket === next) scheduleReconnect();
+	});
+}
+
+connect();

@@ -52,6 +52,17 @@ if [ -x "$HOME/dotfiles/scripts/agent-session" ]; then
 	echo "✓ ~/.local/bin/agent-session → ~/dotfiles/scripts/agent-session"
 fi
 
+# Herdr owns these integration files and overwrites them on reinstall. Keep
+# them out of stow; bootstrap is the reproducible installer.
+if command -v herdr >/dev/null 2>&1; then
+	for integration in pi claude codex; do
+		herdr integration install "$integration"
+	done
+	echo "✓ Herdr integrations: pi, claude, codex"
+else
+	echo "⚠ herdr missing — skipped managed agent integrations"
+fi
+
 # llm-wiki is a git submodule at ~/dotfiles/repos/llm-wiki.
 # Symlinks inside ~/.claude/ point to ~/repos/llm-wiki, so we create that as a
 # redirect on machines where the standalone clone doesn't exist.
