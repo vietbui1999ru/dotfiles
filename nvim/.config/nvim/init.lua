@@ -167,7 +167,6 @@ vim.pack.add({
 	gh("HakonHarnes/img-clip.nvim"),
 	gh("zbirenbaum/copilot.lua"),
 	gh("ravitemer/mcphub.nvim"),
-	gh("epwalsh/obsidian.nvim"),
 	{ src = gh("kawre/leetcode.nvim"), name = "leetcode.nvim" },
 	gh("Julian/lean.nvim"),
 	gh("pwntester/octo.nvim"),
@@ -786,12 +785,3 @@ vim.api.nvim_create_autocmd("BufReadPre", {
 	end,
 })
 
-vim.api.nvim_create_autocmd("FileType", {
-	pattern = "markdown",
-	once = true,
-	group = vim.api.nvim_create_augroup("pack-obsidian", { clear = true }),
-	callback = function()
-		vim.cmd.packadd("obsidian.nvim")
-		require("custom.plugins.obsidian")
-	end,
-})
