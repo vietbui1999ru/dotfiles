@@ -31,9 +31,13 @@ export CHEVRON_COLOR=$SAGE
 export APP_NAME_COLOR=$DARK_TEAL
 export WINDOW_TITLE_COLOR=$SAGE
 
-# ── Media ────────────────────────────────────────
-export MEDIA_ICON_COLOR=$SAGE
-export MEDIA_LABEL_COLOR=$SAGE
+# ── Audio source ─────────────────────────────────
+export AUDIO_SOURCE_ICON_COLOR=$SAGE
+export AUDIO_SOURCE_LABEL_COLOR=$SAGE
+
+# ── VPN ──────────────────────────────────────────
+export VPN_ON_COLOR=$SAGE
+export VPN_OFF_COLOR=$MUTED_TEAL
 
 # ── Battery ──────────────────────────────────────
 export BATTERY_NORMAL_COLOR=$DARK_TEAL

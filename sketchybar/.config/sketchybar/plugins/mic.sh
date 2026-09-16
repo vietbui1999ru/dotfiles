@@ -5,7 +5,12 @@ source "$CONFIG_DIR/icons.sh"
 
 MIC_VOLUME=$(osascript -e 'input volume of (get volume settings)')
 
-if [ "$MIC_VOLUME" -eq 0 ]; then
+# Inputs without software gain report "missing value".
+if ! [[ "$MIC_VOLUME" =~ ^[0-9]+$ ]]; then
+  ICON=$ICON_MIC
+  COLOR=$ICON_COLOR
+  LABEL="--"
+elif [ "$MIC_VOLUME" -eq 0 ]; then
   ICON=$ICON_MIC_MUTE
   COLOR=$MIC_MUTE_COLOR
   LABEL="muted"

@@ -103,11 +103,30 @@ sketchybar --add item window_title left \
                  icon.drawing=off \
                  label.font="SF Pro:Regular:12.0" \
                  label.color=$WINDOW_TITLE_COLOR \
-                 label.max_chars=50 \
+                 label.max_chars=24 \
+                 label.width=150 \
                  scroll_texts=on \
                  width=150 \
                  script="$PLUGIN_DIR/front_app.sh" \
            --subscribe window_title front_app_switched
+
+# Which app is currently the system's audio source (browser tab playing
+# video, Music, Spotify, ...) — app name only, no track metadata.
+# label.width caps it so it can't push left_pill wider than right_pill;
+# scroll_texts wraps the text within that width instead of spilling.
+sketchybar --add item audio_source left \
+           --set audio_source \
+                 display=$MAIN_DISPLAY \
+                 icon=$ICON_AUDIO_SOURCE \
+                 icon.color=$AUDIO_SOURCE_ICON_COLOR \
+                 label.color=$AUDIO_SOURCE_LABEL_COLOR \
+                 label.font="SF Pro:Regular:12.0" \
+                 label.width=110 \
+                 label.max_chars=16 \
+                 scroll_texts=on \
+                 drawing=off \
+                 update_freq=5 \
+                 script="$PLUGIN_DIR/audio_source.sh"
 
 sketchybar --add item left_spacer left \
            --set left_spacer \
@@ -153,6 +172,8 @@ add_sep sep.mic $MAIN_DISPLAY
 sketchybar --add item mic right \
            --set mic \
                  icon=$ICON_MIC \
+                 label.width=42 \
+                 label.align=right \
                  update_freq=3 \
                  script="$PLUGIN_DIR/mic.sh" \
                  click_script="$PLUGIN_DIR/mic_click.sh"
@@ -170,6 +191,8 @@ add_sep sep.vol $MAIN_DISPLAY
 sketchybar --add item volume right \
            --set volume \
                  padding_right=-1 \
+                 label.width=36 \
+                 label.align=right \
                  script="$PLUGIN_DIR/volume.sh" \
            --subscribe volume volume_change
 
@@ -192,13 +215,23 @@ sketchybar --add item volume right \
 
 add_sep sep.vpn $MAIN_DISPLAY
 
-sketchybar --add item vpn right \
-           --set vpn \
+sketchybar --add item vpn.tailscale right \
+           --set vpn.tailscale \
                  display=$MAIN_DISPLAY \
-                 icon=$ICON_VPN \
+                 icon=$ICON_TAILSCALE_OFF \
+                 label.drawing=off \
                  padding_left=5 \
+                 padding_right=2 \
                  update_freq=30 \
                  script="$PLUGIN_DIR/vpn.sh"
+
+# No script/update_freq here — vpn.tailscale's poll sets both items.
+sketchybar --add item vpn.protonvpn right \
+           --set vpn.protonvpn \
+                 display=$MAIN_DISPLAY \
+                 icon=$ICON_PROTONVPN_OFF \
+                 label.drawing=off \
+                 padding_left=2
 
 # add_sep sep.wifi $MAIN_DISPLAY
 # 
@@ -218,35 +251,6 @@ sketchybar --add item vpn right \
 #                  update_freq=30 \
 #                  script="$PLUGIN_DIR/brightness.sh"
 #
-add_sep sep.media $MAIN_DISPLAY
-
-sketchybar --add item sep.media right \
-           --set sep.media \
-                 icon=$ICON_SEPARATOR \
-                 icon.color=$SEPARATOR_COLOR \
-                 icon.font="Hack Nerd Font Mono:Regular:16.0" \
-                 icon.padding_left=6 \
-                 icon.padding_right=6 \
-                 label.drawing=off \
-                 padding_left=0 \
-                 padding_right=0 \
-                 drawing=off
-
-sketchybar --add item media right \
-           --set media \
-                 icon=$ICON_MEDIA \
-                 icon.color=$MEDIA_ICON_COLOR \
-                 icon.font="Hack Nerd Font Mono:Bold:16.0" \
-                 label.color=$MEDIA_LABEL_COLOR \
-                 label.font="SF Pro:Regular:12.0" \
-                 label.max_chars=40 \
-                 scroll_texts=on \
-                 drawing=off \
-                 update_freq=5 \
-                 script="$PLUGIN_DIR/media.sh" \
-                 click_script="nowplaying-cli togglePlayPause" \
-           --subscribe media media_change
-
 sketchybar --add item right_spacer right \
            --set right_spacer \
                  label.drawing=off \
@@ -290,7 +294,7 @@ sketchybar --add bracket left_pill \
              space.1 space.2 space.3 space.4 space.0 \
              space.B space.T space.P space.C space.O \
              space.N space.M space.S space.R \
-             chevron front_app window_title left_spacer \
+             chevron front_app window_title audio_source left_spacer \
            --set left_pill \
              background.color=$ISLAND_BG \
              background.corner_radius=25 \
@@ -299,8 +303,8 @@ sketchybar --add bracket left_pill \
              background.drawing=on
 
 sketchybar --add bracket right_pill \
-             right_spacer media sep.media \
-             vpn sep.vpn \
+             right_spacer \
+             vpn.tailscale vpn.protonvpn sep.vpn \
              volume sep.vol \
              mic sep.mic \
              battery sep.bat \
