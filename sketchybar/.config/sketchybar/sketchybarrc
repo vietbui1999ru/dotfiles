@@ -114,17 +114,19 @@ sketchybar --add item window_title left \
 # video, Music, Spotify, ...) — app name only, no track metadata.
 # label.width caps it so it can't push left_pill wider than right_pill;
 # scroll_texts wraps the text within that width instead of spilling.
+# Always drawing=on — audio_source.sh dims the icon and clears the label
+# when idle instead of hiding the item, so its box never disappears and
+# never changes left_pill's width.
 sketchybar --add item audio_source left \
            --set audio_source \
                  display=$MAIN_DISPLAY \
                  icon=$ICON_AUDIO_SOURCE \
-                 icon.color=$AUDIO_SOURCE_ICON_COLOR \
+                 icon.color=$AUDIO_SOURCE_IDLE_COLOR \
                  label.color=$AUDIO_SOURCE_LABEL_COLOR \
                  label.font="SF Pro:Regular:12.0" \
                  label.width=110 \
                  label.max_chars=16 \
                  scroll_texts=on \
-                 drawing=off \
                  update_freq=5 \
                  script="$PLUGIN_DIR/audio_source.sh"
 
