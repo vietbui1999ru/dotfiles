@@ -51,6 +51,7 @@ add_sep() {
 
 ##### Custom Events #####
 sketchybar --add event aerospace_workspace_change
+sketchybar --add event agent_state
 
 ##### Left Side — AeroSpace Workspaces #####
 ORDERED_WORKSPACES=("1" "2" "3" "4" "0" "B" "T" "P" "C" "O" "N" "M" "S" "R")
@@ -144,6 +145,23 @@ sketchybar --add item left_spacer left \
 
 ##### Right Side — System Items #####
 # Items are added right-to-left (first added = rightmost)
+
+# Herdr plan/build agent status. label.width fixed + scroll_texts, same as
+# every other variable-length label in this bar (window_title, audio_source,
+# space.*) — an unbounded label here was the one remaining item that could
+# change right_pill's raw content width on every async agent-status event.
+sketchybar --add item agents right \
+           --set agents \
+                 icon.drawing=off \
+                 label.max_chars=96 \
+                 label.width=260 \
+                 label.font="SF Pro:Semibold:12.0" \
+                 scroll_texts=on \
+                 click_script="$PLUGIN_DIR/agents.sh" \
+                 script="$PLUGIN_DIR/agents.sh" \
+           --subscribe agents agent_state
+
+add_sep sep.agents
 
 sketchybar --add item clock right \
            --set clock \
@@ -312,7 +330,7 @@ sketchybar --add bracket right_pill \
              mic sep.mic \
              battery sep.bat \
              calendar sep.cal \
-             clock \
+             clock sep.agents agents \
            --set right_pill \
              background.color=$ISLAND_BG \
              background.corner_radius=25 \
@@ -326,4 +344,4 @@ sketchybar --update
 ##### Equalize pill widths (deferred — bar must finish drawing first) #####
 # Initial paint only; ongoing balance is re-triggered from aerospace.sh and
 # vpn.sh on every event that can change either pill's width.
-( sleep 3; "$PLUGIN_DIR/balance_pills.sh" ) &
+( sleep 3; CALLER=startup "$PLUGIN_DIR/balance_pills.sh" ) &

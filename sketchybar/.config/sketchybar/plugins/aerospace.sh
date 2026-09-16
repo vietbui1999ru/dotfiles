@@ -135,6 +135,6 @@ case "$SENDER" in
       sketchybar --set "$NAME" label="$icons" display="$monitor"
     fi
     # Space label/drawing above can change left_pill's width — rebalance.
-    "$CONFIG_DIR/plugins/balance_pills.sh"
+    CALLER=aerospace "$CONFIG_DIR/plugins/balance_pills.sh"
     ;;
 esac
