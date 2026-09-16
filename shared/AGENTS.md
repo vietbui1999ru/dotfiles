@@ -336,32 +336,10 @@ Apply these at all times when writing, reviewing, or designing code. No retrieva
 
 ---
 
-## Agent roster
+## Agent usage
 
-The following agents are available. Route tasks to the right agent by description match.
-
-### Opus tier (design, judgment, exploration)
-
-- agent-delegator — routes all requests, decides model tier and delegation strategy
-- design-explorer — brainstorm, ideate, explore alternatives before committing
-- architecture-reviewer — holistic system/code structure review
-- design-critic — critique existing code, identify anti-patterns, suggest improvements
-- infra-decision-maker — agent team, testing strategy, devops approach decisions
-
-### Sonnet tier (implementation, review, debugging)
-
-- code-writer — implement features from clear requirements
-- code-reviewer — review existing implementations, flag issues
-- backend-debug-tester — find, fix, test backend bugs
-- frontend-debug-tester — find, fix, test frontend bugs
-- production-platform-devops — CI/CD, deployment, environment config
-
-### Haiku tier (fast execution, reporting)
-
-- code-writer-fast — boilerplate, scaffolding, routine code generation
-- cmd-executor — shell commands and scripts with safety guardrails
-- project-health-monitor — detect changes, update project memory
-- session-report-generator — session summaries and git diffs
+No custom dev-loop roster is installed. Use harness built-ins and git worktrees
+for bounded parallel work; add a trial artifact only after measured need.
 
 ## Context
 

@@ -1,1 +1,0 @@
-../../../../repos/llm-wiki/claude-setup/agents/docs-writer.md

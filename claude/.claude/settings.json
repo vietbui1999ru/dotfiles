@@ -68,7 +68,7 @@
       {
         "hooks": [
           {
-            "command": "~/.claude/hooks/context-threshold-notify.sh",
+            "command": "~/.claude/hooks/context-threshold.sh",
             "type": "command"
           }
         ],
@@ -97,20 +97,11 @@
       {
         "hooks": [
           {
-            "command": "~/.claude/hooks/context-threshold-check.sh",
+            "command": "~/.claude/hooks/context-threshold.sh",
             "type": "command"
           }
         ],
         "matcher": ".*"
-      },
-      {
-        "hooks": [
-          {
-            "command": "~/.claude/hooks/enforce-agent-whitelist.sh",
-            "type": "command"
-          }
-        ],
-        "matcher": "Agent"
       },
       {
         "hooks": [

@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
-# PostToolUse hook — emit SOFT STOP directive when context hits 70%+.
-# Works in both orchestrator (main session) and agent (worktree) contexts.
-# Per-agent flag namespacing prevents parallel agents from interfering.
+# Context threshold hook (70%+) — single script for PreToolUse and PostToolUse.
+# Merged from context-threshold-check.sh (PreToolUse) and
+# context-threshold-notify.sh (PostToolUse), which both fired on every tool
+# call and independently re-derived the same cached percentage.
+#
+# PreToolUse: hard-block Agent spawns only; all other tools pass through so
+# save workflows are never interrupted.
+# PostToolUse: emit the SOFT STOP directive once per threshold crossing, with
+# per-agent flag namespacing, save-critical exemptions, and a post-save
+# debounce.
 
 INPUT=$(cat)
 
-# Read context percentage (stdin first, statusline cache fallback).
+# Shared derivation — hook stdin first, statusline cache fallback (5-min window).
 CACHE_FILE="$HOME/.claude/state/statusline-context.json"
 CTX_PCT=$(echo "$INPUT" | jq -r '.context_window.used_percentage // empty' 2>/dev/null)
 if [[ -z "$CTX_PCT" && -f "$CACHE_FILE" ]]; then
@@ -15,11 +22,42 @@ if [[ -z "$CTX_PCT" && -f "$CACHE_FILE" ]]; then
     CTX_PCT=$(jq -r '.used_percentage // empty' "$CACHE_FILE" 2>/dev/null)
   fi
 fi
+
+# Not available — silently pass.
 [[ -z "$CTX_PCT" ]] && exit 0
 
 CTX_INT=$(printf "%.0f" "$CTX_PCT" 2>/dev/null || echo "0")
 
-# Resolve agent context — must happen before flag naming and message routing.
+# Below threshold (PostToolUse): clear this context's notify flag and pass.
+EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null)
+if [[ "$CTX_INT" -lt 70 ]]; then
+  if [[ "$EVENT" == "PostToolUse" ]]; then
+    TASK_ID_CLEAR=$(cat "$(git rev-parse --show-toplevel 2>/dev/null)/.agent-task-id" 2>/dev/null)
+    if [[ -n "$TASK_ID_CLEAR" ]]; then
+      rm -f "$HOME/.claude/state/ctx-notified-${TASK_ID_CLEAR}"
+    else
+      rm -f "$HOME/.claude/state/ctx-notified"
+    fi
+  fi
+  exit 0
+fi
+
+# ── PreToolUse: only block Agent spawns at threshold ────────────────────────
+if [[ "$EVENT" != "PostToolUse" ]]; then
+  TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
+  if [[ "$TOOL_NAME" == "Agent" ]]; then
+    cat <<'EOF'
+CONTEXT THRESHOLD (70%+): Agent spawns are blocked at this context level.
+Save session state (save-session skill) and clear context first, then retry.
+EOF
+    exit 2
+  fi
+  exit 0
+fi
+
+# ── PostToolUse: soft-stop directive ────────────────────────────────────────
+
+# Resolve agent context — before flag naming and message routing.
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 MAIN_REPO=$(cd "$(dirname "$(git rev-parse --git-common-dir 2>/dev/null)")" && pwd 2>/dev/null)
 TASK_ID=$(cat "${REPO_ROOT}/.agent-task-id" 2>/dev/null)
@@ -33,14 +71,6 @@ else
   IS_AGENT=false
   NOTIFY_FLAG="$HOME/.claude/state/ctx-notified"
 fi
-
-# Below threshold: clear this context's flag and pass.
-if [[ "$CTX_INT" -lt 70 ]]; then
-  rm -f "$NOTIFY_FLAG"
-  exit 0
-fi
-
-# --- At 70%+ threshold ---
 
 # Step 1: Save-critical check — pass silently, do not interrupt save workflow.
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
@@ -63,13 +93,13 @@ if [[ "$TOOL_NAME" == "Bash" ]]; then
 fi
 [[ "$is_save_critical" == "true" ]] && exit 0
 
-# Step 2: Recent-save debounce — prevent false re-fire after /clear when cache is stale.
-# Matches the 5-min statusline cache window.
+# Step 2: Recent-save debounce — prevent false re-fire after a clear when the
+# cache is stale. Matches the 5-min statusline cache window.
 if [[ -f "$SESSION_STATE" ]]; then
   LAST_SAVED=$(stat -f "%m" "$SESSION_STATE" 2>/dev/null || stat -c "%Y" "$SESSION_STATE" 2>/dev/null || echo 0)
   NOW=$(date +%s)
   if (( NOW - LAST_SAVED <= 300 )); then
-    exit 0  # save ran within last 5 min — likely a post-/clear false positive
+    exit 0  # save ran within last 5 min — likely a post-clear false positive
   fi
 fi
 
@@ -84,7 +114,7 @@ then stop and return a status summary to the orchestrator.
 EOF
   else
     cat <<'EOF'
-CONTEXT SOFT STOP (still 70%+): Please invoke /clear-context before continuing.
+CONTEXT SOFT STOP (still 70%+): Save session state, then ask the user to clear context before continuing.
 EOF
   fi
 else
@@ -104,10 +134,10 @@ EOF
     cat <<'EOF'
 CONTEXT SOFT STOP (70%+): Last tool completed. Context is at threshold.
 
-Invoke the clear-context skill now:
-  /clear-context
+1. Invoke the save-session skill now to persist progress.
+2. Then ask the user to clear or compact context before further work.
 
-Do not execute further tool calls unless they are part of the clear-context workflow
+Do not execute further tool calls unless they are part of saving session state
 (save-session writes, git reads, memory writes).
 EOF
   fi
