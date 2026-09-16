@@ -89,6 +89,10 @@ sketchybar --add item chevron left \
                  padding_left=2 \
                  padding_right=0
 
+# Just the focused app's name — no window/tab title. Window titles (a kitty
+# tab name, a Firefox page title) change on nearly every keystroke/navigation
+# and added visual noise disproportionate to their value; dropped per request
+# rather than kept-but-bounded.
 sketchybar --add item front_app left \
            --set front_app \
                  display=$MAIN_DISPLAY \
@@ -98,19 +102,6 @@ sketchybar --add item front_app left \
                  width=80 \
                  script="$PLUGIN_DIR/front_app.sh" \
            --subscribe front_app front_app_switched
-
-sketchybar --add item window_title left \
-           --set window_title \
-                 display=$MAIN_DISPLAY \
-                 icon.drawing=off \
-                 label.font="SF Pro:Regular:12.0" \
-                 label.color=$WINDOW_TITLE_COLOR \
-                 label.max_chars=24 \
-                 label.width=150 \
-                 scroll_texts=on \
-                 width=150 \
-                 script="$PLUGIN_DIR/front_app.sh" \
-           --subscribe window_title front_app_switched
 
 # Which app is currently the system's audio source (browser tab playing
 # video, Music, Spotify, ...) — app name only, no track metadata.
@@ -147,8 +138,8 @@ sketchybar --add item left_spacer left \
 # Items are added right-to-left (first added = rightmost)
 
 # Herdr plan/build agent status. label.width fixed + scroll_texts, same as
-# every other variable-length label in this bar (window_title, audio_source,
-# space.*) — an unbounded label here was the one remaining item that could
+# every other variable-length label in this bar (audio_source, space.*) —
+# an unbounded label here was the one remaining item that could
 # change right_pill's raw content width on every async agent-status event.
 sketchybar --add item agents right \
            --set agents \
@@ -315,7 +306,7 @@ sketchybar --add bracket left_pill \
              space.1 space.2 space.3 space.4 space.0 \
              space.B space.T space.P space.C space.O \
              space.N space.M space.S space.R \
-             chevron front_app window_title audio_source left_spacer \
+             chevron front_app audio_source left_spacer \
            --set left_pill \
              background.color=$ISLAND_BG \
              background.corner_radius=25 \

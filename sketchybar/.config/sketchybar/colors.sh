@@ -29,7 +29,6 @@ export CHEVRON_COLOR=$SAGE
 
 # ── Front App ────────────────────────────────────
 export APP_NAME_COLOR=$DARK_TEAL
-export WINDOW_TITLE_COLOR=$SAGE
 
 # ── Audio source ─────────────────────────────────
 export AUDIO_SOURCE_ICON_COLOR=$SAGE
