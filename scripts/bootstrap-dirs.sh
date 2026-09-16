@@ -99,10 +99,12 @@ else
 	echo "⚠ agent-workflow default missing — skipping config"
 fi
 
-# The OpenCode Commandr plugin is symlinked from this repo — clone it if absent:
-#   ~/repos/Commandr → commandr-checkpoint.js plugin
+# Symlinks in opencode/plugins point into these repos — clone them if absent:
+#   ~/repos/Commandr   → commandr-checkpoint.js plugin
+#   ~/repos/DiffViewer → diffviewer.js plugin
 
 echo ""
 echo "Done."
-echo "If the OpenCode Commandr plugin symlink is broken, clone:"
+echo "If opencode plugin symlinks are broken, clone the missing repos into ~/repos:"
 echo "  ~/repos/Commandr"
+echo "  ~/repos/DiffViewer"

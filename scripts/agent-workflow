@@ -30,6 +30,7 @@ IGNORE_LINES = [
     ".agents/annotations/",
     ".agents/sessions/",
     ".agents/events.jsonl",
+    ".diffviewer/",
     ".pi/",
     ".agent-workflow.local.json",
     ".obsidian/",
@@ -178,6 +179,12 @@ def attach(args: argparse.Namespace) -> None:
     else:
         print("- Commandr disabled by config")
 
+    if enabled(cfg, "diffviewer"):
+        (root / ".diffviewer" / "turns").mkdir(parents=True, exist_ok=True)
+        print("✓ DiffViewer sidecar directory attached")
+    else:
+        print("- DiffViewer disabled by config")
+
     (root / ".pi" / "status").mkdir(parents=True, exist_ok=True)
     (root / ".pi" / "diff-review").mkdir(parents=True, exist_ok=True)
     print("✓ Pi runtime directory attached (status/, diff-review/)")
@@ -201,6 +208,11 @@ def detach(args: argparse.Namespace) -> None:
         print("✓ .agents/ removed")
     else:
         print("✓ .agents/ kept")
+    if args.remove_diffviewer:
+        shutil.rmtree(root / ".diffviewer", ignore_errors=True)
+        print("✓ .diffviewer/ removed")
+    else:
+        print("✓ .diffviewer/ kept")
 
 
 def count_md(path: Path) -> int:
@@ -224,6 +236,7 @@ def status(args: argparse.Namespace) -> None:
     print(f"  Commandr bus: {'attached' if (bus / 'events.jsonl').exists() else 'missing'}")
     print(f"    inbox={count_md(bus / 'inbox')} claimed={count_md(bus / 'claimed')} done={count_md(bus / 'done')}")
     print(f"  pre-commit gate: {hook_state(root)}")
+    print(f"  DiffViewer dir: {'attached' if (root / '.diffviewer' / 'turns').is_dir() else 'missing'}")
     print(f"  OpenCode adapters: {'enabled' if enabled(cfg, 'opencodeAdapters') else 'disabled'}")
     print(f"  Claude hooks: {'enabled' if enabled(cfg, 'claudeHooks') else 'disabled'}")
 
@@ -272,6 +285,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("detach", help="remove managed hooks; keep bus by default")
     p.add_argument("repo", nargs="?", default=".")
     p.add_argument("--remove-bus", action="store_true", help="delete .agents/ task history")
+    p.add_argument("--remove-diffviewer", action="store_true", help="delete .diffviewer/ sidecars")
     p.set_defaults(func=detach)
 
     p = sub.add_parser("status", help="show repo workflow state")

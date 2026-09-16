@@ -147,9 +147,28 @@ percentage.
 
 ## Phase 5 — Pi side (measure first)
 
-**Do not delete anything here until Pi-side usage has been measured the way Claude Code's
-was.** All evidence in this document is Claude Code only. Deleting the wrong review gate
-is the most expensive available mistake.
+### Review-gate decision record (2026-09-16)
+
+Measured with `scripts/trial-usage.sh` (the Phase 7 usage counter, extended to
+Pi session transcripts) plus on-disk review artifacts:
+
+| Gate | Human-submitted decisions | Spread | Projects |
+|---|---|---|---|
+| DiffViewer `pi-diff-review` | 249 (146 dotfiles, 103 resume-gen) | 2026-07-28 → 2026-09-15, near-daily; 51 on the final day | dotfiles, resume-gen, AgentOps dogfood |
+| `pi-review-gate` | 4 batches ever (3 still pending, 1 applied) | single day 2026-07-31, never revisited | dotfiles only |
+
+Explicit slash-command invocations were 4 for each gate — commands under-count
+both; the submitted-decision artifact record is the real signal.
+
+**Decision: keep DiffViewer's `pi-extension/` as the review gate.** `16798ef`
+was reverted semantically: later commits deleted `neovim-cockpit.ts` and
+completed the AgentOps teardown deliberately, so those parts remain removed;
+the DiffViewer sidecar/workflow/nvim/review-gate-bridge integration and the
+Pi package entry are restored. Phase 5 may now delete `pi-review-gate.ts`.
+
+**Do not delete anything else here until Pi-side usage has been measured the
+way Claude Code's was.** All other evidence in this document is Claude Code
+only. Deleting the wrong review gate is the most expensive available mistake.
 
 Once measured:
 

@@ -152,7 +152,7 @@ per repo with `.agent-workflow.json` or machine-locally with ignored
 # Check global install state (including RTK binary + Pi extension)
 scripts/agent-workflow doctor
 
-# Attach a repo to the Commandr bus + Pi runtime + approval gate
+# Attach a repo to the Commandr bus + DiffViewer sidecars + approval gate
 scripts/agent-workflow attach ~/repos/example
 
 # Inspect current bus/board state
@@ -187,8 +187,8 @@ rules.
 
 ### Pi-first workflow
 
-Pi is the only supported agent harness. Commandr is the task service, Pi's
-review gate is the review service, and Obsidian is the human UI. Other vendors
+Pi is the only supported agent harness. Commandr is the task service,
+DiffView is the review service, and Obsidian is the human UI. Other vendors
 are model providers or explicit CLI bridges, not parallel harnesses.
 
 ```sh
@@ -207,7 +207,7 @@ or context-mode. Inspect savings with `rtk gain` or `rtk gain --history`.
 
 ## Notes
 
-- `opencode/plugins/commandr-checkpoint.js` is a symlink into `~/repos/Commandr`; clone that repo first.
+- `opencode/plugins/commandr-checkpoint.js` and `diffviewer.js` are symlinks into `~/repos/Commandr` and `~/repos/DiffViewer`. Clone those repos first.
 - Machine-local overrides go in `~/.zshrc.local` (not tracked).
 - `nvim/.config/nvim/.claude/` is gitignored — Claude Code writes local state there.
 - `claude/` rule files: `learning.md` and `research.md` are niche-domain rules, available at `@~/.claude/rules/learning.md` but not auto-loaded. @-import them in project CLAUDE.md when working in those domains.

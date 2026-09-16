@@ -4,6 +4,7 @@
   "externalHarnessAdapters": false,
   "commandr": true,
   "preCommitGate": true,
+  "diffviewer": true,
   "opencodeAdapters": false,
   "claudeHooks": false,
   "autoOpenNeovimBoard": false,

@@ -7,6 +7,7 @@
  *   .review-gate/batches/<batch_id>.json   — canonical review state
  *   .review-gate/patches/<batch_id>/*.patch — patch artifacts
  *   Pi overlay / Neovim                       — review UI
+ *   DiffView                                 — diff rendering (optional)
  */
 
 import type {
@@ -143,6 +144,7 @@ interface ReviewBatch {
 		verificationStatus?: VerificationReport["status"];
 	};
 	nvimDecisionOffset?: number;
+	diffviewerArtifactId?: string;
 }
 
 interface ReviewState {
@@ -1545,6 +1547,9 @@ export default function (pi: ExtensionAPI): void {
 				ctx.ui.theme.fg("accent", `📋 ${batch.files.length} files pending`),
 			);
 
+			// Try DiffView integration
+			tryCreateDiffViewArtifact(batch, ctx);
+
 			// Open overlay
 			openReviewOverlay(ctx, batch);
 		},
@@ -2075,6 +2080,43 @@ function openReviewOverlay(ctx: ExtensionContext, batch: ReviewBatch): void {
 			onHandle: (handle) => handle.focus(),
 		},
 	);
+}
+
+// ─── DiffView integration ───────────────────────────────────────────────────
+
+function tryCreateDiffViewArtifact(
+	batch: ReviewBatch,
+	ctx: ExtensionContext,
+): void {
+	try {
+		const diffviewerDir = resolve(ctx.cwd, ".diffviewer");
+		if (!existsSync(diffviewerDir)) return;
+
+		const artifactDir = join(diffviewerDir, "review-batches", batch.batchId);
+		mkdirSync(artifactDir, { recursive: true });
+
+		const summary = {
+			type: "review-batch",
+			batchId: batch.batchId,
+			agent: batch.generatedBy,
+			baseCommit: batch.baseCommit,
+			files: batch.files.map((file) => ({
+				path: file.path,
+				action: file.action,
+				changedLoc: file.changedLoc,
+				status: file.status,
+			})),
+			ledger: `.review-gate/batches/${batch.batchId}/batch.json`,
+			createdAt: Date.now(),
+		};
+		writeFileSync(
+			join(artifactDir, "artifact.json"),
+			JSON.stringify(summary, null, 2),
+		);
+		batch.diffviewerArtifactId = batch.batchId;
+	} catch {
+		// DiffView is optional.
+	}
 }
 
 // ─── Sandbox helper ──────────────────────────────────────────────────────

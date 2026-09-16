@@ -381,7 +381,8 @@ export default function piControlPlane(pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("control-plane", {
-		description: "Start/open local Commandr + Obsidian control plane.",
+		description:
+			"Start/open local Commandr + DiffViewer + Obsidian control plane.",
 		handler: async (_args, ctx) => openControlPlane(ctx),
 	});
 	pi.registerCommand("cp", {

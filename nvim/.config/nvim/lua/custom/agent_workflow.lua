@@ -9,6 +9,7 @@ local M = {}
 local DEFAULTS = {
 	commandr = true,
 	preCommitGate = true,
+	diffviewer = true,
 	opencodeAdapters = true,
 	claudeHooks = false,
 	autoOpenNeovimBoard = false,
