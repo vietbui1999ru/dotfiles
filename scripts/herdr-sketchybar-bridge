@@ -2,10 +2,9 @@
 /**
  * Herdr → Sketchybar bridge.
  *
- * Event-driven after one startup snapshot. Status and NEXT subscriptions are
- * registered per fixed plan/build pane; pane/workspace topology events rebuild
- * the subscription set. Reconnect backoff resets only after Herdr confirms
- * `subscription_started`.
+ * The bridge owns all plan/build status and NEXT state, then sends one complete
+ * LABEL per event. Sketchybar never merges concurrent partial updates.
+ * Subscriptions are per fixed plan/build pane and rebuild on topology changes.
  */
 
 import { execFile } from "node:child_process";
@@ -17,10 +16,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const SOCKET = process.env.HERDR_SOCKET_PATH ?? join(homedir(), ".config", "herdr", "herdr.sock");
 const SKETCHYBAR = process.env.SKETCHYBAR_BIN ?? "/opt/homebrew/bin/sketchybar";
-const ROLE_BY_AGENT = new Map([
-	["claude", "plan"],
-	["pi", "build"],
-]);
+const ROLE_BY_AGENT = new Map([["claude", "plan"], ["pi", "build"]]);
 const ROLE_LABELS = new Set(["plan", "build"]);
 const TOPOLOGY_EVENTS = new Set([
 	"workspace.created",
@@ -32,7 +28,8 @@ const TOPOLOGY_EVENTS = new Set([
 let roleByWorkspace = new Map();
 let roleByPane = new Map(); // pane ID → plan|build
 let statusByRole = new Map();
-let nextByRole = new Map();
+let nextByRole = new Map(); // role → { text, sequence }
+let sequence = 0;
 let reconnectMs = 1_000;
 let socket;
 let buffer = "";
@@ -44,20 +41,29 @@ function logError(message, detail) {
 	console.error(`[herdr-sketchybar-bridge] ${message}${detail ? `: ${detail}` : ""}`);
 }
 
-function trigger(role, status, paneId, workspaceId, next) {
-	const args = [
-		"--trigger",
-		"agent_state",
-		`AGENT=${role}`,
-		`STATUS=${status ?? "unknown"}`,
-		`PANE=${paneId ?? ""}`,
-		`WORKSPACE=${workspaceId ?? ""}`,
-	];
-	if (next) args.push(`NEXT=${next}`);
-	if (next === "") args.push("NEXT_CLEAR=1");
-	void execFileAsync(SKETCHYBAR, args).catch((error) =>
-		logError("Sketchybar trigger failed", String(error)),
-	);
+function statusText(status) {
+	switch (status) {
+		case "working": return "● working";
+		case "blocked": return "! blocked";
+		case "done": return "✓ done";
+		case "idle": return "○ idle";
+		default: return "? unknown";
+	}
+}
+
+function label() {
+	const plan = statusText(statusByRole.get("plan"));
+	const build = statusText(statusByRole.get("build"));
+	const latest = [...nextByRole.entries()]
+		.sort(([, left], [, right]) => right.sequence - left.sequence)[0];
+	return latest
+		? `plan ${plan} │ build ${build} │ ${latest[0]}: ${latest[1].text}`
+		: `plan ${plan} │ build ${build}`;
+}
+
+function trigger() {
+	void execFileAsync(SKETCHYBAR, ["--trigger", "agent_state", `LABEL=${label()}`])
+		.catch((error) => logError("Sketchybar trigger failed", String(error)));
 }
 
 function roleFor(agent, workspaceId, paneId) {
@@ -66,24 +72,14 @@ function roleFor(agent, workspaceId, paneId) {
 		(roleByWorkspace.size === 0 ? ROLE_BY_AGENT.get(agent) : undefined);
 }
 
-function publishStatus(role, status, paneId, workspaceId, initial = false) {
+function publishStatus(role, status, initial = false) {
 	statusByRole.set(role, status);
 	if (status === "working") {
 		nextByRole.delete(role);
-		trigger(role, status, paneId, workspaceId, "");
-		return;
+	} else if ((status === "done" || status === "idle") && !nextByRole.has(role) && !initial) {
+		nextByRole.set(role, { text: "done — no next step", sequence: ++sequence });
 	}
-	if ((status === "done" || status === "idle") && !nextByRole.has(role)) {
-		trigger(
-			role,
-			status,
-			paneId,
-			workspaceId,
-			initial ? "" : "done — no next step",
-		);
-		return;
-	}
-	trigger(role, status, paneId, workspaceId);
+	trigger();
 }
 
 async function refreshTopology(initial = false) {
@@ -107,8 +103,7 @@ async function refreshTopology(initial = false) {
 	}
 	for (const agent of agents) {
 		const role = roleFor(agent.agent, agent.workspace_id, agent.pane_id);
-		if (role && agent.agent_status)
-			publishStatus(role, agent.agent_status, agent.pane_id, agent.workspace_id, initial);
+		if (role && agent.agent_status) publishStatus(role, agent.agent_status, initial);
 	}
 }
 
@@ -134,18 +129,15 @@ function subscriptions() {
 
 async function subscribe(next) {
 	try {
-		const initial = !hasSeeded;
-		await refreshTopology(initial);
+		await refreshTopology(!hasSeeded);
 		hasSeeded = true;
 		if (socket !== next || next.destroyed) return;
 		subscriptionRequestId = `herdr-sketchybar-${Date.now()}`;
-		next.write(
-			`${JSON.stringify({
-				id: subscriptionRequestId,
-				method: "events.subscribe",
-				params: { subscriptions: subscriptions() },
-			})}\n`,
-		);
+		next.write(`${JSON.stringify({
+			id: subscriptionRequestId,
+			method: "events.subscribe",
+			params: { subscriptions: subscriptions() },
+		})}\n`);
 	} catch (error) {
 		logError("Topology refresh failed", String(error));
 	}
@@ -172,8 +164,7 @@ function handleEvent(message) {
 			scheduleTopologyRefresh(`unknown status pane ${event?.pane_id ?? "?"}`);
 			return;
 		}
-		if (event?.agent_status)
-			publishStatus(role, event.agent_status, event.pane_id, event.workspace_id);
+		if (event?.agent_status) publishStatus(role, event.agent_status);
 		return;
 	}
 	if (message?.event === "pane.output_matched") {
@@ -183,18 +174,10 @@ function handleEvent(message) {
 			scheduleTopologyRefresh(`unknown output pane ${event?.pane_id ?? "?"}`);
 			return;
 		}
-		const next = typeof event?.matched_line === "string"
-			? event.matched_line.trim()
-			: undefined;
+		const next = typeof event?.matched_line === "string" ? event.matched_line.trim() : undefined;
 		if (!next?.startsWith("NEXT: ")) return;
-		nextByRole.set(role, next);
-		trigger(
-			role,
-			statusByRole.get(role) ?? "working",
-			event.pane_id,
-			event.read?.workspace_id,
-			next,
-		);
+		nextByRole.set(role, { text: next, sequence: ++sequence });
+		trigger();
 	}
 }
 
@@ -209,10 +192,7 @@ function handleFrame(message) {
 		logError(`Herdr API error frame${message.id ? ` (${message.id})` : ""}`, message.error.message);
 		return;
 	}
-	if (
-		message?.id === subscriptionRequestId &&
-		message?.result?.type === "subscription_started"
-	) {
+	if (message?.id === subscriptionRequestId && message?.result?.type === "subscription_started") {
 		reconnectMs = 1_000;
 		console.error("[herdr-sketchybar-bridge] subscription_started");
 		return;

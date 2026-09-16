@@ -147,7 +147,6 @@ sketchybar --add item agents right \
            --set agents \
                  icon.drawing=off \
                  label.max_chars=96 \
-                 label.width=0 \
                  label.font="SF Pro:Semibold:12.0" \
                  click_script="$PLUGIN_DIR/agents.sh" \
                  script="$PLUGIN_DIR/agents.sh" \
