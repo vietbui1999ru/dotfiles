@@ -2,9 +2,12 @@
 /**
  * Herdr → Sketchybar bridge.
  *
- * Subscribes to Herdr's agent-status events over its Unix socket and emits
- * `agent_state` Sketchybar events. There is no polling after the one startup
- * snapshot used to seed the pill; reconnects use exponential backoff.
+ * Event-driven after one startup snapshot. Subscribes to:
+ * - pane.agent_status_changed
+ * - pane.output_matched for `^NEXT: ` on the fixed plan/build panes
+ *
+ * Reconnects use exponential backoff. The bridge never polls Herdr after
+ * subscription and only emits derived Sketchybar events.
  */
 
 import { execFile } from "node:child_process";
@@ -21,35 +24,70 @@ const ROLE_BY_AGENT = new Map([
 	["pi", "build"],
 ]);
 const ROLE_LABELS = new Set(["plan", "build"]);
-let roleByWorkspace = new Map();
 
+let roleByWorkspace = new Map();
+let roleByPane = new Map();
+let statusByRole = new Map();
+let nextByRole = new Map();
 let reconnectMs = 1_000;
 let socket;
 let buffer = "";
 
-function trigger(role, status, paneId, workspaceId) {
+function trigger(role, status, paneId, workspaceId, next) {
 	const args = [
 		"--trigger",
 		"agent_state",
 		`AGENT=${role}`,
-		`STATUS=${status}`,
+		`STATUS=${status ?? "unknown"}`,
 		`PANE=${paneId ?? ""}`,
 		`WORKSPACE=${workspaceId ?? ""}`,
 	];
+	if (next !== undefined) args.push(`NEXT=${next}`);
 	void execFileAsync(SKETCHYBAR, args).catch(() => undefined);
 }
 
-function roleFor(agent, workspaceId) {
-	return roleByWorkspace.get(workspaceId) ??
+function roleFor(agent, workspaceId, paneId) {
+	return roleByPane.get(paneId) ??
+		roleByWorkspace.get(workspaceId) ??
 		(roleByWorkspace.size === 0 ? ROLE_BY_AGENT.get(agent) : undefined);
 }
 
+function publishStatus(role, status, paneId, workspaceId) {
+	statusByRole.set(role, status);
+	if (status === "working") {
+		nextByRole.delete(role);
+		trigger(role, status, paneId, workspaceId, "");
+		return;
+	}
+	if ((status === "done" || status === "idle") && !nextByRole.has(role)) {
+		trigger(role, status, paneId, workspaceId, "done — no next step");
+		return;
+	}
+	trigger(role, status, paneId, workspaceId);
+}
+
 function handleEvent(message) {
-	if (message?.event !== "pane.agent_status_changed") return;
-	const event = message.data;
-	const role = roleFor(event?.agent, event?.workspace_id);
-	if (!role || !event?.agent_status) return;
-	trigger(role, event.agent_status, event.pane_id, event.workspace_id);
+	if (message?.event === "pane.agent_status_changed") {
+		const event = message.data;
+		const role = roleFor(event?.agent, event?.workspace_id, event?.pane_id);
+		if (role && event?.agent_status)
+			publishStatus(role, event.agent_status, event.pane_id, event.workspace_id);
+		return;
+	}
+	if (message?.event === "pane.output_matched") {
+		const event = message.data;
+		const role = roleFor(undefined, event?.read?.workspace_id, event?.pane_id);
+		const next = event?.matched_line;
+		if (!role || typeof next !== "string" || !next.startsWith("NEXT: ")) return;
+		nextByRole.set(role, next);
+		trigger(
+			role,
+			statusByRole.get(role) ?? "working",
+			event.pane_id,
+			event.read?.workspace_id,
+			next,
+		);
+	}
 }
 
 async function seedState() {
@@ -65,14 +103,32 @@ async function seedState() {
 				.map((workspace) => [workspace.workspace_id, workspace.label]),
 		);
 		const agents = JSON.parse(agentJson).result?.agents ?? [];
+		roleByPane = new Map(
+			agents
+				.map((agent) => [roleFor(agent.agent, agent.workspace_id), agent.pane_id])
+				.filter(([role, paneId]) => role && paneId),
+		);
 		for (const agent of agents) {
-			const role = roleFor(agent.agent, agent.workspace_id);
+			const role = roleFor(agent.agent, agent.workspace_id, agent.pane_id);
 			if (role && agent.agent_status)
-				trigger(role, agent.agent_status, agent.pane_id, agent.workspace_id);
+				publishStatus(role, agent.agent_status, agent.pane_id, agent.workspace_id);
 		}
 	} catch {
 		// The event stream retries; a transient startup snapshot is non-fatal.
 	}
+}
+
+function subscriptions() {
+	return [
+		{ type: "pane.agent_status_changed" },
+		...Object.entries(Object.fromEntries(roleByPane)).map(([, paneId]) => ({
+			type: "pane.output_matched",
+			pane_id: paneId,
+			source: "recent",
+			match: { type: "regex", value: "^NEXT: " },
+			strip_ansi: true,
+		})),
+	];
 }
 
 function scheduleReconnect() {
@@ -85,16 +141,16 @@ function connect() {
 	buffer = "";
 	const next = net.createConnection(SOCKET);
 	socket = next;
-	next.on("connect", () => {
+	next.on("connect", async () => {
 		reconnectMs = 1_000;
+		await seedState();
 		next.write(
 			`${JSON.stringify({
 				id: `herdr-sketchybar-${Date.now()}`,
 				method: "events.subscribe",
-				params: { subscriptions: [{ type: "pane.agent_status_changed" }] },
+				params: { subscriptions: subscriptions() },
 			})}\n`,
 		);
-		void seedState();
 	});
 	next.on("data", (chunk) => {
 		buffer += chunk.toString("utf8");

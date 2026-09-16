@@ -341,6 +341,15 @@ Apply these at all times when writing, reviewing, or designing code. No retrieva
 No custom dev-loop roster is installed. Use harness built-ins and git worktrees
 for bounded parallel work; add a trial artifact only after measured need.
 
+## Next-step convention
+
+End every agent run with exactly one final line:
+
+`NEXT: <action> [plan|build|you]`
+
+No text follows that line. Use `plan` for Claude work, `build` for Pi work, and
+`you` for a human decision.
+
 ## Context
 
 - Primary machine: macOS (Apple Silicon)

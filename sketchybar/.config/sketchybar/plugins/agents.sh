@@ -18,9 +18,20 @@ fi
 
 set_state() {
   local role="$1" status="$2"
-  grep -v "^${role}=" "$STATE_FILE" >"${STATE_FILE}.tmp" 2>/dev/null || true
-  printf '%s=%s\n' "$role" "$status" >>"${STATE_FILE}.tmp"
-  mv "${STATE_FILE}.tmp" "$STATE_FILE"
+  local tmp="$STATE_FILE.tmp"
+  grep -v "^${role}=" "$STATE_FILE" >"$tmp" 2>/dev/null || true
+  printf '%s=%s\n' "$role" "$status" >>"$tmp"
+  mv "$tmp" "$STATE_FILE"
+}
+
+set_next() {
+  local role="$1" value="$2"
+  local path="$STATE_DIR/${role}.next"
+  if [[ -z "$value" ]]; then
+    rm -f "$path"
+  else
+    printf '%s\n' "$value" >"$path"
+  fi
 }
 
 state_for() {
@@ -38,9 +49,17 @@ state_for() {
 
 if [[ "$SENDER" == "agent_state" && -n "${AGENT:-}" ]]; then
   set_state "$AGENT" "${STATUS:-unknown}"
+  if [[ -v NEXT && -n "$NEXT" ]]; then
+    set_next "$AGENT" "$NEXT"
+  elif [[ "${STATUS:-unknown}" == "working" ]]; then
+    set_next "$AGENT" ""
+  fi
 fi
 
 plan=$(state_for plan)
 build=$(state_for build)
-sketchybar --set "$NAME" label="plan ${plan} │ build ${build}"
+next=$(cat "$STATE_DIR/plan.next" "$STATE_DIR/build.next" 2>/dev/null | tail -1)
+label="plan ${plan} │ build ${build}"
+[[ -n "$next" ]] && label+=" │ ${next}"
+sketchybar --set "$NAME" label="$label"
 "$CONFIG_DIR/plugins/balance_pills.sh"
