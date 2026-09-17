@@ -85,8 +85,16 @@ of this spec, which are corrected here.
   - decision: `{runId, endTree, finalTree, files: [{file, status: "accepted"|"changed"}],
     notes: [{file, line, note}], patch, skipped?: true}`
 
-**Run start** (human-sourced `input`, mode `on`):
+**Run start** (mode `on`, and either a human-sourced `input` **or** agent-review's own review
+follow-up message):
+- Pi delivers agent-review's follow-up with `source: "extension"`. Mark that message (e.g. an
+  in-memory token set just before `sendUserMessage`) so it starts a reviewed run. Otherwise the
+  agent's response to your review, the edits it makes after reading your decision, would never be
+  reviewed. Other extension-sourced inputs (verifier repairs) still belong to the current run.
 - Snapshot → store `refs/agent-review/<run-id>/base`; keep `baseTree`. Record the mode file's mtime.
+- **If the start snapshot fails, fail closed:** do not let the input proceed. Return
+  `{ action: "handled" }`, show the error, and write a pending record with `error` so the block is
+  visible and skippable. A run that cannot be snapshotted must not run unreviewed.
 
 **Run end** — the run ends only after `post-run-verifier` has finished, including any repair
 cycle it dispatches:
@@ -94,7 +102,10 @@ cycle it dispatches:
   follow-up, and resets the flag on every `agent_start`. A settle that dispatches a repair is not
   the end of the run.
 - If `post-run-verifier` is not loaded, or sends no settled signal within 30 s of `agent_settled`,
-  agent-review finishes anyway. A missing verifier must not leave the run open.
+  agent-review finishes anyway. A missing verifier must not leave the run open. **Cancel that
+  timer on every `agent_start` and every extension-sourced input during the active run**, and
+  re-arm it only at the next `agent_settled`. A repair turn that takes longer than 30 s must never
+  be snapshotted mid-repair.
 - Snapshot → `refs/agent-review/<run-id>/end`; keep `endTree`.
 - If `endTree === baseTree`: the run changed nothing. Delete both refs, no review.
 - Otherwise write the pending record atomically. **Clear the active run only after that write
@@ -115,6 +126,12 @@ cycle it dispatches:
   exists. `/review …` commands dispatch before `input` and stay available.
 - `/review skip <run-id>` writes a decision with `skipped: true`, the current `endTree` and a
   fresh `finalTree`, which then flows through normal validation.
+- **Exception for `error` records:** `/review skip <run-id>` on a pending record with `error` set
+  removes it directly, without snapshot validation. The error may be a snapshot that keeps
+  failing, and requiring one to clear it would lock input permanently. `/review` is a slash
+  command rather than a file the agent can forge, but see Known limits: an agent inside herdr can
+  still type it. Show the error text when skipping, and suggest `agent-review mode off` if
+  snapshots keep failing.
 - Show `review pending — :AgentReview in nvim` in Pi, and restore that status on `session_start`
   from any pending records already on disk.
 
@@ -234,6 +251,10 @@ same window.
 - **No sandbox.** The agent can technically write any file, including `.pi/agent-review/`. The
   tamper check and decision validation catch the obvious forgeries; they are not a security
   boundary.
+- **The agent can type into its own pane.** Inside herdr, Pi can run
+  `herdr agent prompt <own pane> "/review skip <id>"` and clear its own review. `agent-flow.md`
+  forbids agents from calling `herdr agent prompt`, but that is a rule, not enforcement. The gate
+  keeps honest-but-sloppy agents in check; it does not stop a deliberately adversarial one.
 
 ## Verification
 
