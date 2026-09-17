@@ -1,0 +1,98 @@
+#!/usr/bin/env python3
+"""Human control for one-review-per-Pi-run mode."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+
+
+def repo_root() -> Path:
+    result = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if result.returncode:
+        raise SystemExit("agent-review: run inside a git repository")
+    return Path(result.stdout.strip())
+
+
+def mode_path(root: Path) -> Path:
+    return root / ".pi" / "agent-review" / "mode.json"
+
+
+def read_json(path: Path) -> dict[str, object] | None:
+    try:
+        value = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def write_mode(path: Path, mode: str, set_by: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "mode": mode,
+        "setBy": set_by,
+        "at": datetime.now(timezone.utc).isoformat(),
+    }
+    fd, temporary = tempfile.mkstemp(prefix="mode.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w") as stream:
+            json.dump(payload, stream)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+
+
+def command_mode(args: argparse.Namespace) -> int:
+    root = repo_root()
+    write_mode(mode_path(root), args.mode, "human")
+    print(f"agent-review: mode={args.mode} setBy=human")
+    return 0
+
+
+def command_status(_args: argparse.Namespace) -> int:
+    root = repo_root()
+    base = root / ".pi" / "agent-review"
+    mode = read_json(base / "mode.json")
+    pending = sorted((base / "pending").glob("*.json")) if (base / "pending").is_dir() else []
+    decisions = sorted(
+        (base / "decisions").glob("*.json"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    ) if (base / "decisions").is_dir() else []
+    print(f"mode: {(mode or {}).get('mode', 'on')} (no mode file means on)")
+    print(f"pending: {len(pending)}")
+    print(f"last decision: {decisions[0] if decisions else 'none'}")
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Control human Agent Review mode")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    mode = subparsers.add_parser("mode", help="set review mode for future runs")
+    mode.add_argument("mode", choices=("on", "off"))
+    mode.set_defaults(handler=command_mode)
+    status = subparsers.add_parser("status", help="show review mode and records")
+    status.set_defaults(handler=command_status)
+    args = parser.parse_args()
+    return args.handler(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
