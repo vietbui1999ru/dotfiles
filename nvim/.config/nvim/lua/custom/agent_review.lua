@@ -8,7 +8,9 @@ local HASH = "^%x+$"
 local HASH_LEN = 40
 
 local function root()
-  local result = vim.system({ "git", "rev-parse", "--show-toplevel" }, { text = true }):wait()
+  local buf = vim.api.nvim_buf_get_name(0)
+  local cwd = buf ~= "" and vim.fn.fnamemodify(buf, ":h") or vim.fn.getcwd()
+  local result = vim.system({ "git", "rev-parse", "--show-toplevel" }, { cwd = cwd, text = true }):wait()
   assert(result.code == 0, result.stderr)
   return vim.trim(result.stdout)
 end
@@ -101,10 +103,13 @@ local function real_file(repo)
     error("Could not resolve repo-relative path from diffview buffer: " .. name)
   end
   local absolute = vim.fs.normalize(name)
-  if absolute:sub(1, #repo) ~= repo then
-    error("Buffer path " .. absolute .. " is not inside repo " .. repo)
+  local real_abs = vim.uv.fs_realpath(absolute) or absolute
+  local real_repo = vim.uv.fs_realpath(repo) or repo
+  local prefix = real_repo .. "/"
+  if real_abs:sub(1, #prefix) ~= prefix then
+    error("Buffer path " .. real_abs .. " is not inside repo " .. real_repo)
   end
-  return absolute:sub(#repo + 2)
+  return real_abs:sub(#prefix + 1)
 end
 
 function M.open()
@@ -126,9 +131,12 @@ function M.note()
   if not M.current then return vim.notify("Open :AgentReview first", vim.log.levels.WARN) end
   local repo = root()
   vim.ui.input({ prompt = "Agent review note: " }, function(note)
-    if note and note ~= "" then
-      table.insert(M.notes, { file = real_file(repo), line = vim.fn.line("."), note = note })
-    end
+    local ok, err = pcall(function()
+      if note and note ~= "" then
+        table.insert(M.notes, { file = real_file(repo), line = vim.fn.line("."), note = note })
+      end
+    end)
+    if not ok then vim.notify("AgentReviewNote failed: " .. tostring(err), vim.log.levels.ERROR) end
   end)
 end
 
