@@ -41,6 +41,13 @@ the verifier's completion signal or re-check that no verifier cycle is pending).
 
 ## Components
 
+### Input-cancellation check — 2026-09-17
+
+Verified from Pi’s extension API: an `input` handler returning
+`{ action: "handled" }` skips agent processing. Extension commands dispatch
+before `input`, so `/review skip <run-id>` remains an explicit escape while a
+review is pending. Component 2 implements that blocking behavior.
+
 Build as three separate commits, in this order.
 
 ### 1. Mode CLI — `scripts/agent-review`
@@ -55,70 +62,147 @@ Build as three separate commits, in this order.
 
 ### 2. Pi extension — `pi/.pi/agent/extensions/agent-review.ts`
 
-**Run start** (human-sourced `input`, mode `on`):
-- Snapshot the full working tree, including untracked non-ignored files, without touching the
-  working tree or the real index: `GIT_INDEX_FILE=<tmp> git add -A && git write-tree`, then
-  `git commit-tree <tree> -m agent-review-base` → store as `refs/agent-review/<run-id>/base`.
-- Record the mode file's mtime.
+**Revision 2026-09-17.** The first implementation (`edbcff8`) failed review; see "Review findings
+this revision fixes" below. Two of those failures came from contradictions in the earlier version
+of this spec, which are corrected here.
 
-**Run end** (`agent_settled` after verification, mode was `on` at run start):
-- Snapshot again → `refs/agent-review/<run-id>/end`.
-- If `base` and `end` trees are identical, the run changed nothing: clean up refs, no review.
-- Otherwise write `.pi/agent-review/pending/<run-id>.json`:
-  `{runId, base, end, files: [...], startedAt, endedAt}`.
-- **Tamper check:** if the mode file's mtime changed during the run, the agent (or something
-  running inside the run) altered review mode. Force mode back to `on`, keep this run's review,
-  and surface `review mode changed during run` in the pending record so the pill can show it.
+**Shared rules for both components:**
+- **Repo root.** Resolve once with `git rev-parse --show-toplevel` from the starting directory.
+  Every path (`.pi/agent-review/…`) is relative to that root, in Pi, the CLI and Neovim alike.
+- **Snapshot** = full working tree including untracked non-ignored files, **excluding
+  `.pi/agent-review/`**, without touching the real index or working tree:
+  `GIT_INDEX_FILE=<tmp> git add -A -- . ':(exclude).pi/agent-review'`, then `git write-tree`
+  (the **tree**), then `git commit-tree <tree> -m <label>` (the **commit**, only so refs keep the
+  object alive). The exclusion is mandatory even where `.pi/agent-review/` is gitignored, because
+  review state changes between snapshots and would otherwise change the tree.
+- **Compare trees, never commits.** `commit-tree` output includes a timestamp, so two snapshots of
+  identical content have different commit hashes. Every equality check below uses tree hashes.
+- **Validate identifiers before use** in any path, git argument, Neovim command, or prompt text:
+  `runId` must be a UUID and equal the file's basename; hashes must match `^[0-9a-f]{40}$`.
+- **Record shapes** (use `file`, not `path`, everywhere):
+  - pending: `{runId, base, baseTree, end, endTree, files: [{file}], startedAt, endedAt,
+    modeMtimeMs, tamper?: true, error?: string}`
+  - decision: `{runId, endTree, finalTree, files: [{file, status: "accepted"|"changed"}],
+    notes: [{file, line, note}], patch, skipped?: true}`
+
+**Run start** (human-sourced `input`, mode `on`):
+- Snapshot → store `refs/agent-review/<run-id>/base`; keep `baseTree`. Record the mode file's mtime.
+
+**Run end** — the run ends only after `post-run-verifier` has finished, including any repair
+cycle it dispatches:
+- `post-run-verifier` emits its settled signal only when that settle dispatched **no** repair
+  follow-up, and resets the flag on every `agent_start`. A settle that dispatches a repair is not
+  the end of the run.
+- If `post-run-verifier` is not loaded, or sends no settled signal within 30 s of `agent_settled`,
+  agent-review finishes anyway. A missing verifier must not leave the run open.
+- Snapshot → `refs/agent-review/<run-id>/end`; keep `endTree`.
+- If `endTree === baseTree`: the run changed nothing. Delete both refs, no review.
+- Otherwise write the pending record atomically. **Clear the active run only after that write
+  succeeds.**
+- **Fail closed on errors.** If a snapshot, ref update, or write fails, write a pending record
+  with `error` set (it blocks like any pending review and can be skipped). Never drop the run
+  silently: a lost review means an unreviewed run.
+- **Tamper check:** if the mode file's mtime changed during the run, set `tamper: true`, force mode
+  back to `on`, and keep the review. Take the mtime reading **before** writing any queued human
+  mode change (see Override shortcut).
+- Performance: seed the temp index by copying the real index before `git add -A`, so a snapshot
+  doesn't rehash the whole repo. Locate it with `git rev-parse --git-path index`, since `.git` is
+  a file inside worktrees.
 
 **While a review is pending:**
-- Show a status in Pi (`review pending — :AgentReview in nvim`).
-- **Verify first** whether a Pi `input` handler can cancel a submission. If it can: block new
-  human runs until the review is decided, with `/review skip <run-id>` as an explicit escape
-  that records `skipped` in the decision log. If it cannot: do not block; warn in Pi and let the
-  pill carry the signal. Record which behavior was implemented.
+- Pi's `input` handler returning `{ action: "handled" }` skips agent processing (verified
+  2026-09-17). Block **all** inputs, human- and extension-sourced alike, while any pending record
+  exists. `/review …` commands dispatch before `input` and stay available.
+- `/review skip <run-id>` writes a decision with `skipped: true`, the current `endTree` and a
+  fresh `finalTree`, which then flows through normal validation.
+- Show `review pending — :AgentReview in nvim` in Pi, and restore that status on `session_start`
+  from any pending records already on disk.
 
-**Decision arrives** (watch `.pi/agent-review/decisions/<run-id>.json`):
-- Validate before acting: the record's `end` must equal this run's recorded `end` ref, and its
-  `final` tree must equal a fresh snapshot of the current working tree. If either fails, ignore
-  the file, keep the review pending, and warn — this rejects forged or stale decision files.
-- If the human changed nothing (no rejections, no edits, no notes): mark done, send nothing,
-  so no new agent turn is triggered.
-- Otherwise send **one** message via `pi.sendUserMessage(..., { deliverAs: "followUp" })`:
-  `Review of run <id>: <n> files changed by the reviewer. Decisions, notes and the reviewer's
-  patch: .pi/agent-review/decisions/<id>.json. Re-read the listed files before further changes.
-  Do not reintroduce rejected changes.`
-- Clean up `refs/agent-review/<run-id>/*` after a decision; prune any older than 7 days on
-  `session_start`.
+**Decision arrives** (watch `.pi/agent-review/decisions/`):
+- **Pi owns the pending record.** Neovim never deletes it.
+- Ignore `*.tmp` names. Keep an in-flight set per `runId`, and claim a decision by renaming its
+  pending record to `<run-id>.processing` before validating, so duplicate filesystem events or a
+  second Pi session cannot process it twice.
+- Validate: identifiers as above, `decision.endTree === pending.endTree`, and
+  `decision.finalTree ===` the tree of a fresh snapshot. **On any failure:** rename `.processing`
+  back to pending, warn, and stop. The review stays pending.
+- On success: delete the `.processing` record and both refs.
+  - Decision has an empty `patch`, no notes, and isn't `skipped`: send nothing, so no new agent
+    turn starts.
+  - Otherwise send **exactly one** `pi.sendUserMessage(..., { deliverAs: "followUp" })` with fixed
+    text. Only the validated `runId` and the fixed decision path may be interpolated:
+    `Review of run <id> is complete. Decisions, notes and the reviewer's patch:
+    .pi/agent-review/decisions/<id>.json. Re-read the listed files before further changes. Do not
+    reintroduce rejected changes.`
+- On `session_start`, prune `refs/agent-review/*` whose run has no pending record and is older
+  than 7 days.
 
-**Non-interactive Pi** (`pi -p`, no TUI) with mode `on`: do not auto-accept. Leave the pending
-record, print a warning, and exit non-zero if the harness allows it. This deliberately differs
-from DiffViewer, which auto-applies with zero review outside the TUI.
+**Non-interactive Pi** (`pi -p`, no TUI) with mode `on`: never auto-accept. Leave the pending
+record, print why, and exit non-zero. If a review is already pending when `pi -p` starts, print that
+input is blocked by review `<id>` and exit non-zero. Never silently swallow the input.
 
-**Override shortcut:** `pi.registerShortcut` toggling mode for the next run, with
-`setBy: "human"`. Outside a run it writes the mode file immediately. During a run it only queues
-the change in memory and writes the file after that run ends, so a human toggle never trips the
-tamper check. For the same reason, change mode with the `agent-review` CLI only between runs —
-a CLI write during a run is indistinguishable from the agent doing it and will be flagged.
+**Override shortcut:** `pi.registerShortcut` toggles mode for the next run with
+`setBy: "human"`. Outside a run it writes the mode file immediately. During a run it queues the
+change in memory and writes it only after run-end has read the tamper mtime and written the pending
+record, so a human toggle never trips the tamper check. Change mode with the `agent-review` CLI only
+between runs; a CLI write during a run is indistinguishable from the agent doing it.
+
+**Tests** must include an integration test against a temporary git repo, not only pure predicates:
+snapshot tree equality across two snapshots of unchanged content, a no-change run, a decision round
+trip, a forged `endTree` rejected, a skip, duplicate watcher events yielding one follow-up, and a
+repair cycle producing one review. Pure predicate tests passed while the first implementation
+could never work end to end.
 
 ### 3. Neovim module — `nvim/.config/nvim/lua/custom/agent_review.lua`
 
-- `:AgentReview` — open the oldest pending run for the current repo:
-  `DiffviewOpen <base-commit>` (compares base against the working tree, which currently holds the
-  agent's end state) and `:Gitsigns change_base <base-commit>` so gitsigns navigates and resets
-  hunks against the run's base.
+Follows the shared rules in component 2: repo root, snapshot with the `.pi/agent-review`
+exclusion, tree comparison, identifier validation, and record shapes.
+
+- `:AgentReview` — open the oldest pending run for the repo root (skip `.processing` and records
+  whose identifiers fail validation). Use the Lua APIs, never string-built commands:
+  `require("diffview").open({ base })` or the equivalent argv form, and
+  `require("gitsigns").change_base(base, true)`, so gitsigns navigates and resets hunks against
+  the run's base.
   - **Accept** a hunk: leave it.
-  - **Reject** a hunk: `:Gitsigns reset_hunk` (restores base content in the working tree).
+  - **Reject** a hunk: gitsigns `reset_hunk` (restores base content in the working tree).
   - **Edit** a hunk: edit the buffer normally.
-- `:AgentReviewNote` — prompt for a note on the cursor line, appended to an in-progress notes
-  list `{file, line, note}`.
-- `:AgentReviewDone` — snapshot the working tree as `final`, compute `git diff <end> <final>`
-  and save it as the reviewer's patch. That single patch exactly encodes every rejection and
-  edit relative to what the agent produced; an empty patch means everything was accepted. Write
-  `.pi/agent-review/decisions/<run-id>.json` atomically:
-  `{runId, base, end, final, files: [{path, status: "accepted"|"changed"}], notes, patch}`.
-  Close diffview, reset gitsigns base, remove the pending file.
-- Keymaps: `<leader>ar` review, `<leader>an` note, `<leader>ad` done. Register them in the
-  existing keymap setup; check for collisions first.
+- `:AgentReviewNote` — prompt for a note on the cursor line, appended as `{file, line, note}`.
+  `file` is the repo-relative path of the real file. Inside diffview panes, resolve the underlying
+  path, never store a `diffview://` buffer name.
+- `:AgentReviewDone` — take a snapshot with the shared method and keep its **tree** as
+  `finalTree`. Compute `git diff <endTree> <finalTree>` as the reviewer's patch: it encodes every
+  rejection and edit relative to what the agent produced, and is empty if everything was accepted.
+  Write `.pi/agent-review/decisions/<run-id>.json` atomically (tmp name ending in `.tmp`, then
+  rename) in the decision shape. Close diffview and restore gitsigns with its `reset_base`. **Do
+  not delete the pending record** — Pi removes it after validating. Wrap the whole command in
+  `pcall` and report failures instead of erroring half-way.
+- Keymaps: `<leader>ar` review, `<leader>an` note, **`<leader>aD`** done. `<leader>ad` is taken
+  by Evidence's DAP snapshot (`lua/custom/plugins/evidence.lua:425`). Add all three to the
+  which-key group in `init.lua` with accurate labels.
+
+## Review findings this revision fixes (2026-09-17)
+
+From the review of `edbcff8` and the staged Neovim module. Items marked **spec error** were caused
+by the earlier text of this document.
+
+1. Commit hashes were compared instead of trees, so no run was ever "unchanged" and every decision,
+   including `/review skip`, failed validation. **Spec error in part:** the spec stored commits but
+   asked for tree comparisons without saying so everywhere.
+2. `.pi/agent-review/` was inside the snapshots, so writing review state changed the tree between
+   `finalTree` and Pi's check. **Spec error:** the exclusion was only added to a gitignore template.
+3. Neovim deleted the pending record, which Pi's watcher needs, and which a failed validation must
+   keep. **Spec error:** the spec said both "remove the pending file" and "keep the review pending".
+4. The run could stay open forever if the verifier never signalled, silently skipping review for
+   the rest of the session, and a git error dropped the review. Now: timeout fallback, fail closed.
+5. The verifier signalled settled even when it had just dispatched a repair, so repair edits
+   appeared as reviewer edits.
+6. Pi used its working directory while the CLI and Neovim used the repo root.
+7. `<leader>ad` collided with Evidence.
+8. Duplicate filesystem events could send duplicate follow-ups.
+9. Identifiers from agent-writable files were used unvalidated in paths, Neovim commands, and the
+   prompt.
+10. Missing: shortcut, ref pruning, no-change ref cleanup, status restore on `session_start`,
+    non-zero exit in print mode, blocking of extension-sourced input while pending.
 
 ## Integration with agent-flow.md
 
@@ -161,5 +245,18 @@ same window.
 - A verifier repair cycle inside a run → a single pending review covering the final state.
 - Changing the mode file from inside a Pi run → tamper flag set, mode forced on.
 - A decision file whose `end` or `final` doesn't match → ignored, review stays pending.
-- `pi -p` with mode on → no auto-accept, pending record left behind.
+- `pi -p` with mode on → no auto-accept, pending record left behind, non-zero exit.
 - With `agent-review` enabled, `pi-diff-review` does not also open a review.
+- `/review skip <id>` clears a pending review, and the next input runs.
+- Pi started from a subdirectory → mode, pending, and decisions all land under the repo root, and
+  `:AgentReview` finds them.
+- Verifier extension not loaded → the run still ends and produces a pending review.
+- A pending record whose `runId` is not a UUID, or doesn't match its filename → ignored by Pi and
+  Neovim, never used in a path.
+- A git failure during the end snapshot → pending record with `error`, input blocked.
+
+**Stow order for verification.** `agent-review.ts` is not stowed yet, so it has never loaded.
+Stowing it while `pi-diff-review` is enabled would run two review gates at once. For the real
+verification run: disable `pi-diff-review`, stow `agent-review`, run this list. If verification
+fails, unstow `agent-review` and re-enable `pi-diff-review` before stopping. Don't leave the repo
+with no review gate.
