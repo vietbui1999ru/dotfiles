@@ -41,6 +41,12 @@ the verifier's completion signal or re-check that no verifier cycle is pending).
 
 ## Components
 
+### Review history
+
+- First review (of `edbcff8`): "Review findings this revision fixes" below.
+- Re-review (of the rebuild, `93b18c8`): `agent-review-rereview-2026-09-17.md`. **Read it before
+  implementing**; its N1–N8 findings are the known defects the contract tests target.
+
 ### Scope and contract for v1 — 2026-09-17
 
 Two implementation rounds failed review the same way: "done" was reported, the tests did not
