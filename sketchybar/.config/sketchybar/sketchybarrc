@@ -144,9 +144,9 @@ sketchybar --add item left_spacer left \
 sketchybar --add item agents right \
            --set agents \
                  icon.drawing=off \
-                 label.max_chars=96 \
+                 label.max_chars=300 \
                  label.width=260 \
-                 label.font="SF Pro:Semibold:12.0" \
+                 label.font="Hack Nerd Font Mono:Regular:13.0" \
                  scroll_texts=on \
                  click_script="$PLUGIN_DIR/agents.sh" \
                  script="$PLUGIN_DIR/agents.sh" \
@@ -171,15 +171,6 @@ sketchybar --add item calendar right \
                  update_freq=3600 \
                  script="$PLUGIN_DIR/calendar.sh"
 
-add_sep sep.bat $MAIN_DISPLAY
-
-sketchybar --add item battery right \
-           --set battery \
-                 display=$MAIN_DISPLAY \
-                 update_freq=120 \
-                 script="$PLUGIN_DIR/battery.sh" \
-           --subscribe battery system_woke power_source_change
-
 add_sep sep.mic $MAIN_DISPLAY
 
 sketchybar --add item mic right \
@@ -198,16 +189,6 @@ sketchybar --add item mic right \
 #                  icon=$ICON_CLAUDE \
 #                  update_freq=120 \
 #                  script="$HOME/repos/RustProjects/claude-tui/scripts/sketchybar/claude_plugin.sh"
-
-add_sep sep.vol $MAIN_DISPLAY
-
-sketchybar --add item volume right \
-           --set volume \
-                 padding_right=-1 \
-                 label.width=36 \
-                 label.align=right \
-                 script="$PLUGIN_DIR/volume.sh" \
-           --subscribe volume volume_change
 
 # add_sep sep.cpu $MAIN_DISPLAY
 # 
@@ -318,9 +299,7 @@ sketchybar --add bracket left_pill \
 sketchybar --add bracket right_pill \
              right_spacer \
              vpn.tailscale vpn.protonvpn sep.vpn \
-             volume sep.vol \
              mic sep.mic \
-             battery sep.bat \
              calendar sep.cal \
              clock sep.agents agents \
            --set right_pill \
