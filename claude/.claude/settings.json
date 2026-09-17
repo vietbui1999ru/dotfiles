@@ -46,7 +46,7 @@
       {
         "hooks": [
           {
-            "command": "'/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/claude-event-hook.sh' Auto # notchbar-agents-claude-hook",
+            "command": "f='/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/claude-event-hook.sh'; [ -x \"$f\" ] && \"$f\" Auto || true # notchbar-agents-claude-hook",
             "type": "command"
           }
         ]
@@ -92,7 +92,7 @@
       {
         "hooks": [
           {
-            "command": "'/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/claude-event-hook.sh' Working # notchbar-agents-claude-hook",
+            "command": "f='/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/claude-event-hook.sh'; [ -x \"$f\" ] && \"$f\" Working || true # notchbar-agents-claude-hook",
             "type": "command"
           }
         ]
@@ -121,7 +121,7 @@
       {
         "hooks": [
           {
-            "command": "'/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/claude-event-hook.sh' Idle # notchbar-agents-claude-hook",
+            "command": "f='/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/claude-event-hook.sh'; [ -x \"$f\" ] && \"$f\" Idle || true # notchbar-agents-claude-hook",
             "type": "command"
           }
         ]
@@ -139,7 +139,7 @@
       {
         "hooks": [
           {
-            "command": "'/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/claude-event-hook.sh' Idle # notchbar-agents-claude-hook",
+            "command": "f='/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/claude-event-hook.sh'; [ -x \"$f\" ] && \"$f\" Idle || true # notchbar-agents-claude-hook",
             "type": "command"
           }
         ]
@@ -149,7 +149,7 @@
       {
         "hooks": [
           {
-            "command": "'/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/claude-event-hook.sh' Waiting # notchbar-agents-claude-hook",
+            "command": "f='/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/claude-event-hook.sh'; [ -x \"$f\" ] && \"$f\" Waiting || true # notchbar-agents-claude-hook",
             "type": "command"
           }
         ]
@@ -159,7 +159,7 @@
       {
         "hooks": [
           {
-            "command": "'/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/claude-event-hook.sh' ToolFail # notchbar-agents-claude-hook",
+            "command": "f='/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/claude-event-hook.sh'; [ -x \"$f\" ] && \"$f\" ToolFail || true # notchbar-agents-claude-hook",
             "type": "command"
           }
         ]
@@ -169,7 +169,7 @@
       {
         "hooks": [
           {
-            "command": "'/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/claude-event-hook.sh' Ended # notchbar-agents-claude-hook",
+            "command": "f='/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/claude-event-hook.sh'; [ -x \"$f\" ] && \"$f\" Ended || true # notchbar-agents-claude-hook",
             "type": "command"
           }
         ]
@@ -179,7 +179,7 @@
       {
         "hooks": [
           {
-            "command": "'/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/claude-event-hook.sh' Working # notchbar-agents-claude-hook",
+            "command": "f='/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/claude-event-hook.sh'; [ -x \"$f\" ] && \"$f\" Working || true # notchbar-agents-claude-hook",
             "type": "command"
           }
         ]
