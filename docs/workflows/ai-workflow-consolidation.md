@@ -20,6 +20,12 @@ Target surface:
 | Custom agents | 19 | 0–2 |
 | Hooks | 9 (5 fire every tool call) | ~5 (1 fires every call) |
 
+**Installed-core budget, 2026-09-17:** 22 skills / 0 custom agents / 4 loaded
+rules / 18 hook commands. Skills are counted from `~/.claude/skills` only when
+the top-level entry contains `SKILL.md`, including llm-wiki-backed symlinks;
+runtime cache directories do not count. The hook count includes the deliberate
+PreToolUse/PostToolUse context-threshold split and NotchBar lifecycle hooks.
+
 ## Evidence this is safe
 
 Measured across 19 real Claude Code session transcripts (2026-07-10 → 2026-09-16):

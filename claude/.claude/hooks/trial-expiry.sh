@@ -12,6 +12,12 @@ AGENTS_DIR="$HOME/.claude/agents"
 RULES_FILE="$HOME/.claude/CLAUDE.md"
 SETTINGS_FILE="$HOME/.claude/settings.json"
 TODAY=$(date -u +%F)
+# Current installed-core budget. Skills are top-level ~/.claude/skills entries
+# with SKILL.md, including llm-wiki-backed symlinks; cache directories do not count.
+CORE_SKILL_BUDGET=22
+CORE_AGENT_BUDGET=0
+CORE_RULE_BUDGET=4
+CORE_HOOK_BUDGET=18
 
 usage_total() {
 	local name="$1"
@@ -22,7 +28,7 @@ usage_total() {
 
 count_skill_dirs() {
 	[[ -d "$SKILLS_DIR" ]] || { echo 0; return; }
-	find -L "$SKILLS_DIR" -mindepth 1 -maxdepth 1 -type d ! -name trial 2>/dev/null | wc -l | tr -d ' '
+	find -L "$SKILLS_DIR" -mindepth 1 -maxdepth 1 -type d -exec test -f '{}/SKILL.md' \; -print 2>/dev/null | wc -l | tr -d ' '
 }
 
 count_agent_files() {
@@ -65,12 +71,13 @@ agents=$(count_agent_files)
 rules=$(count_loaded_rules)
 hooks=$(count_hook_commands)
 over_budget=false
-(( skills > 11 || agents > 2 || rules > 4 || hooks > 5 )) && over_budget=true
+(( skills > CORE_SKILL_BUDGET || agents > CORE_AGENT_BUDGET || rules > CORE_RULE_BUDGET || hooks > CORE_HOOK_BUDGET )) && over_budget=true
 
 if (( ${#expired[@]} > 0 )) || [[ "$over_budget" == true ]]; then
 	if (( ${#expired[@]} > 0 )); then
 		printf '%s trial artifacts expired: %s.\n' "${#expired[@]}" "$(IFS=', '; echo "${expired[*]}")"
 	fi
-	printf 'Core budget: skills %s/11, agents %s/2, rules %s/4, hooks %s/5.\n' \
-		"$skills" "$agents" "$rules" "$hooks"
+	printf 'Core budget: skills %s/%s, agents %s/%s, rules %s/%s, hooks %s/%s.\n' \
+		"$skills" "$CORE_SKILL_BUDGET" "$agents" "$CORE_AGENT_BUDGET" \
+		"$rules" "$CORE_RULE_BUDGET" "$hooks" "$CORE_HOOK_BUDGET"
 fi
