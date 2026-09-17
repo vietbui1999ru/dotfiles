@@ -1,146 +1,113 @@
 {
-  "agentPushNotifEnabled": true,
-  "autoCompactEnabled": false,
-  "editorMode": "vim",
-  "effortLevel": "high",
-  "enabledPlugins": {
-    "agent-sdk-dev@claude-plugins-official": true,
-    "basedpyright@claude-code-lsps": false,
-    "caveman@caveman": true,
-    "clangd@claude-code-lsps": false,
-    "claude-code-setup@claude-plugins-official": true,
-    "claude-md-management@claude-plugins-official": true,
-    "code-review@claude-plugins-official": true,
-    "code-simplifier@claude-plugins-official": true,
-    "context7@claude-plugins-official": true,
-    "explanatory-output-style@claude-plugins-official": true,
-    "feature-dev@claude-plugins-official": true,
-    "frontend-design@claude-plugins-official": true,
-    "gopls@claude-code-lsps": false,
-    "graphql-lsp@claude-code-lsps": true,
-    "haskell-language-server@claude-code-lsps": true,
-    "jdtls@claude-code-lsps": true,
-    "kotlin-lsp@claude-code-lsps": true,
-    "lean4-lake-lsp@claude-code-lsps": true,
-    "lean4-lean-lsp@claude-code-lsps": true,
-    "learning-output-style@claude-plugins-official": true,
-    "mdbase-lsp@claude-code-lsps": true,
-    "ocaml-lsp@claude-code-lsps": false,
-    "omnisharp@claude-code-lsps": false,
-    "playwright@claude-plugins-official": true,
-    "pyright-lsp@claude-plugins-official": false,
-    "pyright@claude-code-lsps": false,
-    "qmd@qmd": true,
-    "ralph-loop@claude-plugins-official": true,
-    "ruby-lsp@claude-code-lsps": false,
-    "rust-analyzer@claude-code-lsps": false,
-    "security-guidance@claude-plugins-official": true,
-    "sentry@claude-plugins-official": true,
-    "superpowers@claude-plugins-official": true,
-    "svelte-lsp@claude-code-lsps": true,
-    "typescript-lsp@claude-plugins-official": false,
-    "vscode-langservers@claude-code-lsps": false,
-    "vtsls@claude-code-lsps": false,
-    "vue-volar@claude-code-lsps": true
-  },
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
     "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet",
     "MAX_THINKING_TOKENS": "10000",
     "teammateMode": "in-process"
   },
-  "extraKnownMarketplaces": {
-    "caveman": {
-      "source": {
-        "repo": "JuliusBrussee/caveman",
-        "source": "github"
-      }
-    },
-    "qmd": {
-      "source": {
-        "repo": "tobi/qmd",
-        "source": "github"
-      }
-    }
+  "permissions": {
+    "allow": [
+      "Bash(~/.claude/plugins/cache/claude-plugins-official/superpowers/*/skills/brainstorming/scripts/start-server.sh:*)",
+      "mcp__sentry__authenticate",
+      "mcp__sentry__complete_authentication"
+    ],
+    "defaultMode": "auto"
   },
+  "model": "sonnet",
   "hooks": {
     "PostToolUse": [
       {
+        "matcher": ".*",
         "hooks": [
           {
-            "command": "~/.claude/hooks/context-threshold.sh",
-            "type": "command"
+            "type": "command",
+            "command": "~/.claude/hooks/context-threshold.sh"
           }
-        ],
-        "matcher": ".*"
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd ~/repos/llm-wiki && git diff --name-only HEAD 2>/dev/null | grep -q 'log\\.md' && ./scripts/publish-ai-kb.sh || true"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/lint-on-write.sh"
+          }
+        ]
       },
       {
         "hooks": [
           {
-            "command": "cd ~/repos/llm-wiki && git diff --name-only HEAD 2>/dev/null | grep -q 'log\\.md' && ./scripts/publish-ai-kb.sh || true",
+            "command": "'/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/claude-event-hook.sh' Auto # notchbar-agents-claude-hook",
             "type": "command"
           }
-        ],
-        "matcher": "Bash"
-      },
-      {
-        "hooks": [
-          {
-            "command": "~/.claude/hooks/lint-on-write.sh",
-            "type": "command"
-          }
-        ],
-        "matcher": "Write|Edit|MultiEdit"
+        ]
       }
     ],
     "PreToolUse": [
       {
+        "matcher": ".*",
         "hooks": [
           {
-            "command": "~/.claude/hooks/context-threshold.sh",
-            "type": "command"
+            "type": "command",
+            "command": "~/.claude/hooks/context-threshold.sh"
           }
-        ],
-        "matcher": ".*"
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/protect-lint-configs.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/enforce-bash-safety.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "rtk hook claude"
+          }
+        ]
       },
       {
         "hooks": [
           {
-            "command": "~/.claude/hooks/protect-lint-configs.sh",
+            "command": "'/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/claude-event-hook.sh' Working # notchbar-agents-claude-hook",
             "type": "command"
           }
-        ],
-        "matcher": "Write|Edit|MultiEdit"
-      },
-      {
-        "hooks": [
-          {
-            "command": "~/.claude/hooks/enforce-bash-safety.sh",
-            "type": "command"
-          }
-        ],
-        "matcher": "Bash"
-      },
-      {
-        "hooks": [
-          {
-            "command": "rtk hook claude",
-            "type": "command"
-          }
-        ],
-        "matcher": "Bash"
+        ]
       }
     ],
     "SessionStart": [
       {
+        "matcher": "*",
         "hooks": [
           {
+            "type": "command",
             "command": "bash '/Users/vietquocbui/.claude/hooks/herdr-agent-state.sh' session",
-            "timeout": 10,
-            "type": "command"
+            "timeout": 10
           }
-        ],
-        "matcher": "*"
+        ]
       },
       {
         "matcher": "*",
@@ -150,20 +117,128 @@
             "command": "~/.claude/hooks/trial-expiry.sh"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "command": "'/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/claude-event-hook.sh' Idle # notchbar-agents-claude-hook",
+            "type": "command"
+          }
+        ]
       }
     ],
     "Stop": [
       {
         "hooks": [
           {
-            "command": "~/.claude/hooks/lint-autofix.sh",
+            "type": "command",
+            "command": "~/.claude/hooks/lint-autofix.sh"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "command": "'/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/claude-event-hook.sh' Idle # notchbar-agents-claude-hook",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "command": "'/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/claude-event-hook.sh' Waiting # notchbar-agents-claude-hook",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "command": "'/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/claude-event-hook.sh' ToolFail # notchbar-agents-claude-hook",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "command": "'/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/claude-event-hook.sh' Ended # notchbar-agents-claude-hook",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "command": "'/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/claude-event-hook.sh' Working # notchbar-agents-claude-hook",
             "type": "command"
           }
         ]
       }
     ]
   },
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/statusline-command.sh"
+  },
+  "enabledPlugins": {
+    "basedpyright@claude-code-lsps": false,
+    "caveman@caveman": true,
+    "clangd@claude-code-lsps": false,
+    "explanatory-output-style@claude-plugins-official": true,
+    "gopls@claude-code-lsps": false,
+    "lean4-lake-lsp@claude-code-lsps": true,
+    "learning-output-style@claude-plugins-official": true,
+    "ocaml-lsp@claude-code-lsps": false,
+    "omnisharp@claude-code-lsps": false,
+    "pyright-lsp@claude-plugins-official": false,
+    "pyright@claude-code-lsps": false,
+    "ralph-loop@claude-plugins-official": true,
+    "ruby-lsp@claude-code-lsps": false,
+    "rust-analyzer@claude-code-lsps": false,
+    "security-guidance@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": false,
+    "vscode-langservers@claude-code-lsps": false,
+    "vtsls@claude-code-lsps": false
+  },
+  "extraKnownMarketplaces": {
+    "caveman": {
+      "source": {
+        "source": "github",
+        "repo": "JuliusBrussee/caveman"
+      }
+    },
+    "qmd": {
+      "source": {
+        "source": "github",
+        "repo": "tobi/qmd"
+      }
+    }
+  },
+  "effortLevel": "high",
+  "modelSettings": {
+    "claude-opus-5": {
+      "effortLevel": "high"
+    }
+  },
+  "tui": "fullscreen",
+  "skipWorkflowUsageWarning": true,
+  "editorMode": "vim",
+  "verbose": true,
+  "autoCompactEnabled": false,
+  "teammateMode": "in-process",
   "inputNeededNotifEnabled": true,
+  "agentPushNotifEnabled": true,
   "mcpServers": {
     "firecrawl": {
       "args": [
@@ -175,21 +250,5 @@
     "shadcn": {
       "url": "https://www.shadcn.io/api/mcp"
     }
-  },
-  "permissions": {
-    "allow": [
-      "Bash(~/.claude/plugins/cache/claude-plugins-official/superpowers/*/skills/brainstorming/scripts/start-server.sh:*)",
-      "mcp__sentry__authenticate",
-      "mcp__sentry__complete_authentication"
-    ],
-    "defaultMode": "default"
-  },
-  "skipWorkflowUsageWarning": true,
-  "statusLine": {
-    "command": "~/.claude/statusline-command.sh",
-    "type": "command"
-  },
-  "teammateMode": "in-process",
-  "tui": "fullscreen",
-  "verbose": true
+  }
 }
