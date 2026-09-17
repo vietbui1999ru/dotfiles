@@ -258,3 +258,97 @@ test("the agent's response to a review follow-up is itself reviewed", async () =
   await waitFor(() => pendingIds(root).length === 1);
   assert.notEqual(pendingIds(root)[0], pending.runId);
 });
+
+// ─── Failure paths ───────────────────────────────────────────────────────────
+
+test("repeated file events for one decision still send exactly one follow-up", async () => {
+  const { root, session } = await newSession();
+  const pending = await changingRun(root, session);
+  writeFileSync(join(root, "tracked.txt"), "base\n");
+  decide(root, pending);
+  decide(root, pending); // same decision rewritten: more fs events
+  await waitFor(() => pendingIds(root).length === 0);
+  await sleep(600);
+  assert.equal(session.sent.length, 1);
+});
+
+test("two sessions on one repo: one follow-up, and the review does not come back", async () => {
+  const { root, session } = await newSession();
+  const second = startSession(root);
+  await second.emit("session_start");
+  const pending = await changingRun(root, session);
+  writeFileSync(join(root, "tracked.txt"), "base\n");
+  decide(root, pending);
+  await waitFor(() => session.sent.length + second.sent.length >= 1);
+  await sleep(800);
+  assert.equal(session.sent.length + second.sent.length, 1);
+  assert.deepEqual(pendingIds(root), []);
+  assert.equal(reviewRefs(root), "");
+});
+
+test("a malformed decision leaves the review pending with its refs intact", async () => {
+  const { root, session } = await newSession();
+  const pending = await changingRun(root, session);
+  writeDecision(root, { runId: pending.runId, endTree: pending.endTree, finalTree: treeOf(root) }); // no patch/files/notes
+  await sleep(600);
+  assert.deepEqual(pendingIds(root), [pending.runId]);
+  assert.notEqual(reviewRefs(root), "");
+  assert.equal(session.sent.length, 0);
+});
+
+test("without a verifier signal, the fallback still ends the run", async () => {
+  process.env.AGENT_REVIEW_FALLBACK_MS = "300";
+  try {
+    const { root, session } = await newSession();
+    assert.deepEqual(await session.input("do the work"), { action: "continue" });
+    await session.emit("agent_start");
+    writeFileSync(join(root, "tracked.txt"), "agent edit\n");
+    await session.emit("agent_settled"); // verifier never signals
+    await waitFor(() => pendingIds(root).length === 1, 3_000);
+  } finally {
+    delete process.env.AGENT_REVIEW_FALLBACK_MS;
+  }
+});
+
+test("a repair turn longer than the fallback is not snapshotted mid-repair", async () => {
+  process.env.AGENT_REVIEW_FALLBACK_MS = "300";
+  try {
+    const { root, session } = await newSession();
+    assert.deepEqual(await session.input("do the work"), { action: "continue" });
+    await session.emit("agent_start");
+    writeFileSync(join(root, "tracked.txt"), "broken\n");
+    await session.emit("agent_settled"); // verifier queues a repair instead of signalling
+    assert.deepEqual(await session.input("fix the failing test", "extension"), { action: "continue" });
+    await session.emit("agent_start");
+    await sleep(900); // repair outlasts the fallback
+    assert.deepEqual(pendingIds(root), [], "no snapshot while the repair is still running");
+    writeFileSync(join(root, "tracked.txt"), "fixed\n");
+    await session.finishRun();
+    await waitFor(() => pendingIds(root).length === 1);
+    assert.equal(readPending(root, pendingIds(root)[0]).endTree, treeOf(root));
+  } finally {
+    delete process.env.AGENT_REVIEW_FALLBACK_MS;
+  }
+});
+
+test("a failing start snapshot blocks input, and skip clears the error record", async () => {
+  const { root, session } = await newSession();
+  writeFileSync(join(root, ".git", "index"), "not an index"); // every snapshot now fails
+  assert.deepEqual(await session.input("do the work"), { action: "handled" });
+  await waitFor(() => pendingIds(root).length === 1);
+  const [runId] = pendingIds(root);
+  assert.ok(JSON.parse(readFileSync(reviewPath(root, "pending", `${runId}.json`), "utf8")).error);
+  await session.command("review", `skip ${runId}`); // must work although snapshots still fail
+  await waitFor(() => pendingIds(root).length === 0);
+});
+
+test("a decision written while Pi was closed is processed at the next session start", async () => {
+  const { root, session } = await newSession();
+  const pending = await changingRun(root, session);
+  await session.close();
+  writeFileSync(join(root, "tracked.txt"), "base\n");
+  decide(root, pending);
+  const next = startSession(root);
+  await next.emit("session_start");
+  await waitFor(() => next.sent.length === 1 && pendingIds(root).length === 0);
+});

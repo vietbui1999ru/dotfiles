@@ -148,6 +148,9 @@ cycle it dispatches:
   timer on every `agent_start` and every extension-sourced input during the active run**, and
   re-arm it only at the next `agent_settled`. A repair turn that takes longer than 30 s must never
   be snapshotted mid-repair.
+- The 30 s default can be overridden with `AGENT_REVIEW_FALLBACK_MS` (a positive integer). Read it
+  **each time the timer is armed**, not once at module load, so tests can shorten it after
+  importing the extension. Ignore missing or invalid values.
 - Snapshot → `refs/agent-review/<run-id>/end`; keep `endTree`.
 - If `endTree === baseTree`: the run changed nothing. Delete both refs, no review.
 - Otherwise write the pending record atomically. **Clear the active run only after that write
