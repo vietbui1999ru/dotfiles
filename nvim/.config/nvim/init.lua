@@ -518,6 +518,7 @@ vim.api.nvim_create_autocmd("VimEnter", {
 
 		require("custom.plugins.pi-status")
 		require("custom.plugins.pi-ai")
+		require("custom.agent_review")
 		if commandr_ready() then
 			require("custom.plugins.commandr-board")
 			require("custom.plugins.evidence")
@@ -527,6 +528,9 @@ vim.api.nvim_create_autocmd("VimEnter", {
 			{ "<leader>o", group = "[O]cto" },
 			{ "<leader>a", group = "[A]gent" },
 			{ "<leader>ay", desc = "Agent: yank file reference", mode = { "n", "v" } },
+			{ "<leader>ar", desc = "Agent: review run" },
+			{ "<leader>an", desc = "Agent: review note" },
+			{ "<leader>aD", desc = "Agent: review done" },
 		}
 		if commandr_ready() then
 			vim.list_extend(wk_spec, {

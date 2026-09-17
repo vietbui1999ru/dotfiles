@@ -1,0 +1,172 @@
+if vim.g.vscode then return end
+
+local M = { current = nil, notes = {} }
+-- UUID v4: 8-4-4-4-12 hex groups; version nibble 4; variant nibble 8/9/a/b.
+local UUID = "^%x%x%x%x%x%x%x%x%-%x%x%x%x%-4%x%x%x%-[89aAbB]%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$"
+-- 40-char lowercase-or-uppercase hex hash (git object id).
+local HASH = "^%x+$"
+local HASH_LEN = 40
+
+local function root()
+  local result = vim.system({ "git", "rev-parse", "--show-toplevel" }, { text = true }):wait()
+  assert(result.code == 0, result.stderr)
+  return vim.trim(result.stdout)
+end
+
+local function valid_id(value) return type(value) == "string" and value:match(UUID) ~= nil end
+local function valid_hash(value)
+  return type(value) == "string" and #value == HASH_LEN and value:match(HASH) ~= nil
+end
+
+local function review_dir(repo) return repo .. "/.pi/agent-review" end
+
+local function git(repo, args, opts)
+  opts = opts or {}; opts.cwd = repo; opts.text = true
+  local result = vim.system(vim.list_extend({ "git" }, args), opts):wait()
+  assert(result.code == 0, result.stderr ~= "" and result.stderr or "git failed")
+  return vim.trim(result.stdout)
+end
+
+-- Like git(), but preserves trailing newlines (patch output must keep its
+-- final newline; trimming it corrupts the record).
+local function git_raw(repo, args, opts)
+  opts = opts or {}; opts.cwd = repo; opts.text = true
+  local result = vim.system(vim.list_extend({ "git" }, args), opts):wait()
+  assert(result.code == 0, result.stderr ~= "" and result.stderr or "git failed")
+  return result.stdout
+end
+
+local function snapshot(repo, label)
+  local index = git(repo, { "rev-parse", "--git-path", "index" })
+  index = vim.fs.normalize(vim.fs.joinpath(repo, index))
+  local temp = vim.fn.tempname() .. ".index"
+  if vim.uv.fs_stat(index) then assert(vim.uv.fs_copyfile(index, temp)) end
+  local env = vim.tbl_extend("force", vim.fn.environ(), { GIT_INDEX_FILE = temp })
+  local ok, result = pcall(function()
+    git(repo, { "add", "-A", "--", ".", ":(exclude).pi/agent-review" }, { env = env })
+    local tree = git(repo, { "write-tree" }, { env = env })
+    local commit = git(repo, { "commit-tree", tree, "-m", label }, { env = env })
+    return { commit = commit, tree = tree }
+  end)
+  vim.fn.delete(temp)
+  if not ok then error(result) end
+  return result
+end
+
+local function read_json(path)
+  local ok, lines = pcall(vim.fn.readfile, path)
+  if not ok then return nil end
+  local decoded, value = pcall(vim.json.decode, table.concat(lines, "\n"))
+  return decoded and value or nil
+end
+
+local function atomic_json(path, value)
+  vim.fn.mkdir(vim.fn.fnamemodify(path, ":h"), "p")
+  local temp = path .. "." .. vim.fn.sha256(tostring(vim.uv.hrtime())):sub(1, 8) .. ".tmp"
+  vim.fn.writefile({ vim.json.encode(value) }, temp)
+  assert(vim.uv.fs_rename(temp, path))
+end
+
+local function pending(repo)
+  local files = vim.fn.globpath(review_dir(repo) .. "/pending", "*.json", false, true)
+  local valid = {}
+  for _, file in ipairs(files) do
+    local id = vim.fn.fnamemodify(file, ":t:r")
+    local record = valid_id(id) and read_json(file) or nil
+    if record and record.runId == id
+        and valid_hash(record.base) and valid_hash(record["end"])
+        and valid_hash(record.baseTree) and valid_hash(record.endTree) then
+      table.insert(valid, { path = file, record = record })
+    end
+  end
+  table.sort(valid, function(a, b) return a.record.startedAt < b.record.startedAt end)
+  return valid
+end
+
+-- Resolve the repo-root-relative path of the file under the cursor.
+-- Diffview buffer names look like diffview:///abs/.git/<rev>/path or
+-- diffview:///abs/.git/<rev>/WORKTREE/path; the revision marker separates
+-- the git directory from the repo-relative file path.
+local function real_file(repo)
+  local name = vim.api.nvim_buf_get_name(0)
+  if name:match("^diffview://") then
+    local path = name:gsub("^diffview://", "")
+    local hash_marker = "/" .. string.rep("%x", 40) .. "/(.+)$"
+    local rel = path:match(hash_marker)
+    if rel then return rel end
+    for _, marker in ipairs({ "/LOCAL/", "/WORKTREE/", "/local/" }) do
+      local i = path:find(marker, 1, true)
+      if i then return path:sub(i + #marker) end
+    end
+    error("Could not resolve repo-relative path from diffview buffer: " .. name)
+  end
+  local absolute = vim.fs.normalize(name)
+  if absolute:sub(1, #repo) ~= repo then
+    error("Buffer path " .. absolute .. " is not inside repo " .. repo)
+  end
+  return absolute:sub(#repo + 2)
+end
+
+function M.open()
+  local ok, err = pcall(function()
+    local repo = root()
+    local entry = pending(repo)[1]
+    if not entry then return vim.notify("No pending agent review", vim.log.levels.INFO) end
+    local record = entry.record
+    assert(valid_hash(record.base), "invalid base in pending record")
+    M.current, M.notes = record, {}
+    require("diffview").open({ record.base })
+    require("gitsigns").change_base(record.base, true)
+    vim.notify("Accept: leave hunk. Reject: :Gitsigns reset_hunk. Edit normally.")
+  end)
+  if not ok then vim.notify("AgentReview failed: " .. tostring(err), vim.log.levels.ERROR) end
+end
+
+function M.note()
+  if not M.current then return vim.notify("Open :AgentReview first", vim.log.levels.WARN) end
+  local repo = root()
+  vim.ui.input({ prompt = "Agent review note: " }, function(note)
+    if note and note ~= "" then
+      table.insert(M.notes, { file = real_file(repo), line = vim.fn.line("."), note = note })
+    end
+  end)
+end
+
+function M.done()
+  local ok, err = pcall(function()
+    assert(M.current, "Open :AgentReview first")
+    local repo, record = root(), M.current
+    assert(
+      valid_id(record.runId) and valid_hash(record.endTree) and valid_hash(record.base),
+      "invalid pending record"
+    )
+    local final = snapshot(repo, "agent-review-final")
+    local patch = git_raw(repo, { "diff", record.endTree, final.tree })
+    local changed = {}
+    local changed_names = git(repo, { "diff", "--name-only", record.endTree, final.tree })
+    for _, file in ipairs(vim.split(changed_names, "\n", { trimempty = true })) do
+      changed[file] = true
+    end
+    local files = {}
+    for _, item in ipairs(record.files or {}) do
+      table.insert(files, { file = item.file, status = changed[item.file] and "changed" or "accepted" })
+    end
+    atomic_json(review_dir(repo) .. "/decisions/" .. record.runId .. ".json", {
+      runId = record.runId, endTree = record.endTree, finalTree = final.tree,
+      files = files, notes = M.notes, patch = patch,
+    })
+    require("diffview").close()
+    require("gitsigns").reset_base(true)
+    M.current, M.notes = nil, {}
+    vim.notify("Agent review decision recorded; Pi will validate and clear pending")
+  end)
+  if not ok then vim.notify("AgentReviewDone failed: " .. tostring(err), vim.log.levels.ERROR) end
+end
+
+vim.api.nvim_create_user_command("AgentReview", M.open, {})
+vim.api.nvim_create_user_command("AgentReviewNote", M.note, {})
+vim.api.nvim_create_user_command("AgentReviewDone", M.done, {})
+vim.keymap.set("n", "<leader>ar", M.open, { desc = "Agent: review run" })
+vim.keymap.set("n", "<leader>an", M.note, { desc = "Agent: review note" })
+vim.keymap.set("n", "<leader>aD", M.done, { desc = "Agent: review done" })
+return M
