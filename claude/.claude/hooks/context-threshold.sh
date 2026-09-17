@@ -4,6 +4,9 @@
 # context-threshold-notify.sh (PostToolUse), which both fired on every tool
 # call and independently re-derived the same cached percentage.
 #
+# Both registrations are intentional: PreToolUse alone can block an Agent
+# spawn before execution, while PostToolUse alone can emit a soft-stop only
+# after the just-finished tool. One event cannot preserve both behaviors.
 # PreToolUse: hard-block Agent spawns only; all other tools pass through so
 # save workflows are never interrupted.
 # PostToolUse: emit the SOFT STOP directive once per threshold crossing, with
