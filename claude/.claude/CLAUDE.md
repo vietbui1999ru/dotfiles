@@ -31,9 +31,4 @@ When sources conflict: higher number loses. Explicit always beats implicit.
 ## Quality rules (judge-extracted)
 
 
-# graphify
-
-- **graphify** (`~/.claude/skills/graphify/SKILL.md`) - any input to knowledge graph. Trigger: `/graphify`
-When the user types `/graphify`, invoke the Skill tool with `skill: "graphify"` before doing anything else.
-
 @RTK.md

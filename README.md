@@ -212,7 +212,6 @@ are model providers or explicit CLI bridges, not parallel harnesses.
 
 ```sh
 # Pi TUI
-/clear-context
 /sessions
 /review
 ```

@@ -1,1 +1,0 @@
-/Users/vietquocbui/repos/DiffViewer/adapters/opencode/diffviewer.js

@@ -12,23 +12,11 @@ Classify complexity before every task and agent spawn. No silent defaults.
 **Downgrade to Haiku** if all: bounded, single-step, mechanical, no judgment needed.
 **Sonnet flag**: if task warrants Opus but session runs Sonnet — say so, let user decide.
 
-## Agent spawning
+## Built-in harness roles
 
-Always set `model` param explicitly. Never omit — defaults are blocked in code repos.
+No custom agent roster is installed. When a harness supports built-in roles,
+use its `Explore`, `Plan`, or general-purpose role with an explicit model tier.
+For parallel implementation, use isolated git worktrees rather than named
+custom agents.
 
-```
-model: "opus" | "sonnet" | "haiku"
-```
-
-| Tier | subagent_type | Use when |
-|---|---|---|
-| Haiku | `code-writer-fast` | Boilerplate, rote edits |
-| Haiku | `explore` | Read-only exploration, no writes |
-| Sonnet | `code-writer` | Standard impl, multi-file features |
-| Opus | `design-explorer` | Brainstorm, open-ended ideation |
-| Opus | `architecture-reviewer` | Holistic review, pre-impl validation |
-| Opus | `Explore` | Codebase research across files |
-| Opus | `Plan` | Implementation planning |
-| Opus | `security-auditor` | Security analysis, threat modeling |
-
-User-specified tiers always override. Translate tier → subagent_type using table above.
+User-specified tiers always override.
