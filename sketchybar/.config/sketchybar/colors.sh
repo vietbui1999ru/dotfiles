@@ -39,9 +39,5 @@ export AUDIO_SOURCE_IDLE_COLOR=$MUTED_TEAL
 export VPN_ON_COLOR=$SAGE
 export VPN_OFF_COLOR=$MUTED_TEAL
 
-# ── Battery ──────────────────────────────────────
-export BATTERY_NORMAL_COLOR=$DARK_TEAL
-export BATTERY_WARNING_COLOR=0xffe78a4e
-
 # ── Mic ─────────────────────────────────────────
 export MIC_MUTE_COLOR=0xffe78a4e

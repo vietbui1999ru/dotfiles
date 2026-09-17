@@ -41,12 +41,18 @@ function logError(message, detail) {
 	console.error(`[herdr-sketchybar-bridge] ${message}${detail ? `: ${detail}` : ""}`);
 }
 
+// Nerd Font glyphs (Hack Nerd Font Mono, which sketchybar renders this label
+// in): fa-scroll for plan, md-hammer for build, fa-angles_right in place of
+// the literal "NEXT: " prefix.
+const ROLE_ICON = { plan: "\u{EF0D}", build: "\u{F08EA}" };
+const NEXT_ICON = "\u{F101}";
+
 function statusText(status) {
 	switch (status) {
 		case "working": return "● working";
 		case "blocked": return "! blocked";
-		case "done": return "✓ done";
-		case "idle": return "○ idle";
+		case "done": return "✓";
+		case "idle": return "○";
 		default: return "? unknown";
 	}
 }
@@ -54,11 +60,13 @@ function statusText(status) {
 function label() {
 	const plan = statusText(statusByRole.get("plan"));
 	const build = statusText(statusByRole.get("build"));
+	const base = `${ROLE_ICON.plan} ${plan} │ ${ROLE_ICON.build} ${build}`;
 	const latest = [...nextByRole.entries()]
 		.sort(([, left], [, right]) => right.sequence - left.sequence)[0];
-	return latest
-		? `plan ${plan} │ build ${build} │ ${latest[0]}: ${latest[1].text}`
-		: `plan ${plan} │ build ${build}`;
+	if (!latest) return base;
+	const [role, { text }] = latest;
+	const job = text.replace(/^NEXT:\s*/, "");
+	return `${base} │ ${ROLE_ICON[role]} ${NEXT_ICON} ${job}`;
 }
 
 function trigger() {
