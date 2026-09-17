@@ -247,7 +247,11 @@ export default function agentReview(pi: ExtensionAPI) {
 			await setRef(run.root, run.runId, run.base, end.commit);
 			await atomic(path(run.root, "pending", `${run.runId}.json`), record);
 			active = undefined;
-			ctx.ui.setStatus("agent-review", "review pending — :AgentReview in nvim");
+			try {
+				ctx.ui.setStatus("agent-review", "review pending — :AgentReview in nvim");
+			} catch {
+				// ctx may be stale after session replacement; the pending record is enough.
+			}
 		} catch (error) {
 			const record: Pending = {
 				runId: run.runId,
@@ -263,7 +267,11 @@ export default function agentReview(pi: ExtensionAPI) {
 			};
 			await atomic(path(run.root, "pending", `${run.runId}.json`), record);
 			active = undefined;
-			ctx.ui.notify("Agent review snapshot failed; review remains pending", "error");
+			try {
+				ctx.ui.notify("Agent review snapshot failed; review remains pending", "error");
+			} catch {
+				// ctx may be stale after session replacement.
+			}
 		} finally {
 			finishing = false;
 		}
@@ -301,10 +309,18 @@ export default function agentReview(pi: ExtensionAPI) {
 				reviewFollowUp = true;
 				pi.sendUserMessage(FOLLOW_UP_TEXT(id), { deliverAs: "followUp" });
 			}
-			ctx.ui.setStatus("agent-review", undefined);
+			try {
+				ctx.ui.setStatus("agent-review", undefined);
+			} catch {
+				// ctx may be stale after session replacement.
+			}
 		} catch (error) {
 			if (claimed) await release(processing, file);
-			ctx.ui.notify(`Agent review decision ignored: ${String(error)}`, "warning");
+			try {
+				ctx.ui.notify(`Agent review decision ignored: ${String(error)}`, "warning");
+			} catch {
+				// ctx may be stale after session replacement.
+			}
 		} finally {
 			inflight.delete(id);
 		}
