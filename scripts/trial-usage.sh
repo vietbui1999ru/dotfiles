@@ -1,18 +1,14 @@
 #!/bin/sh
-# trial-usage.sh — count recorded invocations of a named skill/extension/command
-# across agent session transcripts.
+# trial-usage.sh — count real skill/command invocations and review decisions.
 #
-# Sources and what counts as one invocation:
-#   ~/.claude/projects/**/*.jsonl   Claude Code: a Skill tool_use whose input
-#                                   names the skill ("skill":"<name>").
-#   ~/.pi/agent/sessions/**/*.jsonl Pi: a user message invoking the command
-#                                   ("/<name> ..." or the bare exact name).
-#
-# Mentions inside system prompts, skill listings, thinking, and assistant prose
-# are deliberately NOT counted — only recorded invocations.
+# Sources:
+#   ~/.claude/projects/**/*.jsonl       Claude Skill-tool invocations
+#   ~/.pi/agent/sessions/**/*.jsonl     exact Pi user slash commands
+#   project decision artifacts           extension-specific review usage
 #
 # Usage: trial-usage.sh <name>
-# Prints per-source counts and a total.
+# The total combines Claude Skill uses, exact Pi command uses, and matching
+# decision artifacts. `/judge` never counts `/judge-report`.
 
 set -eu
 
@@ -22,27 +18,75 @@ if [ "$#" -ne 1 ]; then
 	exit 2
 fi
 
-CLAUDE_ROOT="$HOME/.claude/projects"
-PI_ROOT="$HOME/.pi/agent/sessions"
+COUNTS=$(python3 - "$NAME" "$HOME" <<'PY'
+import json
+import os
+import re
+import sys
+from pathlib import Path
 
-count_claude() {
-	[ -d "$CLAUDE_ROOT" ] || { echo 0; return; }
-	find "$CLAUDE_ROOT" -name '*.jsonl' -type f -print0 2>/dev/null |
-		xargs -0 grep -h -c -F "\"skill\":\"$NAME\"" 2>/dev/null |
-		awk '{ total += $1 } END { print total + 0 }'
-}
+name = sys.argv[1]
+home = Path(sys.argv[2])
+claude_root = home / ".claude" / "projects"
+pi_root = home / ".pi" / "agent" / "sessions"
 
-count_pi() {
-	[ -d "$PI_ROOT" ] || { echo 0; return; }
-	find "$PI_ROOT" -name '*.jsonl' -type f -print0 2>/dev/null |
-		xargs -0 grep -h -F '"role":"user"' 2>/dev/null |
-		grep -c -F -e "\"text\":\"/$NAME" -e "\"text\":\"$NAME\"" 2>/dev/null ||
-		true
-}
+claude = 0
+if claude_root.is_dir():
+    needle = f'"skill":"{name}"'
+    for path in claude_root.rglob("*.jsonl"):
+        try:
+            with path.open(errors="replace") as stream:
+                claude += sum(needle in line for line in stream)
+        except OSError:
+            pass
 
-CLAUDE_COUNT=$(count_claude "$CLAUDE_ROOT")
-PI_COUNT=$(count_pi "$PI_ROOT")
+pi = 0
+command = re.compile(rf"^\s*/{re.escape(name)}(?:\s|$)")
+if pi_root.is_dir():
+    for path in pi_root.rglob("*.jsonl"):
+        try:
+            with path.open(errors="replace") as stream:
+                for line in stream:
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    message = entry.get("message", {})
+                    if message.get("role") != "user":
+                        continue
+                    for part in message.get("content", []):
+                        if part.get("type") == "text" and command.match(part.get("text", "")):
+                            pi += 1
+                            break
+        except OSError:
+            pass
 
-echo "claude: $CLAUDE_COUNT"
-echo "pi: $PI_COUNT"
-echo "total: $((CLAUDE_COUNT + PI_COUNT))"
+roots = [home / "dotfiles", home / "repos"]
+artifacts = 0
+if name in {"pi-diff-review", "diff-review"}:
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for path in root.rglob("decisions.jsonl"):
+            if path.parent.name != "diff-review" or path.parent.parent.name != ".pi":
+                continue
+            try:
+                with path.open(errors="replace") as stream:
+                    artifacts += sum(bool(line.strip()) for line in stream)
+            except OSError:
+                pass
+elif name == "agent-review":
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for path in root.rglob("*.json"):
+            if path.parent.name == "decisions" and path.parent.parent.name == "agent-review" and path.parent.parent.parent.name == ".pi":
+                artifacts += 1
+
+print(f"claude: {claude}")
+print(f"pi: {pi}")
+print(f"decisions: {artifacts}")
+print(f"total: {claude + pi + artifacts}")
+PY
+)
+printf '%s\n' "$COUNTS"
