@@ -67,7 +67,7 @@ for sid in "${ORDERED_WORKSPACES[@]}"; do
       icon.padding_right=4 \
       label.font="sketchybar-app-font:Regular:16.0" \
       label.padding_right=5 \
-      label.width=120 \
+      label.width=110 \
       label.drawing=on \
       label.y_offset=1 \
       background.corner_radius=25 \
@@ -141,11 +141,16 @@ sketchybar --add item left_spacer left \
 # every other variable-length label in this bar (audio_source, space.*) —
 # an unbounded label here was the one remaining item that could change
 # right_pill's raw content width on every async agent-status event.
+# 210 covers both status words at their longest ("? unknown" x2, measured
+# 200px) with a small margin; a NEXT-step suffix already exceeds this and
+# relies on scroll_texts to show it without resizing — that was already
+# true at 260, which didn't fit the NEXT case either, just wasted space on
+# the far more common status-only display.
 sketchybar --add item agents right \
            --set agents \
                  icon.drawing=off \
                  label.max_chars=300 \
-                 label.width=260 \
+                 label.width=210 \
                  label.font="Hack Nerd Font Mono:Regular:13.0" \
                  scroll_texts=on \
                  click_script="$PLUGIN_DIR/agents.sh" \
