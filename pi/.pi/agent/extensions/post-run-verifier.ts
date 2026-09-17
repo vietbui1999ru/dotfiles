@@ -153,6 +153,7 @@ let running: Promise<VerificationReport> | undefined;
 let repairCycles = 0;
 let lastReport: VerificationReport | undefined;
 let terminalReportDisplayed = false;
+let repairQueuedGeneration: number | undefined;
 let activeRoot: string | undefined;
 const generationPaths = new Map<number, Set<string>>();
 
@@ -828,6 +829,7 @@ export default function postRunVerifier(pi: ExtensionAPI): void {
 			if (report.status === "failed") {
 				if (repairCycles < 3 && !terminalReportDisplayed) {
 					repairCycles += 1;
+					repairQueuedGeneration = thisGeneration;
 					pi.sendUserMessage(failedPrompt(report, 3 - repairCycles), {
 						deliverAs: "followUp",
 						expandPromptTemplates: false,
@@ -878,6 +880,10 @@ export default function postRunVerifier(pi: ExtensionAPI): void {
 	pi.on("agent_settled", async (_event, ctx) => {
 		if (running) await running;
 		if (completedGeneration !== generation) await boundaryRun(ctx);
+		// A queued repair belongs to this run but starts the next low-level agent
+		// generation. Do not let review snapshot the pre-repair tree.
+		if (repairQueuedGeneration === generation) return;
+		pi.events.emit("post-run-verifier:settled", { generation, root: activeRoot });
 	});
 
 	pi.registerCommand("verify", {
