@@ -11,7 +11,13 @@ const execFileAsync = promisify(execFile);
 const RUN_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const HASH = /^[0-9a-f]{40}$/;
 const DIR = ".pi/agent-review";
-const FALLBACK_MS = 30_000;
+function fallbackMs(): number {
+	const raw = process.env.AGENT_REVIEW_FALLBACK_MS;
+	if (!raw) return 30_000;
+	const parsed = Number(raw);
+	if (!Number.isFinite(parsed) || parsed <= 0) return 30_000;
+	return parsed;
+}
 
 type Mode = "on" | "off";
 type Pending = {
@@ -198,7 +204,7 @@ export default function agentReview(pi: ExtensionAPI) {
 		fallbackTimer = setTimeout(() => {
 			verifierDone = true;
 			void finish(ctx);
-		}, FALLBACK_MS);
+		}, fallbackMs());
 	};
 
 	const disarmFallback = () => {
@@ -381,6 +387,11 @@ export default function agentReview(pi: ExtensionAPI) {
 				const record = records.find((entry) => entry.runId === id);
 				if (!record) {
 					ctx.ui.notify("Unknown review", "warning");
+					return;
+				}
+				if (record.error) {
+					await rm(path(root, "pending", `${id}.json`), { force: true });
+					ctx.ui.notify(`Skipped error review ${id}: ${record.error}. If snapshots keep failing, run agent-review mode off.`, "warning");
 					return;
 				}
 				const final = await snapshot(root, "agent-review-skip");
