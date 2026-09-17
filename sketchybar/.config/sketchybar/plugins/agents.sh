@@ -10,5 +10,5 @@ if [[ "$SENDER" == "mouse.clicked" ]]; then
   exit 0
 fi
 
-sketchybar --set "$NAME" label="${LABEL:-plan ? unknown │ build ? unknown}"
+sketchybar --set "$NAME" label="${LABEL:- ? unknown │ 󰣪 ? unknown}"
 CALLER=agents "$CONFIG_DIR/plugins/balance_pills.sh"
