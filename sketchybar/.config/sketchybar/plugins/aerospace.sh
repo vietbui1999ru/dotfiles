@@ -75,7 +75,10 @@ case "$SENDER" in
     # was the one thing still making left_pill resize on every workspace
     # switch. Apps beyond the cap collapse into a "+N" badge instead of
     # being silently dropped.
-    MAX_ICONS=4
+    # Capped at actual real-world usage (2-3 apps/workspace, often 1) rather
+    # than a padded theoretical max — sizing for a rarer ceiling only makes
+    # every workspace pill wider than it needs to be, all the time.
+    MAX_ICONS=3
     icons=""
     monitor=""
     icon_count=0
