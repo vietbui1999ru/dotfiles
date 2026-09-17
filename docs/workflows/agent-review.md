@@ -41,6 +41,42 @@ the verifier's completion signal or re-check that no verifier cycle is pending).
 
 ## Components
 
+### Scope and contract for v1 — 2026-09-17
+
+Two implementation rounds failed review the same way: "done" was reported, the tests did not
+exercise the extension, and the Verification list was never run. v1 therefore changes two things:
+
+**1. Scope is cut to the core gate.** Deferred to v2, and not to be built now:
+- the override shortcut (`agent-review mode on|off` between runs covers toggling);
+- print-mode (`pi -p`) handling and non-zero exit;
+- the 7-day ref prune on `session_start`;
+- multi-session guarantees beyond the claim-by-rename already specified.
+
+Everything else in components 2 and 3 is v1.
+
+**2. Tests come first, written by the planner, not the implementer.**
+`pi/.pi/agent/extensions-available/agent-review/agent-review.integration.test.ts` drives the real
+extension through a fake Pi against temporary git repos. **Pi implements until it passes, and must
+not edit that file.** If a test looks wrong, stop and report it. The test is the contract: a change
+that passes by weakening it does not count. Run it with
+`node --test agent-review.integration.test.ts` from that directory, and show the full output.
+
+**3. Develop outside the loaded extensions directory.** Pi loads every top-level `*.ts`/`*.js` in
+`~/.pi/agent/extensions/` as an extension (`loader.js:528`), and the `pi` stow package links those
+files individually. So any restow would put `agent-review.ts` live next to `pi-diff-review` (two
+gates at once, against this spec), and would also load `agent-review.test.ts` as an extension that
+runs its tests on every Pi start. Therefore:
+- Move the extension to `pi/.pi/agent/extensions-available/agent-review/index.ts`, and all its
+  tests into that directory. `extensions-available/` is not loaded by Pi.
+- Delete `pi/.pi/agent/extensions/agent-review.ts` and `agent-review.test.ts` from the loaded
+  directory.
+- Enabling it is a deliberate step during verification: `git mv` the directory to
+  `pi/.pi/agent/extensions/agent-review/` and restow, in the same step that disables
+  `pi-diff-review`. Pi loads only a subdirectory's `index.ts`, so the tests inside it are never
+  loaded as extensions. Disabling it again is the reverse move plus restow.
+- **Until then, do not run `scripts/restow.sh` or `stow -R pi`** while `agent-review.ts` sits in the
+  loaded directory.
+
 ### Input-cancellation check — 2026-09-17
 
 Verified from Pi’s extension API: an `input` handler returning
