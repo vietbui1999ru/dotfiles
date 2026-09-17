@@ -164,7 +164,15 @@ function handleEvent(message) {
 			scheduleTopologyRefresh(`unknown status pane ${event?.pane_id ?? "?"}`);
 			return;
 		}
-		if (event?.agent_status) publishStatus(role, event.agent_status);
+		if (event?.agent_status) {
+			publishStatus(role, event.agent_status);
+			// Herdr emits an immediate output match when a subscription is
+			// registered, but some terminal renderers do not stream later
+			// matches. A completion status is the one event-driven point where
+			// rescanning recent_unwrapped is both sufficient and bounded.
+			if (event.agent_status === "done" || event.agent_status === "idle")
+				scheduleTopologyRefresh(`completed pane ${event.pane_id}`);
+		}
 		return;
 	}
 	if (message?.event === "pane.output_matched") {

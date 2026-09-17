@@ -188,6 +188,19 @@ externalizing is the most-reported effective strategy. Upkeep near zero. Adopt o
 
 ## Verification
 
+### Live bridge verification — 2026-09-16
+
+- Launchd recovery: `launchctl kill SIGTERM gui/501/com.vietbui.herdr-sketchybar-bridge`
+  replaced bridge PID `25675` with `29525`; the replacement logged
+  `subscription_started`.
+- Real Pi output: the sole `build` pane (`w3:p1`) ended a normal run with
+  `NEXT: verify single-build-pane final handoff capture [you]`.
+- Within the next one-second observation window, the pill rendered:
+  `plan ○ idle │ build ● working │ build: NEXT: verify single-build-pane final handoff capture [you]`.
+- The bridge log recorded `rebuilding subscriptions: completed pane w3:p1`
+  followed by `subscription_started`, confirming the recovered bridge received
+  the post-restart completion.
+
 - Slice 1: kill the bridge process; launchd restarts it and the pill recovers.
 - Slice 2: a run that ends without `NEXT:` shows the fallback text.
 - Slice 3: ignore a finished agent past N minutes; exactly one escalation fires.
