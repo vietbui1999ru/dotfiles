@@ -25,7 +25,7 @@ Provisioning uses three mechanisms — know which applies before editing a packa
 | `mouseless/` | `~/Library/Application Support/Mouseless/configs/config.yaml` | stow (macOS Mouseless app) — not in the `stow` line above; back up the live file before first `stow mouseless`, restart the app after |
 | `sketchybar/` | `~/.config/sketchybar/` | stow (macOS status bar) — not in the `stow` line above; add when used; `sketchybar --reload` after edits |
 | `i3/` | `~/.config/i3/config` | Linux-only, applied via Ansible (not macOS stow) |
-| `claude/` | `~/.claude/` | stow (partial) — files symlinked; `skills/`+`agents/` mix dotfiles and `llm-wiki` sources |
+| `claude/` | `~/.claude/` | stow (partial) — including `settings.json`; `skills/`+`agents/` mix dotfiles and `llm-wiki` sources |
 | `opencode/` | `~/.config/opencode/` | partial — `plugins/` stow; `opencode.json` materialized; `agents/`/`skills/` unmanaged |
 | `codex/` | `~/.codex/` | **no-op stub today** — Codex is sync-pushed via `sync-agent-rules.sh`, not stowed |
 | `pi/` | `~/.pi/` | stow (extensions only); `~/.pi/agent/` runtime state is unmanaged |
