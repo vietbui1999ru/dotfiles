@@ -14,6 +14,7 @@
     "defaultMode": "auto"
   },
   "model": "sonnet",
+  "_comment_contextThreshold": "context-threshold.sh is intentionally registered in both PreToolUse (block Agent spawns before execution) and PostToolUse (soft-stop only after a tool completes); one event cannot preserve both behaviors.",
   "hooks": {
     "PostToolUse": [
       {
