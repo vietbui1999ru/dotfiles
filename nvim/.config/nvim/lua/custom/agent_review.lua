@@ -141,10 +141,16 @@ function M.note()
       local name = vim.api.nvim_buf_get_name(0)
       local file, line
       if name:match("^diffview://") and name:match("DiffviewFilePanel$") then
+        -- The panel has no repo-relative path of its own, so ask diffview which
+        -- entry the cursor is on. infer_cur_file() returns that entry while the
+        -- panel is focused; panel.cur_file would instead return whichever file
+        -- is open in the diff, which is only updated by set_file/next_file and
+        -- the staging actions, and would file the note against the wrong path.
         local view = require("diffview.lib").get_current_view()
-        local selected = view and view.panel and view.panel.cur_file
+        local selected = view and view:infer_cur_file()
         file = selected and selected.path
-        line = 1
+        -- A panel entry names a file, not a position in it.
+        line = 0
       else
         file = real_file(repo)
         line = vim.fn.line(".")

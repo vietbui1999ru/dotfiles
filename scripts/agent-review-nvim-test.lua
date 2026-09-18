@@ -122,6 +122,8 @@ io.write("\ndiffview buffers\n")
 -- module must still find the repo root and a repo-relative path from it.
 local function note_from(name)
   M.current, M.notes = { runId = runId, base = base, endTree = endsnap.tree }, {}
+  local existing = vim.fn.bufnr(name)
+  if existing ~= -1 then vim.api.nvim_buf_delete(existing, { force = true }) end
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_name(buf, name)
   vim.api.nvim_set_current_buf(buf)
@@ -132,6 +134,33 @@ local hashed = note_from("diffview://" .. repo .. "/.git/" .. string.rep("a", 40
 check("path resolved from a revision-hashed diffview buffer", hashed and hashed.file == "agent.txt", vim.inspect(hashed))
 local worktree = note_from("diffview://" .. repo .. "/.git/WORKTREE/agent.txt")
 check("path resolved from a WORKTREE diffview buffer", worktree and worktree.file == "agent.txt", vim.inspect(worktree))
+
+-- Taking a note from the file panel must follow the cursor. diffview keeps two
+-- different notions of "current file": panel.cur_file is whatever is *open* in
+-- the diff, updated only by set_file/next_file/prev_file and the staging
+-- actions, while view:infer_cur_file() returns the entry under the cursor while
+-- the panel is focused. Reading the wrong one silently files the note against
+-- the wrong path, so the stub makes them disagree on purpose.
+package.loaded["diffview.lib"] = {
+  get_current_view = function()
+    return {
+      panel = { cur_file = { path = "added.txt" } },
+      infer_cur_file = function() return { path = "agent.txt" } end,
+    }
+  end,
+}
+local panel = note_from("diffview:///panels/0/DiffviewFilePanel")
+check("note from the file panel follows the cursor, not the open file", panel and panel.file == "agent.txt", vim.inspect(panel))
+
+-- With the cursor on a directory node, diffview returns nothing; the note must
+-- be refused rather than silently attached to the file that happens to be open.
+package.loaded["diffview.lib"] = {
+  get_current_view = function()
+    return { panel = { cur_file = { path = "added.txt" } }, infer_cur_file = function() return nil end }
+  end,
+}
+local none = note_from("diffview:///panels/0/DiffviewFilePanel")
+check("note is refused when the cursor is on no file", none == nil, vim.inspect(none))
 vim.cmd.edit(repo .. "/agent.txt")
 M.current, M.notes = nil, {}
 
