@@ -292,6 +292,9 @@ export default function agentReview(pi: ExtensionAPI) {
 		const processing = path(root, "pending", `${id}.processing`);
 		let claimed = false;
 		try {
+			// If the pending record is already gone, the decision was already
+			// processed or the pending record was never written. Skip silently.
+			if (!existsSync(file)) return;
 			await claim(file, processing);
 			claimed = true;
 			const record = await readJson<Pending>(processing);
