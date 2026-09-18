@@ -137,9 +137,22 @@ function M.note()
   local repo = root()
   vim.ui.input({ prompt = "Agent review note: " }, function(note)
     local ok, err = pcall(function()
-      if note and note ~= "" then
-        table.insert(M.notes, { file = real_file(repo), line = vim.fn.line("."), note = note })
+      if not note or note == "" then return end
+      local name = vim.api.nvim_buf_get_name(0)
+      local file, line
+      if name:match("^diffview://") and name:match("DiffviewFilePanel$") then
+        local view = require("diffview.lib").get_current_view()
+        local selected = view and view.panel and view.panel.cur_file
+        file = selected and selected.path
+        line = 1
+      else
+        file = real_file(repo)
+        line = vim.fn.line(".")
       end
+      if not file then
+        error("Could not determine the file for the note. Move the cursor to a file diff pane.")
+      end
+      table.insert(M.notes, { file = file, line = line, note = note })
     end)
     if not ok then vim.notify("AgentReviewNote failed: " .. tostring(err), vim.log.levels.ERROR) end
   end)
