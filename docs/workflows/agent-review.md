@@ -326,8 +326,41 @@ same window.
   Neovim, never used in a path.
 - A git failure during the end snapshot → pending record with `error`, input blocked.
 
-**Stow order for verification.** `agent-review.ts` is not stowed yet, so it has never loaded.
-Stowing it while `pi-diff-review` is enabled would run two review gates at once. For the real
-verification run: disable `pi-diff-review`, stow `agent-review`, run this list. If verification
-fails, unstow `agent-review` and re-enable `pi-diff-review` before stopping. Don't leave the repo
-with no review gate.
+### Coverage — 2026-09-18
+
+Most of the list above is now checked automatically, which leaves a short manual list.
+
+Run both suites from the repo root:
+
+```sh
+cd pi/.pi/agent/extensions/agent-review && bun test   # 25 tests: the extension and the CLI
+nvim --clean --headless -l scripts/agent-review-nvim-test.lua   # 20 checks: the Neovim module
+```
+
+Automated: no-change runs, mode off and mode on via the real CLI, forged and malformed decisions,
+one follow-up per decision, accept-everything sending nothing, `/review skip`, repair turns longer
+than the fallback, a missing verifier signal, a failing start snapshot, two sessions on one repo,
+decisions written while Pi was closed, a stale extension context, subdirectory root resolution, and
+— on the Neovim side — the arguments handed to diffview and gitsigns, the decision record's shape
+and statuses, the untrimmed patch, repo-relative note paths from diffview buffers, and rejection of
+pending records whose id is not a UUID or does not match their filename.
+
+Still manual, because nothing but a human at a real terminal can judge it:
+
+1. The diff renders correctly in diffview against the run's base, and `:Gitsigns reset_hunk` reverts
+   the hunk under the cursor rather than a neighbouring one.
+2. A full round trip inside a live Pi session: reject one hunk, edit one, accept one, add a note,
+   `:AgentReviewDone`, and confirm Pi receives exactly one follow-up naming the right file.
+3. Pi started from a subdirectory: `:AgentReview` finds the pending record from a buffer anywhere in
+   the tree.
+4. `pi -p` with mode on leaves a pending record and exits non-zero (see the print-mode limit; this
+   is v2 work and may simply fail).
+5. With `agent-review` enabled, `pi-diff-review` does not also open a review. Currently trivially
+   true — `pi-diff-review` is unstowed — but worth re-checking if it is ever re-enabled.
+6. Editing the mode file from inside a live Pi run sets the tamper flag and forces the mode on.
+
+**Stow order for verification.** Running two review gates at once would double every prompt, so
+exactly one of `agent-review` and `pi-diff-review` lives in `pi/.pi/agent/extensions/`; the other
+waits in `extensions-available/`. As of 2026-09-18 `agent-review` is the stowed one and
+`pi-diff-review` is disabled, which is the state the manual list above expects. If verification
+fails, swap them back and restow before stopping. Don't leave the repo with no review gate.
