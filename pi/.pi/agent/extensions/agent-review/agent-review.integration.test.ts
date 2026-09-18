@@ -80,7 +80,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 type Handler = (event: Record<string, unknown>, ctx: unknown) => unknown;
 
 // Minimal fake of Pi's ExtensionAPI: only what the spec's lifecycle needs.
-function startSession(root: string) {
+function startSession(root: string, options: { hostileUi?: boolean } = {}) {
   const handlers = new Map<string, Handler[]>();
   const commands = new Map<string, (args: string, ctx: unknown) => Promise<void>>();
   const channels = new Map<string, Array<(data: unknown) => void>>();
@@ -90,7 +90,16 @@ function startSession(root: string) {
     cwd: root,
     hasUI: true,
     mode: "tui",
-    ui: { notify: (message: string) => notices.push(message), setStatus: () => {} },
+    ui: {
+      // Pi replaces the extension context on session replacement; a captured ctx then throws.
+      notify: (message: string) => {
+        if (options.hostileUi) throw new Error("stale extension context");
+        notices.push(message);
+      },
+      setStatus: () => {
+        if (options.hostileUi) throw new Error("stale extension context");
+      },
+    },
   };
   const pi = {
     on: (name: string, handler: Handler) => handlers.set(name, [...(handlers.get(name) ?? []), handler]),
@@ -340,6 +349,17 @@ test("a failing start snapshot blocks input, and skip clears the error record", 
   assert.ok(JSON.parse(readFileSync(reviewPath(root, "pending", `${runId}.json`), "utf8")).error);
   await session.command("review", `skip ${runId}`); // must work although snapshots still fail
   await waitFor(() => pendingIds(root).length === 0);
+});
+
+test("a stale context whose UI calls throw still produces a review and a follow-up", async () => {
+  const root = makeRepo();
+  const session = startSession(root, { hostileUi: true });
+  await session.emit("session_start");
+  const pending = await changingRun(root, session); // pending survives throwing setStatus
+  writeFileSync(join(root, "tracked.txt"), "base\n");
+  decide(root, pending);
+  await waitFor(() => session.sent.length === 1 && pendingIds(root).length === 0);
+  assert.equal(reviewRefs(root), "");
 });
 
 test("a decision written while Pi was closed is processed at the next session start", async () => {

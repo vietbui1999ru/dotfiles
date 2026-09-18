@@ -158,6 +158,11 @@ cycle it dispatches:
 - **Fail closed on errors.** If a snapshot, ref update, or write fails, write a pending record
   with `error` set (it blocks like any pending review and can be skipped). Never drop the run
   silently: a lost review means an unreviewed run.
+- **A failing UI must never lose a review.** Pi replaces the extension context on a new session,
+  fork, switch, or print-mode run, after which a captured `ctx`'s `ui.notify`/`ui.setStatus` throw.
+  Treat status and notification as best-effort: a UI error must not prevent writing the pending
+  record, validating a decision, or sending the follow-up. Review state lives on disk, and
+  `session_start` restores the status indicator from it.
 - **Tamper check:** if the mode file's mtime changed during the run, set `tamper: true`, force mode
   back to `on`, and keep the review. Take the mtime reading **before** writing any queued human
   mode change (see Override shortcut).
