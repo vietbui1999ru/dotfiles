@@ -170,8 +170,12 @@ async function listPending(root: string): Promise<Pending[]> {
 	const names = await readdir(dir).catch(() => [] as string[]);
 	const records: Pending[] = [];
 	for (const name of names) {
-		if (!name.endsWith(".json")) continue;
-		const id = name.slice(0, -5);
+		// `.processing` records belong to a claim in flight — or to a session that
+		// died holding one. Either way the review is not finished, so it must keep
+		// blocking input; dropping it here would fail open and silently.
+		const suffix = [".json", ".processing"].find((ext) => name.endsWith(ext));
+		if (!suffix) continue;
+		const id = name.slice(0, -suffix.length);
 		if (!validRunId(id)) continue;
 		const record = await readJson<Pending>(join(dir, name));
 		if (!record || record.runId !== id) continue;
@@ -406,6 +410,17 @@ export default function agentReview(pi: ExtensionAPI) {
 				const record = records.find((entry) => entry.runId === id);
 				if (!record) {
 					ctx.ui.notify("Unknown review", "warning");
+					return;
+				}
+				// An interrupted claim: the session that held it is gone, so there is
+				// nothing to race with and no decision will ever arrive for it.
+				// Clearing it is an explicit human act, which is why recovery lives
+				// here rather than running automatically at session_start.
+				const processing = path(root, "pending", `${id}.processing`);
+				if (!existsSync(path(root, "pending", `${id}.json`)) && existsSync(processing)) {
+					await rm(processing, { force: true });
+					await deleteRefs(root, id);
+					ctx.ui.notify(`Cleared interrupted review ${id}, left behind by a Pi session that exited mid-review.`, "warning");
 					return;
 				}
 				if (record.error) {

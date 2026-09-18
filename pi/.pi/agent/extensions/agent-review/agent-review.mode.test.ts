@@ -8,7 +8,9 @@
 // loudly enough to notice.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test, { after } from "node:test";
@@ -37,12 +39,15 @@ function makeRepo(): string {
 
 function start(root: string) {
   const handlers = new Map<string, Array<(e: unknown, c: unknown) => unknown>>();
+  const commands = new Map<string, (args: string, c: unknown) => Promise<void>>();
+  const notices: string[] = [];
   const channels = new Map<string, Array<(data: unknown) => void>>();
-  const ctx = { cwd: root, hasUI: true, mode: "tui", ui: { notify: () => {}, setStatus: () => {} } };
+  const ctx = { cwd: root, hasUI: true, mode: "tui", ui: { notify: (m: string) => notices.push(m), setStatus: () => {} } };
   const pi = {
     on: (name: string, handler: (e: unknown, c: unknown) => unknown) =>
       handlers.set(name, [...(handlers.get(name) ?? []), handler]),
-    registerCommand: () => {},
+    registerCommand: (name: string, options: { handler: (args: string, c: unknown) => Promise<void> }) =>
+      commands.set(name, options.handler),
     events: {
       on: (channel: string, handler: (data: unknown) => void) => {
         channels.set(channel, [...(channels.get(channel) ?? []), handler]);
@@ -65,7 +70,8 @@ function start(root: string) {
     await emit("agent_settled");
     pi.events.emit("post-run-verifier:settled", {});
   };
-  return { emit, settle };
+  const command = (name: string, args: string) => commands.get(name)!(args, ctx);
+  return { emit, settle, command, notices };
 }
 
 const pending = (root: string) => {
@@ -109,4 +115,46 @@ test("switching the mode back on restores the gate", async () => {
   await settle();
   await new Promise((resolve) => setTimeout(resolve, 2_000));
   assert.equal(pending(root).length, 1);
+});
+
+// ─── Interrupted reviews ─────────────────────────────────────────────────────
+//
+// A review is claimed by renaming pending/<id>.json to <id>.processing. If Pi
+// dies between that rename and the end of processing, the .processing file is
+// left behind and nothing ever looks at it again: the review is neither
+// pending nor complete. The gate must not quietly disappear in that state.
+
+async function interruptedReview(root: string): Promise<string> {
+  const { emit, settle } = start(root);
+  await emit("session_start");
+  await emit("input", { text: "do the work", source: "interactive" });
+  await emit("agent_start");
+  writeFileSync(join(root, "tracked.txt"), "agent edit\n");
+  await settle();
+  await new Promise((resolve) => setTimeout(resolve, 2_000));
+  const [name] = pending(root);
+  const id = name.slice(0, -".json".length);
+  // The crash: claimed, then the process died before it could finish.
+  renameSync(join(root, ".pi", "agent-review", "pending", name), join(root, ".pi", "agent-review", "pending", `${id}.processing`));
+  return id;
+}
+
+test("an interrupted review still blocks input", async () => {
+  const root = makeRepo();
+  const id = await interruptedReview(root);
+  const next = start(root);
+  await next.emit("session_start");
+  assert.deepEqual(await next.emit("input", { text: "carry on", source: "interactive" }), { action: "handled" });
+  assert.ok(next.notices.some((notice) => notice.includes(id)), `no notice named the review: ${JSON.stringify(next.notices)}`);
+});
+
+test("/review skip clears an interrupted review", async () => {
+  const root = makeRepo();
+  const id = await interruptedReview(root);
+  const next = start(root);
+  await next.emit("session_start");
+  await next.command("review", `skip ${id}`);
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  assert.deepEqual(pending(root), [], "the interrupted review was not cleared");
+  assert.deepEqual(await next.emit("input", { text: "carry on", source: "interactive" }), { action: "continue" });
 });
