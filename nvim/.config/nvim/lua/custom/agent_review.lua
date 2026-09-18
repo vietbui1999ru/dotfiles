@@ -9,7 +9,12 @@ local HASH_LEN = 40
 
 local function root()
   local buf = vim.api.nvim_buf_get_name(0)
-  local cwd = buf ~= "" and vim.fn.fnamemodify(buf, ":h") or vim.fn.getcwd()
+  local cwd = vim.fn.getcwd()
+  if buf ~= "" then
+    local dir = vim.fn.fnamemodify(buf, ":h")
+    local real = vim.uv.fs_realpath(dir)
+    if real then cwd = real end
+  end
   local result = vim.system({ "git", "rev-parse", "--show-toplevel" }, { cwd = cwd, text = true }):wait()
   assert(result.code == 0, result.stderr)
   return vim.trim(result.stdout)
