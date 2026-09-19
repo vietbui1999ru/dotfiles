@@ -117,6 +117,20 @@ local function real_file(repo)
   return real_abs:sub(#prefix + 1)
 end
 
+-- Files in the run that cannot be rejected with reset_hunk, because the base
+-- tree has no version of them to revert to.
+function M.unrejectable(repo, record)
+  local in_base = {}
+  for _, path in ipairs(vim.split(git(repo, { "ls-tree", "-r", "--name-only", record.base }), "\n", { trimempty = true })) do
+    in_base[path] = true
+  end
+  local added = {}
+  for _, item in ipairs(record.files or {}) do
+    if type(item.file) == "string" and not in_base[item.file] then table.insert(added, item.file) end
+  end
+  return added
+end
+
 function M.open()
   local ok, err = pcall(function()
     local repo = root()
@@ -128,6 +142,19 @@ function M.open()
     require("diffview").open({ record.base })
     require("gitsigns").change_base(record.base, true)
     vim.notify("Accept: leave hunk. Reject: :Gitsigns reset_hunk. Edit normally.")
+    -- A file the run created has no version in the base, so gitsigns has no
+    -- hunk to reset — and on an untracked file it does not attach at all
+    -- (attach_to_untracked defaults to false), so reset_hunk returns silently.
+    -- Deleting the file is the rejection: the base has no such path, so the
+    -- final snapshot records its absence.
+    local added = M.unrejectable(repo, record)
+    if #added > 0 then
+      vim.notify(
+        ("Agent review: %s %s new. Reject by deleting the file; :Gitsigns reset_hunk cannot revert a file with no base version.")
+          :format(table.concat(added, ", "), #added == 1 and "is" or "are"),
+        vim.log.levels.WARN
+      )
+    end
   end)
   if not ok then vim.notify("AgentReview failed: " .. tostring(err), vim.log.levels.ERROR) end
 end
@@ -227,6 +254,39 @@ function M.done()
   if not ok then vim.notify("AgentReviewDone failed: " .. tostring(err), vim.log.levels.ERROR) end
 end
 
+-- Report the state the review actually depends on. Everything goes through one
+-- vim.notify so it survives in :messages and in noice's log, unlike a bare
+-- print() in the cmdline, which a redraw can wipe before you read it.
+function M.debug()
+  local lines = {}
+  local function add(label, value) table.insert(lines, label .. ": " .. tostring(value)) end
+  add("buffer", vim.api.nvim_buf_get_name(0))
+  local ok_gs, gs = pcall(require, "gitsigns")
+  local hunks = ok_gs and gs.get_hunks() or nil
+  add("gitsigns attached", hunks ~= nil)
+  if hunks then add("hunks in this buffer", #hunks) end
+  local ok_dv, lib = pcall(require, "diffview.lib")
+  local view = ok_dv and lib.get_current_view() or nil
+  if view and view.panel then
+    local item = view.panel.get_item_at_cursor and view.panel:get_item_at_cursor()
+    add("panel cursor", item and item.path or "none")
+    add("open in diff", view.panel.cur_file and view.panel.cur_file.path or "none")
+  end
+  if M.current then
+    add("review", M.current.runId)
+    add("notes taken", #M.notes)
+    local ok_root, repo = pcall(root)
+    if ok_root then
+      local added = M.unrejectable(repo, M.current)
+      add("reject by deleting", #added > 0 and table.concat(added, ", ") or "none")
+    end
+  else
+    add("review", "none open")
+  end
+  vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO)
+end
+
+vim.api.nvim_create_user_command("AgentReviewDebug", M.debug, {})
 vim.api.nvim_create_user_command("AgentReview", M.open, {})
 vim.api.nvim_create_user_command("AgentReviewNote", M.note, {})
 vim.api.nvim_create_user_command("AgentReviewDone", M.done, {})

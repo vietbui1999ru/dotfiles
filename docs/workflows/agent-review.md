@@ -231,18 +231,35 @@ exclusion, tree comparison, identifier validation, and record shapes.
   `require("gitsigns").change_base(base, true)`, so gitsigns navigates and resets hunks against
   the run's base.
   - **Accept** a hunk: leave it.
-  - **Reject** a hunk: gitsigns `reset_hunk` (restores base content in the working tree).
+  - **Reject** a hunk: gitsigns `reset_hunk` (restores base content in the working tree). This
+    works only in the **working-tree window** of the diff, and only for a file that already
+    existed at the run's base. `reset_hunk` returns silently on any buffer gitsigns is not
+    attached to (`gitsigns/actions.lua`: `if not bcache then return end`), which includes the file
+    panel, the base side of the diff, and — since `attach_to_untracked` defaults to false — every
+    untracked file. A rejection that lands on one of those does nothing and says nothing.
+  - **Reject a file the run created**: delete it. A new file has no base version, so there is no
+    hunk to reset; the base tree has no such path, so the final snapshot records the deletion as
+    the rejection. `:AgentReview` warns which files these are when it opens.
   - **Edit** a hunk: edit the buffer normally.
 - `:AgentReviewNote` — prompt for a note on the cursor line, appended as `{file, line, note}`.
   `file` is the repo-relative path of the real file. Inside diffview panes, resolve the underlying
   path, never store a `diffview://` buffer name.
 - `:AgentReviewDone` — take a snapshot with the shared method and keep its **tree** as
-  `finalTree`. Compute `git diff <endTree> <finalTree>` as the reviewer's patch: it encodes every
-  rejection and edit relative to what the agent produced, and is empty if everything was accepted.
+  `finalTree`. Compute `git diff <endTree> <finalTree> -- <the run's files>` as the reviewer's
+  patch: it encodes every rejection and edit relative to what the agent produced, and is empty if
+  everything was accepted. The pathspec matters — the working tree is shared, and without it any
+  unrelated edit made elsewhere since the run ended is handed to the agent as the reviewer's work.
+  An empty patch warns, because it is also what a rejection that silently failed to land looks
+  like.
   Write `.pi/agent-review/decisions/<run-id>.json` atomically (tmp name ending in `.tmp`, then
   rename) in the decision shape. Close diffview and restore gitsigns with its `reset_base`. **Do
   not delete the pending record** — Pi removes it after validating. Wrap the whole command in
   `pcall` and report failures instead of erroring half-way.
+- `:AgentReviewDebug` — report what the review depends on: the current buffer, whether gitsigns is
+  attached to it and how many hunks it sees, the file under the panel cursor versus the one open in
+  the diff, the open review, and which of its files must be rejected by deletion. It reports
+  through `vim.notify`, so the output survives in `:messages` and in noice's log; a bare `print()`
+  in the cmdline can be wiped by a redraw before it is read.
 - Keymaps: `<leader>ar` review, `<leader>an` note, **`<leader>aD`** done. `<leader>ad` is taken
   by Evidence's DAP snapshot (`lua/custom/plugins/evidence.lua:425`). Add all three to the
   which-key group in `init.lua` with accurate labels.
@@ -348,7 +365,9 @@ pending records whose id is not a UUID or does not match their filename.
 Still manual, because nothing but a human at a real terminal can judge it:
 
 1. The diff renders correctly in diffview against the run's base, and `:Gitsigns reset_hunk` reverts
-   the hunk under the cursor rather than a neighbouring one.
+   the hunk under the cursor rather than a neighbouring one. Use a **tracked** file that the run
+   modified: on an untracked or newly created file gitsigns never attaches, and the reject gesture
+   is a silent no-op (see the Reject notes above). `:AgentReviewDebug` reports the attach state.
 2. A full round trip inside a live Pi session: reject one hunk, edit one, accept one, add a note,
    `:AgentReviewDone`, and confirm Pi receives exactly one follow-up naming the right file.
 3. Pi started from a subdirectory: `:AgentReview` finds the pending record from a buffer anywhere in

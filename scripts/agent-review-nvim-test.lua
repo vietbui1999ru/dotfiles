@@ -97,6 +97,10 @@ end
 
 io.write("\nopen\n")
 M.open()
+-- added.txt did not exist at the run's base, so reset_hunk has nothing to
+-- revert to; the reviewer has to be told to delete it instead.
+check("new files are named as unrejectable", noticed("added%.txt.* new", vim.log.levels.WARN) ~= nil, vim.inspect(notices))
+check("files present in the base are not named", noticed("agent%.txt.* new") == nil, vim.inspect(notices))
 check("diffview.open got a positional revision", vim.deep_equal(seen.diffview_open, { base }), vim.inspect(seen.diffview_open))
 check("gitsigns.change_base pinned globally", vim.deep_equal(seen.change_base, { base, true }), vim.inspect(seen.change_base))
 check("pending record became current", M.current ~= nil and M.current.runId == runId)
