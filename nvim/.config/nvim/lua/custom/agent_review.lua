@@ -181,11 +181,22 @@ function M.done()
       "invalid pending record"
     )
     local final = snapshot(repo, "agent-review-final")
-    local patch = git_raw(repo, { "diff", record.endTree, final.tree })
-    local changed = {}
-    local changed_names = git(repo, { "diff", "--name-only", record.endTree, final.tree })
-    for _, file in ipairs(vim.split(changed_names, "\n", { trimempty = true })) do
-      changed[file] = true
+    -- Scope the diff to the files this run touched. The working tree is shared:
+    -- another session, or you in a second window, may have edited something
+    -- unrelated since the run ended, and that work is not part of this decision.
+    -- Without the pathspec it lands in the patch the agent is told to read,
+    -- while every reviewed file still reports "accepted".
+    local paths = {}
+    for _, item in ipairs(record.files or {}) do
+      if type(item.file) == "string" then table.insert(paths, item.file) end
+    end
+    local patch, changed = "", {}
+    if #paths > 0 then
+      patch = git_raw(repo, vim.list_extend({ "diff", record.endTree, final.tree, "--" }, vim.deepcopy(paths)))
+      local names = git(repo, vim.list_extend({ "diff", "--name-only", record.endTree, final.tree, "--" }, vim.deepcopy(paths)))
+      for _, file in ipairs(vim.split(names, "\n", { trimempty = true })) do
+        changed[file] = true
+      end
     end
     local files = {}
     for _, item in ipairs(record.files or {}) do
@@ -198,7 +209,20 @@ function M.done()
     require("diffview").close()
     require("gitsigns").reset_base(true)
     M.current, M.notes = nil, {}
-    vim.notify("Agent review decision recorded; Pi will validate and clear pending")
+    -- An all-accepted decision is legitimate, but it is also what a rejection
+    -- that never landed looks like: :Gitsigns reset_hunk is a silent no-op on
+    -- any buffer gitsigns is not attached to, which includes the file panel and
+    -- the base side of the diff. Say so, rather than reporting plain success
+    -- and letting the agent keep changes you meant to throw away.
+    if patch == "" then
+      vim.notify(
+        "Agent review: nothing was rejected or edited; recorded an all-accepted decision. "
+          .. "To reject a hunk, run :Gitsigns reset_hunk from the working-tree side of the diff.",
+        vim.log.levels.WARN
+      )
+    else
+      vim.notify("Agent review decision recorded; Pi will validate and clear pending")
+    end
   end)
   if not ok then vim.notify("AgentReviewDone failed: " .. tostring(err), vim.log.levels.ERROR) end
 end

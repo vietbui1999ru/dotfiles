@@ -85,6 +85,16 @@ package.loaded["gitsigns"] = {
 vim.fn.chdir(repo)
 local M = dofile(MODULE)
 
+-- Capture notifications: some of what the module must tell the reviewer is only
+-- ever said through vim.notify, and a wrong message there is a real defect.
+local notices = {}
+vim.notify = function(message, level) table.insert(notices, { message = message, level = level }) end
+local function noticed(pattern, level)
+  for _, notice in ipairs(notices) do
+    if notice.message:match(pattern) and (level == nil or notice.level == level) then return notice end
+  end
+end
+
 io.write("\nopen\n")
 M.open()
 check("diffview.open got a positional revision", vim.deep_equal(seen.diffview_open, { base }), vim.inspect(seen.diffview_open))
@@ -101,6 +111,9 @@ check("note recorded a repo-root-relative path", M.notes[1] and M.notes[1].file 
 io.write("\ndone\n")
 -- The reviewer rejects the agent's edit to agent.txt and leaves added.txt alone.
 sh(repo, "printf 'one\\n' > agent.txt")
+-- Meanwhile something outside the run's file list changes: another session, or
+-- the reviewer in a second window. It is not part of this decision.
+sh(repo, "printf 'unrelated\\n' > keep.txt")
 M.done()
 
 local decision = vim.json.decode(table.concat(vim.fn.readfile(repo .. "/.pi/agent-review/decisions/" .. runId .. ".json"), "\n"))
@@ -111,11 +124,40 @@ check("rejected file marked changed", vim.deep_equal(decision.files[1], { file =
 check("untouched file marked accepted", vim.deep_equal(decision.files[2], { file = "added.txt", status = "accepted" }), vim.inspect(decision.files))
 check("patch keeps its trailing newline", decision.patch:sub(-1) == "\n", vim.inspect(decision.patch:sub(-20)))
 check("patch contains the reverted hunk", decision.patch:match("agent%.txt") ~= nil)
+check("patch excludes files outside the run", decision.patch:match("keep%.txt") == nil, decision.patch)
 check("notes survived into the decision", decision.notes[1] and decision.notes[1].file == "agent.txt")
 check("diffview closed", seen.closed)
 check("gitsigns base reset globally", vim.deep_equal(seen.reset_base, { true }))
 check("current cleared", M.current == nil)
 check("pending record left for Pi to clear", vim.uv.fs_stat(repo .. "/.pi/agent-review/pending/" .. runId .. ".json") ~= nil)
+
+check("recording real reviewer changes reports success", noticed("decision recorded") ~= nil, vim.inspect(notices))
+
+io.write("\nall-accepted\n")
+-- A review where the reviewer changes nothing is legitimate, but it is also
+-- indistinguishable from a rejection that silently failed to land. The reviewer
+-- must be told which one happened.
+sh(repo, "rm " .. repo .. "/.pi/agent-review/pending/" .. runId .. ".json")
+local quiet = snapshot(repo, "quiet")
+local quietId = "22222222-3333-4444-8555-666666666666"
+vim.fn.writefile({ vim.json.encode({
+  runId = quietId,
+  base = base,
+  ["end"] = quiet.commit,
+  baseTree = sh(repo, "git rev-parse HEAD^{tree}"),
+  endTree = quiet.tree,
+  startedAt = "2026-09-18T01:00:00Z",
+  files = { { file = "agent.txt" } },
+}) }, repo .. "/.pi/agent-review/pending/" .. quietId .. ".json")
+
+notices = {}
+M.open()
+M.done()
+local quietDecision = vim.json.decode(table.concat(vim.fn.readfile(repo .. "/.pi/agent-review/decisions/" .. quietId .. ".json"), "\n"))
+check("an untouched review records an empty patch", quietDecision.patch == "", vim.inspect(quietDecision.patch))
+check("every file is accepted", vim.deep_equal(quietDecision.files, { { file = "agent.txt", status = "accepted" } }), vim.inspect(quietDecision.files))
+check("the reviewer is warned that nothing was rejected", noticed("nothing was rejected", vim.log.levels.WARN) ~= nil, vim.inspect(notices))
+check("success is not also reported", noticed("decision recorded") == nil, vim.inspect(notices))
 
 io.write("\ndiffview buffers\n")
 -- Notes are usually taken from a diffview buffer, whose name is virtual: the
@@ -179,7 +221,8 @@ io.write("\nrejections\n")
 local bad = "99999999-2222-4333-8444-555555555555"
 vim.fn.writefile({ vim.json.encode({ runId = runId, base = base, ["end"] = endsnap.commit, baseTree = base, endTree = endsnap.tree, startedAt = "x" }) },
   repo .. "/.pi/agent-review/pending/" .. bad .. ".json")
-sh(repo, "rm " .. repo .. "/.pi/agent-review/pending/" .. runId .. ".json")
+-- Clear the valid record left from the previous section so only the bad one remains.
+sh(repo, "rm " .. repo .. "/.pi/agent-review/pending/" .. quietId .. ".json")
 seen.diffview_open = nil
 M.open()
 check("mismatched runId/filename is ignored", seen.diffview_open == nil and M.current == nil, vim.inspect(seen.diffview_open))
