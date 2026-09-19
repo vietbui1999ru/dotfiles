@@ -138,27 +138,37 @@ check("path resolved from a WORKTREE diffview buffer", worktree and worktree.fil
 -- Taking a note from the file panel must follow the cursor. diffview keeps two
 -- different notions of "current file": panel.cur_file is whatever is *open* in
 -- the diff, updated only by set_file/next_file/prev_file and the staging
--- actions, while view:infer_cur_file() returns the entry under the cursor while
--- the panel is focused. Reading the wrong one silently files the note against
--- the wrong path, so the stub makes them disagree on purpose.
-package.loaded["diffview.lib"] = {
-  get_current_view = function()
-    return {
-      panel = { cur_file = { path = "added.txt" } },
-      infer_cur_file = function() return { path = "agent.txt" } end,
-    }
-  end,
-}
+-- actions, while the panel's own cursor may sit on a different entry entirely.
+--
+-- view:infer_cur_file() reconciles them, but only when panel:is_focused() says
+-- the panel window is the current one. Observed in a real session: it can be
+-- false while the reviewer is working the panel, and the fallback then returns
+-- the open file. panel:get_item_at_cursor() reads the cursor straight out of
+-- the panel's own window id, so it holds regardless of focus. These stubs make
+-- the two disagree exactly as they did live.
+local function stub_diffview(item)
+  package.loaded["diffview.lib"] = {
+    get_current_view = function()
+      return {
+        panel = { cur_file = { path = "added.txt" }, get_item_at_cursor = function() return item end },
+        -- The unfocused fallback: whatever is open in the diff.
+        infer_cur_file = function() return { path = "added.txt" } end,
+      }
+    end,
+  }
+end
+
+stub_diffview({ path = "agent.txt" })
 local panel = note_from("diffview:///panels/0/DiffviewFilePanel")
 check("note from the file panel follows the cursor, not the open file", panel and panel.file == "agent.txt", vim.inspect(panel))
 
--- With the cursor on a directory node, diffview returns nothing; the note must
--- be refused rather than silently attached to the file that happens to be open.
-package.loaded["diffview.lib"] = {
-  get_current_view = function()
-    return { panel = { cur_file = { path = "added.txt" } }, infer_cur_file = function() return nil end }
-  end,
-}
+-- A directory node carries `collapsed` and names no single file. The note must
+-- be refused rather than silently attached to whichever file happens to be open.
+stub_diffview({ path = "subdir", collapsed = false })
+local dir = note_from("diffview:///panels/0/DiffviewFilePanel")
+check("note is refused on a directory node", dir == nil, vim.inspect(dir))
+
+stub_diffview(nil)
 local none = note_from("diffview:///panels/0/DiffviewFilePanel")
 check("note is refused when the cursor is on no file", none == nil, vim.inspect(none))
 vim.cmd.edit(repo .. "/agent.txt")

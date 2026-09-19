@@ -141,13 +141,21 @@ function M.note()
       local name = vim.api.nvim_buf_get_name(0)
       local file, line
       if name:match("^diffview://") and name:match("DiffviewFilePanel$") then
-        -- The panel has no repo-relative path of its own, so ask diffview which
-        -- entry the cursor is on. infer_cur_file() returns that entry while the
-        -- panel is focused; panel.cur_file would instead return whichever file
-        -- is open in the diff, which is only updated by set_file/next_file and
-        -- the staging actions, and would file the note against the wrong path.
+        -- The panel has no repo-relative path of its own, so ask the panel which
+        -- entry its cursor is on. get_item_at_cursor() reads the cursor out of
+        -- the panel's own window id, so it holds however focus is reported.
+        --
+        -- The two obvious alternatives are both wrong here. panel.cur_file is
+        -- whichever file is *open* in the diff, updated only by set_file,
+        -- next_file, prev_file and the staging actions. view:infer_cur_file()
+        -- means well, but falls back to that same open file whenever
+        -- panel:is_focused() is false — observed live while working the panel,
+        -- and it files the note against the wrong path with no error.
         local view = require("diffview.lib").get_current_view()
-        local selected = view and view:infer_cur_file()
+        local panel = view and view.panel
+        local selected = panel and panel.get_item_at_cursor and panel:get_item_at_cursor()
+        -- Directory nodes carry `collapsed`; they name no single file.
+        if selected and type(selected.collapsed) == "boolean" then selected = nil end
         file = selected and selected.path
         -- A panel entry names a file, not a position in it.
         line = 0
