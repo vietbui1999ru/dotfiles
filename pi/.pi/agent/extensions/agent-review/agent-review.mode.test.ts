@@ -158,3 +158,30 @@ test("/review skip clears an interrupted review", async () => {
   assert.deepEqual(pending(root), [], "the interrupted review was not cleared");
   assert.deepEqual(await next.emit("input", { text: "carry on", source: "interactive" }), { action: "continue" });
 });
+
+// ─── Snapshots in a repo that ignores the review state ───────────────────────
+//
+// The spec tells every repo to gitignore .pi/agent-review/. git then fails the
+// whole `git add` when an exclude pathspec names an ignored path that exists on
+// disk, so the snapshot throws and — failing closed, by design — the gate
+// blocks every run. Every other test here runs in a repo with no .gitignore,
+// which is why nothing caught it.
+
+test("a run snapshots cleanly when the review state is gitignored", async () => {
+  const root = makeRepo();
+  writeFileSync(join(root, ".gitignore"), "/.pi/agent-review/\n");
+  execFileSync("git", ["add", "-A"], { cwd: root, encoding: "utf8" });
+  execFileSync("git", ["commit", "-qm", "ignore the review state"], { cwd: root, encoding: "utf8" });
+  const { emit, settle } = start(root);
+  await emit("session_start"); // creates .pi/agent-review/, which is what git objects to
+  await emit("input", { text: "do the work", source: "interactive" });
+  await emit("agent_start");
+  writeFileSync(join(root, "tracked.txt"), "agent edit\n");
+  await settle();
+  await new Promise((resolve) => setTimeout(resolve, 2_000));
+  const names = pending(root);
+  assert.equal(names.length, 1, "no pending review was written");
+  const record = JSON.parse(readFileSync(join(root, ".pi", "agent-review", "pending", names[0]), "utf8"));
+  assert.equal(record.error ?? null, null, `the snapshot failed: ${record.error}`);
+  assert.deepEqual(record.files?.map((f: { file: string }) => f.file), ["tracked.txt"]);
+});

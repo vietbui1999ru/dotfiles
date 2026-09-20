@@ -130,7 +130,13 @@ export async function snapshot(root: string, label: string) {
 	}
 	const env = { ...process.env, GIT_INDEX_FILE: tempIndex };
 	try {
-		await command(root, ["add", "-A", "--", ".", ":(exclude).pi/agent-review"], env);
+		// Add everything, then drop the review's own state from the scratch index.
+		// The obvious `:(exclude).pi/agent-review` pathspec cannot be used: git
+		// fails the whole `add` when an exclude pathspec names an ignored path that
+		// exists on disk, and the spec tells every repo to ignore exactly that
+		// path. `--ignore-unmatch` keeps this quiet when it is not indexed.
+		await command(root, ["add", "-A", "--", "."], env);
+		await command(root, ["rm", "-r", "--cached", "--quiet", "--ignore-unmatch", "--", DIR], env);
 		const tree = (await command(root, ["write-tree"], env)).stdout.trim();
 		const commit = (await command(root, ["commit-tree", tree, "-m", label], env)).stdout.trim();
 		return { commit, tree };

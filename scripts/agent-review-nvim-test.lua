@@ -48,6 +48,10 @@ local function fixture()
   vim.fn.mkdir(repo, "p")
   repo = vim.uv.fs_realpath(repo)
   sh(repo, "git init -q -b main && git config user.email a@b.c && git config user.name t")
+  -- The spec tells every repo to ignore the review's own state, and git refuses
+  -- an `:(exclude)` pathspec that names an ignored path which exists on disk.
+  -- The fixture carries the rule so the snapshot is exercised as deployed.
+  sh(repo, "printf '/.pi/agent-review/\\n' > .gitignore")
   sh(repo, "printf 'keep\\n' > keep.txt && printf 'one\\n' > agent.txt")
   sh(repo, "git add -A && git commit -qm base")
   local base = sh(repo, "git rev-parse HEAD")
@@ -61,7 +65,8 @@ end
 local function snapshot(repo, label)
   local idx = vim.fn.tempname() .. ".index"
   local env = "GIT_INDEX_FILE=" .. idx
-  sh(repo, env .. " git add -A -- . ':(exclude).pi/agent-review'")
+  sh(repo, env .. " git add -A -- .")
+  sh(repo, env .. " git rm -r --cached --quiet --ignore-unmatch -- .pi/agent-review")
   local tree = sh(repo, env .. " git write-tree")
   local commit = sh(repo, env .. " git commit-tree " .. tree .. " -m " .. label)
   vim.fn.delete(idx)

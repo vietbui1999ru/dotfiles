@@ -70,7 +70,13 @@ local function snapshot(repo, label)
 	end
 	local env = vim.tbl_extend("force", vim.fn.environ(), { GIT_INDEX_FILE = temp })
 	local ok, result = pcall(function()
-		git(repo, { "add", "-A", "--", ".", ":(exclude).pi/agent-review" }, { env = env })
+		-- Add everything, then drop the review's own state from the scratch index.
+		-- The obvious `:(exclude).pi/agent-review` pathspec cannot be used: git
+		-- fails the whole `add` when an exclude pathspec names an ignored path
+		-- that exists on disk, and the spec tells every repo to ignore exactly
+		-- that path. `--ignore-unmatch` keeps this quiet when it is not indexed.
+		git(repo, { "add", "-A", "--", "." }, { env = env })
+		git(repo, { "rm", "-r", "--cached", "--quiet", "--ignore-unmatch", "--", ".pi/agent-review" }, { env = env })
 		local tree = git(repo, { "write-tree" }, { env = env })
 		local commit = git(repo, { "commit-tree", tree, "-m", label }, { env = env })
 		return { commit = commit, tree = tree }
