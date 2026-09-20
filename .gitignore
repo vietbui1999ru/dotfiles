@@ -1,10 +1,16 @@
 .DS_Store
 nvim/.config/nvim/.claude/
 /.pi/nvim-context.json
-/.pi/status/
+/.pi/nvim-servername
+/.pi/nvim-preview.json
 /.pi/nvim-requests.jsonl
+/.pi/nvim-decisions.jsonl
+/.pi/panel.state.json
+/.pi/status/
+/.pi/agent-review/
+**/.pi/status/
+**/.pi/panel.state.json
 .agent-workflow.local.json
-/.obsidian/
 /.agents/sessions/
 /.agents/events.jsonl
 /.agents/inbox/
@@ -20,7 +26,7 @@ kitty/.config/kitty/*.bak
 # Generated agent artifacts and caches
 .pi-subagents/
 __pycache__/
-/docs/.pi/status/
+
 
 # Backup files — rely on git history, no .bak convention (json.bak already covered elsewhere)
 *.md.bak
