@@ -239,6 +239,12 @@ exclusion, tree comparison, identifier validation, and record shapes.
     when the base has none. It defaults to the file under the cursor, works from the panel and from
     either diff pane, and refuses paths outside the run. Prefer it: it depends on the base tree
     alone, not on gitsigns' attachment.
+
+    It also refuses a file whose content changed after the run ended, because restoring the base
+    version would discard those edits — and edits made after the run are usually the reviewer's own
+    work, not the agent's. `:AgentReviewReject!` overrides. The check compares object ids
+    (`git hash-object` against `<endTree>:<path>`) rather than using `git diff`, which ignores
+    untracked files and would report a newly created file as unchanged.
   - **Reject** a hunk: gitsigns `reset_hunk` (restores base content in the working tree). This
     works only in the **working-tree window** of the diff, and only for a file that already
     existed at the run's base. `reset_hunk` returns silently on any buffer gitsigns is not
@@ -268,8 +274,8 @@ exclusion, tree comparison, identifier validation, and record shapes.
   the diff, the open review, and which of its files must be rejected by deletion. It reports
   through `vim.notify`, so the output survives in `:messages` and in noice's log; a bare `print()`
   in the cmdline can be wiped by a redraw before it is read.
-- `:AgentReviewStatus` — compact one-line status for scripts and statuslines: the open review id,
-  the file count, and how many files are unrejectable because they changed after the run.
+- `:AgentReviewStatus` — compact one-line status for scripts and statuslines: the open review's
+  short id and the number of notes taken, or `no review open`.
 - `:AgentReviewClearNotes` — remove all notes collected so far. Useful when iterating on a review
   without closing it.
 - `:AgentReviewVerbose` — toggle `M.verbose`, which emits `vim.notify` DEBUG messages for
