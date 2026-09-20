@@ -14,11 +14,22 @@ local MODULE = arg[1]
 -- Resolve now: the checks below chdir into a throwaway repo.
 MODULE = assert(vim.uv.fs_realpath(MODULE), "cannot find agent_review.lua at " .. MODULE)
 
+local DEBUG = os.getenv("AGENT_REVIEW_DEBUG") == "1"
+local START = vim.uv.hrtime()
+local function dlog(fmt, ...)
+  if DEBUG then io.write("[debug] " .. fmt:format(...) .. "\n") end
+end
+
+local function elapsed_ms()
+  return math.floor((vim.uv.hrtime() - START) / 1e6)
+end
+
 local failures, checks = {}, 0
 local function check(name, ok, detail)
   checks = checks + 1
   if ok then
     io.write("  ok   " .. name .. "\n")
+    if DEBUG and detail then dlog("%s detail: %s", name, tostring(detail)) end
   else
     io.write("  FAIL " .. name .. (detail and ("  -- " .. tostring(detail)) or "") .. "\n")
     table.insert(failures, name)
@@ -40,6 +51,7 @@ local function fixture()
   sh(repo, "printf 'keep\\n' > keep.txt && printf 'one\\n' > agent.txt")
   sh(repo, "git add -A && git commit -qm base")
   local base = sh(repo, "git rev-parse HEAD")
+  dlog("fixture base = %s", base)
   -- The agent's work: one edited file, one new file.
   sh(repo, "printf 'one\\ntwo\\n' > agent.txt && printf 'new\\n' > added.txt")
   return repo, base
@@ -101,7 +113,11 @@ M.open()
 -- revert to; the reviewer has to be told to delete it instead.
 check("new files are named as unrejectable", noticed("added%.txt.* new", vim.log.levels.WARN) ~= nil, vim.inspect(notices))
 check("files present in the base are not named", noticed("agent%.txt.* new") == nil, vim.inspect(notices))
-check("diffview.open got a positional revision", vim.deep_equal(seen.diffview_open, { base }), vim.inspect(seen.diffview_open))
+-- Unscoped, diffview lists every difference between the base and the working
+-- tree, so the panel offers files the run never touched — and the reviewer can
+-- spend the review rejecting somebody else's work. Observed live.
+check("diffview is scoped to the run's files",
+  vim.deep_equal(seen.diffview_open, { base, "--", "agent.txt", "added.txt" }), vim.inspect(seen.diffview_open))
 check("gitsigns.change_base pinned globally", vim.deep_equal(seen.change_base, { base, true }), vim.inspect(seen.change_base))
 check("pending record became current", M.current ~= nil and M.current.runId == runId)
 
@@ -112,9 +128,22 @@ vim.ui.input = function(_, on_confirm) on_confirm("second line is wrong") end
 M.note()
 check("note recorded a repo-root-relative path", M.notes[1] and M.notes[1].file == "agent.txt", vim.inspect(M.notes))
 
+io.write("\nreject\n")
+-- Rejection must not depend on gitsigns: it attaches to neither untracked files
+-- nor diffview's virtual buffers, and reset_hunk returns silently when it
+-- cannot act. :AgentReviewReject restores from the base tree instead.
+M.reject("added.txt")
+check("a file the run created is deleted", vim.uv.fs_stat(repo .. "/added.txt") == nil)
+check("deleting is reported as a rejection", noticed("Rejected added%.txt") ~= nil, vim.inspect(notices))
+M.reject("agent.txt")
+check("a file present in the base is restored to it", sh(repo, "cat agent.txt") == "one", sh(repo, "cat agent.txt"))
+notices = {}
+M.reject("keep.txt")
+check("a file outside the review is refused", noticed("not part of this review") ~= nil, vim.inspect(notices))
+check("the refused file is untouched", sh(repo, "cat keep.txt") == "keep")
+
 io.write("\ndone\n")
--- The reviewer rejects the agent's edit to agent.txt and leaves added.txt alone.
-sh(repo, "printf 'one\\n' > agent.txt")
+-- agent.txt is already reverted by the rejection above; added.txt is gone.
 -- Meanwhile something outside the run's file list changes: another session, or
 -- the reviewer in a second window. It is not part of this decision.
 sh(repo, "printf 'unrelated\\n' > keep.txt")
@@ -125,7 +154,9 @@ check("decision carries the pending runId", decision.runId == runId)
 check("decision echoes endTree", decision.endTree == endsnap.tree)
 check("finalTree differs from endTree after reviewer edits", decision.finalTree ~= endsnap.tree)
 check("rejected file marked changed", vim.deep_equal(decision.files[1], { file = "agent.txt", status = "changed" }), vim.inspect(decision.files))
-check("untouched file marked accepted", vim.deep_equal(decision.files[2], { file = "added.txt", status = "accepted" }), vim.inspect(decision.files))
+-- Both files were rejected above, the second by deletion; a deleted file is a
+-- change like any other. The accepted case is covered in "all-accepted" below.
+check("a deleted file is marked changed", vim.deep_equal(decision.files[2], { file = "added.txt", status = "changed" }), vim.inspect(decision.files))
 check("patch keeps its trailing newline", decision.patch:sub(-1) == "\n", vim.inspect(decision.patch:sub(-20)))
 check("patch contains the reverted hunk", decision.patch:match("agent%.txt") ~= nil)
 check("patch excludes files outside the run", decision.patch:match("keep%.txt") == nil, decision.patch)
@@ -238,7 +269,7 @@ M.open()
 check("non-UUID pending name is ignored", M.current == nil)
 
 sh(repo, "rm -rf " .. repo)
-io.write(("\n%d checks, %d failed\n"):format(checks, #failures))
+io.write(("\n%d checks, %d failed in %d ms\n"):format(checks, #failures, elapsed_ms()))
 for _, f in ipairs(failures) do io.write("  - " .. f .. "\n") end
 -- `nvim -l` ignores :cquit's exit code, so exit through Lua instead.
 io.flush()

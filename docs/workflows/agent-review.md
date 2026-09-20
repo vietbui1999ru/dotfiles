@@ -230,7 +230,15 @@ exclusion, tree comparison, identifier validation, and record shapes.
   `require("diffview").open({ base })` or the equivalent argv form, and
   `require("gitsigns").change_base(base, true)`, so gitsigns navigates and resets hunks against
   the run's base.
+  Open diffview **scoped to the run's files** (`open({ base, "--", paths })`). Unscoped it shows
+  every difference between the base and the working tree, so the panel lists files the run never
+  touched; a reviewer working one of those is rejecting somebody else's changes, and the decision
+  will not reflect it. Observed live.
   - **Accept** a hunk: leave it.
+  - **Reject a file**: `:AgentReviewReject [path]` — restores the base version, or deletes the file
+    when the base has none. It defaults to the file under the cursor, works from the panel and from
+    either diff pane, and refuses paths outside the run. Prefer it: it depends on the base tree
+    alone, not on gitsigns' attachment.
   - **Reject** a hunk: gitsigns `reset_hunk` (restores base content in the working tree). This
     works only in the **working-tree window** of the diff, and only for a file that already
     existed at the run's base. `reset_hunk` returns silently on any buffer gitsigns is not

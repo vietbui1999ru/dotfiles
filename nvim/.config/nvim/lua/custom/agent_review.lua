@@ -1,6 +1,10 @@
 if vim.g.vscode then return end
 
-local M = { current = nil, notes = {} }
+local M = { current = nil, notes = {}, verbose = false }
+
+local function vlog(fmt, ...)
+  if M.verbose then vim.notify("[agent-review] " .. fmt:format(...), vim.log.levels.DEBUG) end
+end
 -- UUID v4: 8-4-4-4-12 hex groups; version nibble 4; variant nibble 8/9/a/b.
 local UUID = "^%x%x%x%x%x%x%x%x%-%x%x%x%x%-4%x%x%x%-[89aAbB]%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$"
 -- 40-char lowercase-or-uppercase hex hash (git object id).
@@ -117,6 +121,44 @@ local function real_file(repo)
   return real_abs:sub(#prefix + 1)
 end
 
+local function in_panel(name)
+  return name:match("^diffview://") ~= nil and name:match("DiffviewFilePanel$") ~= nil
+end
+
+-- The repo-relative path of the file the reviewer is pointing at, whether the
+-- cursor is in a real buffer, a diffview diff pane, or the file panel.
+--
+-- In the panel, ask the panel: get_item_at_cursor() reads the cursor out of the
+-- panel's own window id, so it holds however focus is reported. The two obvious
+-- alternatives are both wrong. panel.cur_file is whichever file is *open* in the
+-- diff, updated only by set_file, next_file, prev_file and the staging actions.
+-- view:infer_cur_file() means well, but falls back to that same open file
+-- whenever panel:is_focused() is false — observed live, and it silently names
+-- the wrong path.
+function M.cursor_file(repo)
+  local name = vim.api.nvim_buf_get_name(0)
+  if in_panel(name) then
+    local ok, lib = pcall(require, "diffview.lib")
+    local view = ok and lib.get_current_view() or nil
+    local panel = view and view.panel
+    local item = panel and panel.get_item_at_cursor and panel:get_item_at_cursor()
+    -- Directory nodes carry `collapsed`; they name no single file.
+    if item and type(item.collapsed) == "boolean" then return nil end
+    return item and item.path or nil
+  end
+  local resolved, path = pcall(real_file, repo)
+  return resolved and path or nil
+end
+
+-- The repo-relative paths the run touched, in record order.
+function M.paths(record)
+  local paths = {}
+  for _, item in ipairs(record.files or {}) do
+    if type(item.file) == "string" then table.insert(paths, item.file) end
+  end
+  return paths
+end
+
 -- Files in the run that cannot be rejected with reset_hunk, because the base
 -- tree has no version of them to revert to.
 function M.unrejectable(repo, record)
@@ -139,9 +181,23 @@ function M.open()
     local record = entry.record
     assert(valid_hash(record.base), "invalid base in pending record")
     M.current, M.notes = record, {}
-    require("diffview").open({ record.base })
+    vlog("opened review %s with base %s", record.runId, record.base)
+    -- Scope the view to the files this run touched. Unscoped, diffview shows
+    -- every difference between the base and the working tree, so the panel
+    -- lists files the agent never touched — and a reviewer can spend the whole
+    -- review working on one of them, rejecting somebody else's work.
+    local paths = M.paths(record)
+    local args = { record.base }
+    if #paths > 0 then
+      table.insert(args, "--")
+      vim.list_extend(args, paths)
+    end
+    require("diffview").open(args)
     require("gitsigns").change_base(record.base, true)
-    vim.notify("Accept: leave hunk. Reject: :Gitsigns reset_hunk. Edit normally.")
+    vim.notify(
+      ("Reviewing %d file(s): %s. Accept: leave the hunk. Reject: :AgentReviewReject. Edit normally.")
+        :format(#paths, table.concat(paths, ", "))
+    )
     -- A file the run created has no version in the base, so gitsigns has no
     -- hunk to reset — and on an untracked file it does not attach at all
     -- (attach_to_untracked defaults to false), so reset_hunk returns silently.
@@ -159,6 +215,38 @@ function M.open()
   if not ok then vim.notify("AgentReview failed: " .. tostring(err), vim.log.levels.ERROR) end
 end
 
+-- Reject a whole file: restore the base version, or delete the file if the base
+-- has none. This is deliberately independent of gitsigns, which attaches to
+-- neither untracked files nor diffview's virtual buffers, and whose reset_hunk
+-- returns silently when it cannot act. `path` defaults to the file under the
+-- cursor, in a real buffer or in the diffview panel.
+function M.reject(path)
+  local ok, err = pcall(function()
+    assert(M.current, "Open :AgentReview first")
+    local repo, record = root(), M.current
+    path = path and path ~= "" and path or M.cursor_file(repo)
+    assert(path, "No file under the cursor. Pass a path: :AgentReviewReject <file>")
+    local reviewed = false
+    for _, item in ipairs(M.paths(record)) do
+      if item == path then reviewed = true end
+    end
+    assert(reviewed, path .. " is not part of this review")
+    local absolute = repo .. "/" .. path
+    local in_base = vim.system({ "git", "cat-file", "-e", record.base .. ":" .. path }, { cwd = repo }):wait()
+    if in_base.code == 0 then
+      local content = git_raw(repo, { "show", record.base .. ":" .. path })
+      vim.fn.mkdir(vim.fn.fnamemodify(absolute, ":h"), "p")
+      vim.fn.writefile(vim.split(content, "\n", { plain = true }), absolute, "b")
+      vim.notify("Rejected " .. path .. ": restored the base version.")
+    else
+      assert(vim.fn.delete(absolute) == 0, "could not delete " .. path)
+      vim.notify("Rejected " .. path .. ": the run created it, so it was deleted.")
+    end
+    vim.cmd.checktime()
+  end)
+  if not ok then vim.notify("AgentReviewReject failed: " .. tostring(err), vim.log.levels.ERROR) end
+end
+
 function M.note()
   if not M.current then return vim.notify("Open :AgentReview first", vim.log.levels.WARN) end
   local repo = root()
@@ -167,23 +255,8 @@ function M.note()
       if not note or note == "" then return end
       local name = vim.api.nvim_buf_get_name(0)
       local file, line
-      if name:match("^diffview://") and name:match("DiffviewFilePanel$") then
-        -- The panel has no repo-relative path of its own, so ask the panel which
-        -- entry its cursor is on. get_item_at_cursor() reads the cursor out of
-        -- the panel's own window id, so it holds however focus is reported.
-        --
-        -- The two obvious alternatives are both wrong here. panel.cur_file is
-        -- whichever file is *open* in the diff, updated only by set_file,
-        -- next_file, prev_file and the staging actions. view:infer_cur_file()
-        -- means well, but falls back to that same open file whenever
-        -- panel:is_focused() is false — observed live while working the panel,
-        -- and it files the note against the wrong path with no error.
-        local view = require("diffview.lib").get_current_view()
-        local panel = view and view.panel
-        local selected = panel and panel.get_item_at_cursor and panel:get_item_at_cursor()
-        -- Directory nodes carry `collapsed`; they name no single file.
-        if selected and type(selected.collapsed) == "boolean" then selected = nil end
-        file = selected and selected.path
+      if in_panel(name) then
+        file = M.cursor_file(repo)
         -- A panel entry names a file, not a position in it.
         line = 0
       else
@@ -194,6 +267,7 @@ function M.note()
         error("Could not determine the file for the note. Move the cursor to a file diff pane.")
       end
       table.insert(M.notes, { file = file, line = line, note = note })
+      vlog("note added to %s:%d", file, line)
     end)
     if not ok then vim.notify("AgentReviewNote failed: " .. tostring(err), vim.log.levels.ERROR) end
   end)
@@ -220,6 +294,7 @@ function M.done()
     local patch, changed = "", {}
     if #paths > 0 then
       patch = git_raw(repo, vim.list_extend({ "diff", record.endTree, final.tree, "--" }, vim.deepcopy(paths)))
+      vlog("computed patch: %d bytes across %d paths", #patch, #paths)
       local names = git(repo, vim.list_extend({ "diff", "--name-only", record.endTree, final.tree, "--" }, vim.deepcopy(paths)))
       for _, file in ipairs(vim.split(names, "\n", { trimempty = true })) do
         changed[file] = true
@@ -272,6 +347,7 @@ function M.debug()
     add("panel cursor", item and item.path or "none")
     add("open in diff", view.panel.cur_file and view.panel.cur_file.path or "none")
   end
+  add("verbose", M.verbose)
   if M.current then
     add("review", M.current.runId)
     add("notes taken", #M.notes)
@@ -289,8 +365,14 @@ end
 vim.api.nvim_create_user_command("AgentReviewDebug", M.debug, {})
 vim.api.nvim_create_user_command("AgentReview", M.open, {})
 vim.api.nvim_create_user_command("AgentReviewNote", M.note, {})
+vim.api.nvim_create_user_command("AgentReviewReject", function(opts) M.reject(opts.args) end, { nargs = "?" })
 vim.api.nvim_create_user_command("AgentReviewDone", M.done, {})
+vim.api.nvim_create_user_command("AgentReviewVerbose", function()
+  M.verbose = not M.verbose
+  vim.notify("Agent review verbose " .. (M.verbose and "on" or "off"))
+end, {})
 vim.keymap.set("n", "<leader>ar", M.open, { desc = "Agent: review run" })
 vim.keymap.set("n", "<leader>an", M.note, { desc = "Agent: review note" })
 vim.keymap.set("n", "<leader>aD", M.done, { desc = "Agent: review done" })
+vim.keymap.set("n", "<leader>aR", function() M.reject() end, { desc = "Agent: reject file under cursor" })
 return M
