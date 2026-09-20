@@ -268,9 +268,15 @@ exclusion, tree comparison, identifier validation, and record shapes.
   the diff, the open review, and which of its files must be rejected by deletion. It reports
   through `vim.notify`, so the output survives in `:messages` and in noice's log; a bare `print()`
   in the cmdline can be wiped by a redraw before it is read.
-- Keymaps: `<leader>ar` review, `<leader>an` note, **`<leader>aD`** done. `<leader>ad` is taken
-  by Evidence's DAP snapshot (`lua/custom/plugins/evidence.lua:425`). Add all three to the
-  which-key group in `init.lua` with accurate labels.
+- `:AgentReviewStatus` — compact one-line status for scripts and statuslines: the open review id,
+  the file count, and how many files are unrejectable because they changed after the run.
+- `:AgentReviewClearNotes` — remove all notes collected so far. Useful when iterating on a review
+  without closing it.
+- `:AgentReviewVerbose` — toggle `M.verbose`, which emits `vim.notify` DEBUG messages for
+  `:AgentReview`, `:AgentReviewNote`, `:AgentReviewReject`, and `:AgentReviewDone`.
+- Keymaps: `<leader>ar` review, `<leader>an` note, **`<leader>aD`** done, **`<leader>aR`** reject.
+  `<leader>ad` is taken by Evidence's DAP snapshot (`lua/custom/plugins/evidence.lua:425`). Add all
+  four to the which-key group in `init.lua` with accurate labels.
 
 ## Review findings this revision fixes (2026-09-17)
 
