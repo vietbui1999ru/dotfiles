@@ -120,6 +120,7 @@ check("diffview is scoped to the run's files",
   vim.deep_equal(seen.diffview_open, { base, "--", "agent.txt", "added.txt" }), vim.inspect(seen.diffview_open))
 check("gitsigns.change_base pinned globally", vim.deep_equal(seen.change_base, { base, true }), vim.inspect(seen.change_base))
 check("pending record became current", M.current ~= nil and M.current.runId == runId)
+check("status reports the open review", M.status():match("review " .. runId:sub(1, 8)) ~= nil, M.status())
 
 io.write("\nnote\n")
 -- The reviewer's cursor sits in a real file buffer inside the repo.
@@ -127,6 +128,11 @@ vim.cmd.edit(repo .. "/agent.txt")
 vim.ui.input = function(_, on_confirm) on_confirm("second line is wrong") end
 M.note()
 check("note recorded a repo-root-relative path", M.notes[1] and M.notes[1].file == "agent.txt", vim.inspect(M.notes))
+M.clear_notes()
+check("clear_notes empties the note list", #M.notes == 0)
+check("clear_notes is reported", noticed("notes cleared") ~= nil, vim.inspect(notices))
+-- Re-add the note so the later decision check still finds it.
+M.note()
 
 io.write("\nreject\n")
 -- Rejection must not depend on gitsigns: it attaches to neither untracked files
@@ -141,6 +147,17 @@ notices = {}
 M.reject("keep.txt")
 check("a file outside the review is refused", noticed("not part of this review") ~= nil, vim.inspect(notices))
 check("the refused file is untouched", sh(repo, "cat keep.txt") == "keep")
+
+-- Rejecting restores the whole file, so work written into it after the run
+-- ended — the reviewer's own, usually — would go with it.
+sh(repo, "printf 'one\\nmine\\n' > agent.txt")
+notices = {}
+M.reject("agent.txt")
+check("rejecting a file edited since the run is refused", noticed("changed after the run ended") ~= nil, vim.inspect(notices))
+check("the reviewer's later edits survive", sh(repo, "cat agent.txt") == "one\nmine", sh(repo, "cat agent.txt"))
+notices = {}
+M.reject("agent.txt", true)
+check("the bang override rejects anyway", sh(repo, "cat agent.txt") == "one", sh(repo, "cat agent.txt"))
 
 io.write("\ndone\n")
 -- agent.txt is already reverted by the rejection above; added.txt is gone.
