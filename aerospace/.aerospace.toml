@@ -306,6 +306,15 @@ alt-shift-a = 'mode service'
     shift-down = ['volume set 0', 'mode main']
 
 [[on-window-detected]]
+if.app-id = 'com.herotools.openwispr'  
+run = ['layout floating', 'move-node-to-workspace P']
+
+
+[[on-window-detected]]
+if.app-id = 'com.apple.Notes'
+run = ['layout floating', 'move-node-to-workspace O']
+
+[[on-window-detected]]
     if.app-id = 'com.apple.iBooksX'
     check-further-callbacks = true
     run = ['layout tiling', 'move-node-to-workspace R']  # The callback itself
@@ -313,7 +322,7 @@ alt-shift-a = 'mode service'
 [[on-window-detected]]
     if.app-id = 'com.apple.Preview'
     check-further-callbacks = true
-    run = ['layout tiling', 'move-node-to-workspace R']  # The callback itself
+    run = ['layout floating', 'move-node-to-workspace R']  # The callback itself
 
 [[on-window-detected]]
     if.app-id = 'net.kovidgoyal.kitty'
@@ -378,7 +387,7 @@ alt-shift-a = 'mode service'
     run = ['layout tiling', 'move-node-to-workspace 0']  # The callback itself
  
 [[on-window-detected]]
-    if.app-id = 'com.openai.chat'
+    if.app-id = 'com.openai.codex'
     check-further-callbacks = true
     run = ['layout tiling', 'move-node-to-workspace C']  # The callback itself
 [[on-window-detected]]
@@ -393,3 +402,7 @@ alt-shift-a = 'mode service'
     if.app-id = 'com.monochrome-music.monochrome'
     check-further-callbacks = true
     run = ['layout tiling', 'move-node-to-workspace M']  # The callback itself
+[[on-window-detected]]
+    if.app-id = 'com.microsoft.Word'
+    check-further-callbacks = true
+    run = ['layout tiling', 'move-node-to-workspace 0']  # The callback itself
