@@ -14,7 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test, { after } from "node:test";
-import agentReview from "./index.ts";
+import agentReview, { resetPrintMode } from "./index.ts";
 
 const cli = join(dirname(new URL(import.meta.url).pathname), "../../../../../scripts/agent-review");
 const dirs: string[] = [];
@@ -37,12 +37,12 @@ function makeRepo(): string {
   return root;
 }
 
-function start(root: string) {
+function start(root: string, mode = "tui") {
   const handlers = new Map<string, Array<(e: unknown, c: unknown) => unknown>>();
   const commands = new Map<string, (args: string, c: unknown) => Promise<void>>();
   const notices: string[] = [];
   const channels = new Map<string, Array<(data: unknown) => void>>();
-  const ctx = { cwd: root, hasUI: true, mode: "tui", ui: { notify: (m: string) => notices.push(m), setStatus: () => {} } };
+  const ctx = { cwd: root, hasUI: true, mode, ui: { notify: (m: string) => notices.push(m), setStatus: () => {} } };
   const pi = {
     on: (name: string, handler: (e: unknown, c: unknown) => unknown) =>
       handlers.set(name, [...(handlers.get(name) ?? []), handler]),
@@ -202,4 +202,73 @@ test("a run that only wrote Pi's session state leaves no review", async () => {
   await settle();
   await new Promise((resolve) => setTimeout(resolve, 2_000));
   assert.deepEqual(pending(root), []);
+});
+
+// ─── Print mode ──────────────────────────────────────────────────────────────
+//
+// `pi -p` has no reviewer and exits as soon as the turn ends. Its notifications
+// go nowhere a script can read, so the gate has to report through the exit code
+// or a caller will treat unreviewed work as accepted.
+
+// process.exitCode is global: leaking it would make the whole test run exit 1.
+// Reset with 0, never undefined — in Bun, assigning undefined to an exitCode
+// that is already 1 leaves it at 1.
+function printRun<T>(body: () => Promise<T>): Promise<T> {
+  const before = process.exitCode ?? 0;
+  resetPrintMode();
+  return body().finally(() => {
+    process.exitCode = before;
+    resetPrintMode();
+  });
+}
+
+test("a print run that leaves a review exits non-zero", async () => {
+  const root = makeRepo();
+  const code = await printRun(async () => {
+    const { emit, settle } = start(root, "print");
+    await emit("session_start");
+    await emit("input", { text: "do the work", source: "interactive" });
+    await emit("agent_start");
+    writeFileSync(join(root, "tracked.txt"), "agent edit\n");
+    await settle();
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    assert.equal(pending(root).length, 1);
+    return process.exitCode;
+  });
+  assert.equal(code, 1, "print mode reported success for unreviewed work");
+});
+
+test("a print run blocked by a pending review exits non-zero", async () => {
+  const root = makeRepo();
+  const code = await printRun(async () => {
+    const first = start(root, "print");
+    await first.emit("session_start");
+    await first.emit("input", { text: "do the work", source: "interactive" });
+    await first.emit("agent_start");
+    writeFileSync(join(root, "tracked.txt"), "agent edit\n");
+    await first.settle();
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    process.exitCode = 0;
+    const next = start(root, "print");
+    await next.emit("session_start");
+    assert.deepEqual(await next.emit("input", { text: "carry on", source: "interactive" }), { action: "handled" });
+    return process.exitCode;
+  });
+  assert.equal(code, 1, "blocked input reported success");
+});
+
+test("an interactive run leaves the exit code alone", async () => {
+  const root = makeRepo();
+  const code = await printRun(async () => {
+    process.exitCode = 0;
+    const { emit, settle } = start(root); // tui
+    await emit("session_start");
+    await emit("input", { text: "do the work", source: "interactive" });
+    await emit("agent_start");
+    writeFileSync(join(root, "tracked.txt"), "agent edit\n");
+    await settle();
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    return process.exitCode;
+  });
+  assert.equal(code, 0, "the TUI must not make pi exit non-zero");
 });

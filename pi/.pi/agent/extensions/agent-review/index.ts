@@ -95,6 +95,36 @@ export const validDecision = (
 	decision.endTree === pending.endTree &&
 	decision.finalTree === finalTree;
 
+// Print mode has no reviewer: `pi -p` exits as soon as the turn ends, and its
+// notifications go nowhere a script can read. A caller that gets exit 0 will
+// treat unreviewed work as accepted, so the gate reports through the exit code
+// and stderr instead — and only there, since writing to stderr under the TUI
+// would corrupt the display.
+//
+// The mode is captured while the ctx is fresh rather than read at the point of
+// failure: by the time a run finishes, the ctx may have been replaced, and Pi's
+// stale-ctx guard throws on *any* property access, including `mode`.
+let printMode = false;
+
+export function notePrintMode(ctx: { mode?: string }) {
+	try {
+		printMode = ctx.mode === "print";
+	} catch {
+		// Stale ctx: keep whatever the last live ctx reported.
+	}
+}
+
+export function reportPrintFailure(message: string) {
+	if (!printMode) return;
+	process.exitCode = 1;
+	process.stderr.write(`${message}\n`);
+}
+
+// Test seam: the flag is process-global, so tests must be able to reset it.
+export function resetPrintMode() {
+	printMode = false;
+}
+
 async function command(cwd: string, args: string[], env?: NodeJS.ProcessEnv) {
 	return execFileAsync("git", args, { cwd, env, timeout: 15_000 });
 }
@@ -266,6 +296,10 @@ export default function agentReview(pi: ExtensionAPI) {
 			await setRef(run.root, run.runId, run.base, end.commit);
 			await atomic(path(run.root, "pending", `${run.runId}.json`), record);
 			active = undefined;
+			reportPrintFailure(
+				`agent-review: run ${run.runId} changed ${files.length} file(s) and is awaiting review. ` +
+					`Nothing has been accepted. Review it in Neovim with :AgentReview`,
+			);
 			try {
 				ctx.ui.setStatus("agent-review", "review pending — :AgentReview in nvim");
 			} catch {
@@ -286,6 +320,7 @@ export default function agentReview(pi: ExtensionAPI) {
 			};
 			await atomic(path(run.root, "pending", `${run.runId}.json`), record);
 			active = undefined;
+			reportPrintFailure(`agent-review: run ${run.runId} could not be snapshotted: ${record.error}`);
 			try {
 				ctx.ui.notify("Agent review snapshot failed; review remains pending", "error");
 			} catch {
@@ -350,11 +385,17 @@ export default function agentReview(pi: ExtensionAPI) {
 
 	pi.on("input", async (event, ctx) => {
 		const root = await repoRoot(ctx.cwd);
+		// This ctx is live; the one `finish` holds later may not be.
+		notePrintMode(ctx);
 		const blocked = await listPending(root);
 		if (blocked.length > 0) {
 			ctx.ui.notify(
 				`Review pending — /review skip ${blocked[0].runId} to continue`,
 				"warning",
+			);
+			reportPrintFailure(
+				`agent-review: input refused, review ${blocked[0].runId} is pending. ` +
+					`Resolve it in Neovim, or run: /review skip ${blocked[0].runId}`,
 			);
 			return { action: "handled" as const };
 		}

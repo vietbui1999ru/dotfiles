@@ -54,7 +54,6 @@ exercise the extension, and the Verification list was never run. v1 therefore ch
 
 **1. Scope is cut to the core gate.** Deferred to v2, and not to be built now:
 - the override shortcut (`agent-review mode on|off` between runs covers toggling);
-- print-mode (`pi -p`) handling and non-zero exit;
 - the 7-day ref prune on `session_start`;
 - multi-session guarantees beyond the claim-by-rename already specified.
 
@@ -220,6 +219,16 @@ cycle it dispatches:
 **Non-interactive Pi** (`pi -p`, no TUI) with mode `on`: never auto-accept. Leave the pending
 record, print why, and exit non-zero. If a review is already pending when `pi -p` starts, print that
 input is blocked by review `<id>` and exit non-zero. Never silently swallow the input.
+
+Implemented 2026-09-21, and verified against a real `pi -p` run. Two details are load-bearing:
+
+- **Report through `process.exitCode` and stderr, never `ui.notify`.** Print mode's notifications
+  reach nobody a script can read, and Pi honours `process.exitCode` on exit. Writing to stderr is
+  gated on print mode: doing it under the TUI would corrupt the display.
+- **Capture the mode while the `ctx` is live, not at the point of failure.** By the time a run
+  finishes, the ctx may have been replaced, and Pi's stale-ctx guard throws on *any* property
+  access, `mode` included. Reading `ctx.mode` inside `finish` threw inside the snapshot's `try`,
+  turned a good review into an error record, then threw again from the `catch` and killed Pi.
 
 **Override shortcut:** `pi.registerShortcut` toggles mode for the next run with
 `setBy: "human"`. Outside a run it writes the mode file immediately. During a run it queues the
@@ -405,8 +414,8 @@ Still manual, because nothing but a human at a real terminal can judge it:
    `:AgentReviewDone`, and confirm Pi receives exactly one follow-up naming the right file.
 3. Pi started from a subdirectory: `:AgentReview` finds the pending record from a buffer anywhere in
    the tree.
-4. `pi -p` with mode on leaves a pending record and exits non-zero (see the print-mode limit; this
-   is v2 work and may simply fail).
+4. *(Closed 2026-09-21.)* `pi -p` with mode on leaves a pending record and exits non-zero —
+   verified live for both a changing run and an input blocked by an existing review.
 5. With `agent-review` enabled, `pi-diff-review` does not also open a review. Currently trivially
    true — `pi-diff-review` is unstowed — but worth re-checking if it is ever re-enabled.
 6. Editing the mode file from inside a live Pi run sets the tamper flag and forces the mode on.
