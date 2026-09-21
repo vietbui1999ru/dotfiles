@@ -42,3 +42,34 @@ with Firecrawl and Context7; `ketch code` is the only approved Ketch command.
 - Pi-lens project `.pi-lens.json` mutation controls can override the global
   format/autofix defaults. Treat a trusted repo override as explicit project
   policy; otherwise the boundary verifier owns all mutations.
+
+## Shell Tools — prefer the modern CLI
+
+Use these instead of the GNU/POSIX defaults when running commands or writing scripts:
+
+| Instead of | Use | Notes |
+|---|---|---|
+| `ls` | `eza`, `eza -al` for long+hidden | `--git` annotates status; `--tree --level=N` for trees |
+| `grep` | `rg` | Recursive by default; no `-r` needed |
+| `cat` | `bat` | Add `-p --paging=never` when piping or reading output back |
+| `find` | `fd` | Pattern is a **regex**, not a glob; `-e ts` filters by extension |
+
+These are aliased in `zsh/.zsh/aliases.zsh`, but aliases apply only to interactive
+shells. A command run by an agent gets `/bin/ls` and `/usr/bin/grep`, so the modern
+name has to be typed explicitly — the alias will not do it for you.
+
+**The default that will mislead you:** `rg` and `fd` both skip hidden files and
+anything matched by `.gitignore`. When looking for generated or ignored state —
+`.pi/`, `node_modules/`, build output, an agent's own scratch files — pass
+`--no-ignore --hidden` (`rg -uu`, `fd -HI`) or you will get an empty result that
+looks like "the file does not exist" rather than "the file is ignored".
+
+**Portability.** In a script committed for other machines, prefer the modern tool
+and fall back rather than assuming:
+
+```sh
+if command -v rg >/dev/null; then rg "$pattern" "$dir"; else grep -r "$pattern" "$dir"; fi
+```
+
+Installed here: `eza`, `rg`, `bat`, `fd`, `delta`. Not installed: `sd`, `dust` — use
+`sed` and `du` for those.

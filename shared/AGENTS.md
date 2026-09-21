@@ -142,6 +142,25 @@ replaces built-in WebFetch/WebSearch within this scope, not Context7 or Ketch.
 - Prefer explicit over clever. Readable over terse.
 - When editing configs: show the diff, do not rewrite the whole file.
 
+## Shell tools — modern CLI first
+
+Use `eza` (not `ls`), `rg` (not `grep`), `bat` (not `cat`), `fd` (not `find`) when
+running commands and when writing scripts. `eza -al` for long+hidden listings.
+
+These are aliased in the interactive shell only. A command you run is not
+interactive, so it gets `/bin/ls` and `/usr/bin/grep` — type the modern name
+yourself; the alias will not do it for you.
+
+`rg` and `fd` skip hidden files and anything `.gitignore` matches. When searching
+for generated or ignored state (`.pi/`, `node_modules/`, build output), pass
+`--no-ignore --hidden` (`rg -uu`, `fd -HI`) or an empty result will look like
+"missing" when it means "ignored". `fd` takes a regex, not a glob.
+
+In scripts meant for other machines, prefer the modern tool and fall back:
+`command -v rg >/dev/null && rg ... || grep -r ...`
+
+Installed: `eza`, `rg`, `bat`, `fd`, `delta`. Not installed: `sd`, `dust`.
+
 ## Learning domains
 
 Applies to: Embedded, C, Go, C++, CUDA, Shaders, Interpreters, Ansible, Terraform, Kubernetes
