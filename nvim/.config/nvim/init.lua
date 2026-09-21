@@ -149,6 +149,7 @@ vim.pack.add({
 	gh("OXY2DEV/markview.nvim"),
 	gh("saxon1964/neovim-tips"),
 	gh("sindrets/diffview.nvim"),
+	gh("vietbui1999ru/code-preview.nvim"),
 	gh("kdheepak/lazygit.nvim"),
 	gh("NeogitOrg/neogit"),
 	gh("julienvincent/hunk.nvim"),
@@ -288,6 +289,17 @@ vim.cmd.packadd("diffview.nvim")
 vim.keymap.set("n", "<leader>gd", "<cmd>DiffviewOpen<cr>", { desc = "Diffview: open repo diff" })
 vim.keymap.set("n", "<leader>gf", "<cmd>DiffviewFileHistory %<cr>", { desc = "Diffview: file history" })
 vim.keymap.set("n", "<leader>gq", "<cmd>DiffviewClose<cr>", { desc = "Diffview: close" })
+
+vim.cmd.packadd("code-preview.nvim")
+require("code-preview").setup({
+	diff = {
+		layout = "tab",
+		layouts = { pi = "tab" },
+	},
+	keys = {
+		toggle_layout = "s",
+	},
+})
 
 vim.cmd.packadd("lazygit.nvim")
 require("custom.plugins.lazygit")

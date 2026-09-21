@@ -13,6 +13,8 @@
 ---   <leader>aA  ask OMP about current file/selection
 ---   <leader>ai  open Pi TUI in a terminal split
 ---   <leader>aO  open OMP TUI in a terminal split
+---   <leader>dA  approve the active Pi diff preview
+---   <leader>dR  reject the active Pi diff preview
 
 if vim.g.vscode then
 	return
@@ -26,6 +28,17 @@ local function git_root()
 		return vim.fn.trim(out)
 	end
 	return vim.fn.getcwd()
+end
+
+local function write_servername()
+	local servername = vim.v.servername
+	if not servername or servername == "" then
+		return
+	end
+	local root = git_root()
+	local project_path = root .. "/.pi/nvim-servername"
+	vim.fn.mkdir(vim.fn.fnamemodify(project_path, ":h"), "p")
+	vim.fn.writefile({ servername }, project_path)
 end
 
 local function relpath(path, root)
@@ -47,6 +60,20 @@ local function selected_range()
 		l1, l2 = l2, l1
 	end
 	return l1, l2
+end
+
+local function code_preview_context(bufnr)
+	local loaded, diff = pcall(require, "code-preview.diff")
+	if not loaded or type(diff.get_context) ~= "function" then
+		return nil
+	end
+	local start_line, end_line = selected_range()
+	local ok, context = pcall(diff.get_context, {
+		bufnr = bufnr,
+		start_line = start_line,
+		end_line = end_line,
+	})
+	return ok and context or nil
 end
 
 local function clip_lines(lines, max_chars)
@@ -149,7 +176,8 @@ end
 function M.build_context()
 	local bufnr = vim.api.nvim_get_current_buf()
 	local root = git_root()
-	local file = vim.fn.expand("%:p")
+	local preview = code_preview_context(bufnr)
+	local file = preview and preview.file_path or vim.fn.expand("%:p")
 	local cursor = vim.api.nvim_win_get_cursor(0)
 	local lnum = cursor[1]
 	local context_start = math.max(1, lnum - 20)
@@ -184,6 +212,7 @@ function M.build_context()
 		symbol = enclosing_symbol(bufnr),
 		lsp = { clients = lsp_clients(bufnr) },
 		diagnostic_under_cursor = diagnostics_under_cursor(bufnr, lnum, cursor[2] + 1),
+		diff_preview = preview,
 		selection = selection,
 		context = {
 			start = context_start,
@@ -209,8 +238,10 @@ function M.write_context()
 	return ctx, project_path
 end
 
-function M.queue_pi_prompt(prompt)
-	local ctx, ctx_path = M.write_context()
+function M.queue_pi_prompt(prompt, ctx, ctx_path)
+	if not ctx or not ctx_path then
+		ctx, ctx_path = M.write_context()
+	end
 	local root = ctx.root or git_root()
 	local queue_path = root .. "/.pi/nvim-requests.jsonl"
 	vim.fn.mkdir(vim.fn.fnamemodify(queue_path, ":h"), "p")
@@ -228,12 +259,56 @@ function M.queue_pi_prompt(prompt)
 	vim.notify("Queued Pi prompt: " .. queue_path)
 end
 
+function M.review_decision(decision)
+	local root = git_root()
+	local pending_path = root .. "/.pi/nvim-preview.json"
+	if vim.fn.filereadable(pending_path) ~= 1 then
+		vim.notify("No active Pi diff preview", vim.log.levels.WARN)
+		return
+	end
+	local read_ok, raw = pcall(vim.fn.readfile, pending_path)
+	if not read_ok or #raw == 0 then
+		vim.fn.delete(pending_path)
+		vim.notify("No active Pi diff preview", vim.log.levels.WARN)
+		return
+	end
+	local ok, pending = pcall(vim.json.decode, table.concat(raw, "\n"))
+	if not ok or type(pending) ~= "table" or not pending.batchId or not pending.path then
+		vim.fn.delete(pending_path)
+		vim.notify("Invalid Pi diff preview state", vim.log.levels.ERROR)
+		return
+	end
+	local loaded, diff = pcall(require, "code-preview.diff")
+	if not loaded or not pending.absPath or not diff.is_open(pending.absPath) then
+		vim.fn.delete(pending_path)
+		vim.notify("Pi diff preview is no longer open", vim.log.levels.WARN)
+		return
+	end
+	local queue_path = root .. "/.pi/nvim-decisions.jsonl"
+	local packet = vim.json.encode({
+		type = "diff-decision",
+		ts = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+		source = "neovim",
+		batchId = pending.batchId,
+		path = pending.path,
+		decision = decision,
+	})
+	if vim.fn.writefile({ packet }, queue_path, "a") ~= 0 then
+		vim.notify("Failed to queue Pi review decision", vim.log.levels.ERROR)
+		return
+	end
+	pcall(diff.close_for_file, pending.absPath)
+	vim.fn.delete(pending_path)
+	vim.notify(string.format("Pi review: %s %s", decision, pending.path))
+end
+
 function M.prompt_active_pi()
+	local ctx, ctx_path = M.write_context()
 	vim.ui.input({ prompt = "Pi prompt: " }, function(prompt)
 		if not prompt or prompt == "" then
 			return
 		end
-		M.queue_pi_prompt(prompt)
+		M.queue_pi_prompt(prompt, ctx, ctx_path)
 	end)
 end
 
@@ -284,6 +359,23 @@ function M.open_omp()
 end
 
 function M.setup()
+	write_servername()
+	vim.api.nvim_create_autocmd("DirChanged", {
+		group = vim.api.nvim_create_augroup("pi-nvim-servername", { clear = true }),
+		callback = write_servername,
+	})
+	vim.api.nvim_create_user_command("PiReviewApprove", function()
+		M.review_decision("approved")
+	end, {})
+	vim.api.nvim_create_user_command("PiReviewReject", function()
+		M.review_decision("rejected")
+	end, {})
+	vim.keymap.set("n", "<leader>dA", function()
+		M.review_decision("approved")
+	end, { desc = "Pi review: approve preview" })
+	vim.keymap.set("n", "<leader>dR", function()
+		M.review_decision("rejected")
+	end, { desc = "Pi review: reject preview" })
 	vim.keymap.set("n", "<leader>aC", function()
 		M.write_context()
 	end, { desc = "AI: export Neovim context" })

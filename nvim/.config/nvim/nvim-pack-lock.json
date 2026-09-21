@@ -18,6 +18,10 @@
       "rev": "426dbebe06b5c69fd846ceb17b42e12f890aedf1",
       "src": "https://github.com/catppuccin/nvim"
     },
+    "code-preview.nvim": {
+      "rev": "99e926447e6533df9918296899dabae484c0144b",
+      "src": "https://github.com/vietbui1999ru/code-preview.nvim"
+    },
     "conform.nvim": {
       "rev": "dca1a190aa85f9065979ef35802fb77131911106",
       "src": "https://github.com/stevearc/conform.nvim"
