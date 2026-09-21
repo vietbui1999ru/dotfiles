@@ -111,12 +111,25 @@ of this spec, which are corrected here.
 **Shared rules for both components:**
 - **Repo root.** Resolve once with `git rev-parse --show-toplevel` from the starting directory.
   Every path (`.pi/agent-review/…`) is relative to that root, in Pi, the CLI and Neovim alike.
-- **Snapshot** = full working tree including untracked non-ignored files, **excluding
-  `.pi/agent-review/`**, without touching the real index or working tree:
-  `GIT_INDEX_FILE=<tmp> git add -A -- . ':(exclude).pi/agent-review'`, then `git write-tree`
-  (the **tree**), then `git commit-tree <tree> -m <label>` (the **commit**, only so refs keep the
-  object alive). The exclusion is mandatory even where `.pi/agent-review/` is gitignored, because
-  review state changes between snapshots and would otherwise change the tree.
+- **Snapshot** = full working tree including untracked non-ignored files, **excluding all of
+  `.pi/`**, without touching the real index or working tree:
+  `GIT_INDEX_FILE=<tmp> git add -A -- .`, then
+  `git rm -r --cached --quiet --ignore-unmatch -- .pi`, then `git write-tree` (the **tree**), then
+  `git commit-tree <tree> -m <label>` (the **commit**, only so refs keep the object alive).
+
+  Two rules here were learned the hard way, so do not simplify either:
+
+  **Exclude by removing from the scratch index, never with an `:(exclude)` pathspec.** git fails
+  the whole `git add` when an exclude pathspec names an ignored path that exists on disk, and this
+  spec tells every repo to gitignore exactly those paths. The snapshot then throws, fails closed,
+  and blocks every run. `--ignore-unmatch` keeps the removal quiet when nothing there is indexed.
+
+  **Exclude all of `.pi/`, not just `.pi/agent-review/`.** The exclusion is mandatory even where
+  the path is gitignored, because review state changes between snapshots and would otherwise
+  change the tree. It must also cover the rest of `.pi/`: Pi writes session bookkeeping
+  (`.pi/status/<id>.json`) there during every run, so a narrower exclusion produces a review of
+  that file for runs where the agent changed nothing — and resolving one sends a follow-up, which
+  is a new run, which writes it again.
 - **Compare trees, never commits.** `commit-tree` output includes a timestamp, so two snapshots of
   identical content have different commit hashes. Every equality check below uses tree hashes.
 - **Validate identifiers before use** in any path, git argument, Neovim command, or prompt text:

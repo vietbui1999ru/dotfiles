@@ -11,6 +11,9 @@ const execFileAsync = promisify(execFile);
 const RUN_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const HASH = /^[0-9a-f]{40}$/;
 const DIR = ".pi/agent-review";
+// Pi's own state directory. Excluded from snapshots whole: the review lives in
+// it, and so does the session bookkeeping Pi rewrites during every run.
+const PI_STATE = ".pi";
 function fallbackMs(): number {
 	const raw = process.env.AGENT_REVIEW_FALLBACK_MS;
 	if (!raw) return 30_000;
@@ -130,13 +133,19 @@ export async function snapshot(root: string, label: string) {
 	}
 	const env = { ...process.env, GIT_INDEX_FILE: tempIndex };
 	try {
-		// Add everything, then drop the review's own state from the scratch index.
-		// The obvious `:(exclude).pi/agent-review` pathspec cannot be used: git
-		// fails the whole `add` when an exclude pathspec names an ignored path that
-		// exists on disk, and the spec tells every repo to ignore exactly that
-		// path. `--ignore-unmatch` keeps this quiet when it is not indexed.
+		// Add everything, then drop Pi's own state from the scratch index. The
+		// whole of `.pi/` goes, not just the review's directory: Pi writes session
+		// bookkeeping (`.pi/status/<id>.json`) there during every run, so a
+		// narrower exclusion produces a review of that file for runs where the
+		// agent changed nothing — and resolving one sends a follow-up, which is a
+		// new run, which writes it again.
+		//
+		// The obvious `:(exclude)` pathspec cannot be used: git fails the whole
+		// `add` when an exclude pathspec names an ignored path that exists on disk,
+		// and the spec tells every repo to ignore exactly these paths.
+		// `--ignore-unmatch` keeps this quiet when nothing there is indexed.
 		await command(root, ["add", "-A", "--", "."], env);
-		await command(root, ["rm", "-r", "--cached", "--quiet", "--ignore-unmatch", "--", DIR], env);
+		await command(root, ["rm", "-r", "--cached", "--quiet", "--ignore-unmatch", "--", PI_STATE], env);
 		const tree = (await command(root, ["write-tree"], env)).stdout.trim();
 		const commit = (await command(root, ["commit-tree", tree, "-m", label], env)).stdout.trim();
 		return { commit, tree };

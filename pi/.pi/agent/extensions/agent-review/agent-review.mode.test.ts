@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
-  existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync,
+  existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -184,4 +184,22 @@ test("a run snapshots cleanly when the review state is gitignored", async () => 
   const record = JSON.parse(readFileSync(join(root, ".pi", "agent-review", "pending", names[0]), "utf8"));
   assert.equal(record.error ?? null, null, `the snapshot failed: ${record.error}`);
   assert.deepEqual(record.files?.map((f: { file: string }) => f.file), ["tracked.txt"]);
+});
+
+// ─── Pi's own state is not the agent's work ──────────────────────────────────
+
+test("a run that only wrote Pi's session state leaves no review", async () => {
+  const root = makeRepo();
+  const { emit, settle } = start(root);
+  await emit("session_start");
+  await emit("input", { text: "do the work", source: "interactive" });
+  await emit("agent_start");
+  // Pi's statusline extension writes this during every run, in the cwd. It is
+  // bookkeeping, not agent output: reviewing it produces a review for runs where
+  // nothing happened, and resolving one sends a follow-up that writes it again.
+  mkdirSync(join(root, ".pi", "status"), { recursive: true });
+  writeFileSync(join(root, ".pi", "status", "01a0bcf4.json"), '{"status":"done"}');
+  await settle();
+  await new Promise((resolve) => setTimeout(resolve, 2_000));
+  assert.deepEqual(pending(root), []);
 });

@@ -66,7 +66,7 @@ local function snapshot(repo, label)
   local idx = vim.fn.tempname() .. ".index"
   local env = "GIT_INDEX_FILE=" .. idx
   sh(repo, env .. " git add -A -- .")
-  sh(repo, env .. " git rm -r --cached --quiet --ignore-unmatch -- .pi/agent-review")
+  sh(repo, env .. " git rm -r --cached --quiet --ignore-unmatch -- .pi")
   local tree = sh(repo, env .. " git write-tree")
   local commit = sh(repo, env .. " git commit-tree " .. tree .. " -m " .. label)
   vim.fn.delete(idx)
@@ -164,6 +164,10 @@ notices = {}
 M.reject("agent.txt", true)
 check("the bang override rejects anyway", sh(repo, "cat agent.txt") == "one", sh(repo, "cat agent.txt"))
 
+-- Pi rewrites .pi/status/<id>.json during every run. If the reviewer's final
+-- snapshot counted it, the decision would carry a change the agent never made.
+sh(repo, "mkdir -p .pi/status && printf '{}' > .pi/status/session.json")
+
 io.write("\ndone\n")
 -- agent.txt is already reverted by the rejection above; added.txt is gone.
 -- Meanwhile something outside the run's file list changes: another session, or
@@ -182,6 +186,10 @@ check("a deleted file is marked changed", vim.deep_equal(decision.files[2], { fi
 check("patch keeps its trailing newline", decision.patch:sub(-1) == "\n", vim.inspect(decision.patch:sub(-20)))
 check("patch contains the reverted hunk", decision.patch:match("agent%.txt") ~= nil)
 check("patch excludes files outside the run", decision.patch:match("keep%.txt") == nil, decision.patch)
+-- The patch is scoped to the run's files, so this has to be checked against the
+-- tree itself: Pi's own state must never enter a snapshot in the first place.
+local final_tree = sh(repo, "git ls-tree -r --name-only " .. decision.finalTree)
+check("Pi's own state is absent from the final tree", final_tree:match("%.pi/") == nil, final_tree)
 check("notes survived into the decision", decision.notes[1] and decision.notes[1].file == "agent.txt")
 check("diffview closed", seen.closed)
 check("gitsigns base reset globally", vim.deep_equal(seen.reset_base, { true }))
