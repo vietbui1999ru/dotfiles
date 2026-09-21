@@ -3,6 +3,7 @@
 source "$CONFIG_DIR/colors.sh"
 source "$CONFIG_DIR/icons.sh"
 source "$CONFIG_DIR/plugins/icon_map_fn.sh"
+source "$CONFIG_DIR/profile.sh"   # MAX_ICONS for the current main display
 
 # Workspace ID passed as first argument by sketchybarrc
 SID="$1"
@@ -71,11 +72,10 @@ case "$SENDER" in
       --format '%{monitor-appkit-nsscreen-screens-id}%{app-name}' 2>/dev/null)
 
     # Build app icon string from window list, capped at MAX_ICONS distinct
-    # apps — item width tracks content (dynamic, no label.width), so this
-    # cap only bounds how wide the item can grow, not a fixed box. Apps
-    # beyond the cap collapse into a "+N" badge instead of being silently
-    # dropped.
-    MAX_ICONS=4
+    # apps (from profile.sh: 6 on a wide display, 4 on the laptop) — item
+    # width tracks content (dynamic, no label.width), so this cap only bounds
+    # how wide the item can grow, not a fixed box. Apps beyond the cap
+    # collapse into a "+N" badge instead of being silently dropped.
     icons=""
     monitor=""
     icon_count=0
@@ -113,26 +113,23 @@ case "$SENDER" in
     # Default monitor to 1 if not found
     monitor="${monitor:-1}"
 
-    # On non-main displays, only show the visible workspace for that monitor
-    if [[ "$monitor" != "$MAIN_DISPLAY" ]]; then
-      VISIBLE_WS=$(aerospace list-workspaces --monitor "$monitor" --visible 2>/dev/null | head -1)
-      if [[ "$SID" != "$VISIBLE_WS" ]]; then
-        set_hidden
-      else
-        set_active
-        sketchybar --set "$NAME" label="$icons" display="$monitor"
-      fi
+    # The bar exists only on the main display, which is NSScreen index 1 by
+    # definition. A workspace whose windows sit on another monitor has no bar
+    # to draw on there, so hide it. (Don't pass $monitor to sketchybar's
+    # display=: that's an index into a different, WindowServer-ordered list.)
+    if [[ "$monitor" != "1" ]]; then
+      set_hidden
     elif [[ -z "$icons" && "$SID" != "$FOCUSED" ]]; then
-      # Main display: empty unfocused workspace → hide
+      # Empty unfocused workspace → hide
       set_hidden
     elif [[ "$SID" == "$FOCUSED" ]]; then
-      # Main display: focused workspace → active styling + animation
+      # Focused workspace → active styling + animation
       set_active
-      sketchybar --set "$NAME" label="$icons" display="$monitor"
+      sketchybar --set "$NAME" label="$icons"
     else
-      # Main display: unfocused with apps → inactive styling
+      # Unfocused with apps → inactive styling
       set_inactive
-      sketchybar --set "$NAME" label="$icons" display="$monitor"
+      sketchybar --set "$NAME" label="$icons"
     fi
     # Space label/drawing above can change left_pill's width — rebalance.
     CALLER=aerospace "$CONFIG_DIR/plugins/balance_pills.sh"

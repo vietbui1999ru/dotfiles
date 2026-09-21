@@ -17,7 +17,7 @@ A custom [SketchyBar](https://github.com/FelixKratz/SketchyBar) setup for macOS 
 ## Features
 
 - **Dynamic workspaces** — AeroSpace-driven workspace indicators that show/hide based on window occupancy, with per-app icons via `sketchybar-app-font`, hover highlighting, and focus animations
-- **Multi-monitor aware** — workspaces route to the correct display; items like battery, VPN, brightness, and Wi-Fi pin to the primary monitor
+- **Dock/undock aware** — one bar, on the macOS main display only (`display=main`). `profile.sh` picks a `wide` (external, ~2560pt) or `compact` (laptop, ~1800pt, notch) layout from the main screen's width, and the bar reloads itself when the main display changes. Workspaces on other monitors are hidden from the bar
 - **Spotify popup** — album art, track/artist/album info, progress scrubbing via slider, and full transport controls (shuffle, repeat, prev/play/next) — all rendered inside a SketchyBar popup
 - **Live CPU graph** — 60-sample rolling graph with dynamic color thresholds
 - **Pomodoro timer** — click-to-start countdown with configurable durations (popup menu), macOS system sounds on start/complete, and left/right-click control
@@ -32,10 +32,13 @@ A custom [SketchyBar](https://github.com/FelixKratz/SketchyBar) setup for macOS 
 ├── sketchybarrc           # Bar config, defaults, item definitions, layout
 ├── colors.sh              # Centralized color palette (4 core colors)
 ├── icons.sh               # Nerd Font icon constants
+├── profile.sh             # wide/compact layout sizes (icon cap, label widths, notch/margin)
 ├── items/
 │   └── spotify.sh         # Spotify popup item definition (cover, info, controls, slider)
 └── plugins/
-    ├── aerospace.sh       # Workspace events: focus, hover, hide/show, per-monitor routing
+    ├── aerospace.sh       # Workspace events: focus, hover, hide/show, hides workspaces on non-main monitors
+    ├── display_profile.sh # Measures the main display → profile cache; reloads the bar on dock/undock
+    ├── balance_pills.sh   # Equalizes left/right pill widths (clamped to what fits the screen)
     ├── front_app.sh       # Front app name + window title via AppleScript
     ├── spotify.sh         # Spotify control logic: play/pause, scrub, shuffle, repeat
     ├── cpu.sh             # CPU usage via top → graph push
@@ -112,7 +115,8 @@ sketchybar --reload
 
 ## Interesting Implementation Details
 
-- **`aerospace.sh`** — Deduplicates app icons per workspace using a bash associative array as a seen-set, extracts monitor IDs from AeroSpace JSON to route workspaces to the correct physical display, and hides empty unfocused workspaces entirely
+- **`aerospace.sh`** — Deduplicates app icons per workspace using a bash associative array as a seen-set, extracts the monitor ID from AeroSpace JSON to hide workspaces that live on a non-main monitor, and hides empty unfocused workspaces entirely
+- **`display_profile.sh` / `profile.sh`** — `NSScreen.screens[0]` (the same screen sketchybar's `display=main` and AeroSpace's NSScreen id 1 refer to) is measured via JXA; width ≥ 2200pt selects `wide`. Subscribed to `display_change`, which sketchybar fires on hot-plug and resolution changes, so docking/undocking reloads the bar with the right sizes. Moving the mouse between displays also fires it but changes nothing, so it never reloads
 - **`brightness.sh`** — Calls `DisplayServicesGetBrightness` from Apple's private `DisplayServices.framework` via inline Swift compiled at runtime, since macOS provides no public CLI for display brightness
 - **`timer.sh`** — Spawns a background countdown subprocess, stores its PID in `/tmp`, and uses `trap` + `wait` for clean signal handling so stopping the timer kills the sleep chain immediately
 - **`spotify.sh`** — Implements seek-by-scrub: clicking the progress slider computes the target position as `(duration * click_percentage / 100)` and calls `set player position` via AppleScript
