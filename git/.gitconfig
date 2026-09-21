@@ -27,3 +27,7 @@
 	conflictstyle = diff3
 [diff]
 	colorMoved = default
+[rerere]
+	enabled = true
+[remote]
+	pushDefault = origin
