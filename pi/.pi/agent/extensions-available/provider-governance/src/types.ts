@@ -172,7 +172,7 @@ export interface AcpLimits {
 }
 
 export interface TelemetryConfig {
-  sink: "agentops-cli" | "bounded-spool";
+  sink: "bounded-spool";
   spoolRetentionDays: 30;
 }
 

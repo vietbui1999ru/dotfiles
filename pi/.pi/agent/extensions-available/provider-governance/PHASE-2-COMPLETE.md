@@ -90,7 +90,7 @@ container networking, or an equivalent host egress policy.
 
 No live remote custom provider is enabled. Phase 4 remains blocked on retry
 control, authorization provenance, this conformance suite, and the Phase 5
-AgentOps sink or bounded spool.
+bounded spool.
 
 ## Manual Smoke Test
 

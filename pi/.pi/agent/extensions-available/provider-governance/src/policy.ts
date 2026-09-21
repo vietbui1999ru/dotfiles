@@ -198,8 +198,8 @@ export function validateConfig(config: ProviderGovernanceConfig): ConfigValidati
 
   // Telemetry configuration
   if (config.telemetry) {
-    if (config.telemetry.sink !== "bounded-spool" && config.telemetry.sink !== "agentops-cli") {
-      warnings.push({ field: "telemetry.sink", message: `unknown sink "${config.telemetry.sink}"` });
+    if (config.telemetry.sink !== "bounded-spool") {
+      warnings.push({ field: "telemetry.sink", message: `unsupported sink "${config.telemetry.sink}"; use bounded-spool` });
     }
     if (typeof config.telemetry.spoolRetentionDays !== "number" || config.telemetry.spoolRetentionDays < 1) {
       warnings.push({ field: "telemetry.spoolRetentionDays", message: "must be >= 1" });

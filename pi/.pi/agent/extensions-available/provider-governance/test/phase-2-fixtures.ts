@@ -2,7 +2,7 @@
  * Phase 2 fixture matrix.
  *
  * Each fixture has an expected transport-level terminal classification based on
- * the normative table in the AgentOps provider SPEC §6.5.
+ * the normative table in the provider specification §6.5.
  */
 
 import type { MockScenario } from "./mock-anthropic-server.ts";
