@@ -35,3 +35,7 @@ __pycache__/
 /.Codex/
 **/session-state.md
 /.pi/diff-review/
+
+# Installed dependencies. nvim/.gitignore covers its own copy; this catches the
+# rest, including pi extension packages whose tests need a real install.
+node_modules/

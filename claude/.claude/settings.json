@@ -11,7 +11,7 @@
       "mcp__sentry__authenticate",
       "mcp__sentry__complete_authentication"
     ],
-    "defaultMode": "auto"
+    "defaultMode": "plan"
   },
   "model": "sonnet",
   "hooks": {
