@@ -1,0 +1,72 @@
+{
+  "lens": {
+    "enabled": true
+  },
+  "lsp": {
+    "enabled": false
+  },
+  "tests": {
+    "enabled": false
+  },
+  "delta": {
+    "enabled": true
+  },
+  "opengrep": {
+    "enabled": true
+  },
+  "readGuard": {
+    "enabled": true
+  },
+  "format": {
+    "enabled": false,
+    "mode": "deferred"
+  },
+  "autofix": {
+    "enabled": false
+  },
+  "contextInjection": {
+    "enabled": true
+  },
+  "turnSummary": {
+    "enabled": true
+  },
+  "actionableWarnings": {
+    "enabled": true,
+    "includeLspCodeActions": false,
+    "deltaOnly": true,
+    "autoFix": {
+      "enabled": false,
+      "maxFixes": 0
+    }
+  },
+  "tools": {
+    "lazy": true
+  },
+  "startup": {
+    "mode": "full",
+    "scans": {
+      "enabled": true
+    }
+  },
+  "knip": {
+    "enabled": true
+  },
+  "jscpd": {
+    "enabled": true
+  },
+  "madge": {
+    "enabled": true
+  },
+  "gitleaks": {
+    "enabled": true
+  },
+  "govulncheck": {
+    "enabled": true
+  },
+  "deadCode": {
+    "enabled": true
+  },
+  "complexity": {
+    "enabled": true
+  }
+}
