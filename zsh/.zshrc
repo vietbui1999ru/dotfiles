@@ -34,8 +34,10 @@ command -v mise &>/dev/null && eval "$(mise activate zsh)"
 # direnv (after mise so .envrc can reference mise-managed tools)
 command -v direnv &>/dev/null && eval "$(direnv hook zsh)"
 
-# Context7 API key (for ctx7 CLI, Pi, OMP agents)
-[[ -f "$HOME/secrets/.env" ]] && export CONTEXT7_API_KEY="$(grep '^CONTEXT7_API_KEY=' "$HOME/secrets/.env" | cut -d= -f2)"
+# Machine secrets — exports every KEY=value in ~/secrets/.env (Context7, GitHub,
+# Anthropic, Firecrawl, shadcn, Syncthing). Consumers read them from the
+# environment; do not duplicate the values into per-tool .env files.
+[[ -f "$HOME/secrets/.env" ]] && { set -a; source "$HOME/secrets/.env"; set +a; }
 
 # opam
 [[ -r "$HOME/.opam/opam-init/init.zsh" ]] && source "$HOME/.opam/opam-init/init.zsh" &>/dev/null
