@@ -4,7 +4,11 @@ set -euo pipefail
 usage() {
   cat >&2 <<'EOF'
 usage: pane-handoff --spec <path> --repo <path> --model <provider/id[:thinking]>
-                    [--name <agent-name>] [--direction right|down] [--no-prompt]
+                    [--name <agent-name>] [--pane <id>] [--direction right|down]
+                    [--no-prompt]
+
+--pane splits from that pane (e.g. w1:p1, from `herdr pane list`) instead of the
+focused one, which is what a caller outside the workspace needs.
 EOF
 }
 
@@ -17,6 +21,7 @@ SPEC=""
 REPO=""
 model_from_flag=""
 NAME=""
+SOURCE_PANE=""
 DIRECTION="right"
 NO_PROMPT=0
 
@@ -34,6 +39,9 @@ while [ "$#" -gt 0 ]; do
     --name)
       [ "$#" -ge 2 ] || fail "--name is missing a value; pass --name <agent-name>"
       NAME="$2"; shift 2 ;;
+    --pane)
+      [ "$#" -ge 2 ] || fail "--pane is missing a value; pass --pane <id> such as w1:p1, from 'herdr pane list'"
+      SOURCE_PANE="$2"; shift 2 ;;
     --direction)
       [ "$#" -ge 2 ] || fail "--direction is missing a value; pass --direction right or --direction down"
       DIRECTION="$2"; shift 2 ;;
@@ -61,6 +69,8 @@ case "$DIRECTION" in
 esac
 command -v herdr >/dev/null 2>&1 || \
   fail "herdr is not on PATH; install herdr or invoke from an environment where /opt/homebrew/bin is on PATH"
+command -v jq >/dev/null 2>&1 || \
+  fail "jq is not on PATH; it parses herdr's JSON output — install with 'brew install jq'"
 
 if [ -z "$NAME" ]; then
   spec_base=$(basename "$SPEC")
@@ -73,36 +83,15 @@ fi
 # A future approved resolver would hook in by setting PANE_HANDOFF_MODEL.
 MODEL="${PANE_HANDOFF_MODEL:-$model_from_flag}"
 
-pane_output=$(herdr pane split --current --direction "$DIRECTION" --cwd "$REPO")
-PANE=$(PANE_OUTPUT="$pane_output" python3 - <<'PY'
-import json, os, re
-text = os.environ["PANE_OUTPUT"].strip()
-try:
-    payload = json.loads(text)
-except json.JSONDecodeError:
-    payload = None
-if isinstance(payload, dict):
-    result = payload.get("result")
-    if isinstance(result, dict):
-        pane = result.get("pane")
-        if isinstance(pane, dict) and isinstance(pane.get("pane_id"), str):
-            print(pane["pane_id"])
-            raise SystemExit
-        if isinstance(result.get("pane_id"), str):
-            print(result["pane_id"])
-            raise SystemExit
-for line in text.splitlines():
-    stripped = line.strip()
-    if re.fullmatch(r"[A-Za-z0-9_.:-]+", stripped):
-        print(stripped)
-        raise SystemExit
-    match = re.search(r"pane(?:[ _-]?id)?\s*[:=]\s*([A-Za-z0-9_.:-]+)", line, re.I)
-    if match:
-        print(match.group(1))
-        raise SystemExit
-PY
-)
-[ -n "$PANE" ] || fail "herdr pane split did not return a pane id; expected JSON with result.pane.pane_id, a bare id, or 'pane id: <id>'; got: $pane_output"
+if [ -n "$SOURCE_PANE" ]; then
+  pane_output=$(herdr pane split --pane "$SOURCE_PANE" --direction "$DIRECTION" --cwd "$REPO")
+else
+  pane_output=$(herdr pane split --current --direction "$DIRECTION" --cwd "$REPO")
+fi
+
+# herdr speaks JSON: {"id":"cli:pane:split","result":{"pane":{"pane_id":"w1:pD",...}}}
+PANE=$(printf '%s' "$pane_output" | jq -r '.result.pane.pane_id // empty')
+[ -n "$PANE" ] || fail "herdr pane split did not return a pane id at .result.pane.pane_id; got: $pane_output"
 
 if ! start_output=$(herdr agent start "$NAME" --kind pi --pane "$PANE" -- --model "$MODEL" 2>&1); then
   printf '%s\n' "$start_output" >&2

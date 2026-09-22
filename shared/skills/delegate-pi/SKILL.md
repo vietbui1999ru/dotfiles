@@ -92,7 +92,7 @@ Use when the human wants to watch and steer implementation, or the task benefits
 
 ```bash
 scripts/pane-handoff --spec <path> --repo <path> --model <provider/id[:thinking]> \
-  [--name <agent-name>] [--direction right|down] [--no-prompt]
+  [--name <agent-name>] [--pane <id>] [--direction right|down] [--no-prompt]
 ```
 
 Model choice is the human's: Claude asks for provider, model, and effort at handoff time and passes the result through. No silent default, per `claude/.claude/rules/model-routing.md`.
