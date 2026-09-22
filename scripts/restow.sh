@@ -8,8 +8,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# codex omitted: it's an empty dir today (README calls it a no-op stub),
-# and git doesn't track empty dirs, so `stow codex` fails on a fresh clone.
-PACKAGES=(zsh starship nvim tmux tmuxinator kitty git jj claude opencode pi)
+# codex carries only hooks.json: the rest of ~/.codex is machine state
+# (auth.json, sessions/) or holds credentials (config.toml), so it stays untracked.
+PACKAGES=(zsh starship nvim tmux tmuxinator kitty git jj claude opencode pi codex)
 
 stow -R "${PACKAGES[@]}"
