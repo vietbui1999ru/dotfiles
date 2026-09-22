@@ -6,7 +6,7 @@ allowed-tools: "Bash"
 
 # Delegate Pi
 
-Routes work to the `pi` CLI as a subprocess. Three modes: **council** (adversarial review), **delegate** (async coding task via pueue), **subagent** (synchronous bounded task).
+Routes work to the `pi` CLI as a subprocess. Four modes: **council** (adversarial review), **delegate** (async coding task via pueue), **pane** (interactive watched handoff), **subagent** (synchronous bounded task).
 
 ---
 
@@ -16,6 +16,7 @@ Routes work to the `pi` CLI as a subprocess. Three modes: **council** (adversari
 |---|---|---|
 | **council** | Architectural decisions, security changes, irreversible ops | Sync `pi -p` — short prompt, one cross-vendor voice |
 | **delegate** | Long coding task, parallel with current work | Async via `pueue` — fire and continue, wait later |
+| **pane** | Watched implementation, benefits from mid-run correction | Interactive pane via `scripts/pane-handoff` |
 | **subagent** | Bounded research or transformation, result needed now | Sync `pi -p` — structured output format |
 
 ---
@@ -82,6 +83,21 @@ pueue wait "$TASK_ID" && pueue log "$TASK_ID"
 | low | `PI_DELEGATE_LOW_MODEL` from `~/.pi/agent/routing.env` |
 
 Default routes: high=`openai-codex/gpt-5.5:high`, medium=`opencode-go/deepseek-v4-pro:high`, low=`opencode-go/deepseek-v4-flash:off`. Note: `--fallback-models` requires a custom extension (not built-in). Without it, assign model per task at dispatch time.
+
+---
+
+## Pane Mode (interactive via herdr)
+
+Use when the human wants to watch and steer implementation, or the task benefits from mid-run correction. Queued delegate mode remains the default for unattended work.
+
+```bash
+scripts/pane-handoff --spec <path> --repo <path> --model <provider/id[:thinking]> \
+  [--name <agent-name>] [--direction right|down] [--no-prompt]
+```
+
+Model choice is the human's: Claude asks for provider, model, and effort at handoff time and passes the result through. No silent default, per `claude/.claude/rules/model-routing.md`.
+
+Review still gates the diff. Pane mode does not bypass `agent-review`.
 
 ---
 

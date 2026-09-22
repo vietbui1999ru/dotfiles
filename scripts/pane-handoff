@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+usage: pane-handoff --spec <path> --repo <path> --model <provider/id[:thinking]>
+                    [--name <agent-name>] [--direction right|down] [--no-prompt]
+EOF
+}
+
+fail() {
+  echo "pane-handoff: $*" >&2
+  exit 2
+}
+
+SPEC=""
+REPO=""
+model_from_flag=""
+NAME=""
+DIRECTION="right"
+NO_PROMPT=0
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --spec)
+      [ "$#" -ge 2 ] || fail "--spec is missing a value; pass --spec <path-to-non-empty-plan-file>"
+      SPEC="$2"; shift 2 ;;
+    --repo)
+      [ "$#" -ge 2 ] || fail "--repo is missing a value; pass --repo <path-to-git-worktree>"
+      REPO="$2"; shift 2 ;;
+    --model)
+      [ "$#" -ge 2 ] || fail "--model is missing a value; pass --model <provider/id[:thinking]>"
+      model_from_flag="$2"; shift 2 ;;
+    --name)
+      [ "$#" -ge 2 ] || fail "--name is missing a value; pass --name <agent-name>"
+      NAME="$2"; shift 2 ;;
+    --direction)
+      [ "$#" -ge 2 ] || fail "--direction is missing a value; pass --direction right or --direction down"
+      DIRECTION="$2"; shift 2 ;;
+    --no-prompt)
+      NO_PROMPT=1; shift ;;
+    -h|--help)
+      usage; exit 0 ;;
+    *)
+      usage
+      fail "unknown argument '$1'; use the documented flags only" ;;
+  esac
+done
+
+[ -n "$SPEC" ] || fail "--spec is required; pass --spec <path-to-non-empty-plan-file>"
+[ -f "$SPEC" ] || fail "--spec '$SPEC' is not a file; pass --spec <path-to-non-empty-plan-file>"
+[ -s "$SPEC" ] || fail "--spec '$SPEC' is empty; pass --spec <path-to-non-empty-plan-file>"
+[ -n "$REPO" ] || fail "--repo is required; pass --repo <path-to-git-worktree>"
+[ -d "$REPO" ] || fail "--repo '$REPO' is not a directory; pass --repo <path-to-git-worktree>"
+git -C "$REPO" rev-parse --is-inside-work-tree >/dev/null 2>&1 || \
+  fail "--repo '$REPO' is not a git work tree; pass --repo <path-to-git-worktree>"
+[ -n "$model_from_flag" ] || fail "--model is required; pass --model <provider/id[:thinking]>"
+case "$DIRECTION" in
+  right|down) ;;
+  *) fail "--direction '$DIRECTION' is invalid; pass --direction right or --direction down" ;;
+esac
+command -v herdr >/dev/null 2>&1 || \
+  fail "herdr is not on PATH; install herdr or invoke from an environment where /opt/homebrew/bin is on PATH"
+
+if [ -z "$NAME" ]; then
+  spec_base=$(basename "$SPEC")
+  NAME="${spec_base%.*}"
+fi
+[ -n "$NAME" ] || fail "--name resolved to empty; pass --name <agent-name>"
+
+# Automatic cross-provider fallback is prohibited by provider-governance.
+# Interactive fallback belongs inside Pi, not this wrapper.
+# A future approved resolver would hook in by setting PANE_HANDOFF_MODEL.
+MODEL="${PANE_HANDOFF_MODEL:-$model_from_flag}"
+
+pane_output=$(herdr pane split --current --direction "$DIRECTION" --cwd "$REPO")
+PANE=$(PANE_OUTPUT="$pane_output" python3 - <<'PY'
+import json, os, re
+text = os.environ["PANE_OUTPUT"].strip()
+try:
+    payload = json.loads(text)
+except json.JSONDecodeError:
+    payload = None
+if isinstance(payload, dict):
+    result = payload.get("result")
+    if isinstance(result, dict):
+        pane = result.get("pane")
+        if isinstance(pane, dict) and isinstance(pane.get("pane_id"), str):
+            print(pane["pane_id"])
+            raise SystemExit
+        if isinstance(result.get("pane_id"), str):
+            print(result["pane_id"])
+            raise SystemExit
+for line in text.splitlines():
+    stripped = line.strip()
+    if re.fullmatch(r"[A-Za-z0-9_.:-]+", stripped):
+        print(stripped)
+        raise SystemExit
+    match = re.search(r"pane(?:[ _-]?id)?\s*[:=]\s*([A-Za-z0-9_.:-]+)", line, re.I)
+    if match:
+        print(match.group(1))
+        raise SystemExit
+PY
+)
+[ -n "$PANE" ] || fail "herdr pane split did not return a pane id; expected JSON with result.pane.pane_id, a bare id, or 'pane id: <id>'; got: $pane_output"
+
+if ! start_output=$(herdr agent start "$NAME" --kind pi --pane "$PANE" -- --model "$MODEL" 2>&1); then
+  printf '%s\n' "$start_output" >&2
+  exit 1
+fi
+
+if [ "$NO_PROMPT" -eq 0 ]; then
+  if ! prompt_output=$(herdr agent prompt "$NAME" "$(cat "$SPEC")" --wait 2>&1); then
+    printf '%s\n' "$prompt_output" >&2
+    exit 1
+  fi
+fi
+
+printf 'pane-handoff name=%s pane=%s model=%s\n' "$NAME" "$PANE" "$MODEL"

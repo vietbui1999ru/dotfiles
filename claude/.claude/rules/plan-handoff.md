@@ -2,7 +2,7 @@
 
 After plan approval, dispatch to Pi by default — do not implement directly. Direct implementation is an exception; state why.
 
-Use `shared/skills/delegate-pi/SKILL.md`. Use delegate mode (async through `pueue`) for one task; use parallel delegate mode for independent tasks. Do not build new dispatch machinery.
+Use `shared/skills/delegate-pi/SKILL.md`. Use delegate mode (async through `pueue`) for one task; use parallel delegate mode for independent tasks. Interactive work the human intends to watch goes through pane mode via `scripts/pane-handoff`, with the model asked for rather than assumed. Do not build new dispatch machinery.
 
 Dispatch approved file-backed plans as:
 
