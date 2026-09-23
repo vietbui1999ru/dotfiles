@@ -7,9 +7,12 @@ if _py ~= "" then
 	vim.g.python3_host_prog = _py
 end
 
-local _node = vim.fn.exepath("node")
-if _node ~= "" then
-	vim.g.node_host_prog = _node
+-- node_host_prog must be the neovim-node-host script (npm i -g neovim), not the node binary
+local _node_host = vim.fn.exepath("neovim-node-host")
+if _node_host ~= "" then
+	vim.g.node_host_prog = _node_host
+else
+	vim.g.loaded_node_provider = 0
 end
 
 vim.g["coqtail#supported"] = 1
