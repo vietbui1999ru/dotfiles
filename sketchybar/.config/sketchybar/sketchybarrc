@@ -5,14 +5,25 @@ source "$CONFIG_DIR/icons.sh"
 
 PLUGIN_DIR="$CONFIG_DIR/plugins"
 
+##### Layout profile (wide external vs compact laptop) #####
+# Measure the main display, then load the sizes for it. display_watch below
+# re-runs this whole file when the main display changes (dock/undock).
+"$PLUGIN_DIR/display_profile.sh" detect
+source "$CONFIG_DIR/profile.sh"
+
 ##### Bar Appearance #####
+# display=main: one bar, on the macOS main display only. That makes per-item
+# `display=` pointless (and it was fragile: it takes an index into
+# WindowServer's display list, not "main"), so no item sets it.
+# notch_width only applies to a notched built-in panel; harmless elsewhere.
 sketchybar --bar \
+  display=main \
   position=top \
   height=40 \
   color=$TRANSPARENT \
-  margin=7 \
+  margin=$BAR_MARGIN \
   y_offset=5 \
-  notch_width=200 \
+  notch_width=$BAR_NOTCH_W \
   sticky=on
 
 ##### Defaults #####
@@ -33,7 +44,7 @@ default=(
 sketchybar --default "${default[@]}"
 
 ##### Separator helper #####
-# Usage: add_sep <name> [display]
+# Usage: add_sep <name>
 add_sep() {
   local args=(
     icon=$ICON_SEPARATOR
@@ -45,7 +56,6 @@ add_sep() {
     padding_left=0
     padding_right=0
   )
-  [[ -n "$2" ]] && args+=(display="$2")
   sketchybar --add item "$1" right --set "$1" "${args[@]}"
 }
 
@@ -80,7 +90,6 @@ sketchybar --set space.1 padding_left=5
 ##### Left Side — Chevron + Front App #####
 sketchybar --add item chevron left \
            --set chevron \
-                 display=$MAIN_DISPLAY \
                  icon=$ICON_CHEVRON \
                  icon.color=$CHEVRON_COLOR \
                  icon.font="Hack Nerd Font Mono:Bold:12.0" \
@@ -90,24 +99,22 @@ sketchybar --add item chevron left \
 
 sketchybar --add item front_app left \
            --set front_app \
-                 display=$MAIN_DISPLAY \
                  icon.drawing=off \
                  label.font="SF Pro:Bold:13.0" \
                  label.color=$APP_NAME_COLOR \
-                 width=80 \
+                 width=$FRONT_APP_W \
                  script="$PLUGIN_DIR/front_app.sh" \
            --subscribe front_app front_app_switched
 
 sketchybar --add item window_title left \
            --set window_title \
-                 display=$MAIN_DISPLAY \
                  icon.drawing=off \
                  label.font="SF Pro:Regular:12.0" \
                  label.color=$WINDOW_TITLE_COLOR \
-                 label.max_chars=24 \
-                 label.width=150 \
+                 label.max_chars=$TITLE_CHARS \
+                 label.width=$TITLE_W \
                  scroll_texts=on \
-                 width=150 \
+                 width=$TITLE_W \
                  script="$PLUGIN_DIR/front_app.sh" \
            --subscribe window_title front_app_switched
 
@@ -117,13 +124,12 @@ sketchybar --add item window_title left \
 # scroll_texts wraps the text within that width instead of spilling.
 sketchybar --add item audio_source left \
            --set audio_source \
-                 display=$MAIN_DISPLAY \
                  icon=$ICON_AUDIO_SOURCE \
                  icon.color=$AUDIO_SOURCE_ICON_COLOR \
                  label.color=$AUDIO_SOURCE_LABEL_COLOR \
                  label.font="SF Pro:Regular:12.0" \
-                 label.width=110 \
-                 label.max_chars=16 \
+                 label.width=$AUDIO_W \
+                 label.max_chars=$AUDIO_CHARS \
                  scroll_texts=on \
                  drawing=off \
                  update_freq=5 \
@@ -146,16 +152,14 @@ sketchybar --add item left_spacer left \
 # Herdr plan/build agent status. label.width fixed + scroll_texts, same as
 # window_title/audio_source's fixed-width labels — this is a right_pill
 # item, unrelated to left_pill's now-dynamic workspace width.
-# 210 covers both status words at their longest ("? unknown" x2, measured
-# 200px) with a small margin; a NEXT-step suffix already exceeds this and
-# relies on scroll_texts to show it without resizing — that was already
-# true at 260, which didn't fit the NEXT case either, just wasted space on
-# the far more common status-only display.
+# Width comes from the profile: compact (210) covers both status words at
+# their longest ("? unknown" x2, measured 200px) and lets a NEXT step scroll;
+# wide (420) has room to show most of a NEXT step without scrolling.
 sketchybar --add item agents right \
            --set agents \
                  icon.drawing=off \
                  label.max_chars=300 \
-                 label.width=210 \
+                 label.width=$AGENTS_W \
                  label.font="Hack Nerd Font Mono:Regular:13.0" \
                  scroll_texts=on \
                  click_script="$PLUGIN_DIR/agents.sh" \
@@ -181,7 +185,7 @@ sketchybar --add item calendar right \
                  update_freq=3600 \
                  script="$PLUGIN_DIR/calendar.sh"
 
-add_sep sep.mic $MAIN_DISPLAY
+add_sep sep.mic
 
 sketchybar --add item mic right \
            --set mic \
@@ -192,7 +196,7 @@ sketchybar --add item mic right \
                  script="$PLUGIN_DIR/mic.sh" \
                  click_script="$PLUGIN_DIR/mic_click.sh"
 
-# add_sep sep.claude $MAIN_DISPLAY
+# add_sep sep.claude
 # 
 # sketchybar --add item claude right \
 #            --set claude \
@@ -200,7 +204,7 @@ sketchybar --add item mic right \
 #                  update_freq=120 \
 #                  script="$HOME/repos/RustProjects/claude-tui/scripts/sketchybar/claude_plugin.sh"
 
-# add_sep sep.cpu $MAIN_DISPLAY
+# add_sep sep.cpu
 # 
 # sketchybar --add graph cpu right 30 \
 #            --set cpu \
@@ -217,11 +221,10 @@ sketchybar --add item mic right \
 #                  padding_right=-3 \
 #                  script="$PLUGIN_DIR/cpu.sh"
 
-add_sep sep.vpn $MAIN_DISPLAY
+add_sep sep.vpn
 
 sketchybar --add item vpn.tailscale right \
            --set vpn.tailscale \
-                 display=$MAIN_DISPLAY \
                  icon=$ICON_TAILSCALE_OFF \
                  label.drawing=off \
                  padding_left=5 \
@@ -232,25 +235,22 @@ sketchybar --add item vpn.tailscale right \
 # No script/update_freq here — vpn.tailscale's poll sets both items.
 sketchybar --add item vpn.protonvpn right \
            --set vpn.protonvpn \
-                 display=$MAIN_DISPLAY \
                  icon=$ICON_PROTONVPN_OFF \
                  label.drawing=off \
                  padding_left=2
 
-# add_sep sep.wifi $MAIN_DISPLAY
-# 
+# add_sep sep.wifi
+#
 # sketchybar --add item wifi right \
 #            --set wifi \
-#                  display=$MAIN_DISPLAY \
 #                  icon=$ICON_WIFI \
 #                  update_freq=30 \
 #                  script="$PLUGIN_DIR/wifi.sh"
 
-# add_sep sep.bright $MAIN_DISPLAY
-# 
+# add_sep sep.bright
+#
 # sketchybar --add item brightness right \
 #            --set brightness \
-#                  display=$MAIN_DISPLAY \
 #                  icon=$ICON_BRIGHTNESS \
 #                  update_freq=30 \
 #                  script="$PLUGIN_DIR/brightness.sh"
@@ -318,6 +318,16 @@ sketchybar --add bracket right_pill \
              background.height=37 \
              background.padding_right=7 \
              background.drawing=on
+
+##### Display watcher (dock / undock) #####
+# Invisible, not in either pill. display_change fires on hot-plug and
+# resolution change (and on focus moving between displays); the script only
+# reloads if the main display's profile actually changed.
+sketchybar --add item display_watch left \
+           --set display_watch \
+                 drawing=off \
+                 script="$PLUGIN_DIR/display_profile.sh" \
+           --subscribe display_watch display_change system_woke
 
 ##### Force Initial Update #####
 sketchybar --update
