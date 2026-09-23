@@ -12,6 +12,43 @@ interface MockCtx {
 	isProjectTrusted: () => boolean;
 }
 
+// Pi's ExtensionRunner.invalidate() puts the runtime into a state where
+// assertActive() throws on *property access*, not just on method calls: `cwd`,
+// `hasUI`, `ui` and `model` are all guarded getters. Both the ctx and the
+// captured `pi` are invalidated together, and it happens after
+// `session_shutdown` has been emitted and awaited.
+const STALE_MESSAGE =
+	"This extension ctx is stale after session replacement or reload.";
+
+interface MockSession {
+	stale: boolean;
+}
+
+function assertLive(session: MockSession): void {
+	if (session.stale) throw new Error(STALE_MESSAGE);
+}
+
+function makeStaleableCtx(cwd: string, session: MockSession): MockCtx {
+	return {
+		get cwd() {
+			assertLive(session);
+			return cwd;
+		},
+		get hasUI(): false {
+			assertLive(session);
+			return false;
+		},
+		get ui() {
+			assertLive(session);
+			return { setStatus() {}, notify() {} };
+		},
+		isProjectTrusted: () => {
+			assertLive(session);
+			return true;
+		},
+	} as MockCtx;
+}
+
 interface MockPi {
 	handlers: Record<string, ((...args: unknown[]) => unknown)[]>;
 	commands: Record<string, (args: string, ctx: MockCtx) => Promise<unknown>>;
@@ -31,7 +68,7 @@ interface MockPi {
 	sendUserMessage: (text: string, opts: unknown) => void;
 }
 
-function makeMockPi(): MockPi {
+function makeMockPi(session: MockSession = { stale: false }): MockPi {
 	const pi: MockPi = {
 		handlers: {},
 		commands: {},
@@ -52,6 +89,7 @@ function makeMockPi(): MockPi {
 			// Recording every emission lets a test assert the settled handshake
 			// that agent-review waits on.
 			emit(event, payload) {
+				assertLive(session);
 				pi.emitted.push({ event, payload });
 				for (const handler of pi.handlers[event] ?? []) handler(payload);
 			},
@@ -60,9 +98,11 @@ function makeMockPi(): MockPi {
 			pi.commands[name] = spec.handler;
 		},
 		sendMessage(content, opts) {
+			assertLive(session);
 			pi.messages.push({ content, opts });
 		},
 		sendUserMessage(text, _opts) {
+			assertLive(session);
 			pi.userMessages.push(text);
 		},
 	};
@@ -142,6 +182,45 @@ test("end-to-end: write triggers verification and persists an honest report", as
 		report.commands.some((command) => command.id === "bash-syntax" && command.status === "passed"),
 		"bash-syntax should run and pass",
 	);
+});
+
+test("session replaced mid-verification: no throw, report still persisted", async () => {
+	const repo = makeTempRepo();
+	const stateRoot = mkdtempSync(join(tmpdir(), "pi-verifier-smoke-state-"));
+	process.env.PI_VERIFIER_STATE_ROOT = stateRoot;
+
+	const extension = await loadExtension();
+	const session: MockSession = { stale: false };
+	const pi = makeMockPi(session);
+	const ctx = makeStaleableCtx(repo, session);
+	extension!(pi);
+
+	await emit(pi, "session_start", {}, ctx);
+	await emit(pi, "agent_start", {}, ctx);
+	await emit(pi, "tool_result", { isError: false, toolName: "write", input: { path: "script.sh" } }, ctx);
+
+	// The boundary starts verification and then awaits it. Replace the session
+	// while those subprocesses are still running, in Pi's real order: abort,
+	// emit session_shutdown, then invalidate every session-bound object.
+	const endPromise = emit(pi, "agent_end", {}, ctx);
+	await emit(pi, "session_shutdown", { reason: "switch" }, ctx);
+	session.stale = true;
+
+	await assert.doesNotReject(
+		endPromise,
+		"agent_end must not reject when the ctx goes stale mid-verification",
+	);
+	await assert.doesNotReject(
+		emit(pi, "agent_settled", {}, ctx),
+		"agent_settled must not reject against a stale ctx",
+	);
+
+	// The report is the durable output; losing the UI notification is fine,
+	// losing the report is not.
+	const reportPath = join(stateRoot, `${configKey(realpathSync(repo))}.report.json`);
+	assert.ok(existsSync(reportPath), "report must be persisted despite the replacement");
+	const report = JSON.parse(readFileSync(reportPath, "utf8")) as { status: string };
+	assert.equal(report.status, "passed");
 });
 
 test("trust gate skips execution when project is not trusted", async () => {

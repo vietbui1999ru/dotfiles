@@ -728,6 +728,29 @@ function selectedManualPaths(root: string, args: string): string[] {
 }
 
 export default function postRunVerifier(pi: ExtensionAPI): void {
+	// Verification outlives the turn that started it: the boundary awaits
+	// subprocesses, and the session can be replaced (/new, /fork, /switch,
+	// /reload) while they run. Pi then calls ExtensionRunner.invalidate(), after
+	// which *any* guarded property access on this ctx or on the captured `pi`
+	// throws — including `ctx.hasUI`, so a plain capability check is not safe.
+	// Pi emits and awaits `session_shutdown` before invalidating, so this flag
+	// closes the window; the catch is a backstop for paths that reach
+	// invalidation without it. Reporting is best-effort by design: the report is
+	// already on disk (see persistJson in runVerification) before any of it runs.
+	// Returns whether the action actually reached the session, so callers can
+	// avoid recording state that assumes a message the user never saw.
+	let live = true;
+	const bestEffort = (action: () => void): boolean => {
+		if (!live) return false;
+		try {
+			action();
+			return true;
+		} catch {
+			/* session replaced mid-flight; the persisted report is the record */
+			return false;
+		}
+	};
+
 	const unsubscribe = pi.events.on("pilens:files:touched", (data) => {
 		if (!data || typeof data !== "object") return;
 		const payload = data as { cwd?: unknown; paths?: unknown };
@@ -826,29 +849,44 @@ export default function postRunVerifier(pi: ExtensionAPI): void {
 			if (thisGeneration !== generation) return;
 			lastReport = report;
 			completedGeneration = thisGeneration;
+			// Nothing below can reach a replaced session: the repair follow-up has
+			// nowhere to be delivered, and queueing one would leave this generation
+			// recorded as repairing against a session that no longer exists.
+			if (!live) return;
 			if (report.status === "failed") {
 				if (repairCycles < 3 && !terminalReportDisplayed) {
-					repairCycles += 1;
-					repairQueuedGeneration = thisGeneration;
-					pi.sendUserMessage(failedPrompt(report, 3 - repairCycles), {
-						deliverAs: "followUp",
-						expandPromptTemplates: false,
-					});
+					// Only claim the cycle if the follow-up was delivered. Recording
+					// a queued repair that never arrived suppresses the settled
+					// signal below, which would leave the review gate waiting for a
+					// repair run that is never coming.
+					const nextCycle = repairCycles + 1;
+					if (
+						bestEffort(() =>
+							pi.sendUserMessage(failedPrompt(report, 3 - nextCycle), {
+								deliverAs: "followUp",
+								expandPromptTemplates: false,
+							}),
+						)
+					) {
+						repairCycles = nextCycle;
+						repairQueuedGeneration = thisGeneration;
+					}
 				} else if (!terminalReportDisplayed) {
-					displayReport(
-						pi,
-						ctx,
-						{ ...report, repairCyclesUsed: repairCycles },
-						true,
+					terminalReportDisplayed = bestEffort(() =>
+						displayReport(
+							pi,
+							ctx,
+							{ ...report, repairCyclesUsed: repairCycles },
+							true,
+						),
 					);
-					terminalReportDisplayed = true;
 				}
 			} else {
 				if (report.status === "passed") {
 					repairCycles = 0;
 					terminalReportDisplayed = false;
 				}
-				displayReport(pi, ctx, report);
+				bestEffort(() => displayReport(pi, ctx, report));
 			}
 		} catch (error) {
 			const failedReport: VerificationReport = {
@@ -869,10 +907,14 @@ export default function postRunVerifier(pi: ExtensionAPI): void {
 			persistJson(pathsForRoot(root).reportPath, failedReport);
 			lastReport = failedReport;
 			completedGeneration = thisGeneration;
-			displayReport(pi, ctx, failedReport, true);
+			bestEffort(() => displayReport(pi, ctx, failedReport, true));
 		} finally {
 			running = undefined;
-			if (ctx.hasUI) ctx.ui.setStatus("post-run-verifier", undefined);
+			// A throw from `finally` replaces the in-flight exception, so an
+			// unguarded status clear turns a clean failure into an uncaught one.
+			bestEffort(() => {
+				if (ctx.hasUI) ctx.ui.setStatus("post-run-verifier", undefined);
+			});
 		}
 	};
 
@@ -883,7 +925,12 @@ export default function postRunVerifier(pi: ExtensionAPI): void {
 		// A queued repair belongs to this run but starts the next low-level agent
 		// generation. Do not let review snapshot the pre-repair tree.
 		if (repairQueuedGeneration === generation) return;
-		pi.events.emit("post-run-verifier:settled", { generation, root: activeRoot });
+		bestEffort(() =>
+			pi.events.emit("post-run-verifier:settled", {
+				generation,
+				root: activeRoot,
+			}),
+		);
 	});
 
 	pi.registerCommand("verify", {
@@ -894,7 +941,9 @@ export default function postRunVerifier(pi: ExtensionAPI): void {
 			const paths = selectedManualPaths(root, args);
 			const report = await runVerification(pi, ctx, paths, "manual", generation);
 			lastReport = report;
-			displayReport(pi, ctx, report, report.status === "failed");
+			bestEffort(() =>
+				displayReport(pi, ctx, report, report.status === "failed"),
+			);
 		},
 	});
 
@@ -905,7 +954,9 @@ export default function postRunVerifier(pi: ExtensionAPI): void {
 			const paths = selectedManualPaths(root, args);
 			const report = await runVerification(pi, ctx, paths, "final", generation);
 			lastReport = report;
-			displayReport(pi, ctx, report, report.status === "failed");
+			bestEffort(() =>
+				displayReport(pi, ctx, report, report.status === "failed"),
+			);
 		},
 	});
 
@@ -964,5 +1015,8 @@ export default function postRunVerifier(pi: ExtensionAPI): void {
 		},
 	});
 
-	pi.on("session_shutdown", () => unsubscribe());
+	pi.on("session_shutdown", () => {
+		live = false;
+		unsubscribe();
+	});
 }
