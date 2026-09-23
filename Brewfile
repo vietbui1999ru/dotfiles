@@ -28,6 +28,9 @@ brew "herdr"
 
 # Editor
 brew "neovim"
+brew "tree-sitter-cli"  # nvim-treesitter main compiles parsers with it
+brew "imagemagick"      # snacks.image converts images with magick
+brew "mermaid-cli"      # snacks.image / diagram.nvim render mermaid via mmdc
 
 # Modern CLI (Rust tools)
 brew "eza"

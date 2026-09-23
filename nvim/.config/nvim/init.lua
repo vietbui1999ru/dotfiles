@@ -2,9 +2,13 @@ vim.g.mapleader = " "
 vim.g.maplocalleader = " "
 vim.g.have_nerd_font = true
 
-local _py = vim.fn.exepath("python3")
-if _py ~= "" then
+-- python3_host_prog needs pynvim; Homebrew python is externally managed, so use a dedicated venv:
+--   uv venv ~/.local/share/nvim/venv && uv pip install --python ~/.local/share/nvim/venv/bin/python pynvim
+local _py = vim.fn.stdpath("data") .. "/venv/bin/python"
+if vim.fn.executable(_py) == 1 then
 	vim.g.python3_host_prog = _py
+else
+	vim.g.loaded_python3_provider = 0
 end
 
 -- node_host_prog must be the neovim-node-host script (npm i -g neovim), not the node binary
@@ -650,25 +654,33 @@ vim.api.nvim_create_autocmd("BufReadPre", {
 		end, { desc = "[F]ormat buffer" })
 
 		vim.cmd.packadd("nvim-treesitter")
-		require("nvim-treesitter").setup({
-			ensure_installed = {
-				"bash",
-				"c",
-				"css",
-				"diff",
-				"html",
-				"javascript",
-				"lua",
-				"luadoc",
-				"markdown",
-				"markdown_inline",
-				"query",
-				"svelte",
-				"typescript",
-				"vim",
-				"vimdoc",
-			},
-			auto_install = true,
+		-- nvim-treesitter main: setup() only takes install_dir; parsers are requested via install(),
+		-- which is async and skips parsers already present.
+		require("nvim-treesitter").setup({})
+		require("nvim-treesitter").install({
+			"bash",
+			"c",
+			"css",
+			"diff",
+			"html",
+			"javascript",
+			"lua",
+			"luadoc",
+			"markdown",
+			"markdown_inline",
+			"query",
+			"svelte",
+			"typescript",
+			"vim",
+			"vimdoc",
+			-- snacks.image: render images/math embedded in these doc languages
+			"latex",
+			"scss",
+			"tsx",
+			"typst",
+			"vue",
+			-- snacks.picker regex highlighting
+			"regex",
 		})
 
 		vim.api.nvim_create_autocmd("LspAttach", {
