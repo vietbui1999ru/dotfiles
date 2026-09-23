@@ -17,8 +17,12 @@ interface MockPi {
 	commands: Record<string, (args: string, ctx: MockCtx) => Promise<unknown>>;
 	messages: unknown[];
 	userMessages: string[];
+	emitted: { event: string; payload: unknown }[];
 	on: (event: string, handler: (...args: unknown[]) => unknown) => void;
-	events: { on: (event: string, handler: (...args: unknown[]) => unknown) => () => void };
+	events: {
+		on: (event: string, handler: (...args: unknown[]) => unknown) => () => void;
+		emit: (event: string, payload?: unknown) => void;
+	};
 	registerCommand: (
 		name: string,
 		spec: { handler: (args: string, ctx: MockCtx) => Promise<unknown> },
@@ -33,6 +37,7 @@ function makeMockPi(): MockPi {
 		commands: {},
 		messages: [],
 		userMessages: [],
+		emitted: [],
 		on(event, handler) {
 			(pi.handlers[event] ??= []).push(handler);
 		},
@@ -42,6 +47,13 @@ function makeMockPi(): MockPi {
 				return () => {
 					/* unsubscribe stub */
 				};
+			},
+			// Pi's bus dispatches synchronously and ignores handler return values.
+			// Recording every emission lets a test assert the settled handshake
+			// that agent-review waits on.
+			emit(event, payload) {
+				pi.emitted.push({ event, payload });
+				for (const handler of pi.handlers[event] ?? []) handler(payload);
 			},
 		},
 		registerCommand(name, spec) {
