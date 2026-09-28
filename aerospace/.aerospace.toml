@@ -241,23 +241,25 @@ alt-shift-tab = 'move-workspace-to-monitor --wrap-around next'
 # See: https://nikitabobko.github.io/AeroSpace/commands#mode
 alt-shift-a = 'mode service'
 
-# Pin workspaces to displays. 'main' = external monitor; 'secondary' = MacBook,
-# falling back to 'main' when only one display is connected.
+# Pin workspaces to displays by name (patterns are case-insensitive regex).
+# Not 'main'/'secondary': those follow whichever display holds the macOS menu
+# bar, which is the MacBook here. Each rule falls back to 'main' when its
+# display is disconnected.
 # See: https://nikitabobko.github.io/AeroSpace/guide#assign-workspaces-to-monitors
 [workspace-to-monitor-force-assignment]
-N = ['secondary', 'main']   # Slack / Discord
-M = ['secondary', 'main']   # music
-0 = 'main'
-1 = 'main'
-2 = 'main'
-3 = 'main'
-B = 'main'
-C = 'main'
-O = 'main'
-P = 'main'
-R = 'main'
-S = 'main'
-T = 'main'
+N = ['built-in', 'main']   # Slack / Discord
+M = ['built-in', 'main']   # music
+0 = ['MAG 275UD', 'main']
+1 = ['MAG 275UD', 'main']
+2 = ['MAG 275UD', 'main']
+3 = ['MAG 275UD', 'main']
+B = ['MAG 275UD', 'main']
+C = ['MAG 275UD', 'main']
+O = ['MAG 275UD', 'main']
+P = ['MAG 275UD', 'main']
+R = ['MAG 275UD', 'main']
+S = ['MAG 275UD', 'main']
+T = ['MAG 275UD', 'main']
 
 # 'service' binding mode declaration.
 # See: https://nikitabobko.github.io/AeroSpace/guide#binding-modes
