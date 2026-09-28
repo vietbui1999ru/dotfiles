@@ -6,9 +6,6 @@ export DARK_TEAL=0xffd4be98
 export SAGE=0xff7daea3
 export MUTED_TEAL=0xff928374
 
-# ── Display ──────────────────────────────────────
-export MAIN_DISPLAY=1   # sketchybar display ID for the primary monitor
-
 # ── Bar ──────────────────────────────────────────
 export BAR_COLOR=0xe032302f
 export ISLAND_BG=$BAR_COLOR

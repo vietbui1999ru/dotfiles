@@ -20,6 +20,12 @@
 LOG_FILE="${XDG_CACHE_HOME:-$HOME/.cache}/sketchybar/balance.log"
 mkdir -p "$(dirname "$LOG_FILE")"
 
+# SCREEN_W / BAR_MARGIN / NOTCH_W for the overflow clamp below. Defaults keep
+# a missing profile.sh from collapsing the limit to 0 and disabling balancing.
+PROFILE_SH="${CONFIG_DIR:-$HOME/.config/sketchybar}/profile.sh"
+[[ -r "$PROFILE_SH" ]] && source "$PROFILE_SH"
+: "${SCREEN_W:=1800}" "${BAR_MARGIN:=7}" "${NOTCH_W:=0}"
+
 GEN_FILE="${TMPDIR:-/tmp}/sketchybar_balance.gen"
 MY_GEN="$$-$RANDOM"
 printf '%s' "$MY_GEN" > "$GEN_FILE"
@@ -73,18 +79,32 @@ lw=$(pill_width left_pill)
 rw=$(pill_width right_pill)
 [[ -z "$lw" || -z "$rw" ]] && exit 0
 
-diff=$(( lw > rw ? lw - rw : rw - lw ))
+# Each pill may use at most half of the bar minus the notch. Past that,
+# padding the narrower pill to match the wider one would push the pair off
+# screen (or into the notch), so stop padding at the limit. Wider profiles
+# make this reachable: a busy workspace list plus long titles can overrun.
+limit=$(( (SCREEN_W - 2 * BAR_MARGIN - NOTCH_W) / 2 ))
+big=$(( lw > rw ? lw : rw ))
+small=$(( lw > rw ? rw : lw ))
+target=$big
+if (( big > limit )); then
+  target=$(( limit > small ? limit : small ))
+fi
+diff=$(( target - small ))
+clamped=$(( big > limit ? 1 : 0 ))
 
 action="noop"
-if (( lw > rw )); then
-  sketchybar --set right_spacer width=$diff
-  action="right_spacer+=$diff"
-elif (( rw > lw )); then
-  sketchybar --set left_spacer width=$diff
-  action="left_spacer+=$diff"
+if (( diff > 0 )); then
+  if (( lw > rw )); then
+    sketchybar --set right_spacer width=$diff
+    action="right_spacer+=$diff"
+  else
+    sketchybar --set left_spacer width=$diff
+    action="left_spacer+=$diff"
+  fi
 fi
 
-printf '%s caller=%s lw=%s rw=%s diff=%s action=%s\n' \
-  "$(date '+%Y-%m-%d %H:%M:%S')" "${CALLER:-unknown}" "$lw" "$rw" "$diff" "$action" \
-  >> "$LOG_FILE"
+printf '%s caller=%s lw=%s rw=%s diff=%s limit=%s clamped=%s action=%s\n' \
+  "$(date '+%Y-%m-%d %H:%M:%S')" "${CALLER:-unknown}" "$lw" "$rw" "$diff" \
+  "$limit" "$clamped" "$action" >> "$LOG_FILE"
 tail -n 500 "$LOG_FILE" > "$LOG_FILE.tmp" 2>/dev/null && mv "$LOG_FILE.tmp" "$LOG_FILE"
