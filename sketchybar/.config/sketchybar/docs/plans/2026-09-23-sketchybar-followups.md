@@ -4,6 +4,19 @@
 verification, where each step depends on the last result); the owner for `[you]`.
 **Repo:** `~/dotfiles`, package `sketchybar/` (stowed to `~/.config/sketchybar`). **Written:** 2026-09-23.
 **Status:** nothing below is started. PR #41 is open and awaiting the owner.
+**Updated 2026-09-28:** PR #41's design changed — see the note right after this line before reading
+anything else about "main display" below.
+
+> **Correction, verified live 2026-09-28.** Docked with the lid open (two real displays attached),
+> macOS itself still reported the *built-in* panel as main (`system_profiler` `Main Display: Yes`
+> under the built-in; `NSScreen` origin `(0,0)` on the built-in, not the external). The original
+> PR #41 design (`display=main`) would have put the bar on the laptop screen when docked. Per
+> request, it now ignores macOS's main-display setting entirely: `display_profile.sh` identifies
+> the built-in panel via `CGDisplayIsBuiltin` and always targets whichever OTHER display is
+> attached, falling back to the built-in only when it's the sole display. Wherever this file says
+> "main display" from here down in text written before today, read it as "the target display
+> (external-preferred)", not macOS's main-display flag. The **Decisions** and **State of the
+> world** sections below are already updated; item 1's checklist is rewritten for the new design.
 
 This is the to-do for the next time sketchybar is worth revisiting. It records what a long
 debugging-and-redesign session (2026-09-16 to 2026-09-23) established, what is still open, and how
@@ -45,15 +58,16 @@ or re-litigated.
 
 ---
 
-## State of the world (verified 2026-09-23)
+## State of the world (verified 2026-09-23, updated 2026-09-28)
 
 | Thing | State |
 |---|---|
 | `origin/main` sketchybar | equals the live checkout: icon-based agent status, `window_title` restored, `audio_source` toggles `drawing`, volume and battery removed, `MAX_ICONS=4`, `agents` `label.width=210`, no `label.width` on `space.*` |
-| PR #41 `sketchybar-display-profiles` | **OPEN, mergeable.** Main-display-only bar + wide/compact profiles + overflow clamp + 3 new tests. **Not deployed, dual-display path never run live** |
+| PR #41 `sketchybar-display-profiles` | **OPEN, mergeable.** Bar always targets the external (ignores macOS's main-display setting) + wide/compact profiles + overflow clamp + updated tests. Detection, the `CGDirectDisplayID`→arrangement-id mapping, and a manual `--bar display=` move were all run live on real two-display hardware 2026-09-28 (see item 1). **Still not verified: a physical unplug/replug transition while the bar is running, and not deployed** |
 | PRs #37, #38, #39 | OPEN but superseded. For `sketchybar/` and the bridge, #39's tree is identical to `main`; #37/#38 differ only by the older pre-revert state. Safe to close |
 | Stale remote branches | `sketchybar-agent-icons`, `-combined`, `-reconcile`, `-revert-left-pill`, `-revert-left-pill-v2`, `-shrink-pills`, `worktree-sketchybar-balance-race`, `worktree-sketchybar-media-pill` |
-| Displays attached | **one**: MAG 275UD E14, 5120x2880, macOS "looks like" 2560x1440. Internal (lid closed) not present |
+| Displays attached 2026-09-23 | **one**: MAG 275UD E14, 5120x2880, macOS "looks like" 2560x1440. |
+| Displays attached 2026-09-28 | **two**, docked with the lid open: built-in 1512x982 (notch inset 32pt) + the same MAG 275UD E14, now running 1920x1080 (a different resolution than 2026-09-23 — same physical monitor, so `WIDE_MIN_W=2200` classifies it `compact` today; don't assume a fixed resolution) |
 | `~/.cache/sketchybar/profile` | absent (PR #41 not deployed) |
 
 ## Decisions already made — do not re-litigate
@@ -62,6 +76,10 @@ or re-litigated.
   with a `+N` badge; no fixed `label.width` on `space.*`. Resizing on workspace switch is
   *accepted*. The fixed-width version was tried and rejected: "looks kinda empty".
 - `window_title` is back; `audio_source` toggles `drawing=off/on` again; volume and battery are gone.
+- **Bar targets the external display explicitly, ignoring macOS's own main-display setting
+  (decided 2026-09-28, after a live test showed the two can disagree while docked).** No UI
+  toggle for this; if the owner ever wants "follow macOS's main display" back, that's a real
+  design reversal to raise explicitly, not a default to restore quietly.
 - **agents label**: state lives in `scripts/herdr-sketchybar-bridge` (single writer, no shared state
   file, so no race). `agents.sh` only renders `LABEL`. Icons: plan = U+EF0D (fa-scroll), build =
   U+F08EA (md-hammer), NEXT = U+F101 (fa-angles-right), all verified present in
@@ -116,7 +134,21 @@ Priority: P0 unblocks everything, P1 is likely user-visible, P2 is tuning, P3 is
 
 ### 1. [you] then [Claude] — P0: verify and land PR #41
 
-PR #41 cannot be trusted until it has run with two displays. Only the external was ever attached.
+**Update 2026-09-28:** most of this is now done. With two real displays attached (docked, lid
+open), the following were verified live and are no longer open questions:
+- `CGDisplayIsBuiltin` correctly flagged the built-in vs the external.
+- `sketchybar --query displays`'s `DirectDisplayID` matched the JXA-enumerated `CGDirectDisplayID`s,
+  confirming the arrangement-id lookup used for `--bar display=` is sound.
+- `sketchybar --bar display=2` (set by hand) moved the whole bar to the external — confirmed by
+  screenshotting both screens, nothing left on the built-in.
+- `display_profile.sh detect` against that same hardware produced
+  `PROFILE=compact SCREEN_W=1920 HAS_NOTCH=0 BAR_DISPLAY=2 MAIN_NSSCREEN_IDX=2`, matching the manual
+  test and `aerospace list-monitors` exactly.
+
+**Still open — the one thing that matters most:** none of the above tested a *live transition*.
+Every check above was done with both displays already attached, by running `detect` or setting
+`--bar display=` by hand — not by physically plugging/unplugging while sketchybar was running, so
+the `display_watch` → `display_change` → reload chain itself has never fired for real.
 
 Deploy after the owner merges (one command per block; replace `<path>` with each file below):
 
@@ -131,26 +163,28 @@ sketchybar --reload
 ```
 
 Paths: `profile.sh`, `sketchybarrc`, `colors.sh`, `README.md`, `plugins/display_profile.sh`,
-`plugins/balance_pills.sh`, `plugins/aerospace.sh`, and the three `plugins/*.test.sh` files.
+`plugins/balance_pills.sh`, `plugins/aerospace.sh`, and the `plugins/*.test.sh` files.
 No bridge restart is needed; #41 does not touch it.
 
 Checklist (Claude runs the queries; the owner does the plugging):
 
 | # | Do | Expect |
 |---|---|---|
-| 1 | Reload with only the external attached | `cat ~/.cache/sketchybar/profile` is `PROFILE=wide`, `SCREEN_W=2560`, `HAS_NOTCH=0`; `sketchybar --query front_app` shows `width` 140 |
-| 2 | Open the lid (external stays main) | bar on the external only, nothing on the internal; profile still `wide`; a workspace whose windows sit on the internal screen is hidden from the bar |
-| 3 | Undock (unplug the external, lid open) | within about 2s the bar is on the internal panel; profile `compact`, `SCREEN_W` near 1800, `HAS_NOTCH=1`; `front_app` width 80; left and right pills clear the notch gap |
-| 4 | Re-dock | back to `wide` |
-| 5 | Move the mouse between screens | `stat -f %m ~/.cache/sketchybar/profile` unchanged (re-measures, never reloads) |
-| 6 | `sketchybar --query displays` on the laptop | record the real frame width; confirm it classifies `compact` under `WIDE_MIN_W=2200` |
+| 1 | Reload with only the built-in attached (undocked) | `cat ~/.cache/sketchybar/profile` shows `BAR_DISPLAY=main` (or its resolved arrangement-id) and `MAIN_NSSCREEN_IDX=1`; bar on the laptop screen |
+| 2 | **Plug in the external while the bar is running** (the untested step) | within about 2s `~/.cache/sketchybar/profile`'s `BAR_DISPLAY` changes to the external's arrangement-id; bar moves there; nothing left on the built-in; a workspace whose windows sit on the built-in is hidden from the bar |
+| 3 | Unplug the external while the bar is running | back to row 1's state within about 2s |
+| 4 | Move the mouse between screens (both attached) | `stat -f %m ~/.cache/sketchybar/profile` unchanged (re-measures, never reloads) |
+| 5 | If a second external is available, attach both | confirm the widest is chosen (`profile.sh`'s tie-break); if only one is available, skip and note it as still-untested |
 
-**If step 3 does not reload:** the assumption that `display_change` fires on unplug is
-source-derived, not observed. Fallback: give `display_watch` an `update_freq=5` and have
+**If step 2 or 3 does not reload:** the assumption that `display_change` fires on hot-plug is
+source-derived (SketchyBar's `bar_manager_display_added`/`_removed` call
+`bar_manager_display_changed`), not observed on unplug/replug specifically — only the detection math
+was tested live, not the event delivery. Fallback: give `display_watch` an `update_freq=5` and have
 `display_profile.sh` also compare a hash of `sketchybar --query displays` against the cache, so a
 missed event is caught by the poll. Record what actually happened either way.
 
-Acceptance: all six rows pass, or the failing row is documented with a fix plan.
+Acceptance: rows 2-3 pass (the untested transition), or are documented with a fix plan; row 5 is
+run or explicitly skipped with a note.
 
 ### 2. [Claude] then [Pi] — P1: stop no-op rebalances from flickering
 
@@ -283,8 +317,10 @@ the rc test fails when a profile value is changed.
 ## Open questions for the owner
 
 1. Chevron: restore a glyph or delete the item? (item 3)
-2. When docked with the lid open, is "internal screen has no bar" right, or do you want a minimal bar there?
-3. Is a workspace living on the internal screen being invisible in the bar acceptable while docked?
+2. ~~When docked with the lid open, is "internal screen has no bar" right?~~ **Answered 2026-09-28:
+   yes** — bar always on the external, never the built-in, confirmed live.
+3. ~~Is a workspace living on the internal screen being invisible in the bar acceptable while
+   docked?~~ **Answered 2026-09-28: yes**, same decision as #2.
 4. Compact profile under load (item 5): lower the icon cap, drop `window_title`, or scroll?
 5. Keep the resize logging permanently, or retire it once item 2 is done?
 
