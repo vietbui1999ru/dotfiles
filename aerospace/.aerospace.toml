@@ -53,7 +53,7 @@ default-root-container-orientation = 'auto'
 # See https://nikitabobko.github.io/AeroSpace/guide#on-focus-changed-callbacks
 # See https://nikitabobko.github.io/AeroSpace/commands#move-mouse
 # Fallback value (if you omit the key): on-focused-monitor-changed = []
-# on-focused-monitor-changed = ['move-mouse monitor-lazy-center']
+on-focused-monitor-changed = ['move-mouse monitor-lazy-center']
 
 # You can effectively turn off macOS "Hide application" (cmd-h) feature by toggling this flag
 # Useful if you don't use this macOS feature, but accidentally hit cmd-h or cmd-alt-h key
@@ -145,10 +145,20 @@ persistent-workspaces = ['0', '1', '2', '3', 'B', 'C', 'M', 'N', 'O', 'P', 'R', 
     # See: https://nikitabobko.github.io/AeroSpace/commands#focus-monitor
     alt-ctrl-h = 'focus-monitor --wrap-around left'
     alt-ctrl-l = 'focus-monitor --wrap-around right'
+    # 'next' ignores physical arrangement, so it works however the displays are laid out
+    alt-ctrl-tab = 'focus-monitor --wrap-around next'
 
     # See: https://nikitabobko.github.io/AeroSpace/commands#move-node-to-monitor
-    alt-ctrl-shift-h = 'move-node-to-monitor --wrap-around left'
-    alt-ctrl-shift-l = 'move-node-to-monitor --wrap-around right'
+    # --focus-follows-window: focus travels with the moved window
+    alt-ctrl-shift-h = 'move-node-to-monitor --wrap-around --focus-follows-window left'
+    alt-ctrl-shift-l = 'move-node-to-monitor --wrap-around --focus-follows-window right'
+    alt-ctrl-shift-tab = 'move-node-to-monitor --wrap-around --focus-follows-window next'
+
+    # Cycle workspaces on the focused monitor / carry the window along
+    alt-leftSquareBracket = 'workspace --wrap-around prev'
+    alt-rightSquareBracket = 'workspace --wrap-around next'
+    alt-shift-leftSquareBracket = 'move-node-to-workspace --wrap-around --focus-follows-window prev'
+    alt-shift-rightSquareBracket = 'move-node-to-workspace --wrap-around --focus-follows-window next'
 
     # See: https://nikitabobko.github.io/AeroSpace/commands#resize
     alt-minus = 'resize smart -50'
@@ -221,69 +231,33 @@ persistent-workspaces = ['0', '1', '2', '3', 'B', 'C', 'M', 'N', 'O', 'P', 'R', 
 #   alt-shift-x = 'move-node-to-workspace X'
 #   alt-shift-y = 'move-node-to-workspace Y'
 #   alt-shift-z = 'move-node-to-workspace Z'
-# alt-1 = 'workspace 1'
-# 
-# alt-2 = 'workspace 2'
-# 
-# alt-3 = 'workspace 3'
-# 
-# alt-4 = 'workspace 4'
-# 
-# alt-5 = 'workspace 5'
-# 
-# alt-6 = 'workspace 6'
-# 
-# alt-7 = 'workspace 7'
-# 
-# alt-8 = 'workspace 8'
-# 
-# alt-9 = 'workspace 9'
-# 
-# alt-shift-1 = 'move-node-to-workspace 1'
-# 
-# alt-shift-2 = 'move-node-to-workspace 2'
-# 
-# alt-shift-3 = 'move-node-to-workspace 3'
-# 
-# alt-shift-4 = 'move-node-to-workspace 4'
-# 
-# alt-shift-5 = 'move-node-to-workspace 5'
-# 
-# alt-shift-6 = 'move-node-to-workspace 6'
-# 
-# alt-shift-7 = 'move-node-to-workspace 7'
-# 
-# alt-shift-8 = 'move-node-to-workspace 8'
-# 
-# alt-shift-9 = 'move-node-to-workspace 9'
-
-# [workspace-to-monitor-force-assignment]
-
-# 1 = 'main'
-
-# 2 = 'main'
-# 
-# 3 = 'main'
-# 
-# 4 = 'main'
-# 
-# 5 = 'main'
-# 
-# 6 = ['secondary', 'main']
-# 
-# 7 = ['secondary', 'main']
-# 
-# 8 = ['secondary', 'main']
-# 
-# 9 = ['secondary', 'main']
 
 # See: https://nikitabobko.github.io/AeroSpace/commands#workspace-back-and-forth
 alt-tab = 'workspace-back-and-forth'
 # See: https://nikitabobko.github.io/AeroSpace/commands#move-workspace-to-monitor
+# Note: refuses workspaces pinned in [workspace-to-monitor-force-assignment]
 alt-shift-tab = 'move-workspace-to-monitor --wrap-around next'
 
 # See: https://nikitabobko.github.io/AeroSpace/commands#mode
 alt-shift-a = 'mode service'
+
+# Pin workspaces to displays. 'main' = external monitor; 'secondary' = MacBook,
+# falling back to 'main' when only one display is connected.
+# See: https://nikitabobko.github.io/AeroSpace/guide#assign-workspaces-to-monitors
+[workspace-to-monitor-force-assignment]
+N = ['secondary', 'main']   # Slack / Discord
+M = ['secondary', 'main']   # music
+0 = 'main'
+1 = 'main'
+2 = 'main'
+3 = 'main'
+B = 'main'
+C = 'main'
+O = 'main'
+P = 'main'
+R = 'main'
+S = 'main'
+T = 'main'
 
 # 'service' binding mode declaration.
 # See: https://nikitabobko.github.io/AeroSpace/guide#binding-modes
