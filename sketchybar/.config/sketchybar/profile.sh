@@ -1,18 +1,22 @@
 #!/opt/homebrew/bin/bash
-# Layout profile for the MAIN display. Sourced by sketchybarrc and by plugins
-# that size things (aerospace.sh, balance_pills.sh).
+# Layout profile for the bar's TARGET display. Sourced by sketchybarrc and by
+# plugins that size things (aerospace.sh, balance_pills.sh).
 #
-# plugins/display_profile.sh measures the main screen (NSScreen.screens[0],
-# the one sketchybar's `display=main` follows) and caches the result; this
-# file turns that into sizes. "compact" is the laptop panel (~1800pt wide,
-# notch); "wide" is a big external (~2560pt). All values are points.
+# plugins/display_profile.sh picks the target — the external, when one is
+# attached, regardless of which display macOS itself calls "main" — measures
+# it, and caches the result; this file turns that into sizes. "compact" is
+# the laptop panel (~1800pt wide, notch); "wide" is a big external
+# (~2560pt+). All values are points.
 
 PROFILE_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/sketchybar/profile"
 
-# Defaults if nothing has been detected yet (first launch, or osascript failed).
+# Defaults if nothing has been detected yet (first launch, or osascript/
+# sketchybar --query failed): assume undocked, bar on the built-in.
 PROFILE=compact
 SCREEN_W=1800
 HAS_NOTCH=0
+BAR_DISPLAY=main
+MAIN_NSSCREEN_IDX=1
 # shellcheck source=/dev/null
 [[ -r "$PROFILE_CACHE" ]] && source "$PROFILE_CACHE"
 

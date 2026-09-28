@@ -3,7 +3,7 @@
 source "$CONFIG_DIR/colors.sh"
 source "$CONFIG_DIR/icons.sh"
 source "$CONFIG_DIR/plugins/icon_map_fn.sh"
-source "$CONFIG_DIR/profile.sh"   # MAX_ICONS for the current main display
+source "$CONFIG_DIR/profile.sh"   # MAX_ICONS + MAIN_NSSCREEN_IDX for the target display
 
 # Workspace ID passed as first argument by sketchybarrc
 SID="$1"
@@ -113,11 +113,12 @@ case "$SENDER" in
     # Default monitor to 1 if not found
     monitor="${monitor:-1}"
 
-    # The bar exists only on the main display, which is NSScreen index 1 by
-    # definition. A workspace whose windows sit on another monitor has no bar
-    # to draw on there, so hide it. (Don't pass $monitor to sketchybar's
-    # display=: that's an index into a different, WindowServer-ordered list.)
-    if [[ "$monitor" != "1" ]]; then
+    # The bar exists only on the TARGET display (profile.sh's
+    # MAIN_NSSCREEN_IDX — the external when one's attached, not necessarily
+    # macOS's own "main"). A workspace whose windows sit on another monitor
+    # has no bar to draw on there, so hide it. (Don't pass $monitor to
+    # sketchybar's display=: that's a third, WindowServer-ordered numbering.)
+    if [[ "$monitor" != "$MAIN_NSSCREEN_IDX" ]]; then
       set_hidden
     elif [[ -z "$icons" && "$SID" != "$FOCUSED" ]]; then
       # Empty unfocused workspace → hide

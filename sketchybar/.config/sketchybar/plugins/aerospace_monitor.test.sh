@@ -1,7 +1,8 @@
 #!/opt/homebrew/bin/bash
-# aerospace.sh with the bar on the main display only: a workspace whose windows
-# are on the main screen (NSScreen id 1) draws, one on another monitor hides,
-# and nothing passes an NSScreen index to sketchybar's display=.
+# aerospace.sh with the bar on the target display only: a workspace whose
+# windows are on that display's NSScreen index (profile.sh's
+# MAIN_NSSCREEN_IDX) draws, one on another monitor hides, and nothing passes
+# an NSScreen index to sketchybar's display=.
 
 set -uo pipefail
 
@@ -42,4 +43,14 @@ check "main screen, focused workspace draws"        1 B "drawing=on"           y
 check "main screen: no display= passed"             1 B "display="             no
 check "other monitor, focused workspace is hidden"  2 B "space.B drawing=off"  yes
 check "other monitor, unfocused: never draws"       2 T "drawing=on"           no
+
+# MAIN_NSSCREEN_IDX=1 above is profile.sh's fallback default when no cache
+# exists — it doesn't prove aerospace.sh actually reads the variable. Point
+# the cache at an arbitrary non-1 target (3) and confirm the "main" screen
+# moves with it.
+mkdir -p "$TMP/cache/sketchybar"
+printf 'MAIN_NSSCREEN_IDX=3\n' > "$TMP/cache/sketchybar/profile"
+check "cached idx=3: that screen draws"             3 B "drawing=on"           yes
+check "cached idx=3: old default (1) now hides"     1 B "space.B drawing=off"  yes
+
 exit "$fail"

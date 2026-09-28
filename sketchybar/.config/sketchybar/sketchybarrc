@@ -6,18 +6,21 @@ source "$CONFIG_DIR/icons.sh"
 PLUGIN_DIR="$CONFIG_DIR/plugins"
 
 ##### Layout profile (wide external vs compact laptop) #####
-# Measure the main display, then load the sizes for it. display_watch below
-# re-runs this whole file when the main display changes (dock/undock).
+# Picks the TARGET display — the external, when attached, not whatever macOS
+# itself calls "main" (verified live 2026-09-28: docked with the lid open,
+# macOS still reported the built-in as main) — then loads the sizes for it.
+# display_watch below re-runs this whole file when that target changes
+# (dock/undock).
 "$PLUGIN_DIR/display_profile.sh" detect
 source "$CONFIG_DIR/profile.sh"
 
 ##### Bar Appearance #####
-# display=main: one bar, on the macOS main display only. That makes per-item
-# `display=` pointless (and it was fragile: it takes an index into
-# WindowServer's display list, not "main"), so no item sets it.
+# display=$BAR_DISPLAY: one bar, on the target display only (its arrangement-
+# id, resolved fresh each run — that numbering isn't stable across docks).
+# That makes per-item `display=` pointless, so no item sets it.
 # notch_width only applies to a notched built-in panel; harmless elsewhere.
 sketchybar --bar \
-  display=main \
+  display=$BAR_DISPLAY \
   position=top \
   height=40 \
   color=$TRANSPARENT \

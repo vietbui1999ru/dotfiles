@@ -17,7 +17,7 @@ A custom [SketchyBar](https://github.com/FelixKratz/SketchyBar) setup for macOS 
 ## Features
 
 - **Dynamic workspaces** — AeroSpace-driven workspace indicators that show/hide based on window occupancy, with per-app icons via `sketchybar-app-font`, hover highlighting, and focus animations
-- **Dock/undock aware** — one bar, on the macOS main display only (`display=main`). `profile.sh` picks a `wide` (external, ~2560pt) or `compact` (laptop, ~1800pt, notch) layout from the main screen's width, and the bar reloads itself when the main display changes. Workspaces on other monitors are hidden from the bar
+- **Dock/undock aware** — one bar, always on the external display when one is attached (not necessarily macOS's own "main" display — verified live that those can disagree). `profile.sh` picks a `wide` (external, ~2560pt) or `compact` (laptop, ~1800pt, notch) layout from the target's width, and the bar reloads itself when the target changes. Workspaces on other monitors are hidden from the bar
 - **Spotify popup** — album art, track/artist/album info, progress scrubbing via slider, and full transport controls (shuffle, repeat, prev/play/next) — all rendered inside a SketchyBar popup
 - **Live CPU graph** — 60-sample rolling graph with dynamic color thresholds
 - **Pomodoro timer** — click-to-start countdown with configurable durations (popup menu), macOS system sounds on start/complete, and left/right-click control
@@ -116,7 +116,7 @@ sketchybar --reload
 ## Interesting Implementation Details
 
 - **`aerospace.sh`** — Deduplicates app icons per workspace using a bash associative array as a seen-set, extracts the monitor ID from AeroSpace JSON to hide workspaces that live on a non-main monitor, and hides empty unfocused workspaces entirely
-- **`display_profile.sh` / `profile.sh`** — `NSScreen.screens[0]` (the same screen sketchybar's `display=main` and AeroSpace's NSScreen id 1 refer to) is measured via JXA; width ≥ 2200pt selects `wide`. Subscribed to `display_change`, which sketchybar fires on hot-plug and resolution changes, so docking/undocking reloads the bar with the right sizes. Moving the mouse between displays also fires it but changes nothing, so it never reloads
+- **`display_profile.sh` / `profile.sh`** — enumerates every `NSScreen` via JXA (`CGDisplayIsBuiltin` identifies the laptop panel) and targets the external when one's attached, falling back to the built-in otherwise; width ≥ 2200pt selects `wide`. The target's `CGDirectDisplayID` is mapped to sketchybar's own arrangement-id (`sketchybar --query displays`) for `--bar display=`, and to AeroSpace's NSScreen index for `aerospace.sh`'s monitor check — three different numbering schemes for the same physical screen. Subscribed to `display_change`, which sketchybar fires on hot-plug and resolution changes, so docking/undocking reloads the bar with the right sizes. Moving the mouse between displays also fires it but changes nothing, so it never reloads
 - **`brightness.sh`** — Calls `DisplayServicesGetBrightness` from Apple's private `DisplayServices.framework` via inline Swift compiled at runtime, since macOS provides no public CLI for display brightness
 - **`timer.sh`** — Spawns a background countdown subprocess, stores its PID in `/tmp`, and uses `trap` + `wait` for clean signal handling so stopping the timer kills the sleep chain immediately
 - **`spotify.sh`** — Implements seek-by-scrub: clicking the progress slider computes the target position as `(duration * click_percentage / 100)` and calls `set player position` via AppleScript
