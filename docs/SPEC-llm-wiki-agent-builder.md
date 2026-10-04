@@ -2,6 +2,11 @@
 
 **Status:** Adopted
 
+> **Amended 2026-10-04:** the default output moved from
+> `~/repos/AgentOps/Projects/Agents/` to `~/dotfiles/docs/agents/` because the
+> AgentOps vault was removed. Blueprints stay drafts in a tracked directory that no
+> harness loads. The rest of this spec is unchanged.
+
 **Scope:** `llm-wiki-plugin`
 
 **Primary capability:** Build a new agent that does not already exist, using
@@ -36,8 +41,8 @@ User request
     ↓
 collision check
     ↓
-new AgentOps agent blueprint
-~/repos/AgentOps/Projects/Agents/<slug>.md
+new agent blueprint
+~/dotfiles/docs/agents/<slug>.md
 ```
 
 The generated file is a canonical blueprint. It is not automatically installed
@@ -80,7 +85,7 @@ loading more wiki context.
 
 Check, in order:
 
-1. `~/repos/AgentOps/Projects/Agents/`;
+1. `~/dotfiles/docs/agents/`;
 2. configured agent directories;
 3. exact wiki entities/summaries;
 4. the requested name, slug, aliases, and responsibility terms.
@@ -147,7 +152,7 @@ Generate only one new file with:
 Write only to:
 
 ```text
-~/repos/AgentOps/Projects/Agents/<slug>.md
+~/dotfiles/docs/agents/<slug>.md
 ```
 
 unless the user explicitly provides another target path.
@@ -173,7 +178,7 @@ status: draft
 target: pi
 created: <ISO timestamp>
 updated: <ISO timestamp>
-tags: [agentops, agent, llm-wiki]
+tags: [agent, llm-wiki]
 wiki_sources:
   - concepts/agent-harness.md
   - concepts/tool-design-for-agents.md
@@ -282,7 +287,7 @@ roster.
 - Duplicate or overlapping requests stop safely.
 - At most three wiki pages are loaded.
 - The output cites the exact wiki pages used.
-- The output is written to AgentOps by default.
+- The output is written to `~/dotfiles/docs/agents/` by default.
 - Existing files are never overwritten by default.
 - The generated blueprint is concise and reviewable.
 - The wiki source is never modified.

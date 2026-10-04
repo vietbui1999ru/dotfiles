@@ -21,8 +21,11 @@ If the request is not about building a new agent, do not invoke this skill.
 Default output path:
 
 ```text
-~/repos/AgentOps/Projects/Agents/<slug>.md
+~/dotfiles/docs/agents/<slug>.md
 ```
+
+Blueprints are drafts kept in the dotfiles repo, outside the wiki and outside every
+harness's agent directory, so writing one never installs or activates an agent.
 
 Default target is the Pi-first workflow. Do not install, register, or enable the
 agent automatically.
@@ -50,7 +53,7 @@ If name or mission is unclear, ask one clarification question and stop.
 Check these locations when they exist:
 
 ```text
-~/repos/AgentOps/Projects/Agents/
+~/dotfiles/docs/agents/
 ~/.claude/agents/
 ~/.codex/agents/
 ~/.config/opencode/agents/
@@ -118,7 +121,7 @@ status: draft
 target: pi
 created: <ISO timestamp>
 updated: <ISO timestamp>
-tags: [agentops, agent, llm-wiki]
+tags: [agent, llm-wiki]
 wiki_sources:
   - concepts/<source>.md
 ---
@@ -165,10 +168,10 @@ mark it as an open question.
 
 ### 5. Write safely
 
-Create the AgentOps directory if missing:
+Create the blueprint directory if missing:
 
 ```bash
-mkdir -p ~/repos/AgentOps/Projects/Agents
+mkdir -p ~/dotfiles/docs/agents
 ```
 
 Before writing, check the destination again. If it exists, stop unless the user
