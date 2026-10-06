@@ -148,6 +148,7 @@ Commit as you go. After each coherent unit of work, stage the files you changed
 by path (not `git add -A`, which sweeps in probe and scratch directories) and
 commit with a clear message, without asking first. The history is the trace of
 the work. Do this on a branch or worktree, never directly on `main` or `master`.
+In a `gh stack`, commit each layer as you go, on that layer's branch.
 
 Still ask before push, force-push, merge, rebase, `reset --hard`, and deleting
 branches. The review gates (`agent-review`, `:AgentReview`) apply to what is
