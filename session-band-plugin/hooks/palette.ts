@@ -1,4 +1,4 @@
-// Gruvbox Material Dark Soft, the ANSI-256 values from statusline-command.sh as hex.
+// Gruvbox Material Dark Soft, the retired shell line's ANSI-256 values as hex.
 export const PALETTE = {
   peach: '#d7875f',
   green: '#a9b665',

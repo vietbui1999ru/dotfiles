@@ -24,7 +24,7 @@ Target surface:
 rules / 18 hook commands. Skills are counted from `~/.claude/skills` only when
 the top-level entry contains `SKILL.md`, including llm-wiki-backed symlinks;
 runtime cache directories do not count. The hook count includes the deliberate
-PreToolUse/PostToolUse context-threshold split and NotchBar lifecycle hooks.
+session-band plugin guard and NotchBar lifecycle hooks.
 
 ## Evidence this is safe
 
@@ -147,9 +147,7 @@ agent unrelated to this system, not a deletion candidate but not part of this ro
 Then delete `enforce-agent-whitelist.sh` and its PreToolUse entry — it whitelists a roster
 that no longer exists.
 
-Also merge `context-threshold-check.sh` and `context-threshold-notify.sh` into one hook.
-Today both fire on every single tool call and independently re-derive the same cached
-percentage.
+The session-band plugin now owns the threshold guard and reads fresh usage for each tool call.
 
 ## Phase 5 — Pi side (measure first)
 

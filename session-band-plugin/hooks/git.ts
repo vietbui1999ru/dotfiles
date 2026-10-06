@@ -9,7 +9,7 @@ const run = async (processRun: Run, cwd: string, args: string[]) => {
   return r.exitCode === 0 ? r.stdout.trim() : undefined
 }
 
-// Same facts as statusline-command.sh: branch, dirty, ahead/behind, stash, worktree.
+// Same facts as the retired shell line: branch, dirty, ahead/behind, stash, worktree.
 export const readGit = async (processRun: Run, cwd: string): Promise<GitSnapshot | null> => {
   const branch = await run(processRun, cwd, ['branch', '--show-current'])
   if (!branch) return null
