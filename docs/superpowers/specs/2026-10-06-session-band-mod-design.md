@@ -92,7 +92,7 @@ Spike mod: `~/.claude/dev-mods/a6a54c5a-11f1-46fe-9339-b1f450339838/spike/`. It 
 - **`$.ui.ask` from a Pane button: works.** Pressing the button returned `Allow`. The Pane-based review and the blast-radius preview can use it.
 - **`tool.call` input: works.** Write exposes `file_path`, `content`. Edit exposes `file_path`, `old_string`, `new_string`, `replace_all`. Both also carry `tool` and `tool_use_id`.
 - **`@agent` in the band: dropped.** The API search found no field for the session's agent name.
-- **Hook on built-in `clear`: pending.** `claude plugin validate` accepts `command.run{command=clear}`, but whether it fires before the clear is not yet observed. To check: run `/clear` in the live session, then look for a `clear hook ran` line in the spike log. A line means the intercept works and `/clear` follows decision 9 as designed. No line means use the gate fallback.
+- **Hook on built-in `clear`: works.** The spike log has `clear hook ran args="" origin=composer` after a live `/clear`, so `command.run{command=clear}` fires. `/clear` follows decision 9 as designed and the gate fallback is not needed. Whether the hook fires before the transcript is wiped is still to be confirmed in phase 3, since the log line alone does not show ordering.
 
 ## Risks and unknowns
 
