@@ -317,7 +317,8 @@ starting a fresh session.
 
 Use `gh stack` only when one feature has ordered, dependent review layers.
 Plan the layer boundaries before coding; keep unrelated changes in separate
-stacks. The existing review gate remains mandatory before each layer commit.
+stacks. Commit each layer as you go; the existing review gate remains mandatory
+before a layer is pushed or merged.
 
 Agent-safe commands are non-interactive:
 

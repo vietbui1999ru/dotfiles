@@ -75,3 +75,14 @@ if command -v rg >/dev/null; then rg "$pattern" "$dir"; else grep -r "$pattern" 
 
 Installed here: `eza`, `rg`, `bat`, `fd`, `delta`. Not installed: `sd`, `dust` — use
 `sed` and `du` for those.
+
+## Git history
+
+Commit as you go. After each coherent unit of work, stage the files you changed
+by path (not `git add -A`, which sweeps in probe and scratch directories) and
+commit with a clear message, without asking first. The history is the trace of
+the work. Do this on a branch or worktree, never directly on `main` or `master`.
+
+Still ask before push, force-push, merge, rebase, `reset --hard`, and deleting
+branches. The review gates (`agent-review`, `:AgentReview`) apply to what is
+pushed or merged, not to commits.
