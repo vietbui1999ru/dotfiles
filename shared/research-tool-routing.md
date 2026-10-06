@@ -58,6 +58,8 @@ These are aliased in `zsh/.zsh/aliases.zsh`, but aliases apply only to interacti
 shells. A command run by an agent gets `/bin/ls` and `/usr/bin/grep`, so the modern
 name has to be typed explicitly — the alias will not do it for you.
 
+In a worktree-isolated session the Bash guard refuses `git` once the rtk hook rewrites it to `rtk git`; run it as `/usr/bin/git` instead.
+
 **The default that will mislead you:** `rg` and `fd` both skip hidden files and
 anything matched by `.gitignore`. When looking for generated or ignored state —
 `.pi/`, `node_modules/`, build output, an agent's own scratch files — pass
