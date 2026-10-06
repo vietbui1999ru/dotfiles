@@ -85,6 +85,15 @@ A `command.run` hook on `clear` does this:
 
 **Handoff:** phases 1 to 3 go to Pi as plans. Phase 4 stays in Claude, because Pi must not edit `agent-review`, the gate that reviews Pi.
 
+## Phase 0 results
+
+Spike mod: `~/.claude/dev-mods/a6a54c5a-11f1-46fe-9339-b1f450339838/spike/`. It logs to `~/.claude/jobs/345a71c2/tmp/spike.log` because `/clear` wipes the transcript.
+
+- **`$.ui.ask` from a Pane button: works.** Pressing the button returned `Allow`. The Pane-based review and the blast-radius preview can use it.
+- **`tool.call` input: works.** Write exposes `file_path`, `content`. Edit exposes `file_path`, `old_string`, `new_string`, `replace_all`. Both also carry `tool` and `tool_use_id`.
+- **`@agent` in the band: dropped.** The API search found no field for the session's agent name.
+- **Hook on built-in `clear`: pending.** `claude plugin validate` accepts `command.run{command=clear}`, but whether it fires before the clear is not yet observed. To check: run `/clear` in the live session, then look for a `clear hook ran` line in the spike log. A line means the intercept works and `/clear` follows decision 9 as designed. No line means use the gate fallback.
+
 ## Risks and unknowns
 
 - Hooking the built-in `clear` command is unverified. This build's types say `command.run` hooks run for slash commands, but that was not confirmed for `clear`.
