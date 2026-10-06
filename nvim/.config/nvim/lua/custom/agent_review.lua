@@ -130,6 +130,37 @@ local function pending(repo)
 	return valid
 end
 
+-- Reviews are stored per worktree (<worktree>/.pi/agent-review), so from the main
+-- checkout, or a sibling worktree, the current repo can have none while an agent's
+-- worktree has one waiting. Pick the oldest pending review across all of this
+-- repo's worktrees, as pending() already does within one, and make its worktree
+-- this tab's directory so diffview, gitsigns and root() all resolve there.
+local function locate(repo)
+	if #pending(repo) > 0 then
+		return repo
+	end
+	local best, best_at = nil, nil
+	local out = vim.system({ "git", "worktree", "list", "--porcelain" }, { cwd = repo, text = true }):wait()
+	local trees = { repo }
+	for path in (out.stdout or ""):gmatch("worktree ([^\n]+)") do
+		if path ~= repo then
+			table.insert(trees, path)
+		end
+	end
+	for _, tree in ipairs(trees) do
+		local first = pending(tree)[1]
+		if first and (not best_at or first.record.startedAt < best_at) then
+			best, best_at = tree, first.record.startedAt
+		end
+	end
+	if not best then
+		return repo
+	end
+	vim.cmd.tcd(vim.fn.fnameescape(best))
+	vim.notify("Agent review is in worktree " .. best .. "; switched this tab's directory there")
+	return best
+end
+
 -- Resolve the repo-root-relative path of the file under the cursor.
 -- Diffview buffer names look like diffview:///abs/.git/<rev>/path or
 -- diffview:///abs/.git/<rev>/WORKTREE/path; the revision marker separates
@@ -223,7 +254,7 @@ end
 
 function M.open()
 	local ok, err = pcall(function()
-		local repo = root()
+		local repo = locate(root())
 		local entry = pending(repo)[1]
 		if not entry then
 			return vim.notify("No pending agent review", vim.log.levels.INFO)
