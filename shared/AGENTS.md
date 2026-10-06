@@ -142,6 +142,17 @@ replaces built-in WebFetch/WebSearch within this scope, not Context7 or Ketch.
 - Prefer explicit over clever. Readable over terse.
 - When editing configs: show the diff, do not rewrite the whole file.
 
+## Git history
+
+Commit as you go. After each coherent unit of work, stage the files you changed
+by path (not `git add -A`, which sweeps in probe and scratch directories) and
+commit with a clear message, without asking first. The history is the trace of
+the work. Do this on a branch or worktree, never directly on `main` or `master`.
+
+Still ask before push, force-push, merge, rebase, `reset --hard`, and deleting
+branches. The review gates (`agent-review`, `:AgentReview`) apply to what is
+pushed or merged, not to commits.
+
 ## Shell tools — modern CLI first
 
 Use `eza` (not `ls`), `rg` (not `grep`), `bat` (not `cat`), `fd` (not `find`) when

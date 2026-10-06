@@ -25,6 +25,7 @@ kitty/.config/kitty/*.bak
 
 # Generated agent artifacts and caches
 **/.claude-plugin/types/
+.pi-lens-probe-home/
 .pi-subagents/
 __pycache__/
 
