@@ -3,6 +3,8 @@ import { atom, read, update, type EngineInterface, type Register } from 'claude-
 import type { Usage } from '../types'
 import { drawBand } from './band'
 import { shortDir, shortModel, whole } from './format'
+import { toSnapshot, type GitFacts } from './git'
+import { toRepoInfo, type RepoInfo } from './repo'
 import { guardAgent, softStop, type SoftStopCheck } from './threshold'
 
 const usage = atom({ plugin: 'session-band', key: 'usage' } as const, {})
@@ -25,50 +27,33 @@ const refreshGit = async ($: EngineInterface) => {
     return r.exitCode === 0 ? r.stdout.trim() : undefined
   }
   const branch = await run(['branch', '--show-current'])
+  let facts: GitFacts = { isDirty: false }
 
-  if (!branch) {
-    await update($, git, () => null)
-    return
+  if (branch) {
+    const [unstaged, staged, upstream, stash, gitDir, common] = await Promise.all([
+      $.process.run(['git', '-C', cwd, '--no-optional-locks', 'diff', '--quiet']),
+      $.process.run(['git', '-C', cwd, '--no-optional-locks', 'diff', '--cached', '--quiet']),
+      run(['rev-parse', '--abbrev-ref', `${branch}@{upstream}`]),
+      run(['stash', 'list']),
+      run(['rev-parse', '--absolute-git-dir']),
+      run(['rev-parse', '--path-format=absolute', '--git-common-dir']),
+    ])
+    const counts = upstream ? await run(['rev-list', '--left-right', '--count', `${upstream}...HEAD`]) : undefined
+    facts = { branch, isDirty: unstaged.exitCode !== 0 || staged.exitCode !== 0, upstream, counts, stash, gitDir, common }
   }
 
-  const [unstaged, staged, upstream, stash, gitDir, common] = await Promise.all([
-    $.process.run(['git', '-C', cwd, '--no-optional-locks', 'diff', '--quiet']),
-    $.process.run(['git', '-C', cwd, '--no-optional-locks', 'diff', '--cached', '--quiet']),
-    run(['rev-parse', '--abbrev-ref', `${branch}@{upstream}`]),
-    run(['stash', 'list']),
-    run(['rev-parse', '--absolute-git-dir']),
-    run(['rev-parse', '--path-format=absolute', '--git-common-dir']),
-  ])
-  const counts = upstream && await run(['rev-list', '--left-right', '--count', `${upstream}...HEAD`])
-  const [behind = 0, ahead = 0] = (counts || '').split(/\s+/).map(Number)
-  const isLinked = !!gitDir && !!common && gitDir !== common
-
-  await update($, git, () => ({
-    branch,
-    isDirty: unstaged.exitCode !== 0 || staged.exitCode !== 0,
-    ahead,
-    behind,
-    hasUpstream: !!upstream,
-    stash: stash ? stash.split('\n').length : 0,
-    worktree: isLinked ? gitDir.split('/').pop()?.replace(/^worktree-/, '') : undefined,
-  }))
+  await update($, git, () => toSnapshot(facts))
 }
 
-const resolveRepo = async ($: EngineInterface) => {
-  const git = await $.process.run(['git', 'rev-parse', '--path-format=absolute', '--show-toplevel', '--git-common-dir'])
-  const [top, common] = git.stdout.trim().split('\n')
+const resolveRepo = async ($: EngineInterface): Promise<RepoInfo> => {
+  const out = await $.process.run(['git', 'rev-parse', '--path-format=absolute', '--show-toplevel', '--git-common-dir'])
+  const [top, common] = out.stdout.trim().split('\n')
 
-  if (git.exitCode !== 0 || !top || !common) return {}
+  if (out.exitCode !== 0 || !top || !common) return {}
 
-  const mainRepo = common.slice(0, common.lastIndexOf('/'))
   const taskId = (await $.fs.read(`${top}/.agent-task-id`).catch(() => '')).trim() || undefined
 
-  return {
-    taskId,
-    statePath: taskId
-      ? `${mainRepo}/.agents/claimed/${taskId}.state.md`
-      : `${mainRepo}/.claude/session-state.md`,
-  }
+  return toRepoInfo(common, taskId)
 }
 
 const settingStyle = async ($: EngineInterface): Promise<string | null> => {
@@ -81,6 +66,10 @@ const settingStyle = async ($: EngineInterface): Promise<string | null> => {
 const styleForBand = (style: string | null) => (style === 'default' ? null : style)
 
 export const register: Register = on => {
+  // The settings fallback only matters before the first prompt.compose names the style.
+  let hasComposed = false
+  let settingsStyle: Promise<string | null> | undefined
+
   on('session.start', async ($, e, next) => {
     const current = await $.session.usage()
     await Promise.all([
@@ -107,7 +96,8 @@ export const register: Register = on => {
     const { context } = await $.session.usage()
     const r = await next(e)
 
-    if (e.tool === 'Bash') await refreshGit($).catch(() => undefined)
+    // Not awaited: the band catches up on redraw, and the tool result must not wait on ~7 git calls.
+    if (e.tool === 'Bash') void refreshGit($).catch(() => undefined)
     if ('deny' in r) return r
 
     return (async () => {
@@ -148,6 +138,7 @@ export const register: Register = on => {
   }).catch(($, e, next) => next.called ? next(e) : { deny: 'session-band guard failed' })
 
   on('prompt.compose', async ($, e, next) => {
+    hasComposed = true
     await update($, outputStyle, () => e.outputStyle?.name ?? null)
 
     return next(e)
@@ -164,7 +155,8 @@ export const register: Register = on => {
       read($, git),
       read($, outputStyle),
     ])
-    const style = styleForBand(capturedStyle ?? await settingStyle($).catch(() => null))
+    if (!hasComposed) settingsStyle ??= settingStyle($).catch(() => null)
+    const style = styleForBand(capturedStyle ?? (hasComposed ? null : await settingsStyle))
 
     return drawBand($.ui.resolve(e), {
       dir: shortDir(cwd, home),
