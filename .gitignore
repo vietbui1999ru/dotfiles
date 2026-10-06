@@ -24,6 +24,7 @@ kitty/.config/kitty/*.bak
 .firecrawl/
 
 # Generated agent artifacts and caches
+**/.claude-plugin/types/
 .pi-subagents/
 __pycache__/
 
