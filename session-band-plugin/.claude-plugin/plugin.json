@@ -1,0 +1,6 @@
+{
+  "name": "session-band",
+  "version": "0.1.0",
+  "description": "Context, rate-limit and git band above the prompt, plus the 70% context guard",
+  "types": "./types/index.d.ts"
+}

@@ -19,4 +19,4 @@ Keep these tasks in Claude:
 
 Pi handles everything else by default, including multi-file features, migrations, and refactors.
 
-After dispatch, report the pueue task ID. On collection, review Pi's diff before committing. In `~/dotfiles`, use `:AgentReview` for the live review gate.
+After dispatch, report the pueue task ID. Pi commits as it works; on collection, review its commits and revert what you reject. In `~/dotfiles`, use `:AgentReview` for the live review gate.

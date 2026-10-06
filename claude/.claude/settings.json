@@ -3,7 +3,8 @@
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
     "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet",
     "MAX_THINKING_TOKENS": "10000",
-    "teammateMode": "in-process"
+    "teammateMode": "in-process",
+    "CLAUDE_CODE_PLUGIN_DIRS": "~/dotfiles/session-band-plugin"
   },
   "permissions": {
     "allow": [
@@ -16,15 +17,6 @@
   "model": "sonnet",
   "hooks": {
     "PostToolUse": [
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/context-threshold.sh"
-          }
-        ]
-      },
       {
         "matcher": "Bash",
         "hooks": [
@@ -53,15 +45,6 @@
       }
     ],
     "PreToolUse": [
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/context-threshold.sh"
-          }
-        ]
-      },
       {
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [
@@ -185,10 +168,6 @@
         ]
       }
     ]
-  },
-  "statusLine": {
-    "type": "command",
-    "command": "~/.claude/statusline-command.sh"
   },
   "enabledPlugins": {
     "basedpyright@claude-code-lsps": false,
