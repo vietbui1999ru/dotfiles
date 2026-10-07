@@ -18,6 +18,8 @@ declare module 'claude-code' {
       git: GitSnapshot | null
       outputStyle: string | null
       isNotified: boolean
+      edits: number
+      prompts: number
     }
   }
 }
