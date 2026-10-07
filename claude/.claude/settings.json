@@ -188,7 +188,8 @@
     "superpowers@claude-plugins-official": true,
     "typescript-lsp@claude-plugins-official": false,
     "vscode-langservers@claude-code-lsps": false,
-    "vtsls@claude-code-lsps": false
+    "vtsls@claude-code-lsps": false,
+    "obsidian@obsidian-skills": true
   },
   "extraKnownMarketplaces": {
     "caveman": {
@@ -207,6 +208,9 @@
   "effortLevel": "high",
   "modelSettings": {
     "claude-opus-5": {
+      "effortLevel": "high"
+    },
+    "claude-sonnet-5-5": {
       "effortLevel": "high"
     }
   },
