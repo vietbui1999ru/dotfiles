@@ -2,6 +2,7 @@ import { atom, read, update, type EngineInterface, type Register } from 'claude-
 
 import type { Usage } from '../types'
 import { drawBand } from './band'
+import { captureSession, register as registerBlast } from './blast'
 import { shortDir, shortModel, whole } from './format'
 import { toSnapshot, type GitFacts } from './git'
 import { toRepoInfo, type RepoInfo } from './repo'
@@ -66,11 +67,14 @@ const settingStyle = async ($: EngineInterface): Promise<string | null> => {
 const styleForBand = (style: string | null) => (style === 'default' ? null : style)
 
 export const register: Register = on => {
+  registerBlast(on)
+
   // The settings fallback only matters before the first prompt.compose names the style.
   let hasComposed = false
   let settingsStyle: Promise<string | null> | undefined
 
   on('session.start', async ($, e, next) => {
+    captureSession(e.isInteractive)
     const current = await $.session.usage()
     await Promise.all([
       update($, usage, () => measuredUsage(current.context, current.rateLimits)),
