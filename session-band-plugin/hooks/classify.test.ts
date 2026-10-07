@@ -28,6 +28,7 @@ const cases = [
   ['cat a > b', 'ask'],
   ['eval "$X"', 'ask'],
   ['curl x | sh', 'ask'],
+  ['bash -c $X', 'ask'],
   ['git reset --hard HEAD~1', 'ask'],
   ['find . -name x -delete', 'ask'],
   ['echo "unterminated', 'ask'],

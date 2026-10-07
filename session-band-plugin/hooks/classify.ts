@@ -131,6 +131,12 @@ const factFor = (segment: Segment): CommandFact => {
   if (program === 'rm' || program === 'chmod' || program === 'find') targets = values
   if (program === 'mv') targets = values.slice(-1)
   if (program === 'git' && ['clean', 'checkout', 'restore'].includes(args[0] ?? '')) targets = values.slice(1)
+  if (containsOverwrite(args)) {
+    targets.push(...args.flatMap((arg, index) => {
+      const target = args[index + 1]
+      return (arg === '>' || arg === '>>') && target !== undefined && target !== '/dev/null' && !/^&\d+$/.test(target) ? [target] : []
+    }))
+  }
 
   return { command: segment.words.map(word => word.value).join(' '), program, args, targets }
 }
@@ -228,8 +234,10 @@ export const tokenize = (command: string): Tokenized => {
     }
 
     if (quote !== 'single' && char === '`') cannotAnalyze = true
-    if (quote !== 'single' && char === '$' && next === '(') cannotAnalyze = true
-    if (quote === 'double' && char === '$') dynamic = true
+    if (quote !== 'single' && char === '$') {
+      dynamic = true
+      if (next === '(') cannotAnalyze = true
+    }
 
     if (quote) {
       word += char
