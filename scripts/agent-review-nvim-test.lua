@@ -224,6 +224,36 @@ check("every file is accepted", vim.deep_equal(quietDecision.files, { { file = "
 check("the reviewer is warned that nothing was rejected", noticed("nothing was rejected", vim.log.levels.WARN) ~= nil, vim.inspect(notices))
 check("success is not also reported", noticed("decision recorded") == nil, vim.inspect(notices))
 
+io.write("\nreview in another worktree\n")
+-- Reviews live in <worktree>/.pi/agent-review. Opened from a checkout that has
+-- none, :AgentReview must find the one waiting in a sibling worktree.
+local quiet_file = repo .. "/.pi/agent-review/pending/" .. quietId .. ".json"
+sh(repo, "mv " .. quiet_file .. " " .. quiet_file .. ".aside")
+local wt = repo .. "-sibling"
+sh(repo, "git worktree add -q -b sibling " .. wt)
+vim.fn.mkdir(wt .. "/.pi/agent-review/pending", "p")
+local siblingId = "33333333-4444-4555-8666-777777777777"
+vim.fn.writefile({ vim.json.encode({
+  runId = siblingId,
+  base = base,
+  ["end"] = quiet.commit,
+  baseTree = sh(repo, "git rev-parse HEAD^{tree}"),
+  endTree = quiet.tree,
+  startedAt = "2026-09-18T02:00:00Z",
+  files = { { file = "agent.txt" } },
+}) }, wt .. "/.pi/agent-review/pending/" .. siblingId .. ".json")
+notices = {}
+M.current = nil
+M.open()
+check("a review in a sibling worktree is found", M.current ~= nil and M.current.runId == siblingId, vim.inspect(M.current))
+check("the tab directory moves to that worktree", vim.uv.fs_realpath(vim.fn.getcwd()) == vim.uv.fs_realpath(wt), vim.fn.getcwd())
+check("the move is reported", noticed("is in worktree") ~= nil, vim.inspect(notices))
+vim.cmd.tcd(vim.fn.fnameescape(repo))
+M.current = nil
+sh(repo, "mv " .. quiet_file .. ".aside " .. quiet_file)
+-- Later checks expect a repo with no valid review beyond their own fixtures.
+sh(repo, "git worktree remove --force " .. wt)
+
 io.write("\ndiffview buffers\n")
 -- Notes are usually taken from a diffview buffer, whose name is virtual: the
 -- module must still find the repo root and a repo-relative path from it.
