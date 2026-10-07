@@ -3,6 +3,7 @@ import { atom, read, update, type EngineInterface, type Register } from 'claude-
 import type { Usage } from '../types'
 import { drawBand } from './band'
 import { captureSession, register as registerBlast } from './blast'
+import { register as registerClear } from './clear'
 import { shortDir, shortModel, whole } from './format'
 import { toSnapshot, type GitFacts } from './git'
 import { toRepoInfo, type RepoInfo } from './repo'
@@ -68,6 +69,7 @@ const styleForBand = (style: string | null) => (style === 'default' ? null : sty
 
 export const register: Register = on => {
   registerBlast(on)
+  registerClear(on)
 
   // The settings fallback only matters before the first prompt.compose names the style.
   let hasComposed = false
