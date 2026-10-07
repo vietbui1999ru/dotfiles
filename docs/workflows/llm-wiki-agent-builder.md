@@ -12,17 +12,22 @@ from `~/repos/llm-wiki`.
 ## What it does
 
 1. Parses the requested agent mission.
-2. Checks AgentOps and configured agent directories for duplicates.
+2. Checks the blueprint directory and configured agent directories for duplicates.
 3. Searches only the relevant wiki concepts.
 4. Generates one concise draft blueprint.
-5. Writes it to AgentOps by default.
+5. Writes it to `~/dotfiles/docs/agents/` by default.
 6. Reports exact wiki citations and open questions.
 
 Default output:
 
 ```text
-~/repos/AgentOps/Projects/Agents/<slug>.md
+~/dotfiles/docs/agents/<slug>.md
 ```
+
+Blueprints live in the dotfiles repo, next to this workflow and its spec, so they
+are version-controlled but not loaded by any harness. They are drafts, not
+installed agents. (This replaced the former `~/repos/AgentOps/Projects/Agents/`
+location; that vault was removed.)
 
 ## What it does not do
 
@@ -53,7 +58,7 @@ Searching wiki: agent harness, tool design, verification pipeline...
 Generating new draft...
 
 Created:
-~/repos/AgentOps/Projects/Agents/typescript-api-contract-reviewer.md
+~/dotfiles/docs/agents/typescript-api-contract-reviewer.md
 
 Status: draft — review before installation
 Sources:
@@ -113,4 +118,4 @@ Review before installing or adapting it. Confirm:
 - SPEC: `docs/SPEC-llm-wiki-agent-builder.md`
 - Skill: `llm-wiki-plugin/skills/build-agent/SKILL.md`
 - Wiki source: `~/repos/llm-wiki`
-- Agent output: `~/repos/AgentOps/Projects/Agents/`
+- Agent output: `~/dotfiles/docs/agents/`

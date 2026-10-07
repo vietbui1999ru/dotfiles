@@ -23,7 +23,7 @@ higher branches. Each branch must stay independently reviewable.
 
 The existing workflow remains in force for every layer:
 
-1. Create or update the AgentOps plan.
+1. Create or update the file-backed plan for the stack.
 2. Make the layer's changes in an isolated worktree or branch.
 3. Run focused validation and create a review-gate batch.
 4. Obtain approval, then stage and commit only that layer's files.
@@ -80,7 +80,7 @@ non-interactive mode; inspect with `gh stack view --json`, then explicitly run
 ## Publishing and merging
 
 Use `gh stack submit --auto` only after all layer commits have passed the review
-gate. Create a `/pr` AgentOps note containing the stack order and PR URLs. Do
+gate. Record the stack order and PR URLs in the PR descriptions (and the plan file). Do
 not merge a stack without user approval; merge explicitly with:
 
 ```sh

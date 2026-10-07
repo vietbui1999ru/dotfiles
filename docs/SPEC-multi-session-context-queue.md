@@ -7,6 +7,11 @@
 >
 > This document remains as historical design material for the multi-session
 > queue. Its earlier projection-only AgentOps boundary is no longer current.
+>
+> **Note (2026-10-04):** the AgentOps vault itself has since been removed
+> (`~/repos/AgentOps` no longer exists, and `docs/SPEC-agentops-canonical-communication-plane.md`
+> is not in this repo), so the pointer above is historical. Treat every AgentOps
+> reference in this document as describing a removed system.
 
 **Status:** Superseded — retained for migration/reference
 
