@@ -5,6 +5,8 @@ type Separator = ';' | '&&' | '||' | '|' | '&' | '\n'
 type Word = {
   value: string
   dynamic: boolean
+  // The word embeds a quoted-heredoc substitution, replaced by a literal placeholder.
+  heredoc?: true
 }
 
 export type CommandFact = {
@@ -129,6 +131,24 @@ const isMainRef = (value: string) => {
 
 const isShell = (program: string | undefined) => program !== undefined && SHELL.has(program)
 
+// `$(cat <<'TAG' ... TAG)` with a quoted tag expands nothing: the body is literal text.
+// Returns how many characters it spans, or undefined when it is anything else, including a
+// body holding a line equal to the tag (the shell would end the heredoc there and run the rest).
+const HEREDOC = /^\$\(cat <<'(\w+)'\n([\s\S]*?)\n\1[ \t]*\n?[ \t]*\)/
+
+const literalHeredoc = (rest: string): number | undefined => {
+  const match = HEREDOC.exec(rest)
+  if (!match) return undefined
+
+  return (match[2] ?? '').split('\n').includes(match[1] ?? '') ? undefined : match[0].length
+}
+
+// Only a commit, tag or note message, or a gh pr/issue/release body, may carry one: anywhere
+// else the text could be run (`bash -c`, `python -c`, `git rebase --exec`).
+const takesLiteralHeredoc = (program: string | undefined, args: readonly string[]) =>
+  (program === 'git' && ['commit', 'tag', 'notes'].includes(args[0] ?? '')) ||
+  (program === 'gh' && ['pr', 'issue', 'release'].includes(args[0] ?? ''))
+
 const containsOverwrite = (args: readonly string[]) => args.some((arg, index) => {
   if (arg !== '>' && arg !== '>>') return false
   const target = args[index + 1]
@@ -160,6 +180,9 @@ const classifySegment = (segment: Segment): Classification => {
   const { program, args } = fact
   const values = nonOptions(args)
 
+  if (segment.words.some(word => word.heredoc) && !takesLiteralHeredoc(program, args)) {
+    return { tier: 'ask', reason: "can't analyze a heredoc outside a git message or gh body", commands: [fact] }
+  }
   if (containsOverwrite(args)) return { tier: 'ask', reason: 'overwriting a redirect', commands: [fact] }
   if (program === 'eval') return { tier: 'ask', reason: "can't analyze eval", commands: [fact] }
   if (isShell(program) && (args.includes('<<') || args.includes('<<-'))) return { tier: 'ask', reason: "can't analyze a here-doc feeding a shell", commands: [fact] }
@@ -210,14 +233,16 @@ export const tokenize = (command: string): Tokenized => {
   let words: Word[] = []
   let word = ''
   let dynamic = false
+  let heredoc = false
   let quote: 'single' | 'double' | undefined
   let separator: Separator | undefined
   let cannotAnalyze = false
 
   const pushWord = () => {
-    if (word) words.push({ value: word, dynamic })
+    if (word) words.push(heredoc ? { value: word, dynamic, heredoc: true } : { value: word, dynamic })
     word = ''
     dynamic = false
+    heredoc = false
   }
   const pushSegment = (nextSeparator: Separator) => {
     pushWord()
@@ -247,6 +272,16 @@ export const tokenize = (command: string): Tokenized => {
     if (char === '"' && quote !== 'single') {
       quote = quote === 'double' ? undefined : 'double'
       continue
+    }
+
+    if (quote !== 'single' && char === '$' && next === '(') {
+      const length = literalHeredoc(command.slice(index))
+      if (length) {
+        word += '<heredoc>'
+        heredoc = true
+        index += length - 1
+        continue
+      }
     }
 
     if (quote !== 'single' && char === '`') cannotAnalyze = true
