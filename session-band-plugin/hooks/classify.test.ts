@@ -80,6 +80,30 @@ test('strips every launcher before deciding', () => {
   for (const command of launchers) expect(classify(command).tier).toBe('ask')
 })
 
+const heredoc = (body: string, tag = 'EOF') => `"$(cat <<'${tag}'\n${body}\n${tag}\n)"`
+
+test('a quoted heredoc is literal text for git and gh only', () => {
+  expect(classify(`git commit -m ${heredoc('fix: x\n\nBody $(rm -rf ~) stays text')}`).tier).toBe('pass')
+  expect(classify(`gh pr create --title t --body ${heredoc('## What')}`).tier).toBe('pass')
+  expect(classify(`git add a && git commit -m ${heredoc('msg')}`).tier).toBe('pass')
+})
+
+test('a heredoc feeding anything else, or not provably literal, still asks', () => {
+  expect(classify(`python3 -c ${heredoc('import os')}`).tier).toBe('ask')
+  expect(classify(`bash -c ${heredoc('echo hi')}`).tier).toBe('ask')
+  expect(classify(`git commit -m "$(cat <<EOF\nunquoted $(id)\nEOF\n)"`).tier).toBe('ask')
+  expect(classify('git commit -m "$(cat <<\'EOF\'\nx\nEOF\n; rm x\nEOF\n)"').tier).toBe('ask')
+  expect(classify('git commit -m "$(date)"').tier).toBe('ask')
+  expect(classify(`git filter-branch --msg-filter ${heredoc('echo hi')}`).tier).toBe('ask')
+  expect(classify(`git rebase --exec ${heredoc('make')}`).tier).toBe('ask')
+  expect(classify(`git -C /tmp commit -m ${heredoc('msg')}`).tier).toBe('ask')
+})
+
+test('a heredoc never hides a dangerous segment around it', () => {
+  expect(classify(`git commit -m ${heredoc('msg')} && git push -f origin main`).tier).toBe('deny')
+  expect(classify(`git commit -m ${heredoc('msg')}; rm x`).tier).toBe('ask')
+})
+
 test('uses the strictest tier across shell separators', () => {
   expect(classify('echo ok; rm x').tier).toBe('ask')
   expect(classify('echo ok || git push -f origin main').tier).toBe('deny')
