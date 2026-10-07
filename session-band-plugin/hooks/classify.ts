@@ -30,7 +30,7 @@ type Tokenized = {
   cannotAnalyze?: boolean
 }
 
-const SYSTEM_DIRECTORY = /^\/(?:usr|etc|bin|System|Users)(?:\/|$)/
+const SYSTEM_DIRECTORY = /^\/(?:usr|etc|bin|System|Users)\/?$/
 const SHELL = new Set(['sh', 'bash', 'zsh'])
 const TIER_ORDER: Record<Tier, number> = { pass: 0, ask: 1, deny: 2 }
 
@@ -110,8 +110,22 @@ const stripLauncher = (words: readonly Word[]): Word[] => {
   return remaining
 }
 
+const WHOLE_TREE = new Set(['/', '/*', '~', '~/', '~/*', '$HOME', '$HOME/', '$HOME/*'])
+
+const isAbsoluteOrHome = (target: string) =>
+  target.startsWith('/') || target === '~' || target.startsWith('~/') || target === '$HOME' || target.startsWith('$HOME/')
+
+// Deny the whole tree or a top-level system directory itself. Anything below
+// them is a question, unless it is the old hook's `rm -rf <absolute or home>`.
 const isDangerousRmTarget = (target: string, recursiveAndForce: boolean) =>
-  target === '/' || target === '~' || target === '$HOME' || target.startsWith('~/') || target.startsWith('$HOME/') || target === '/*' || SYSTEM_DIRECTORY.test(target) || (recursiveAndForce && target.startsWith('/'))
+  WHOLE_TREE.has(target) || SYSTEM_DIRECTORY.test(target) || (recursiveAndForce && isAbsoluteOrHome(target))
+
+const isMainRef = (value: string) => {
+  const destination = value.replace(/^\+/, '').split(':').at(-1) ?? ''
+  const branch = destination.replace(/^refs\/heads\//, '')
+
+  return branch === 'main' || branch === 'master'
+}
 
 const isShell = (program: string | undefined) => program !== undefined && SHELL.has(program)
 
@@ -166,7 +180,9 @@ const classifySegment = (segment: Segment): Classification => {
 
   if (program === 'git') {
     const subcommand = args[0]
-    if (subcommand === 'push' && hasForceFlag(args) && values.slice(1).some(value => value === 'main' || value === 'master' || value === 'refs/heads/main' || value === 'refs/heads/master')) {
+    // `+ref` forces by refspec without any flag; `HEAD:main` names main as the destination.
+    const refs = values.slice(1)
+    if (subcommand === 'push' && (hasForceFlag(args) || refs.some(ref => ref.startsWith('+'))) && refs.some(isMainRef)) {
       return { tier: 'deny', reason: 'force-push targets main or master', commands: [fact] }
     }
     if (subcommand === 'reset' && args.includes('--hard')) {

@@ -16,6 +16,20 @@ const cases = [
   ['git push --force-with-lease origin main', 'deny'],
   ['git reset --hard origin/main', 'deny'],
   ['git reset --hard @{u}', 'deny'],
+  // Force-push by refspec, and the system directories themselves.
+  ['git push origin +main', 'deny'],
+  ['git push -f origin HEAD:main', 'deny'],
+  ['git push origin +HEAD:refs/heads/master', 'deny'],
+  ['rm /usr', 'deny'],
+  ['rm -r /Users/', 'deny'],
+  ['rm ~/*', 'deny'],
+  // A plain rm below home or a system dir is a question, not a wall.
+  ['rm /Users/me/tmp/x.txt', 'ask'],
+  ['rm ~/Downloads/x.txt', 'ask'],
+  ['rm $HOME/x.txt', 'ask'],
+  ['rm /usr/local/bin/foo', 'ask'],
+  ['rm -r ~/build', 'ask'],
+  ['git push origin feat:other', 'pass'],
   // Safe and scoped commands remain untouched.
   ['ls -la', 'pass'],
   ['rg foo', 'pass'],
