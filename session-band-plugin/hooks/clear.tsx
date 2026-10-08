@@ -69,7 +69,10 @@ const recentlySaved = async ($: EngineInterface, repo: RepoInfo, nowMs: number):
 
   let newest: number | undefined
   for (const entry of entries) {
-    if (entry.kind === 'file' && (newest === undefined || entry.mtimeMs > newest)) newest = entry.mtimeMs
+    // Only session files count; index.json is rewritten by any save, by any harness.
+    if (entry.kind === 'file' && entry.name.endsWith('.md') && (newest === undefined || entry.mtimeMs > newest)) {
+      newest = entry.mtimeMs
+    }
   }
 
   return newest !== undefined && nowMs - newest <= RECENT_SAVE_MS

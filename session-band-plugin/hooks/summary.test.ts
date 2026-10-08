@@ -74,6 +74,18 @@ test('a huge transcript is capped at DIGEST_CAP characters', () => {
   expect(digest.length).toBeLessThanOrEqual(DIGEST_CAP)
 })
 
+test('many failing tool results never push the recent messages out of the digest', () => {
+  const failing = Array.from({ length: 200 }, (_, i) =>
+    msg({ role: 'assistant', text: `step ${i}`, toolResults: [{ isError: true, text: `fail-${i} ${'y'.repeat(500)}` }] }),
+  )
+  const digest = buildDigest([...failing, msg({ role: 'user', text: 'final request: wrap up' })])
+
+  expect(digest.length).toBeLessThanOrEqual(DIGEST_CAP)
+  expect(digest).toContain('final request: wrap up')
+  expect(digest, 'keeps the latest failures').toContain('fail-199')
+  expect(digest, 'drops the oldest failures').not.toContain('fail-0 ')
+})
+
 test('parseReply reads the goal and the six headings in any order', () => {
   const text = [
     'GOAL: Ship the widget',
