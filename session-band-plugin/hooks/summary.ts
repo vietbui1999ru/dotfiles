@@ -8,6 +8,9 @@ export const RECENT_SAVE_MS = 5 * 60 * 1000
 export const DIGEST_LAST_MESSAGES = 30
 export const DIGEST_MESSAGE_CHARS = 600
 export const DIGEST_CAP = 30_000
+// Latest failures only: the oldest add the least and, uncapped, crowd the
+// recent messages out of the final cut.
+export const DIGEST_MAX_FAILURES = 10
 
 export const HEADINGS = [
   'Completed',
@@ -71,6 +74,8 @@ export const buildDigest = (messages: readonly DigestMessage[]): string => {
     }
   }
 
+  const shownFailures = failures.slice(-DIGEST_MAX_FAILURES)
+
   const recent = messages
     .slice(-DIGEST_LAST_MESSAGES)
     .map(m => `[${m.role}] ${cut(m.text, DIGEST_MESSAGE_CHARS)}`)
@@ -80,9 +85,9 @@ export const buildDigest = (messages: readonly DigestMessage[]): string => {
     files.size === 0
       ? 'Files edited: (none)'
       : `Files edited:\n${[...files].sort().map(f => `- ${f}`).join('\n')}`,
-    failures.length === 0
+    shownFailures.length === 0
       ? 'Failing tool results: (none)'
-      : `Failing tool results:\n${failures.map(f => `- ${f}`).join('\n')}`,
+      : `Failing tool results:\n${shownFailures.map(f => `- ${f}`).join('\n')}`,
     `Recent messages (${recent.length}):\n${recent.join('\n')}`,
   ]
 

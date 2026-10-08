@@ -208,6 +208,16 @@ test('a save in the last five minutes skips the duplicate', async ($, on) => {
   expect(world.saveStdin).toBeUndefined()
 })
 
+test('a fresh index.json alone is not a recent save', async ($, on) => {
+  const world = setup(on, { sessions: [{ name: 'index.json', mtimeMs: 999_000 }] })
+
+  await edit($)
+  const result = await $.command.run(clear())
+
+  expect(result.text).toBe('cleared')
+  expect(world.saveStdin, 'the summary is still saved').toBeDefined()
+})
+
 test('a non-composer clear refuses on failure instead of asking', async ($, on) => {
   const world = setup(on, { model: { isAnswered: false, reason: 'empty-reply' } })
 
