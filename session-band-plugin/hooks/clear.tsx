@@ -174,10 +174,9 @@ export const register: Register = on => {
     try {
       const path = await saveSession($, repo, summary)
       await reset($)
-      // After the clear: raised before it, the toast was gone with the old screen.
+      // The answer's text, not a toast: /clear ends the session and the toast went with it.
       const result = await next(e)
-      $.ui.toast(`Session saved: ${path}`)
-      return result
+      return { ...result, text: `Session saved: ${path}` }
     } catch (error) {
       return fail($, e, next, String(error))
     }
