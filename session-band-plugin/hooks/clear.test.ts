@@ -141,7 +141,7 @@ test('a trivial session passes straight to the built-in clear', async ($, on) =>
   expect(world.askQuestion).toBeUndefined()
 })
 
-test('real work is summarised, saved, toasted, then cleared', async ($, on) => {
+test('real work is summarised, saved, saved, cleared, then reported', async ($, on) => {
   const world = setup(on, {
     messages: [user('fix the clear hook'), assistant('done', [{ tool: 'Edit', input: { file_path: '/work/a.ts' } }])],
   })
@@ -149,14 +149,13 @@ test('real work is summarised, saved, toasted, then cleared', async ($, on) => {
   await edit($)
   const result = await $.command.run(clear())
 
-  expect(result.text).toBe('cleared')
+  expect(result.text).toBe('Session saved: .agents/sessions/20261007_cc_general_goal.md')
   expect(world.clearRan).toBe(1)
   expect(world.modelPrompt).toContain('fix the clear hook')
   expect(world.modelPrompt).toContain('/work/a.ts')
   expect(world.saveGoal).toBe('Ship the session-band clear hook')
   expect(world.saveStdin).toContain('## Completed')
   expect(world.saveStdin).toContain('## Next Session Should')
-  expect(world.toasts).toEqual(['Session saved: .agents/sessions/20261007_cc_general_goal.md'])
 })
 
 test('a failed save asks, and Clear anyway clears', async ($, on) => {
@@ -235,14 +234,14 @@ test('a task worktree writes the claimed state file', async ($, on) => {
   await edit($)
   const result = await $.command.run(clear())
 
-  expect(result.text).toBe('cleared')
+  expect(result.text).toBe('Session saved: /main/.agents/claimed/TASK-7.state.md')
   expect(world.clearRan).toBe(1)
   expect(world.writes).toHaveLength(1)
   expect(world.writes[0]?.path).toBe('/main/.agents/claimed/TASK-7.state.md')
   expect(world.writes[0]?.text).toContain('status: active')
   expect(world.writes[0]?.text).toContain('agent_task: TASK-7')
   expect(world.writes[0]?.text).toContain('## Completed')
-  expect(world.toasts).toEqual(['Session saved: /main/.agents/claimed/TASK-7.state.md'])
+  expect(result.text).toBe('Session saved: /main/.agents/claimed/TASK-7.state.md')
   expect(world.saveStdin).toBeUndefined()
 })
 
@@ -254,7 +253,7 @@ test('four prompts count as real work', async ($, on) => {
   }
   const result = await $.command.run(clear())
 
-  expect(result.text).toBe('cleared')
+  expect(result.text).toStartWith('Session saved: ')
   expect(world.clearRan).toBe(1)
   expect(world.modelPrompt).toBeDefined()
 })
