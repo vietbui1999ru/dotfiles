@@ -328,6 +328,124 @@ vim.fn.writefile({ vim.json.encode({ runId = "../../escape", base = base }) }, r
 M.open()
 check("non-UUID pending name is ignored", M.current == nil)
 
+io.write("\nreject all\n")
+-- :AgentReviewRejectAll is all-or-nothing and fails closed; each case builds its
+-- own repo, with the agent's edits from fixture() on top of the base.
+local function ra_fixture(n, files, opts)
+  opts = opts or {}
+  local r, b = fixture()
+  if opts.base_cmd then
+    sh(r, opts.base_cmd)
+    sh(r, "git add -A -- " .. opts.base_path .. " && git commit -qm base2")
+    b = sh(r, "git rev-parse HEAD")
+  end
+  if opts.pre then sh(r, opts.pre) end
+  local snap = snapshot(r, "end")
+  local id = ("aaaaaaaa-1111-4111-8111-%012d"):format(n)
+  vim.fn.mkdir(r .. "/.pi/agent-review/pending", "p")
+  vim.fn.writefile({ vim.json.encode({
+    runId = id, base = b, ["end"] = snap.commit,
+    baseTree = sh(r, "git rev-parse HEAD^{tree}"), endTree = snap.tree,
+    startedAt = "2026-09-18T00:00:00Z", files = files,
+  }) }, r .. "/.pi/agent-review/pending/" .. id .. ".json")
+  vim.cmd.tcd(vim.fn.fnameescape(r))
+  vim.cmd.enew()
+  M.current, M.notes = nil, {}
+  notices = {}
+  return r, id
+end
+local function ra_decision(r, id)
+  local f = r .. "/.pi/agent-review/decisions/" .. id .. ".json"
+  if vim.uv.fs_stat(f) == nil then return nil end
+  return vim.json.decode(table.concat(vim.fn.readfile(f), "\n"))
+end
+local function ra_end(r)
+  vim.cmd.tcd(vim.fn.fnameescape(repo))
+  M.current, M.notes = nil, {}
+  sh(repo, "rm -rf " .. r)
+end
+local both = { { file = "agent.txt" }, { file = "added.txt" } }
+
+check("RA1 command is registered", vim.fn.exists(":AgentReviewRejectAll") == 2)
+
+local function ra_rejected(name, r, id)
+  local d = ra_decision(r, id)
+  check(name .. " agent.txt restored", sh(r, "cat agent.txt") == "one", sh(r, "cat agent.txt"))
+  check(name .. " added.txt removed", vim.uv.fs_stat(r .. "/added.txt") == nil)
+  check(name .. " keep.txt untouched", sh(r, "cat keep.txt") == "keep")
+  check(name .. " decision lists both as changed", d ~= nil and vim.deep_equal(d.files,
+    { { file = "agent.txt", status = "changed" }, { file = "added.txt", status = "changed" } }), vim.inspect(d))
+  check(name .. " patch non-empty, nothing skipped", d ~= nil and d.patch ~= "" and d.skipped == nil)
+  check(name .. " review closed", M.current == nil)
+end
+
+local r, id = ra_fixture(2, both)
+vim.cmd("AgentReviewRejectAll")
+ra_rejected("RA2", r, id)
+ra_end(r)
+
+r, id = ra_fixture(3, both)
+vim.cmd("AgentReviewRejectAll " .. id)
+ra_rejected("RA3", r, id)
+ra_end(r)
+
+r, id = ra_fixture(4, both)
+vim.cmd("AgentReviewRejectAll bbbbbbbb-1111-4111-8111-000000000004")
+check("RA4 agent.txt untouched", sh(r, "cat agent.txt") == "one\ntwo", sh(r, "cat agent.txt"))
+check("RA4 added.txt still present", vim.uv.fs_stat(r .. "/added.txt") ~= nil)
+check("RA4 no decision", ra_decision(r, id) == nil)
+check("RA4 refusal reported", noticed("nothing was rejected", vim.log.levels.ERROR) ~= nil, vim.inspect(notices))
+ra_end(r)
+
+r, id = ra_fixture(5, both, { })
+sh(r, "printf 'one\\nmine\\n' > agent.txt")
+vim.cmd("AgentReviewRejectAll")
+check("RA5 refused, added.txt still exists (all or nothing)", vim.uv.fs_stat(r .. "/added.txt") ~= nil)
+check("RA5 reviewer's edit survives", sh(r, "cat agent.txt") == "one\nmine", sh(r, "cat agent.txt"))
+check("RA5 no decision, review still open", ra_decision(r, id) == nil and M.current ~= nil)
+check("RA5 refusal reported", noticed("nothing was rejected", vim.log.levels.ERROR) ~= nil, vim.inspect(notices))
+ra_end(r)
+
+r, id = ra_fixture(6, both)
+vim.cmd.edit(vim.fn.fnameescape(r .. "/agent.txt"))
+vim.api.nvim_buf_set_lines(0, 0, -1, false, { "unsaved" })
+vim.cmd("AgentReviewRejectAll")
+check("RA6 unsaved buffer refused, no decision", ra_decision(r, id) == nil and vim.uv.fs_stat(r .. "/added.txt") ~= nil)
+check("RA6 refusal reported", noticed("unsaved edits", vim.log.levels.ERROR) ~= nil, vim.inspect(notices))
+vim.cmd("bwipeout!")
+ra_end(r)
+
+r, id = ra_fixture(7, { { file = "agent.txt" }, { file = "added.txt" }, { file = "keep.txt" } }, { pre = "rm keep.txt" })
+vim.cmd("AgentReviewRejectAll")
+check("RA7 deleted keep.txt restored", vim.uv.fs_stat(r .. "/keep.txt") ~= nil and sh(r, "cat keep.txt") == "keep")
+check("RA7 decision recorded", ra_decision(r, id) ~= nil and M.current == nil)
+ra_end(r)
+
+local e8 = vim.fn.tempname()
+vim.fn.mkdir(e8, "p")
+e8 = vim.uv.fs_realpath(e8)
+sh(e8, "git init -q -b main")
+vim.cmd.tcd(vim.fn.fnameescape(e8))
+vim.cmd.enew()
+M.current, notices = nil, {}
+vim.cmd("AgentReviewRejectAll")
+check("RA8 no pending review reported", noticed("AgentReviewRejectAll failed", vim.log.levels.ERROR) ~= nil, vim.inspect(notices))
+check("RA8 no decisions dir", vim.uv.fs_stat(e8 .. "/.pi/agent-review/decisions") == nil)
+vim.cmd.tcd(vim.fn.fnameescape(repo))
+sh(repo, "rm -rf " .. e8)
+
+r, id = ra_fixture(9, { { file = "agent.txt" }, { file = "sub/x.txt" } },
+  { base_cmd = "mkdir -p sub && printf 'a\\n' > sub/x.txt", base_path = "sub/x.txt",
+    pre = "printf 'b\\n' > sub/x.txt" })
+sh(r, "chmod 444 sub/x.txt")
+vim.cmd("AgentReviewRejectAll")
+sh(r, "chmod 644 sub/x.txt")
+check("RA9 rolled back agent.txt to the run's version", sh(r, "cat agent.txt") == "one\ntwo", sh(r, "cat agent.txt"))
+check("RA9 sub/x.txt unchanged", sh(r, "cat sub/x.txt") == "b", sh(r, "cat sub/x.txt"))
+check("RA9 no decision", ra_decision(r, id) == nil)
+check("RA9 failure names the file", noticed("sub/x%.txt", vim.log.levels.ERROR) ~= nil, vim.inspect(notices))
+ra_end(r)
+
 sh(repo, "rm -rf " .. repo)
 io.write(("\n%d checks, %d failed in %d ms\n"):format(checks, #failures, elapsed_ms()))
 for _, f in ipairs(failures) do io.write("  - " .. f .. "\n") end

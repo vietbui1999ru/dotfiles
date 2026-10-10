@@ -320,37 +320,46 @@ local function changed_since(repo, tree, path)
 	return vim.trim(recorded.stdout) ~= vim.trim(on_disk.stdout)
 end
 
+-- Restore one reviewed file to its base version (or delete it if the base has
+-- none). Raises on failure and returns the message to show; M.reject and
+-- M.reject_all both build on it.
+local function reject_file(repo, record, path, force)
+	local reviewed = false
+	for _, item in ipairs(M.paths(record)) do
+		if item == path then
+			reviewed = true
+		end
+	end
+	assert(reviewed, path .. " is not part of this review")
+	-- Rejecting restores the whole file, so anything written into it since the
+	-- run ended goes too — and that is usually the reviewer's own work, not
+	-- the agent's. Refuse rather than discard it silently.
+	assert(
+		force or not changed_since(repo, record.endTree, path),
+		path .. " changed after the run ended; rejecting would discard those edits. :AgentReviewReject! " .. path .. " to override"
+	)
+	local absolute = repo .. "/" .. path
+	local in_base = vim.system({ "git", "cat-file", "-e", record.base .. ":" .. path }, { cwd = repo }):wait()
+	if in_base.code == 0 then
+		local content = git_raw(repo, { "show", record.base .. ":" .. path })
+		vim.fn.mkdir(vim.fn.fnamemodify(absolute, ":h"), "p")
+		assert(
+			vim.fn.writefile(vim.split(content, "\n", { plain = true }), absolute, "b") == 0,
+			"could not write " .. path
+		)
+		return "Rejected " .. path .. ": restored the base version."
+	end
+	assert(vim.fn.delete(absolute) == 0, "could not delete " .. path)
+	return "Rejected " .. path .. ": the run created it, so it was deleted."
+end
+
 function M.reject(path, force)
 	local ok, err = pcall(function()
 		assert(M.current, "Open :AgentReview first")
 		local repo, record = root(), M.current
 		path = path and path ~= "" and path or M.cursor_file(repo)
 		assert(path, "No file under the cursor. Pass a path: :AgentReviewReject <file>")
-		local reviewed = false
-		for _, item in ipairs(M.paths(record)) do
-			if item == path then
-				reviewed = true
-			end
-		end
-		assert(reviewed, path .. " is not part of this review")
-		-- Rejecting restores the whole file, so anything written into it since the
-		-- run ended goes too — and that is usually the reviewer's own work, not
-		-- the agent's. Refuse rather than discard it silently.
-		assert(
-			force or not changed_since(repo, record.endTree, path),
-			path .. " changed after the run ended; rejecting would discard those edits. :AgentReviewReject! " .. path .. " to override"
-		)
-		local absolute = repo .. "/" .. path
-		local in_base = vim.system({ "git", "cat-file", "-e", record.base .. ":" .. path }, { cwd = repo }):wait()
-		if in_base.code == 0 then
-			local content = git_raw(repo, { "show", record.base .. ":" .. path })
-			vim.fn.mkdir(vim.fn.fnamemodify(absolute, ":h"), "p")
-			vim.fn.writefile(vim.split(content, "\n", { plain = true }), absolute, "b")
-			vim.notify("Rejected " .. path .. ": restored the base version.")
-		else
-			assert(vim.fn.delete(absolute) == 0, "could not delete " .. path)
-			vim.notify("Rejected " .. path .. ": the run created it, so it was deleted.")
-		end
+		vim.notify(reject_file(repo, record, path, force))
 		vim.cmd.checktime()
 	end)
 	if not ok then
@@ -457,6 +466,124 @@ function M.done()
 	end
 end
 
+-- Put `path` back to its version in the run's end tree: write it back, or
+-- delete it if the run's end tree has none.
+local function restore_end(repo, record, path)
+	local absolute = repo .. "/" .. path
+	local in_end = vim.system({ "git", "cat-file", "-e", record.endTree .. ":" .. path }, { cwd = repo }):wait()
+	if in_end.code == 0 then
+		local content = git_raw(repo, { "show", record.endTree .. ":" .. path })
+		vim.fn.mkdir(vim.fn.fnamemodify(absolute, ":h"), "p")
+		assert(
+			vim.fn.writefile(vim.split(content, "\n", { plain = true }), absolute, "b") == 0,
+			"could not write " .. path
+		)
+	else
+		assert(vim.fn.delete(absolute) == 0, "could not delete " .. path)
+	end
+end
+
+-- Is a loaded buffer holding unsaved edits to repo/path? Compare real paths
+-- over nvim_list_bufs; bufnr() would treat its argument as a pattern.
+local function has_unsaved(repo, path)
+	local target = vim.fs.normalize((vim.uv.fs_realpath(repo) or repo) .. "/" .. path)
+	for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+		if vim.api.nvim_buf_is_loaded(buf) and vim.bo[buf].modified then
+			local name = vim.api.nvim_buf_get_name(buf)
+			if name ~= "" and (vim.uv.fs_realpath(name) or vim.fs.normalize(name)) == target then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+-- Reject every file of the review at once and record the decision. All or
+-- nothing, and it fails closed: if no decision lands, Pi stays blocked.
+-- `force` is never used: edits made after the run are usually the reviewer's
+-- own, and :AgentReviewReject! <file> is the deliberate per-file override.
+--
+-- Known limits (not fixed here): mode bits and symlinks are not restored;
+-- renames lose the old path (a separate fix in the Pi extension); behaviour of
+-- a remote-send while a prompt is showing is unverified.
+function M.reject_all(run_id)
+	local ok, err = pcall(function()
+		if run_id == "" then
+			run_id = nil
+		end
+		assert(run_id == nil or valid_id(run_id), "invalid run id: " .. tostring(run_id))
+		local function mismatch()
+			return ("review %s is open, not %s; nothing was rejected"):format(M.current.runId, run_id)
+		end
+		if M.current then
+			assert(run_id == nil or M.current.runId == run_id, run_id and mismatch())
+		else
+			M.open()
+			assert(M.current, "No pending agent review")
+			assert(run_id == nil or M.current.runId == run_id, run_id and mismatch())
+		end
+		local record = M.current
+		local repo = root()
+		local found = false
+		for _, entry in ipairs(pending(repo)) do
+			if entry.record.runId == record.runId then
+				found = true
+			end
+		end
+		assert(found, ("the current buffer is not in review %s's repo; nothing was rejected"):format(record.runId))
+		local paths = M.paths(record)
+		assert(#paths > 0, "nothing to reject")
+		local blocked = {}
+		for _, p in ipairs(paths) do
+			if changed_since(repo, record.endTree, p) or has_unsaved(repo, p) then
+				table.insert(blocked, p)
+			end
+		end
+		assert(
+			#blocked == 0,
+			table.concat(blocked, ", ")
+				.. " changed after the run ended or have unsaved edits; nothing was rejected. "
+				.. "Reject them one at a time with :AgentReviewReject! <file>"
+		)
+		local done = {}
+		for _, p in ipairs(paths) do
+			local rejected, e = pcall(reject_file, repo, record, p, true)
+			if not rejected then
+				local stuck = {}
+				for _, d in ipairs(done) do
+					local restored, re = pcall(restore_end, repo, record, d)
+					if not restored then
+						table.insert(stuck, d .. " (" .. tostring(re) .. ")")
+					end
+				end
+				if #stuck > 0 then
+					error(
+						("rejecting %s failed: %s. Could not restore: %s; review left open, no decision recorded"):format(
+							p,
+							tostring(e),
+							table.concat(stuck, ", ")
+						)
+					)
+				end
+				error(
+					("rejecting %s failed: %s. Restored the run's version of %d file(s) already rejected; no decision recorded"):format(
+						p,
+						tostring(e),
+						#done
+					)
+				)
+			end
+			table.insert(done, p)
+		end
+		vim.cmd.checktime()
+		M.done()
+		assert(not M.current, "files were rejected but the decision was not recorded; run :AgentReviewDone")
+	end)
+	if not ok then
+		vim.notify("AgentReviewRejectAll failed: " .. tostring(err), vim.log.levels.ERROR)
+	end
+end
+
 -- Report the state the review actually depends on. Everything goes through one
 -- vim.notify so it survives in :messages and in noice's log, unlike a bare
 -- print() in the cmdline, which a redraw can wipe before you read it.
@@ -521,6 +648,9 @@ vim.api.nvim_create_user_command("AgentReviewReject", function(opts)
 	M.reject(opts.args, opts.bang)
 end, { nargs = "?", bang = true })
 vim.api.nvim_create_user_command("AgentReviewDone", M.done, {})
+vim.api.nvim_create_user_command("AgentReviewRejectAll", function(opts)
+	M.reject_all(opts.args)
+end, { nargs = "?" })
 vim.api.nvim_create_user_command("AgentReviewClearNotes", M.clear_notes, {})
 vim.api.nvim_create_user_command("AgentReviewVerbose", function()
 	M.verbose = not M.verbose
