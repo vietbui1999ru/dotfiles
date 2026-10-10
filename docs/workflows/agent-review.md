@@ -205,6 +205,14 @@ cycle it dispatches:
   exists. `/review …` commands dispatch before `input` and stay available.
 - `/review skip <run-id>` writes a decision with `skipped: true`, the current `endTree` and a
   fresh `finalTree`, which then flows through normal validation.
+- **Review names (2026-10-11).** Each pending record also carries a `name`: the last segment of
+  the branch it was written on (`feat/session-band-pi-handoff` becomes `session-band-pi-handoff`),
+  lowercased, with `-2`, `-3` appended when another pending review already holds that name, and
+  `review` on a detached HEAD. `/review skip` accepts the name, the full run id, or a run-id
+  prefix of at least four characters; an ambiguous reference lists the matches and skips
+  nothing. `/review skip <Tab>` completes names. The run id stays the canonical key: file names,
+  decisions, git refs, `:AgentReview` and `agent-review approve` still use it, and the refusal
+  messages show both. Records written before names existed have no `name` and are matched by id.
 - **Exception for `error` records:** `/review skip <run-id>` on a pending record with `error` set
   removes it directly, without snapshot validation. The error may be a snapshot that keeps
   failing, and requiring one to clear it would lock input permanently. `/review` is a slash

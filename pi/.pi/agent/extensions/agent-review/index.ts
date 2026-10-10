@@ -33,6 +33,8 @@ type Pending = {
 	startedAt: string;
 	endedAt: string;
 	modeMtimeMs: number;
+	// Short key for `/review skip`; absent on records written before names existed.
+	name?: string;
 	tamper?: true;
 	error?: string;
 };
@@ -59,6 +61,26 @@ export const validRunId = (value: unknown): value is string =>
 export const validHash = (value: unknown): value is string =>
 	typeof value === "string" && HASH.test(value);
 export const modeTampered = (before: number, after: number) => before !== after;
+
+// The branch's last segment (feat/pi-handoff -> pi-handoff), made unique among `taken`.
+export function reviewName(branch: string, taken: Iterable<string>): string {
+	const last = branch === "HEAD" ? "" : (branch.split("/").pop() ?? "");
+	const base = last.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "review";
+	const used = new Set(taken);
+	let name = base;
+	for (let n = 2; used.has(name); n++) name = `${base}-${n}`;
+	return name;
+}
+
+// The pending reviews `ref` names: an exact name, else a full id or an id prefix of 4+ characters.
+export function resolveReview<T extends { runId: string; name?: string }>(records: T[], ref: string): T[] {
+	const byName = records.filter((record) => record.name === ref);
+	if (byName.length > 0) return byName;
+	const id = ref.toLowerCase();
+	return id.length < 4 ? [] : records.filter((record) => record.runId.toLowerCase().startsWith(id));
+}
+
+const label = (record: { runId: string; name?: string }) => record.name ?? record.runId;
 export const needsFollowUp = (decision: Decision) =>
 	Boolean(
 		decision.patch.trim() ||
@@ -233,6 +255,17 @@ async function listPending(root: string): Promise<Pending[]> {
 	return records;
 }
 
+// Never throws: failure paths call it, and they must still write their pending record.
+async function nameFor(root: string): Promise<string> {
+	try {
+		const branch = await command(root, ["rev-parse", "--abbrev-ref", "HEAD"]).then((r) => r.stdout.trim(), () => "");
+		const taken = (await listPending(root)).flatMap((record) => (record.name ? [record.name] : []));
+		return reviewName(branch, taken);
+	} catch {
+		return "review";
+	}
+}
+
 const FOLLOW_UP_TEXT = (id: string) =>
 	`Review of run ${id} is complete. Decisions, notes and the reviewer's patch: ` +
 	`.pi/agent-review/decisions/${id}.json. Re-read the listed files before further changes. ` +
@@ -240,6 +273,8 @@ const FOLLOW_UP_TEXT = (id: string) =>
 
 export default function agentReview(pi: ExtensionAPI) {
 	let active: Active | undefined;
+	// Completions get no ctx, so they read reviews from the root session_start saw.
+	let sessionRoot: string | undefined;
 	let verifierDone = false;
 	let latestCtx: ExtensionContext | undefined;
 	let watcher: ReturnType<typeof watch> | undefined;
@@ -288,6 +323,7 @@ export default function agentReview(pi: ExtensionAPI) {
 				startedAt: run.startedAt,
 				endedAt: new Date().toISOString(),
 				modeMtimeMs: run.modeMtimeMs,
+				name: await nameFor(run.root),
 			};
 			if (modeTampered(run.modeMtimeMs, currentMode.mtimeMs)) {
 				record.tamper = true;
@@ -297,7 +333,7 @@ export default function agentReview(pi: ExtensionAPI) {
 			await atomic(path(run.root, "pending", `${run.runId}.json`), record);
 			active = undefined;
 			reportPrintFailure(
-				`agent-review: run ${run.runId} changed ${files.length} file(s) and is awaiting review. ` +
+				`agent-review: run ${record.name} (${run.runId}) changed ${files.length} file(s) and is awaiting review. ` +
 					`Nothing has been accepted. Review it in Neovim with :AgentReview`,
 			);
 			try {
@@ -316,6 +352,7 @@ export default function agentReview(pi: ExtensionAPI) {
 				startedAt: run.startedAt,
 				endedAt: new Date().toISOString(),
 				modeMtimeMs: run.modeMtimeMs,
+				name: await nameFor(run.root),
 				error: String(error),
 			};
 			await atomic(path(run.root, "pending", `${run.runId}.json`), record);
@@ -390,12 +427,12 @@ export default function agentReview(pi: ExtensionAPI) {
 		const blocked = await listPending(root);
 		if (blocked.length > 0) {
 			ctx.ui.notify(
-				`Review pending — /review skip ${blocked[0].runId} to continue`,
+				`Review pending (${blocked[0].runId}) — /review skip ${label(blocked[0])} to continue`,
 				"warning",
 			);
 			reportPrintFailure(
-				`agent-review: input refused, review ${blocked[0].runId} is pending. ` +
-					`Resolve it in Neovim, or run: /review skip ${blocked[0].runId}`,
+				`agent-review: input refused, review ${label(blocked[0])} (${blocked[0].runId}) is pending. ` +
+					`Resolve it in Neovim, or run: /review skip ${label(blocked[0])}`,
 			);
 			return { action: "handled" as const };
 		}
@@ -433,6 +470,7 @@ export default function agentReview(pi: ExtensionAPI) {
 				startedAt: new Date().toISOString(),
 				endedAt: new Date().toISOString(),
 				modeMtimeMs: selected.mtimeMs,
+				name: await nameFor(root),
 				error: `start snapshot failed: ${String(error)}`,
 			};
 			await atomic(path(root, "pending", `${id}.json`), record);
@@ -457,17 +495,28 @@ export default function agentReview(pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("review", {
-		description: "List reviews or skip one",
+		description: "List reviews or skip one by name or id",
+		getArgumentCompletions: async (prefix) => {
+			const typed = /^skip\s+(\S*)$/.exec(prefix)?.[1];
+			if (typed === undefined || !sessionRoot) return null;
+			const items = (await listPending(sessionRoot))
+				.filter((record) => record.name?.startsWith(typed))
+				.map((record) => ({ value: `skip ${record.name}`, label: record.name!, description: record.runId.slice(0, 8) }));
+			return items.length > 0 ? items : null;
+		},
 		handler: async (args, ctx) => {
 			const root = await repoRoot(ctx.cwd);
-			const [verb, id] = args.trim().split(/\s+/, 2);
+			const [verb, ref] = args.trim().split(/\s+/, 2);
 			const records = await listPending(root);
-			if (verb === "skip" && validRunId(id)) {
-				const record = records.find((entry) => entry.runId === id);
-				if (!record) {
-					ctx.ui.notify("Unknown review", "warning");
+			if (verb === "skip" && ref) {
+				const matches = resolveReview(records, ref);
+				if (matches.length !== 1) {
+					const which = matches.map(label).join(", ");
+					ctx.ui.notify(matches.length ? `Ambiguous review ${ref}: ${which}` : "Unknown review", "warning");
 					return;
 				}
+				const [record] = matches;
+				const id = record.runId;
 				// An interrupted claim: the session that held it is gone, so there is
 				// nothing to race with and no decision will ever arrive for it.
 				// Clearing it is an explicit human act, which is why recovery lives
@@ -497,13 +546,14 @@ export default function agentReview(pi: ExtensionAPI) {
 				await atomic(path(root, "decisions", `${id}.json`), decision);
 				return;
 			}
-			const ids = records.map((entry) => entry.runId).join(", ");
+			const ids = records.map((entry) => `${label(entry)} (${entry.runId.slice(0, 8)})`).join(", ");
 			ctx.ui.notify(records.length ? `Pending reviews: ${ids}` : "No pending reviews", "info");
 		},
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
 		const root = await repoRoot(ctx.cwd);
+		sessionRoot = root;
 		const decisionsDir = path(root, "decisions");
 		await mkdir(decisionsDir, { recursive: true });
 		const records = await listPending(root);
