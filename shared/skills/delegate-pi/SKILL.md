@@ -65,14 +65,17 @@ Read `.verdict` for the gate decision. Read `.votes[].reason` for per-dimension 
 For long tasks that run in the background while you continue work.
 
 ```bash
-# Fire task to pueue (medium difficulty)
-TASK_ID=$(pueue add -i --print-task-id -- \
-  "pi --model opencode-go/deepseek-v4-pro:high \
+# Fire task to pueue (medium difficulty). The slug must be new for every task.
+SLUG="<task-name>-$(openssl rand -hex 4)"
+TASK_ID=$(pueue add -i --print-task-id --label "$SLUG" -- \
+  "pi --model opencode-go/deepseek-v4-pro:high --session-id pueue-$SLUG \
       -p '<full task description>' < /dev/null")
 
 # Check when ready
 pueue wait "$TASK_ID" && pueue log "$TASK_ID"
 ```
+
+Every pueue dispatch carries `--label <slug>` (pueue flag, before `--`) and `--session-id pueue-<slug>` (pi flag). `<slug>` is a short task name in lowercase `[a-z0-9-]` plus a fresh 8-hex suffix. Never reuse a slug: `pi --session-id` resumes an existing session with that id. Council and subagent modes are synchronous, not pueue dispatches: keep `--no-session` there and never add `--session-id`.
 
 **Model routing for delegation:**
 
@@ -123,20 +126,26 @@ EOF
 pi --model ... -p "$(cat /tmp/task.md)" < /dev/null
 ```
 
+These are pi command lines; a pueue dispatch wraps them as in Delegate Mode, with `--label` and `--session-id`.
+
 ### Dispatch + collect
 
 ```bash
-# 1. Dispatch all tasks, collect IDs
-T_REVIEW=$(pueue add -i --print-task-id -- \
-  "pi --model openai-codex/gpt-5.5:high \
+# 1. Dispatch all tasks, collect IDs. Each task gets its own fresh slug.
+S_REVIEW="review-$(openssl rand -hex 4)"
+S_IMPL="impl-$(openssl rand -hex 4)"
+S_LOW="low-$(openssl rand -hex 4)"
+
+T_REVIEW=$(pueue add -i --print-task-id --label "$S_REVIEW" -- \
+  "pi --model openai-codex/gpt-5.5:high --session-id pueue-$S_REVIEW \
       -p '<review task>' < /dev/null")
 
-T_IMPL=$(pueue add -i --print-task-id -- \
-  "pi --model opencode-go/deepseek-v4-pro:high \
+T_IMPL=$(pueue add -i --print-task-id --label "$S_IMPL" -- \
+  "pi --model opencode-go/deepseek-v4-pro:high --session-id pueue-$S_IMPL \
       -p '<implementation task>' < /dev/null")
 
-T_LOW=$(pueue add -i --print-task-id -- \
-  "pi --model opencode-go/deepseek-v4-flash:off \
+T_LOW=$(pueue add -i --print-task-id --label "$S_LOW" -- \
+  "pi --model opencode-go/deepseek-v4-flash:off --session-id pueue-$S_LOW \
       -p '<low-difficulty task>' < /dev/null")
 
 # 2. Optional: check status without blocking
