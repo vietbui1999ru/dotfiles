@@ -549,8 +549,15 @@ function M.reject_all(run_id)
 		for _, p in ipairs(paths) do
 			local rejected, e = pcall(reject_file, repo, record, p, true)
 			if not rejected then
+				-- p itself may be half-written; roll it back too unless it still
+				-- matches the run's end version. A comparison error counts as "differs".
+				local rollback = vim.list_slice(done)
+				local ok_cmp, differs = pcall(changed_since, repo, record.endTree, p)
+				if not ok_cmp or differs then
+					table.insert(rollback, p)
+				end
 				local stuck = {}
-				for _, d in ipairs(done) do
+				for _, d in ipairs(rollback) do
 					local restored, re = pcall(restore_end, repo, record, d)
 					if not restored then
 						table.insert(stuck, d .. " (" .. tostring(re) .. ")")
@@ -569,7 +576,7 @@ function M.reject_all(run_id)
 					("rejecting %s failed: %s. Restored the run's version of %d file(s) already rejected; no decision recorded"):format(
 						p,
 						tostring(e),
-						#done
+						#rollback
 					)
 				)
 			end

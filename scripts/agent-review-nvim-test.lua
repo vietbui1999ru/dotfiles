@@ -446,6 +446,25 @@ check("RA9 no decision", ra_decision(r, id) == nil)
 check("RA9 failure names the file", noticed("sub/x%.txt", vim.log.levels.ERROR) ~= nil, vim.inspect(notices))
 ra_end(r)
 
+local real_writefile = vim.fn.writefile
+r, id = ra_fixture(10, { { file = "a.txt" } },
+  { base_cmd = "printf 'a\\n' > a.txt", base_path = "a.txt", pre = "printf 'b\\n' > a.txt" })
+local failed_once = false
+vim.fn.writefile = function(lines, path, flags)
+  if not failed_once and type(path) == "string" and path:match("a%.txt$") then
+    failed_once = true
+    real_writefile({ "PARTIAL" }, path, "b")
+    return -1
+  end
+  return real_writefile(lines, path, flags)
+end
+vim.cmd("AgentReviewRejectAll")
+vim.fn.writefile = real_writefile
+check("RA10 half-written file restored to the run's version", sh(r, "cat a.txt") == "b", sh(r, "cat a.txt"))
+check("RA10 no decision", ra_decision(r, id) == nil)
+check("RA10 failure names the file", noticed("rejecting a%.txt failed", vim.log.levels.ERROR) ~= nil, vim.inspect(notices))
+ra_end(r)
+
 sh(repo, "rm -rf " .. repo)
 io.write(("\n%d checks, %d failed in %d ms\n"):format(checks, #failures, elapsed_ms()))
 for _, f in ipairs(failures) do io.write("  - " .. f .. "\n") end
