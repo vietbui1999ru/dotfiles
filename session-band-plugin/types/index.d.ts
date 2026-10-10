@@ -1,3 +1,10 @@
+import type { TrackedTask } from '../hooks/handoff'
+import type { PiProgress } from '../hooks/pisession'
+import type { HandoffState } from '../hooks/handoff.tsx'
+
+export type { TrackedTask } from '../hooks/handoff'
+export type { PiProgress } from '../hooks/pisession'
+
 export type GitSnapshot = {
   branch: string
   isDirty: boolean
@@ -20,6 +27,8 @@ declare module 'claude-code' {
       isNotified: boolean
       edits: number
       prompts: number
+      handoff: HandoffState
+      progress: Record<number, PiProgress>
     }
   }
 }

@@ -1,5 +1,5 @@
 import type { PiProgress } from './pisession'
-import type { PueueState, Task } from './pueue'
+import { parsePiCommand, type PueueState, type Task } from './pueue'
 import type { ReviewState } from './review'
 
 export type TrackedTask = {
@@ -71,10 +71,11 @@ export const summarize = (
   const task = item.task
   const pi = progress[item.id]
   const state = task?.state ?? 'Other'
-  const model = pi?.model ?? (task ? undefined : undefined)
+  const parsed = task ? parsePiCommand(task.command) : undefined
+  const model = pi?.model ?? parsed?.model
   const started = task?.startMs ?? task?.enqueuedMs ?? item.addedMs
   const elapsed = formatElapsed((finished(state) ? task?.endMs ?? nowMs : nowMs) - started)
-  const modelEffort = [model, pi?.effort].filter(Boolean).join(':') || undefined
+  const modelEffort = [model, pi?.effort ?? parsed?.effort].filter(Boolean).join(':') || undefined
   const fields = [
     `pi#${item.id}${glyph(state)}`,
     modelEffort,
@@ -89,7 +90,7 @@ export const summarize = (
   ].filter(Boolean)
   return {
     kind: 'single', text: fields.join(' '), id: item.id, state, glyph: glyph(state),
-    ...(model ? { model } : {}), ...(pi?.effort ? { effort: pi.effort } : {}), elapsed,
+    ...(model ? { model } : {}), ...(pi?.effort ?? parsed?.effort ? { effort: pi?.effort ?? parsed?.effort } : {}), elapsed,
     ...(pi ? { tokens: formatTokens(pi.tokens), cost: cost(pi.cost), files: pi.files.length } : {}),
     ...(item.label ? { label: item.label } : {}), ...(review[item.id] ? { review: review[item.id] } : {}), ...(task?.exit !== undefined ? { exit: task.exit } : {}),
   }
@@ -101,7 +102,7 @@ export type StaleSelection = { tasks: TrackedTask[]; sessions: StaleSession[]; b
 export const selectStale = (tracked: readonly TrackedTask[], sessions: readonly StaleSession[], nowMs: number): StaleSelection => {
   const older = nowMs - 7 * 24 * 60 * 60 * 1000
   const tasks = tracked.filter(item => finished(item.task?.state) && (item.task?.endMs ?? item.finishedMs ?? item.addedMs) < older)
-  const labels = new Set(tasks.map(item => item.sessionId).filter((id): id is string => id.startsWith('pueue-')))
+  const labels = new Set(tasks.flatMap(item => item.sessionId?.startsWith('pueue-') ? [item.sessionId] : []))
   const selected = sessions.filter(session => session.mtimeMs < older && [...labels].some(id => session.name.endsWith(`_${id}.jsonl`)))
   return { tasks, sessions: selected, bytes: selected.reduce((total, session) => total + session.size, 0) }
 }

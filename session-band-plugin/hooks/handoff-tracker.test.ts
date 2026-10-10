@@ -1,0 +1,24 @@
+import { expect, test } from 'claude-code/testing'
+
+import { trackedFrom } from './handoff.tsx'
+import type { Task } from './pueue'
+
+const task = (id: number, overrides: Partial<Task> = {}): Task => ({
+  id, cwd: '/repo', command: 'pi --model openai/gpt:high --session-id pueue-a -p "$(cat /tmp/a)" < /dev/null', state: 'Queued', createdMs: 100, ...overrides,
+})
+
+test('tracks captured and parallel Pi adds, not stdout-dependent commands', () => {
+  const tracked = trackedFrom([task(1), task(2)], 99, '/repo', '/repo')
+  expect(tracked.map(item => item.id)).toEqual([1, 2])
+  expect(tracked[0]).toMatchObject({ sessionId: 'pueue-a' })
+})
+
+test('does not track non-Pi, older, or out-of-repository pueue tasks', () => {
+  const result = trackedFrom([
+    task(1, { command: 'false' }),
+    task(2, { createdMs: 98 }),
+    task(3, { cwd: '/outside' }),
+    task(4, { cwd: '/repo/worktree' }),
+  ], 99, '/repo', '/repo')
+  expect(result.map(item => item.id)).toEqual([4])
+})
