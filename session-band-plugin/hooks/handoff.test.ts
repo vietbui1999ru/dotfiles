@@ -41,6 +41,19 @@ test('folds session JSONL incrementally, preserving partial lines and bounded en
   expect(progress.entries.map(item => item.text)).toEqual(['working', 'edit a.ts'])
 })
 
+test('tracks the newest valid Pi event timestamp', () => {
+  const chunk = [
+    { type: 'session', timestamp: '2026-10-10T00:00:01.000Z' },
+    { type: 'model_change', timestamp: '2026-10-10T00:00:03.000Z', provider: 'openai', modelId: 'gpt' },
+    { type: 'message', timestamp: '2026-10-10T00:00:02.000Z', message: { role: 'assistant', content: [] } },
+  ].map(row => JSON.stringify(row)).join('\n') + '\n'
+  const latest = fold(emptyProgress(), chunk)
+  expect(latest.lastEventMs).toBe(Date.parse('2026-10-10T00:00:03.000Z'))
+  const unchanged = fold({ ...latest, lastEventMs: 9 }, `${JSON.stringify({ type: 'session', timestamp: 'not-a-date' })}\n`)
+  expect(unchanged.lastEventMs).toBe(9)
+  expect(fold(latest, '').lastEventMs).toBe(latest.lastEventMs)
+})
+
 test('reads pending and accepted or changed review decisions', () => {
   const pending = parsePending(JSON.stringify({ runId: 'r', files: [{ file: 'a.ts' }] }))
   expect(pending).toMatchObject({ runId: 'r' })

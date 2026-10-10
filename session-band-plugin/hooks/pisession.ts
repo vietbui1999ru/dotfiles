@@ -8,6 +8,7 @@ export type PiProgress = {
   model?: string
   effort?: string
   lastActivity?: string
+  lastEventMs?: number
   files: string[]
   entries: TranscriptEntry[]
   error?: string
@@ -44,18 +45,22 @@ const append = (progress: PiProgress, entries: TranscriptEntry[]) => ({ ...progr
 const event = (progress: PiProgress, raw: unknown): PiProgress => {
   const row = object(raw)
   if (!row) return progress
+  const parsedTimestamp = typeof row.timestamp === 'string' ? Date.parse(row.timestamp) : Number.NaN
+  const dated = Number.isNaN(parsedTimestamp) || (progress.lastEventMs !== undefined && parsedTimestamp <= progress.lastEventMs)
+    ? progress
+    : { ...progress, lastEventMs: parsedTimestamp }
   if (row.type === 'model_change') {
     const provider = typeof row.provider === 'string' ? row.provider : undefined
     const modelId = typeof row.modelId === 'string' ? row.modelId : undefined
-    return provider && modelId ? { ...progress, model: `${provider}/${modelId}` } : progress
+    return provider && modelId ? { ...dated, model: `${provider}/${modelId}` } : dated
   }
-  if (row.type === 'thinking_level_change' && typeof row.thinkingLevel === 'string') return { ...progress, effort: row.thinkingLevel }
-  if (row.type !== 'message') return progress
+  if (row.type === 'thinking_level_change' && typeof row.thinkingLevel === 'string') return { ...dated, effort: row.thinkingLevel }
+  if (row.type !== 'message') return dated
   const message = object(row.message)
-  if (!message) return progress
+  if (!message) return dated
   const role = message.role
   const content = Array.isArray(message.content) ? message.content : []
-  let next = progress
+  let next = dated
   if (role === 'assistant') {
     const usage = object(message.usage)
     const tokens = typeof usage?.totalTokens === 'number' ? usage.totalTokens : 0

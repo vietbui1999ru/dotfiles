@@ -23,6 +23,7 @@ export type PiProgress = {
   model?: string
   effort?: string
   lastActivity?: string
+  lastEventMs?: number
   files: string[]
   entries: TranscriptEntry[]
   error?: string
