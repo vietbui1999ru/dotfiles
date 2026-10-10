@@ -100,6 +100,23 @@ Build as three separate commits, in this order.
   review, never a skipped one.
 - Add `.pi/agent-review/` to the repo `.gitignore` template that `scripts/agent-workflow attach`
   manages.
+- `agent-review approve <runId>` approves one pending run whose working tree is unchanged since
+  the run ended. A `pi -p` run has already exited, so nothing else would consume a decision.
+  It prints exactly one JSON line on stdout and nothing on stderr; exit 0 on success, 2 on a
+  refusal. Success is `{"ok": true, "runId": "<id>"}`; a refusal is
+  `{"ok": false, "reason": "<reason>", "message": "<text>"}`.
+  - Reasons: `invalid-id`, `no-pending`, `processing`, `invalid-pending`, `snapshot-failed`,
+    `tampered`, `already-decided`, `tree-changed`, `not-confirmed`, `error`.
+  - It recomputes the working-tree snapshot the same way Pi does and refuses unless it equals the
+    record's `endTree`. It never overwrites an existing decision (a Neovim decision with notes or
+    a skip must survive).
+  - Before writing anything it shows a macOS confirmation dialog (`osascript`, default button
+    Cancel, gives up after 25 s). There is no environment variable or flag that skips it; an
+    agent cannot click it. Claude's settings also deny running `agent-review approve`.
+  - On approval it consumes the run itself: claim `pending/<id>.json` as `.processing`, re-check
+    the tree, write `decisions/<id>.json` (all files `accepted`, never `skipped`, so no follow-up
+    message), remove the claim, delete the `refs/agent-review/<id>/*` refs. Any failure puts the
+    pending record back.
 
 ### 2. Pi extension — `pi/.pi/agent/extensions/agent-review.ts`
 

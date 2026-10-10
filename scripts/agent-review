@@ -6,11 +6,16 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+
+RUN_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", re.I)
+HASH = re.compile(r"[0-9a-f]{40}")
 
 
 def repo_root() -> Path:
@@ -59,6 +64,157 @@ def write_mode(path: Path, mode: str, set_by: str) -> None:
             pass
 
 
+def git(root: Path, *args: str, env: dict[str, str] | None = None) -> str:
+    result = subprocess.run(
+        ["git", *args], cwd=root, env=env, capture_output=True, text=True, timeout=15
+    )
+    if result.returncode:
+        raise RuntimeError(f"git {args[0]} failed")
+    return result.stdout.strip()
+
+
+def snapshot_tree(root: Path) -> str:
+    """Working-tree hash, computed exactly as Pi's snapshot() does."""
+    clean = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE")}
+    real_index = Path(root, git(root, "rev-parse", "--git-path", "index", env=clean))
+    scratch = Path(tempfile.mkdtemp())
+    try:
+        index = scratch / "index"
+        if real_index.exists():
+            shutil.copyfile(real_index, index)
+        env = {**clean, "GIT_INDEX_FILE": str(index)}
+        git(root, "add", "-A", "--", ".", env=env)
+        git(root, "rm", "-r", "--cached", "--quiet", "--ignore-unmatch", "--", ".pi", env=env)
+        return git(root, "write-tree", env=env)
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
+def confirm(root: Path, run_id: str, files: list[str]) -> bool:
+    """Ask the person, in a dialog an agent cannot click. No bypass by design."""
+    shown = ", ".join(files[:10])
+    message = f"Approve Pi run {run_id[:8]} in {root.name}?\n\n{len(files)} file(s): {shown}"
+    script = [
+        "on run argv",
+        'display dialog (item 1 of argv) with title "agent-review" buttons {"Cancel", "Approve"} '
+        'default button "Cancel" cancel button "Cancel" giving up after 25',
+        "return button returned of result",
+        "end run",
+    ]
+    command = ["/usr/bin/osascript"] + [a for line in script for a in ("-e", line)] + [message]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+    except Exception:
+        return False
+    return result.returncode == 0 and result.stdout.strip() == "Approve"
+
+
+class Refusal(Exception):
+    def __init__(self, reason: str, message: str) -> None:
+        super().__init__(message)
+        self.reason, self.message = reason, message
+
+
+def reply(ok: bool, **fields: object) -> int:
+    print(json.dumps({"ok": ok, **fields}))
+    return 0 if ok else 2
+
+
+def write_decision(path: Path, payload: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=f"{path.stem}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w") as stream:
+            json.dump(payload, stream, indent=2)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+
+
+def load_pending(d: Path, run_id: str) -> dict[str, object]:
+    pending = d / "pending"
+    if (pending / f"{run_id}.processing").exists():
+        raise Refusal("processing", "Pi is consuming it, or an interrupted claim; /review skip <id> in Pi")
+    if not (pending / f"{run_id}.json").exists():
+        raise Refusal("no-pending", "no pending review with that id in this checkout")
+    record = read_json(pending / f"{run_id}.json")
+    if record is None or record.get("runId") != run_id:
+        raise Refusal("invalid-pending", "pending record unreadable or id mismatch")
+    if "error" in record:  # before the tree check: an error record has endTree == baseTree
+        raise Refusal("snapshot-failed", "the run's end snapshot failed; review in Neovim")
+    if "tamper" in record:
+        raise Refusal("tampered", "mode.json changed during the run; review in Neovim")
+    hashes = all(isinstance(record.get(k), str) and HASH.fullmatch(record[k]) for k in ("base", "end", "baseTree", "endTree"))
+    if not hashes or not isinstance(record.get("files"), list):
+        raise Refusal("invalid-pending", "pending record has a malformed field")
+    return record
+
+
+def consume(root: Path, d: Path, run_id: str, record: dict[str, object], files: list[str]) -> None:
+    """Decision D1: no Pi process is left to consume the decision, so do it here."""
+    pending = d / "pending" / f"{run_id}.json"
+    claim = d / "pending" / f"{run_id}.processing"
+    try:
+        os.rename(pending, claim)
+    except FileNotFoundError:
+        raise Refusal("processing", "another process claimed it first")
+    try:
+        tree = snapshot_tree(root)
+        if tree != record["endTree"]:
+            os.rename(claim, pending)
+            raise Refusal("tree-changed", "the working tree changed while confirming")
+        write_decision(d / "decisions" / f"{run_id}.json", {
+            "runId": run_id, "endTree": record["endTree"], "finalTree": tree,
+            "files": [{"file": f, "status": "accepted"} for f in files],
+            "notes": [], "patch": "", "via": "agent-review approve",
+        })
+        os.remove(claim)
+    except Refusal:
+        raise
+    except BaseException:
+        if claim.exists():
+            os.rename(claim, pending)
+        raise
+    for ref in ("base", "end"):
+        subprocess.run(["git", "update-ref", "-d", f"refs/agent-review/{run_id}/{ref}"], cwd=root, capture_output=True)
+
+
+def approve(run_id: str) -> int:
+    if not RUN_ID.fullmatch(run_id):
+        raise Refusal("invalid-id", "not a run id")
+    try:
+        root = repo_root()
+    except SystemExit:
+        raise Refusal("error", "not a git repository")
+    d = root / ".pi" / "agent-review"
+    record = load_pending(d, run_id)
+    if (d / "decisions" / f"{run_id}.json").exists():
+        raise Refusal("already-decided", "a decision already exists; resolve it in Neovim")
+    if snapshot_tree(root) != record["endTree"]:
+        raise Refusal("tree-changed", "the working tree changed since the run ended")
+    files = [f["file"] for f in record["files"] if isinstance(f, dict) and isinstance(f.get("file"), str)]
+    if not confirm(root, run_id, files):
+        raise Refusal("not-confirmed", "approval needs the person to confirm the dialog")
+    consume(root, d, run_id, record, files)
+    return reply(True, runId=run_id)
+
+
+def command_approve(args: argparse.Namespace) -> int:
+    """One JSON line on stdout, nothing on stderr; exit 0 only on success."""
+    try:
+        return approve(args.run_id)
+    except Refusal as refusal:
+        return reply(False, reason=refusal.reason, message=refusal.message)
+    except BaseException as error:
+        return reply(False, reason="error", message=type(error).__name__)
+
+
 def command_mode(args: argparse.Namespace) -> int:
     root = repo_root()
     write_mode(mode_path(root), args.mode, "human")
@@ -90,6 +246,9 @@ def main() -> int:
     mode.set_defaults(handler=command_mode)
     status = subparsers.add_parser("status", help="show review mode and records")
     status.set_defaults(handler=command_status)
+    approve_parser = subparsers.add_parser("approve", help="approve one unchanged Pi run after a dialog")
+    approve_parser.add_argument("run_id")
+    approve_parser.set_defaults(handler=command_approve)
     args = parser.parse_args()
     return args.handler(args)
 
