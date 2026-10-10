@@ -1,7 +1,7 @@
 {
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
-    "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "claude-haiku-5-5",
     "MAX_THINKING_TOKENS": "10000",
     "teammateMode": "in-process",
     "CLAUDE_CODE_PLUGIN_DIRS": "~/dotfiles/session-band-plugin"
@@ -14,7 +14,7 @@
     ],
     "defaultMode": "plan"
   },
-  "model": "sonnet",
+  "model": "opus",
   "hooks": {
     "PostToolUse": [
       {
@@ -207,11 +207,14 @@
   },
   "effortLevel": "high",
   "modelSettings": {
-    "claude-opus-5": {
+    "claude-opus-5-5": {
       "effortLevel": "high"
     },
     "claude-sonnet-5-5": {
       "effortLevel": "high"
+    },
+    "claude-haiku-5-5": {
+      "effortLevel": "medium"
     }
   },
   "tui": "fullscreen",
