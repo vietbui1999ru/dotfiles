@@ -273,7 +273,7 @@ export default function agentReview(pi: ExtensionAPI) {
 				return;
 			}
 			const currentMode = await readMode(run.root);
-			const diffArgs = ["diff", "--name-only", run.baseTree, end.tree];
+			const diffArgs = ["diff", "--name-only", "--no-renames", run.baseTree, end.tree];
 			const files = (await command(run.root, diffArgs)).stdout
 				.split("\n")
 				.filter(Boolean)
@@ -515,7 +515,7 @@ export default function agentReview(pi: ExtensionAPI) {
 		for (const name of names) {
 			if (!name.endsWith(".json")) continue;
 			const id = basename(name, ".json");
-			if (validRunId(id)) void processDecision(ctx, root, id);
+			if (validRunId(id)) await processDecision(ctx, root, id);
 		}
 		watcher?.close();
 		watcher = watch(decisionsDir, (_event, name) => {
