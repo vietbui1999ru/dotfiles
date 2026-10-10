@@ -12,6 +12,7 @@ let timer: { cancel(): void } | undefined
 let polling = false
 
 const isLive = (task: Task | undefined) => task?.state === 'Queued' || task?.state === 'Running' || task?.state === 'Paused'
+export const hasLiveTrackedTask = (tasks: readonly TrackedTask[]) => tasks.some(item => isLive(item.task))
 const inside = (path: string, root: string) => path === root || path.startsWith(`${root}/`)
 
 export const trackedFrom = (tasks: readonly Task[], startedMs: number, cwd: string, root: string): TrackedTask[] =>
@@ -77,7 +78,7 @@ async function poll($: EngineInterface) {
 
 async function syncTimer($: EngineInterface) {
   const state = await read($, handoff)
-  if (state.tasks.some(item => isLive(item.task))) {
+  if (hasLiveTrackedTask(state.tasks)) {
     if (!timer) timer = $.clock.every(2_000, () => { void poll($) })
   } else if (timer) {
     timer.cancel()
