@@ -13,6 +13,19 @@ export type TrackedTask = {
   dismissed?: boolean
 }
 
+export type MonitorRow = {
+  id: number
+  state: PueueState
+  glyph: string
+  modelEffort?: string
+  elapsed: string
+  activity: string
+  tokens: string
+  cost: string
+  idle?: { text: string; tone: 'muted' | 'yellow' | 'red' }
+  label?: string
+}
+
 export type HandoffSegment = {
   kind: 'single' | 'rollup'
   text: string
@@ -36,6 +49,12 @@ const finished = (state: PueueState | undefined) => state === 'Done' || state ==
 const live = (state: PueueState | undefined) => state === 'Queued' || state === 'Running' || state === 'Paused'
 const glyph = (state: PueueState | undefined) => state === 'Running' ? '▶' : state === 'Queued' ? '…' : state === 'Paused' ? 'Ⅱ' : state === 'Done' ? '✓' : state === 'Failed' || state === 'Killed' ? '!' : '?'
 const cost = (value: number) => `$${value < 0.01 ? value.toFixed(3) : value.toFixed(2)}`
+const monitorGlyph = (state: PueueState) => state === 'Running' ? '▶' : state === 'Queued' ? '◌' : state === 'Paused' ? '⏸' : state === 'Done' ? '✓' : state === 'Failed' || state === 'Killed' ? '✗' : '?'
+const monitorVisible = (item: TrackedTask, nowMs: number) => {
+  const state = item.task?.state
+  return !item.dismissed && (live(state) || state === 'Failed' || state === 'Killed' || (state === 'Done' && nowMs - (item.finishedMs ?? item.task?.endMs ?? item.addedMs) <= 30_000))
+}
+const monitorOrder = (state: PueueState) => state === 'Failed' || state === 'Killed' ? 0 : state === 'Running' ? 1 : state === 'Queued' || state === 'Paused' ? 2 : state === 'Done' ? 3 : 4
 
 export const formatElapsed = (ms: number): string => {
   const seconds = Math.max(0, Math.floor(ms / 1000))
@@ -45,6 +64,54 @@ export const formatElapsed = (ms: number): string => {
 }
 
 export const formatTokens = (tokens: number): string => tokens >= 1_000_000 ? `${(tokens / 1_000_000).toFixed(1)}m` : tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : String(tokens)
+
+export const activityLabel = (progress: PiProgress | undefined): string =>
+  progress?.lastActivity ?? (progress?.lastEventAssistant ? 'thinking' : 'starting')
+
+export const idleAge = (progress: PiProgress | undefined, task: Task | undefined, nowMs: number): MonitorRow['idle'] => {
+  if (!progress?.lastEventMs || finished(task?.state)) return undefined
+  const age = nowMs - progress.lastEventMs
+  if (age <= 30_000) return undefined
+  return { text: `idle ${formatElapsed(age)}`, tone: age > 300_000 ? 'red' : age > 120_000 ? 'yellow' : 'muted' }
+}
+
+export const monitorRows = (
+  tracked: readonly TrackedTask[],
+  progress: Readonly<Record<number, PiProgress | undefined>>,
+  tasks: readonly Task[],
+  nowMs: number,
+): MonitorRow[] => {
+  const current = new Map(tasks.map(task => [task.id, task]))
+  return tracked
+    .map(item => ({ item, task: current.get(item.id) ?? item.task }))
+    .filter(({ item, task }) => monitorVisible({ ...item, task }, nowMs))
+    .sort((left, right) => {
+      const stateOrder = monitorOrder(left.task?.state ?? 'Other') - monitorOrder(right.task?.state ?? 'Other')
+      if (stateOrder !== 0) return stateOrder
+      if (left.task?.state === 'Done' && right.task?.state === 'Done') return (right.task.endMs ?? right.item.finishedMs ?? right.item.addedMs) - (left.task.endMs ?? left.item.finishedMs ?? left.item.addedMs)
+      return 0
+    })
+    .map(({ item, task }) => {
+      const state = task?.state ?? 'Other'
+      const pi = progress[item.id]
+      const parsed = task ? parsePiCommand(task.command) : undefined
+      const started = task?.startMs ?? task?.enqueuedMs ?? item.addedMs
+      const ended = finished(state) ? task?.endMs ?? nowMs : nowMs
+      const modelEffort = item.sessionId ? [pi?.model ?? parsed?.model, pi?.effort ?? parsed?.effort].filter(Boolean).join(':') || undefined : undefined
+      return {
+        id: item.id,
+        state,
+        glyph: monitorGlyph(state),
+        ...(modelEffort ? { modelEffort } : {}),
+        elapsed: formatElapsed(ended - started),
+        activity: item.sessionId ? activityLabel(pi) : 'n/a',
+        tokens: pi ? `${formatTokens(pi.tokens)} tok` : 'n/a',
+        cost: pi ? cost(pi.cost) : 'n/a',
+        ...(idleAge(pi, task, nowMs) ? { idle: idleAge(pi, task, nowMs) } : {}),
+        ...(item.label ? { label: item.label } : {}),
+      }
+    })
+}
 
 const visible = (item: TrackedTask, review: ReviewState, nowMs: number) => {
   const state = item.task?.state

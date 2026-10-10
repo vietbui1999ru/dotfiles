@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { formatElapsed, formatTokens, selectStale, summarize, type TrackedTask } from './handoff'
+import { activityLabel, formatElapsed, formatTokens, idleAge, monitorRows, selectStale, summarize, type TrackedTask } from './handoff'
 import { emptyProgress, fold } from './pisession'
 import { dispatchCommand, isPiDispatch, parseAddResult, parsePiCommand, parseStatus } from './pueue'
 import { parsePending, reviewState } from './review'
@@ -52,6 +52,33 @@ test('tracks the newest valid Pi event timestamp', () => {
   const unchanged = fold({ ...latest, lastEventMs: 9 }, `${JSON.stringify({ type: 'session', timestamp: 'not-a-date' })}\n`)
   expect(unchanged.lastEventMs).toBe(9)
   expect(fold(latest, '').lastEventMs).toBe(latest.lastEventMs)
+})
+
+test('builds ordered monitor rows with idle states and legacy fallbacks', () => {
+  const at = 1_000_000
+  const rows = [
+    { ...running(1), task: { ...running(1).task!, state: 'Done' as const, endMs: at - 4 } },
+    { ...running(2), task: { ...running(2).task!, state: 'Queued' as const } },
+    { ...running(3), task: { ...running(3).task!, state: 'Paused' as const } },
+    { ...running(4), task: { ...running(4).task!, state: 'Failed' as const, endMs: 3 } },
+    { ...running(5), task: { ...running(5).task!, state: 'Running' as const } },
+    { ...running(6), task: { ...running(6).task!, state: 'Done' as const, endMs: at - 3 } },
+  ]
+  const monitor = monitorRows(rows, {}, rows.map(row => row.task!), at)
+  expect(monitor.map(row => [row.id, row.glyph])).toEqual([[4, '✗'], [5, '▶'], [2, '◌'], [3, '⏸'], [6, '✓'], [1, '✓']])
+  const task = running().task!
+  const progress = { ...emptyProgress(), lastEventMs: at - 31_000 }
+  expect(idleAge({ ...progress, lastEventMs: at - 29_000 }, task, at)).toBeUndefined()
+  expect(idleAge(progress, task, at)).toEqual({ text: 'idle 31s', tone: 'muted' })
+  expect(idleAge({ ...progress, lastEventMs: at - 119_000 }, task, at)?.tone).toBe('muted')
+  expect(idleAge({ ...progress, lastEventMs: at - 121_000 }, task, at)?.tone).toBe('yellow')
+  expect(idleAge({ ...progress, lastEventMs: at - 299_000 }, task, at)?.tone).toBe('yellow')
+  expect(idleAge({ ...progress, lastEventMs: at - 301_000 }, task, at)?.tone).toBe('red')
+  expect(activityLabel({ ...emptyProgress(), lastEventAssistant: true })).toBe('thinking')
+  expect(activityLabel(emptyProgress())).toBe('starting')
+  const legacy = { ...running(9), sessionId: undefined, label: 'legacy' }
+  const legacyRow = monitorRows([legacy], {}, [legacy.task!], at)[0]!
+  expect(legacyRow).toMatchObject({ id: 9, activity: 'n/a', tokens: 'n/a', cost: 'n/a', label: 'legacy' })
 })
 
 test('reads pending and accepted or changed review decisions', () => {

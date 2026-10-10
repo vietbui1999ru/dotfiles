@@ -24,6 +24,7 @@ export type PiProgress = {
   effort?: string
   lastActivity?: string
   lastEventMs?: number
+  lastEventAssistant?: boolean
   files: string[]
   entries: TranscriptEntry[]
   error?: string

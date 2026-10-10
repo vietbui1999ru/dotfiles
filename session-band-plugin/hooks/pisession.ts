@@ -9,6 +9,7 @@ export type PiProgress = {
   effort?: string
   lastActivity?: string
   lastEventMs?: number
+  lastEventAssistant?: boolean
   files: string[]
   entries: TranscriptEntry[]
   error?: string
@@ -45,10 +46,11 @@ const append = (progress: PiProgress, entries: TranscriptEntry[]) => ({ ...progr
 const event = (progress: PiProgress, raw: unknown): PiProgress => {
   const row = object(raw)
   if (!row) return progress
+  const message = row.type === 'message' ? object(row.message) : undefined
   const parsedTimestamp = typeof row.timestamp === 'string' ? Date.parse(row.timestamp) : Number.NaN
   const dated = Number.isNaN(parsedTimestamp) || (progress.lastEventMs !== undefined && parsedTimestamp <= progress.lastEventMs)
     ? progress
-    : { ...progress, lastEventMs: parsedTimestamp }
+    : { ...progress, lastEventMs: parsedTimestamp, lastEventAssistant: message?.role === 'assistant' }
   if (row.type === 'model_change') {
     const provider = typeof row.provider === 'string' ? row.provider : undefined
     const modelId = typeof row.modelId === 'string' ? row.modelId : undefined
@@ -56,7 +58,6 @@ const event = (progress: PiProgress, raw: unknown): PiProgress => {
   }
   if (row.type === 'thinking_level_change' && typeof row.thinkingLevel === 'string') return { ...dated, effort: row.thinkingLevel }
   if (row.type !== 'message') return dated
-  const message = object(row.message)
   if (!message) return dated
   const role = message.role
   const content = Array.isArray(message.content) ? message.content : []
@@ -77,7 +78,9 @@ const event = (progress: PiProgress, raw: unknown): PiProgress => {
         const name = typeof item.name === 'string' ? item.name : 'tool'
         const path = toolPath(item.arguments)
         if (path) files.add(path)
-        const text = `${name}${path ? ` ${path}` : ''}`
+        const args = object(item.arguments)
+        const command = typeof args?.command === 'string' ? args.command : undefined
+        const text = name === 'bash' && command ? `bash ${command.slice(0, 40)}` : `${name}${path ? ` ${path}` : ''}`
         entries.push({ kind: 'tool', text })
         next = { ...next, lastActivity: text }
       }
