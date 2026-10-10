@@ -26,3 +26,7 @@ Never run `agent-review approve`: approving a Pi run is the person's decision, m
 Pi handles everything else by default, including multi-file features, migrations, and refactors.
 
 After dispatch, report the pueue task ID. Pi commits as it works; on collection, review its commits and revert what you reject. In `~/dotfiles`, use `:AgentReview` for the live review gate.
+
+## Claude git: commit and push without asking
+
+This section is for Claude only (Pi's rule in `shared/` still asks before push). After each coherent unit of work in a feature branch or git worktree, stage by path, commit, and push the branch (`git push` or `git push -u origin <branch>`), without asking. Open a draft PR when the work is ready for review. `settings.json` allows `git add`, `git commit` and `git push`, and denies force-push, `--delete` and pushes to `main`/`master`. Still ask before merge, rebase and `reset --hard`. A permission denial on a commit is not an invitation to work around it: report it.

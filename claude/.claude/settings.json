@@ -10,15 +10,39 @@
     "allow": [
       "Bash(~/.claude/plugins/cache/claude-plugins-official/superpowers/*/skills/brainstorming/scripts/start-server.sh:*)",
       "mcp__sentry__authenticate",
-      "mcp__sentry__complete_authentication"
+      "mcp__sentry__complete_authentication",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(/usr/bin/git add:*)",
+      "Bash(/usr/bin/git commit:*)",
+      "Bash(/usr/bin/git push:*)"
     ],
     "deny": [
       "Bash(agent-review approve:*)",
-      "Bash(/Users/vietquocbui/dotfiles/scripts/agent-review approve:*)"
+      "Bash(/Users/vietquocbui/dotfiles/scripts/agent-review approve:*)",
+      "Bash(git push*--force*)",
+      "Bash(git push* -f)",
+      "Bash(git push* -f *)",
+      "Bash(git push*--delete*)",
+      "Bash(git push* main)",
+      "Bash(git push* master)",
+      "Bash(/usr/bin/git push*--force*)",
+      "Bash(/usr/bin/git push* -f)",
+      "Bash(/usr/bin/git push* -f *)",
+      "Bash(/usr/bin/git push*--delete*)",
+      "Bash(/usr/bin/git push* main)",
+      "Bash(/usr/bin/git push* master)"
     ],
     "defaultMode": "plan"
   },
   "model": "opus",
+  "autoMode": {
+    "allow": [
+      "$defaults",
+      "The user pre-authorized (2026-10-10) git add by path, git commit, and non-force git push of the current branch, from a feature branch or a git worktree, never main or master. This covers files the user asked to change, including the agent-review gate scripts and their tests: committing records the work, it does not approve or weaken the gate. It does not cover force-push, deleting remote branches, merge, rebase, reset --hard, or running agent-review approve."
+    ]
+  },
   "hooks": {
     "PostToolUse": [
       {
