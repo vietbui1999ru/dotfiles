@@ -40,7 +40,7 @@ export type TrackedTask = {
   dismissed?: boolean
 }
 
-export type HandoffState = { tasks: TrackedTask[]; available: boolean }
+export type HandoffState = { tasks: TrackedTask[]; available: boolean; selectedId?: number }
 
 export type GitSnapshot = {
   branch: string

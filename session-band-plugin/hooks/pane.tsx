@@ -2,10 +2,11 @@ import { atom, read, update, type EngineInterface, type Register } from 'claude-
 
 import { dispatchCommand, parseAddResult, parseStatus } from './pueue'
 import { selectStale, type TrackedTask } from './handoff'
+import type { HandoffState } from './handoff.tsx'
 import type { PiProgress } from './pisession'
 import { parsePending, type PendingReview } from './review'
 
-const handoff = atom({ plugin: 'session-band', key: 'handoff' } as const, { tasks: [] as TrackedTask[], available: true })
+const handoff = atom({ plugin: 'session-band', key: 'handoff' } as const, { tasks: [] as TrackedTask[], available: true } satisfies HandoffState)
 const progress = atom({ plugin: 'session-band', key: 'progress' } as const, {} as Record<number, PiProgress>)
 let aborting: number | undefined
 let rejecting: string | undefined
@@ -13,7 +14,12 @@ let stale: ReturnType<typeof selectStale> | undefined
 let continueCount = 0
 
 const complete = (task: TrackedTask) => ['Done', 'Failed', 'Killed'].includes(task.task?.state ?? '')
-const selected = (tasks: readonly TrackedTask[]) => tasks.find(task => !task.dismissed)
+export const selectedTask = (tasks: readonly TrackedTask[], selectedId?: number): TrackedTask | undefined => {
+  const visible = tasks.filter(task => !task.dismissed)
+  return visible.find(task => task.id === selectedId)
+    ?? [...visible].filter(task => task.task?.state === 'Running').sort((left, right) => right.addedMs - left.addedMs)[0]
+    ?? [...visible].sort((left, right) => right.addedMs - left.addedMs)[0]
+}
 const taskLabel = (task: TrackedTask) => `pi#${task.id} ${task.task?.state ?? 'Other'}${task.label ? ` · ${task.label}` : ''}`
 
 async function open($: EngineInterface) {
@@ -170,7 +176,7 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: 'pi-handoff' }, async ($, e, _next) => {
     const { Box, Text, Button, Input } = $.ui.resolve(e)
     const [state, allProgress] = await Promise.all([read($, handoff), read($, progress)])
-    const task = selected(state.tasks)
+    const task = selectedTask(state.tasks, state.selectedId)
     const pending = task ? await pendingFor($, task) : undefined
     const pi = task ? allProgress[task.id] : undefined
     const transcript = pi?.entries.slice(-200) ?? []
