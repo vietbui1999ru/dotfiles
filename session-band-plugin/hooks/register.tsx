@@ -5,6 +5,8 @@ import { drawBand } from './band'
 import { captureSession, register as registerBlast } from './blast'
 import { register as registerClear } from './clear'
 import { register as registerHandoff } from './handoff.tsx'
+import { summarize, type TrackedTask } from './handoff'
+import type { PiProgress } from './pisession'
 import { shortDir, shortModel, whole } from './format'
 import { toSnapshot, type GitFacts } from './git'
 import { toRepoInfo, type RepoInfo } from './repo'
@@ -14,6 +16,8 @@ const usage = atom({ plugin: 'session-band', key: 'usage' } as const, {})
 const git = atom({ plugin: 'session-band', key: 'git' } as const, null)
 const outputStyle = atom({ plugin: 'session-band', key: 'outputStyle' } as const, null)
 const isNotified = atom({ plugin: 'session-band', key: 'isNotified' } as const, false)
+const handoff = atom({ plugin: 'session-band', key: 'handoff' } as const, { tasks: [] as TrackedTask[], available: true })
+const progress = atom({ plugin: 'session-band', key: 'progress' } as const, {} as Record<number, PiProgress>)
 
 const asWhole = (percent: number | undefined) => (percent === undefined ? undefined : whole(percent))
 
@@ -155,13 +159,16 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
 
-    const [cwd, home, model, currentUsage, currentGit, capturedStyle] = await Promise.all([
+    const [cwd, home, model, currentUsage, currentGit, capturedStyle, currentHandoff, currentProgress, nowMs] = await Promise.all([
       $.session.cwd(),
       $.env.get('HOME'),
       $.session.model(),
       read($, usage),
       read($, git),
       read($, outputStyle),
+      read($, handoff),
+      read($, progress),
+      $.clock.now(),
     ])
     if (!hasComposed) settingsStyle ??= settingStyle($).catch(() => null)
     const style = styleForBand(capturedStyle ?? (hasComposed ? null : await settingsStyle))
@@ -172,6 +179,8 @@ export const register: Register = on => {
       usage: currentUsage,
       git: currentGit,
       style,
+      handoff: currentHandoff.available ? summarize(currentHandoff.tasks, currentProgress, {}, nowMs) ?? undefined : undefined,
+      width: e.props.bodyColumns,
     })
   })
 }

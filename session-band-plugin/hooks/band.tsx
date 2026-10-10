@@ -1,12 +1,32 @@
 import type { EngineInterface } from 'claude-code'
 
 import type { GitSnapshot, Usage } from '../types'
+import type { HandoffSegment } from './handoff'
 import { ctxTone, limitTone, PALETTE, type Tone } from './palette'
 
 type Elements = ReturnType<EngineInterface['ui']['resolve']>
-export type BandData = { dir: string; model: string; usage: Usage; git: GitSnapshot | null; style: string | null }
+export type BandData = { dir: string; model: string; usage: Usage; git: GitSnapshot | null; style: string | null; handoff?: HandoffSegment; width?: number }
 
-// Order matches the old status line: dir | git | ctx | 5h | 7d | [style] | (model)
+const handoffTone = (state: HandoffSegment['state'] | undefined, review: HandoffSegment['review']): Tone => {
+  if (review === 'pending' || state === 'Queued' || state === 'Paused') return 'yellow'
+  if (state === 'Failed' || state === 'Killed') return 'red'
+  if (state === 'Done') return 'green'
+  return 'teal'
+}
+
+/** Keep the identity, model and outcome first when a narrow terminal needs truncation. */
+export const handoffText = (handoff: HandoffSegment, width?: number): string => {
+  if (handoff.kind === 'rollup') return handoff.text
+  const required = [`pi#${handoff.id}${handoff.glyph ?? ''}`, [handoff.model, handoff.effort].filter(Boolean).join(':') || undefined, handoff.review, handoff.exit === undefined ? undefined : `exit ${handoff.exit}`].filter(Boolean)
+  const optional = [handoff.elapsed, handoff.tokens && `${handoff.tokens} tok`, handoff.cost, handoff.files ? `${handoff.files} files` : undefined, handoff.label].filter(Boolean)
+  const full = [...required.slice(0, 2), ...optional, ...required.slice(2)].join(' ')
+  if (width === undefined || full.length <= width) return full
+  const withoutLabelFilesTokensCost = [...required.slice(0, 2), handoff.elapsed, ...required.slice(2)].filter(Boolean).join(' ')
+  if (withoutLabelFilesTokensCost.length <= width) return withoutLabelFilesTokensCost
+  return [...required.slice(0, 2), ...required.slice(2)].filter(Boolean).join(' ')
+}
+
+// Order matches the old status line: dir | git | ctx | 5h | 7d | [style] | (model) | pi
 export const drawBand = ({ Box, Text }: Elements, d: BandData) => {
   const tone = (t: Tone, text: string) => <Text color={PALETTE[t]}>{text}</Text>
   const pct = (label: string, v: number | undefined, toneOf: (n: number) => Tone) =>
@@ -28,6 +48,7 @@ export const drawBand = ({ Box, Text }: Elements, d: BandData) => {
         {pct('7d', d.usage.seven, limitTone)}
         {d.style && tone('muted', ` [${d.style}]`)}
         {tone('mauve', ` (${d.model})`)}
+        {d.handoff && tone(handoffTone(d.handoff.state, d.handoff.review), ` ${handoffText(d.handoff, d.width)}`)}
       </Text>
     </Box>
   )
