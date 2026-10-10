@@ -121,6 +121,8 @@ export const reviewRemoteArgv = (socket: string, command: 'AgentReview' | 'Agent
   ['nvim', '--server', socket, '--remote-send', `<C-\\><C-N>:${command}<CR>`]
 export const approveArgv = (runId: string): string[] => ['agent-review', 'approve', runId]
 export const needsRejectConfirm = (current: string | undefined, runId: string): boolean => current !== runId
+export const rejectToast = (exitCode: number): string =>
+  exitCode === 0 ? 'Sent Reject all to Neovim; the decision appears in the band when recorded.' : 'Could not send Reject all to Neovim.'
 
 async function openReview($: EngineInterface, task: TrackedTask, message?: string) {
   try {
@@ -145,10 +147,15 @@ async function approve($: EngineInterface, task: TrackedTask, pending: PendingRe
 
 async function rejectAll($: EngineInterface, task: TrackedTask, pending: PendingReview, confirmed: boolean) {
   if (!confirmed) { await $.ui.toast('Press Reject all again to confirm.'); return false }
-  const socket = await socketFor($, await reviewRoot($, task.cwd))
-  await $.process.run(reviewRemoteArgv(socket, 'AgentReviewRejectAll'))
-  await $.ui.toast(`Rejecting review ${pending.runId}.`)
-  return true
+  try {
+    const socket = await socketFor($, await reviewRoot($, task.cwd))
+    const result = await $.process.run(reviewRemoteArgv(socket, 'AgentReviewRejectAll'))
+    await $.ui.toast(rejectToast(result.exitCode))
+    return result.exitCode === 0
+  } catch {
+    await $.ui.toast(rejectToast(1))
+    return false
+  }
 }
 
 const sameStaleSelection = (left: StaleSelection, right: StaleSelection) =>
