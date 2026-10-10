@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
-import { confirmedStale, continueArgv, continueModel, continuePath, controlArgv, selectedTask } from './pane.tsx'
-import { selectStale, type TrackedTask } from './handoff'
+import { confirmedStale, continueArgv, continueModel, continuePath, controlArgv, hasMonitorRows, monitorText, selectedProgress, selectedTask } from './pane.tsx'
+import { selectStale, type MonitorRow, type TrackedTask } from './handoff'
 import { emptyProgress } from './pisession'
 
 const task: TrackedTask = { id: 7, cwd: '/repo', addedMs: 0, sessionId: 'pueue-x', label: 'edit', task: { id: 7, cwd: '/repo', command: 'pi --model openai/gpt:high -p x', state: 'Done' } }
@@ -15,6 +15,33 @@ test('builds only tracked-task control and Continue argv', () => {
   expect(argv[7]).not.toContain('follow-up text')
   expect(continueModel(task, { ...emptyProgress(), model: 'anthropic/sonnet', effort: 'low' })).toBe('anthropic/sonnet:low')
   expect(continueArgv({ ...task, task: { ...task.task!, command: 'pi -p x' } }, undefined, '/tmp/unknown.md')).toBeUndefined()
+})
+
+test('shows the Monitor only for tracked rows and follows the selected task transcript', () => {
+  const second = { ...task, id: 8, addedMs: 8, task: { ...task.task!, state: 'Running' as const } }
+  expect(hasMonitorRows([])).toBe(false)
+  expect(hasMonitorRows([{ id: 7 } as MonitorRow])).toBe(true)
+  const pi = selectedProgress([task, second], 8, {
+    7: { ...emptyProgress(), entries: [{ kind: 'text', text: 'first' }] },
+    8: { ...emptyProgress(), entries: [{ kind: 'text', text: 'second' }] },
+  })
+  expect(pi?.entries[0]?.text).toBe('second')
+})
+
+test('narrow monitor rows drop cost, tokens, and model before truncating activity', () => {
+  const row: MonitorRow = { id: 7, state: 'Running', glyph: '▶', modelEffort: 'openai/gpt:high', elapsed: '1m0s', activity: 'bash this is a long command that needs truncating', tokens: '1.5k tok', cost: '$0.20' }
+  const full = monitorText(row, 200)
+  const noCost = monitorText(row, full.length - 1)
+  const noTokens = monitorText(row, noCost.length - 1)
+  const noModel = monitorText(row, noTokens.length - 1)
+  const narrow = monitorText(row, 16)
+  expect(full).toContain('$0.20')
+  expect(noCost).not.toContain('$0.20')
+  expect(noTokens).not.toContain('1.5k tok')
+  expect(noModel).not.toContain('openai/gpt:high')
+  expect(narrow).toContain('▶ #7')
+  expect(narrow).toContain('1m0s')
+  expect(narrow).toContain('…')
 })
 
 test('two quick Continues create distinct prompt paths', () => {

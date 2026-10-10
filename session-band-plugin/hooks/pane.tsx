@@ -1,8 +1,9 @@
 import { atom, read, update, type EngineInterface, type Register } from 'claude-code'
 
 import { dispatchCommand, parseAddResult, parseStatus } from './pueue'
-import { selectStale, type StaleSelection, type TrackedTask } from './handoff'
+import { monitorRows, selectStale, type MonitorRow, type StaleSelection, type TrackedTask } from './handoff'
 import type { HandoffState } from './handoff.tsx'
+import { PALETTE } from './palette'
 import type { PiProgress } from './pisession'
 import { parsePending, type PendingReview } from './review'
 
@@ -22,6 +23,40 @@ export const selectedTask = (tasks: readonly TrackedTask[], selectedId?: number)
     ?? [...visible].sort((left, right) => right.addedMs - left.addedMs)[0]
 }
 const taskLabel = (task: TrackedTask) => `pi#${task.id} ${task.task?.state ?? 'Other'}${task.label ? ` · ${task.label}` : ''}`
+
+type MonitorField = 'modelEffort' | 'activity' | 'tokens' | 'cost'
+
+export const monitorText = (row: MonitorRow, columns: number): string => {
+  const fields: { name?: MonitorField; text: string }[] = [
+    { text: `${row.glyph} #${row.id}` },
+    ...(row.modelEffort ? [{ name: 'modelEffort' as const, text: row.modelEffort }] : []),
+    { text: row.elapsed },
+    { name: 'activity', text: row.activity },
+    { name: 'tokens', text: row.tokens },
+    { name: 'cost', text: row.cost },
+    ...(row.label ? [{ text: row.label }] : []),
+  ]
+  const joined = () => fields.map(field => field.text).join(' ')
+  for (const name of ['cost', 'tokens', 'modelEffort'] as const) {
+    if (joined().length <= columns) break
+    const index = fields.findIndex(field => field.name === name)
+    if (index >= 0) fields.splice(index, 1)
+  }
+  const activity = fields.find(field => field.name === 'activity')
+  if (activity && joined().length > columns) {
+    const others = fields.filter(field => field !== activity).map(field => field.text).join(' ')
+    const available = Math.max(1, columns - others.length - (others ? 1 : 0))
+    activity.text = activity.text.length <= available ? activity.text : `${activity.text.slice(0, Math.max(0, available - 1))}…`
+  }
+  return joined()
+}
+
+export const selectedProgress = (tasks: readonly TrackedTask[], selectedId: number | undefined, allProgress: Readonly<Record<number, PiProgress>>): PiProgress | undefined => {
+  const task = selectedTask(tasks, selectedId)
+  return task ? allProgress[task.id] : undefined
+}
+
+export const hasMonitorRows = (rows: readonly MonitorRow[]): boolean => rows.length > 0
 
 async function open($: EngineInterface) {
   await $.ui.open({ id: 'pi-handoff', title: 'Pi hand-off', focus: true })
@@ -94,7 +129,8 @@ export const approvalAction = (stdout: string, stderr = ''): 'approved' | 'open-
   if (/not found|ENOENT/i.test(stderr)) return 'unavailable'
   try {
     const reply = JSON.parse(stdout) as { ok?: boolean; reason?: string }
-    return reply.ok ? 'approved' : reply.reason === 'tree-changed' ? 'open-review' : 'refused'
+    if (reply.ok) return 'approved'
+  return reply.reason === 'tree-changed' ? 'open-review' : 'refused'
   } catch { return 'unavailable' }
 }
 
@@ -146,7 +182,7 @@ async function approve($: EngineInterface, task: TrackedTask, pending: PendingRe
   await $.ui.toast(message ?? 'Review approval refused.')
 }
 
-async function rejectAll($: EngineInterface, task: TrackedTask, pending: PendingReview, confirmed: boolean) {
+async function rejectAll($: EngineInterface, task: TrackedTask, _pending: PendingReview, confirmed: boolean) {
   if (!confirmed) { await $.ui.toast('Press Reject all again to confirm.'); return false }
   try {
     const socket = await socketFor($, await reviewRoot($, task.cwd))
@@ -210,13 +246,26 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'Pane', requestId: 'pi-handoff' }, async ($, e, _next) => {
     const { Box, Text, Button, Input } = $.ui.resolve(e)
-    const [state, allProgress] = await Promise.all([read($, handoff), read($, progress)])
+    const [state, allProgress, nowMs] = await Promise.all([read($, handoff), read($, progress), $.clock.now()])
+    const rows = monitorRows(state.tasks, allProgress, state.tasks.flatMap(item => item.task ? [item.task] : []), nowMs)
     const task = selectedTask(state.tasks, state.selectedId)
     const pending = task ? await pendingFor($, task) : undefined
-    const pi = task ? allProgress[task.id] : undefined
+    const pi = selectedProgress(state.tasks, state.selectedId, allProgress)
     const transcript = pi?.entries.slice(-200) ?? []
     return <Box flexDirection="column">
-      <Text>{state.tasks.length === 0 ? 'No Pi hand-offs tracked in this session.' : state.tasks.map(taskLabel).join('\n')}</Text>
+      {state.tasks.length === 0 && <Text>No Pi hand-offs tracked in this session.</Text>}
+      {hasMonitorRows(rows) && <Box flexDirection="column">
+        <Text>Monitor</Text>
+        {rows.map(row => {
+          const selected = row.id === task?.id
+          const idle = row.idle?.text
+          const columns = e.props.bodyColumns - (idle ? idle.length + 1 : 0)
+          return <Box key={`pi-monitor-${row.id}`} flexDirection="row">
+            <Button key={`pi-row-${row.id}`} plain label={`${selected ? '› ' : '  '}${monitorText(row, columns)}`} onPress={() => void update($, handoff, value => ({ ...value, selectedId: row.id }))} />
+            {idle && <Text color={PALETTE[row.idle!.tone]}>{` ${idle}`}</Text>}
+          </Box>
+        })}
+      </Box>}
       {task && <Text>{`\n${taskLabel(task)}${pi?.lastActivity ? ` · ${pi.lastActivity}` : ''}\n${pi ? `${pi.tokens} tokens · $${pi.cost.toFixed(3)}` : 'usage n/a'}`}</Text>}
       {transcript.map((entry, index) => <Text key={`entry-${index}`}>{entry.kind === 'error' ? `ERROR ${entry.text}` : entry.text.slice(0, 280)}</Text>)}
       {task && <Box>
