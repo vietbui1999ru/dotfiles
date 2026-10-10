@@ -1,9 +1,46 @@
-import type { TrackedTask } from '../hooks/handoff'
-import type { PiProgress } from '../hooks/pisession'
-import type { HandoffState } from '../hooks/handoff.tsx'
+export type PueueState = 'Queued' | 'Running' | 'Paused' | 'Done' | 'Failed' | 'Killed' | 'Other'
 
-export type { TrackedTask } from '../hooks/handoff'
-export type { PiProgress } from '../hooks/pisession'
+export type PueueTask = {
+  id: number
+  label?: string
+  cwd: string
+  state: PueueState
+  exit?: number
+  createdMs?: number
+  enqueuedMs?: number
+  startMs?: number
+  endMs?: number
+  command: string
+}
+
+export type TranscriptEntry = { kind: 'text' | 'tool' | 'error'; text: string }
+
+export type PiProgress = {
+  offset: number
+  partial: string
+  tokens: number
+  cost: number
+  model?: string
+  effort?: string
+  lastActivity?: string
+  files: string[]
+  entries: TranscriptEntry[]
+  error?: string
+  models: Record<string, number>
+}
+
+export type TrackedTask = {
+  id: number
+  sessionId?: string
+  label?: string
+  cwd: string
+  addedMs: number
+  task?: PueueTask
+  finishedMs?: number
+  dismissed?: boolean
+}
+
+export type HandoffState = { tasks: TrackedTask[]; available: boolean }
 
 export type GitSnapshot = {
   branch: string

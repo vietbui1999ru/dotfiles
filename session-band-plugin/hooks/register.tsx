@@ -8,6 +8,7 @@ import { register as registerHandoff } from './handoff.tsx'
 import { register as registerPane } from './pane.tsx'
 import { summarize, type TrackedTask } from './handoff'
 import type { PiProgress } from './pisession'
+import { parsePending, reviewState, type ReviewState } from './review'
 import { shortDir, shortModel, whole } from './format'
 import { toSnapshot, type GitFacts } from './git'
 import { toRepoInfo, type RepoInfo } from './repo'
@@ -72,6 +73,27 @@ const settingStyle = async ($: EngineInterface): Promise<string | null> => {
 }
 
 const styleForBand = (style: string | null) => (style === 'default' ? null : style)
+
+async function reviewStates($: EngineInterface, tasks: readonly TrackedTask[]): Promise<Record<number, ReviewState>> {
+  const values = await Promise.all(tasks.map(async task => {
+    const root = `${task.cwd}/.pi/agent-review`
+    const pendingFiles = await $.fs.list(`${root}/pending`).catch(() => [])
+    const pending = [] as ReturnType<typeof parsePending>[]
+    for (const file of pendingFiles) {
+      if (file.kind !== 'file' || !file.name.endsWith('.json')) continue
+      const parsed = parsePending(await $.fs.read(`${root}/pending/${file.name}`).catch(() => ''))
+      if (parsed) pending.push(parsed)
+    }
+    const decisionFiles = await $.fs.list(`${root}/decisions`).catch(() => [])
+    const decisions: unknown[] = []
+    for (const file of decisionFiles) {
+      if (file.kind !== 'file' || !file.name.endsWith('.json')) continue
+      try { decisions.push(JSON.parse(await $.fs.read(`${root}/decisions/${file.name}`))) } catch { /* malformed decision is opaque */ }
+    }
+    return [task.id, reviewState(pending.filter((item): item is NonNullable<typeof item> => item !== undefined), decisions)] as const
+  }))
+  return Object.fromEntries(values)
+}
 
 export const register: Register = on => {
   registerBlast(on)
@@ -173,6 +195,7 @@ export const register: Register = on => {
       read($, progress),
       $.clock.now(),
     ])
+    const currentReview = await reviewStates($, currentHandoff.tasks)
     if (!hasComposed) settingsStyle ??= settingStyle($).catch(() => null)
     const style = styleForBand(capturedStyle ?? (hasComposed ? null : await settingsStyle))
 
@@ -182,7 +205,7 @@ export const register: Register = on => {
       usage: currentUsage,
       git: currentGit,
       style,
-      handoff: currentHandoff.available ? summarize(currentHandoff.tasks, currentProgress, {}, nowMs) ?? undefined : undefined,
+      handoff: currentHandoff.available ? summarize(currentHandoff.tasks, currentProgress, currentReview, nowMs) ?? undefined : undefined,
       width: e.props.bodyColumns,
       onPi: () => { void $.ui.open({ id: 'pi-handoff', title: 'Pi hand-off', focus: true }) },
     })
