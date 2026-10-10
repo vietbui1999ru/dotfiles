@@ -259,7 +259,7 @@ export const register: Register = on => {
         {rows.map(row => {
           const selected = row.id === task?.id
           const idle = row.idle?.text
-          const columns = e.props.bodyColumns - (idle ? idle.length + 1 : 0)
+          const columns = e.props.bodyColumns - (idle ? idle.length + 1 : 0) - 2
           return <Box key={`pi-monitor-${row.id}`} flexDirection="row">
             <Button key={`pi-row-${row.id}`} plain label={`${selected ? '› ' : '  '}${monitorText(row, columns)}`} onPress={() => void update($, handoff, value => ({ ...value, selectedId: row.id }))} />
             {idle && <Text color={PALETTE[row.idle!.tone]}>{` ${idle}`}</Text>}
