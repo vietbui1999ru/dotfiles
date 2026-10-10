@@ -1,7 +1,7 @@
 import { atom, read, update, type EngineInterface, type Register } from 'claude-code'
 
 import { dispatchCommand, parseAddResult, parseStatus } from './pueue'
-import { selectStale, type TrackedTask } from './handoff'
+import { selectStale, type StaleSelection, type TrackedTask } from './handoff'
 import type { HandoffState } from './handoff.tsx'
 import type { PiProgress } from './pisession'
 import { parsePending, type PendingReview } from './review'
@@ -10,7 +10,9 @@ const handoff = atom({ plugin: 'session-band', key: 'handoff' } as const, { task
 const progress = atom({ plugin: 'session-band', key: 'progress' } as const, {} as Record<number, PiProgress>)
 let aborting: number | undefined
 let rejecting: string | undefined
-let stale: ReturnType<typeof selectStale> | undefined
+type StaleDryRun = { selection: StaleSelection; atMs: number }
+
+let stale: StaleDryRun | undefined
 let continueCount = 0
 
 const complete = (task: TrackedTask) => ['Done', 'Failed', 'Killed'].includes(task.task?.state ?? '')
@@ -149,17 +151,16 @@ async function rejectAll($: EngineInterface, task: TrackedTask, pending: Pending
   return true
 }
 
-async function cleanStale($: EngineInterface) {
-  if (stale) {
-    for (const task of stale.tasks) await $.process.run(['pueue', 'remove', String(task.id)])
-    for (const session of stale.sessions) await $.process.run(['rm', session.path])
-    const ids = new Set(stale.tasks.map(task => task.id))
-    await update($, handoff, state => ({ ...state, tasks: state.tasks.filter(task => !ids.has(task.id)) }))
-    stale = undefined
-    await $.ui.toast('Pi stale hand-offs removed')
-    return
-  }
-  const state = await read($, handoff)
+const sameStaleSelection = (left: StaleSelection, right: StaleSelection) =>
+  left.tasks.length === right.tasks.length
+  && left.sessions.length === right.sessions.length
+  && left.tasks.every(task => right.tasks.some(item => item.id === task.id))
+  && left.sessions.every(session => right.sessions.some(item => item.path === session.path))
+
+export const confirmedStale = (dryRun: StaleDryRun, current: StaleSelection, nowMs: number): StaleSelection | undefined =>
+  nowMs - dryRun.atMs <= 60_000 && sameStaleSelection(dryRun.selection, current) ? current : undefined
+
+async function staleSelection($: EngineInterface, state: { tasks: TrackedTask[] }): Promise<StaleSelection> {
   const home = await $.env.get('HOME')
   const files = [] as { path: string; name: string; mtimeMs: number; size: number }[]
   if (home) {
@@ -170,8 +171,27 @@ async function cleanStale($: EngineInterface) {
       for (const file of listed) if (file.kind === 'file' && file.name.endsWith(`_${task.sessionId}.jsonl`)) files.push({ path: `${dir}/${file.name}`, name: file.name, mtimeMs: file.mtimeMs, size: file.size })
     }
   }
-  stale = selectStale(state.tasks, files, await $.clock.now())
-  await $.ui.toast(`Clean stale dry run: ${stale.tasks.length} tasks, ${stale.sessions.length} sessions, ${stale.bytes} B. Press again to remove.`)
+  return selectStale(state.tasks, files, await $.clock.now())
+}
+
+async function cleanStale($: EngineInterface) {
+  const state = await read($, handoff)
+  const current = await staleSelection($, state)
+  const nowMs = await $.clock.now()
+  if (stale) {
+    const selected = confirmedStale(stale, current, nowMs)
+    const expired = nowMs - stale.atMs > 60_000
+    stale = undefined
+    if (!selected) { await $.ui.toast(expired ? 'Clean stale dry run expired; run it again.' : 'Clean stale selection changed; run a new dry run.'); return }
+    for (const task of selected.tasks) await $.process.run(['pueue', 'remove', String(task.id)])
+    for (const session of selected.sessions) await $.process.run(['rm', session.path])
+    const ids = new Set(selected.tasks.map(task => task.id))
+    await update($, handoff, value => ({ ...value, tasks: value.tasks.filter(task => !ids.has(task.id)) }))
+    await $.ui.toast('Pi stale hand-offs removed')
+    return
+  }
+  stale = { selection: current, atMs: nowMs }
+  await $.ui.toast(`Clean stale dry run: ${current.tasks.length} tasks, ${current.sessions.length} sessions, ${current.bytes} B. Press again to remove.`)
 }
 
 export const register: Register = on => {

@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { continueArgv, continueModel, controlArgv, selectedTask } from './pane.tsx'
+import { confirmedStale, continueArgv, continueModel, controlArgv, selectedTask } from './pane.tsx'
 import { selectStale, type TrackedTask } from './handoff'
 import { emptyProgress } from './pisession'
 
@@ -24,6 +24,15 @@ test('selects an explicit task, otherwise the newest running task', () => {
   expect(selectedTask([done, oldRunning, newRunning], 5)?.id).toBe(5)
   expect(selectedTask([done, oldRunning, newRunning])?.id).toBe(8)
   expect(selectedTask([done])?.id).toBe(5)
+})
+
+test('Clean stale does not remove a session made fresh after its dry run', () => {
+  const old = { ...task, task: { ...task.task!, endMs: 0 } }
+  const now = 8 * 24 * 60 * 60 * 1000
+  const dryRun = selectStale([old], [{ path: '/pi/a', name: 'a_pueue-x.jsonl', mtimeMs: 0, size: 1 }], now)
+  const fresh = selectStale([old], [{ path: '/pi/a', name: 'a_pueue-x.jsonl', mtimeMs: now, size: 1 }], now)
+  expect(confirmedStale({ selection: dryRun, atMs: now }, fresh, now + 1)).toBeUndefined()
+  expect(confirmedStale({ selection: dryRun, atMs: now }, dryRun, now + 60_001)).toBeUndefined()
 })
 
 test('Clean stale excludes unrelated Pi and agent sessions', () => {
