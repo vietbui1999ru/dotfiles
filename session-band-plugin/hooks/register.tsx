@@ -74,9 +74,14 @@ const settingStyle = async ($: EngineInterface): Promise<string | null> => {
 
 const styleForBand = (style: string | null) => (style === 'default' ? null : style)
 
+async function reviewRoot($: EngineInterface, cwd: string): Promise<string> {
+  const result = await $.process.run(['git', '-C', cwd, 'rev-parse', '--show-toplevel']).catch(() => undefined)
+  return result?.exitCode === 0 && result.stdout.trim() ? result.stdout.trim() : cwd
+}
+
 async function reviewStates($: EngineInterface, tasks: readonly TrackedTask[]): Promise<Record<number, ReviewState>> {
   const values = await Promise.all(tasks.map(async task => {
-    const root = `${task.cwd}/.pi/agent-review`
+    const root = `${await reviewRoot($, task.cwd)}/.pi/agent-review`
     const pendingFiles = await $.fs.list(`${root}/pending`).catch(() => [])
     const pending = [] as ReturnType<typeof parsePending>[]
     for (const file of pendingFiles) {

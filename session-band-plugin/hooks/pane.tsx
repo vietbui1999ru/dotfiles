@@ -54,8 +54,13 @@ async function continueTask($: EngineInterface, task: TrackedTask, text: string)
   await update($, handoff, state => ({ ...state, tasks: [...state.tasks, { id, cwd: task.cwd, addedMs, task: queued, sessionId: task.sessionId, label }] }))
 }
 
+async function reviewRoot($: EngineInterface, cwd: string): Promise<string> {
+  const result = await $.process.run(['git', '-C', cwd, 'rev-parse', '--show-toplevel']).catch(() => undefined)
+  return result?.exitCode === 0 && result.stdout.trim() ? result.stdout.trim() : cwd
+}
+
 async function pendingFor($: EngineInterface, task: TrackedTask): Promise<PendingReview | undefined> {
-  const dir = `${task.cwd}/.pi/agent-review/pending`
+  const dir = `${await reviewRoot($, task.cwd)}/.pi/agent-review/pending`
   const files = await $.fs.list(dir).catch(() => [])
   for (const file of files) {
     if (file.kind !== 'file' || !file.name.endsWith('.json')) continue
@@ -104,7 +109,7 @@ export const needsRejectConfirm = (current: string | undefined, runId: string): 
 
 async function openReview($: EngineInterface, task: TrackedTask, message?: string) {
   try {
-    const socket = await socketFor($, task.cwd)
+    const socket = await socketFor($, await reviewRoot($, task.cwd))
     await $.process.run(reviewRemoteArgv(socket, 'AgentReview'))
     if (message) await $.ui.toast(message)
   } catch {
@@ -125,7 +130,7 @@ async function approve($: EngineInterface, task: TrackedTask, pending: PendingRe
 
 async function rejectAll($: EngineInterface, task: TrackedTask, pending: PendingReview, confirmed: boolean) {
   if (!confirmed) { await $.ui.toast('Press Reject all again to confirm.'); return false }
-  const socket = await socketFor($, task.cwd)
+  const socket = await socketFor($, await reviewRoot($, task.cwd))
   await $.process.run(reviewRemoteArgv(socket, 'AgentReviewRejectAll'))
   await $.ui.toast(`Rejecting review ${pending.runId}.`)
   return true
