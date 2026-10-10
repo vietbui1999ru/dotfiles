@@ -13,7 +13,6 @@ let rejecting: string | undefined
 type StaleDryRun = { selection: StaleSelection; atMs: number }
 
 let stale: StaleDryRun | undefined
-let continueCount = 0
 
 const complete = (task: TrackedTask) => ['Done', 'Failed', 'Killed'].includes(task.task?.state ?? '')
 export const selectedTask = (tasks: readonly TrackedTask[], selectedId?: number): TrackedTask | undefined => {
@@ -51,13 +50,15 @@ export const continueModel = (task: TrackedTask, pi: PiProgress | undefined): st
 export const continueArgv = (task: TrackedTask, model: string | undefined, path: string): string[] | undefined =>
   model ? ['pueue', 'add', '-i', '--print-task-id', '--label', task.label ?? `continue-${task.id}`, '--', dispatchCommand(model, task.sessionId ?? '', path)] : undefined
 
+export const continuePath = (tmp: string, sessionId: string, nowMs = Date.now()): string =>
+  `${tmp.replace(/\/$/, '')}/pi-continue-${sessionId.replace(/[^A-Za-z0-9_-]/g, '-')}-${nowMs}.md`
+
 async function continueTask($: EngineInterface, task: TrackedTask, pi: PiProgress | undefined, text: string) {
   if (!task.sessionId || text.trim() === '') return
   const model = continueModel(task, pi)
   if (!model) { await $.ui.toast('Cannot continue: model unknown'); return }
   const tmp = await $.env.get('TMPDIR') ?? '/tmp'
-  const slug = task.sessionId.replace(/[^A-Za-z0-9_-]/g, '-')
-  const path = `${tmp.replace(/\/$/, '')}/pi-continue-${slug}-${++continueCount}.md`
+  const path = continuePath(tmp, task.sessionId)
   await $.fs.write(path, text)
   const label = task.label ?? `continue-${task.id}`
   const result = await $.process.run(continueArgv(task, model, path)!)

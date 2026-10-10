@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { confirmedStale, continueArgv, continueModel, controlArgv, selectedTask } from './pane.tsx'
+import { confirmedStale, continueArgv, continueModel, continuePath, controlArgv, selectedTask } from './pane.tsx'
 import { selectStale, type TrackedTask } from './handoff'
 import { emptyProgress } from './pisession'
 
@@ -15,6 +15,10 @@ test('builds only tracked-task control and Continue argv', () => {
   expect(argv[7]).not.toContain('follow-up text')
   expect(continueModel(task, { ...emptyProgress(), model: 'anthropic/sonnet', effort: 'low' })).toBe('anthropic/sonnet:low')
   expect(continueArgv({ ...task, task: { ...task.task!, command: 'pi -p x' } }, undefined, '/tmp/unknown.md')).toBeUndefined()
+})
+
+test('two quick Continues create distinct prompt paths', () => {
+  expect(continuePath('/tmp', 'pueue-x', 1_000)).not.toBe(continuePath('/tmp', 'pueue-x', 1_001))
 })
 
 test('selects an explicit task, otherwise the newest running task', () => {
