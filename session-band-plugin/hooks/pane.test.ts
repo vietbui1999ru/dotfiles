@@ -1,17 +1,20 @@
 import { expect, test } from 'claude-code/testing'
 
-import { continueArgv, controlArgv, selectedTask } from './pane.tsx'
+import { continueArgv, continueModel, controlArgv, selectedTask } from './pane.tsx'
 import { selectStale, type TrackedTask } from './handoff'
+import { emptyProgress } from './pisession'
 
 const task: TrackedTask = { id: 7, cwd: '/repo', addedMs: 0, sessionId: 'pueue-x', label: 'edit', task: { id: 7, cwd: '/repo', command: 'pi --model openai/gpt:high -p x', state: 'Done' } }
 
 test('builds only tracked-task control and Continue argv', () => {
   expect(controlArgv(task, 'kill')).toEqual(['pueue', 'kill', '7'])
   expect(controlArgv({ ...task, task: { ...task.task!, state: 'Running' } }, 'remove')).toBeUndefined()
-  const argv = continueArgv(task, 'openai/gpt:high', '/tmp/pi-continue-pueue-x-1.md')
+  const argv = continueArgv(task, 'openai/gpt:high', '/tmp/pi-continue-pueue-x-1.md')!
   expect(argv.slice(0, 7)).toEqual(['pueue', 'add', '-i', '--print-task-id', '--label', 'edit', '--'])
   expect(argv[7]).toContain("cat '/tmp/pi-continue-pueue-x-1.md'")
   expect(argv[7]).not.toContain('follow-up text')
+  expect(continueModel(task, { ...emptyProgress(), model: 'anthropic/sonnet', effort: 'low' })).toBe('anthropic/sonnet:low')
+  expect(continueArgv({ ...task, task: { ...task.task!, command: 'pi -p x' } }, undefined, '/tmp/unknown.md')).toBeUndefined()
 })
 
 test('selects an explicit task, otherwise the newest running task', () => {

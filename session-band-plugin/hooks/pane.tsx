@@ -40,18 +40,25 @@ async function dismiss($: EngineInterface, task: TrackedTask) {
   await update($, handoff, state => ({ ...state, tasks: state.tasks.map(item => item.id === task.id ? { ...item, dismissed: true } : item) }))
 }
 
-export const continueArgv = (task: TrackedTask, model: string, path: string): string[] =>
-  ['pueue', 'add', '-i', '--print-task-id', '--label', task.label ?? `continue-${task.id}`, '--', dispatchCommand(model, task.sessionId ?? '', path)]
+export const continueModel = (task: TrackedTask, pi: PiProgress | undefined): string | undefined => {
+  if (pi?.model) return [pi.model, pi.effort].filter(Boolean).join(':')
+  const match = task.task?.command.match(/--model\s+([^\s]+)/)?.[1]
+  return match
+}
 
-async function continueTask($: EngineInterface, task: TrackedTask, text: string) {
+export const continueArgv = (task: TrackedTask, model: string | undefined, path: string): string[] | undefined =>
+  model ? ['pueue', 'add', '-i', '--print-task-id', '--label', task.label ?? `continue-${task.id}`, '--', dispatchCommand(model, task.sessionId ?? '', path)] : undefined
+
+async function continueTask($: EngineInterface, task: TrackedTask, pi: PiProgress | undefined, text: string) {
   if (!task.sessionId || text.trim() === '') return
+  const model = continueModel(task, pi)
+  if (!model) { await $.ui.toast('Cannot continue: model unknown'); return }
   const tmp = await $.env.get('TMPDIR') ?? '/tmp'
   const slug = task.sessionId.replace(/[^A-Za-z0-9_-]/g, '-')
   const path = `${tmp.replace(/\/$/, '')}/pi-continue-${slug}-${++continueCount}.md`
   await $.fs.write(path, text)
-  const model = task.task ? task.task.command.match(/--model\s+([^\s]+)/)?.[1] ?? 'opencode-go/deepseek-v4-flash:off' : 'opencode-go/deepseek-v4-flash:off'
   const label = task.label ?? `continue-${task.id}`
-  const result = await $.process.run(continueArgv(task, model, path))
+  const result = await $.process.run(continueArgv(task, model, path)!)
   const id = parseAddResult(result.stdout)
   if (id === undefined) return
   const status = await $.process.run(['pueue', 'status', '--json'])
@@ -193,7 +200,7 @@ export const register: Register = on => {
         {pending && <Button key="pi-approve" onPress={() => void approve($, task, pending)}>Approve</Button>}
         {pending && <Button key="pi-reject-all" onPress={() => { const confirmed = !needsRejectConfirm(rejecting, pending.runId); rejecting = confirmed ? undefined : pending.runId; void rejectAll($, task, pending, confirmed) }}>Reject all</Button>}
       </Box>}
-      {task && <Input key="pi-continue" label="Continue" placeholder="Follow-up for Pi" submitLabel="send" onSubmit={value => void continueTask($, task, value)} />}
+      {task && <Input key="pi-continue" label="Continue" placeholder="Follow-up for Pi" submitLabel="send" onSubmit={value => void continueTask($, task, pi, value)} />}
       <Button key="pi-clean-stale" onPress={() => void cleanStale($)}>Clean stale</Button>
     </Box>
   })
