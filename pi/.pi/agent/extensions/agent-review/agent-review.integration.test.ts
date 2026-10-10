@@ -372,3 +372,25 @@ test("a decision written while Pi was closed is processed at the next session st
   await next.emit("session_start");
   await waitFor(() => next.sent.length === 1 && pendingIds(root).length === 0);
 });
+
+test("a renamed file lists both the old and the new path", async () => {
+  const { root, session } = await newSession();
+  assert.deepEqual(await session.input("rename it"), { action: "continue" });
+  await session.emit("agent_start");
+  renameSync(join(root, "tracked.txt"), join(root, "moved.txt"));
+  await session.finishRun();
+  await waitFor(() => pendingIds(root).length === 1);
+  const names = readPending(root, pendingIds(root)[0]).files.map((entry) => entry.file);
+  assert.ok(names.includes("tracked.txt") && names.includes("moved.txt"), `got ${names.join(",")}`);
+});
+
+test("a decision written while Pi was down is consumed before the first input is checked", async () => {
+  const { root, session } = await newSession();
+  const pending = await changingRun(root, session);
+  await session.close();
+  decide(root, pending); // accept everything as-is
+  const next = startSession(root);
+  await next.emit("session_start");
+  assert.deepEqual(await next.input("carry on"), { action: "continue" });
+  assert.deepEqual(pendingIds(root), []);
+});
