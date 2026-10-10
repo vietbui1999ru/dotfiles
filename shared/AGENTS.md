@@ -354,7 +354,7 @@ the explicit non-interactive flags above. The canonical skill is
 
 Apply these at all times when writing, reviewing, or designing code. No retrieval needed — these are always in context.
 
-**Principles**: DRY — extract on third occurrence, not first. YAGNI — don't build what isn't asked. KISS — simplest solution that works. Deep modules: narrow interface, wide implementation over many shallow helpers. Composition over inheritance.
+**Principles**: DRY — extract on third occurrence, not first. YAGNI — don't build what isn't asked (never skip tests, verification or refactoring in its name). KISS — simplest solution that works. Deep modules: narrow interface, wide implementation over many shallow helpers. Composition over inheritance.
 
 **Structure**: One unit, one responsibility, one reason to change. Depend on abstractions not concretions. Separate what changes from what stays the same. Open for extension, closed for modification.
 

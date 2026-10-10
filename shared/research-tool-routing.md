@@ -76,6 +76,20 @@ if command -v rg >/dev/null; then rg "$pattern" "$dir"; else grep -r "$pattern" 
 Installed here: `eza`, `rg`, `bat`, `fd`, `delta`. Not installed: `sd`, `dust` — use
 `sed` and `du` for those.
 
+## Code discipline: YAGNI
+
+Build only what the current request needs. Do not add features, parameters,
+flags, config, hooks, abstractions or extension points for a future nobody asked
+for. Before adding generality, imagine the refactoring it would take to add it
+later; if that looks cheap, defer it. If you think a future need is likely, say
+so in one line instead of building it.
+
+YAGNI covers presumptive capability only. It never justifies skipping tests,
+verification, error handling the current requirement needs, or refactoring that
+keeps code easy to change. Something cheap that adds no complexity (a lookup
+table instead of inline literals) is fine. An abstraction that makes the current
+code harder to understand needs a current reason; without one, leave it out.
+
 ## Git history
 
 Commit as you go. After each coherent unit of work, stage the files you changed
