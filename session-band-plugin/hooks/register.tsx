@@ -5,6 +5,7 @@ import { drawBand } from './band'
 import { captureSession, register as registerBlast } from './blast'
 import { register as registerClear } from './clear'
 import { register as registerHandoff } from './handoff.tsx'
+import { register as registerPane } from './pane.tsx'
 import { summarize, type TrackedTask } from './handoff'
 import type { PiProgress } from './pisession'
 import { shortDir, shortModel, whole } from './format'
@@ -76,6 +77,7 @@ export const register: Register = on => {
   registerBlast(on)
   registerClear(on)
   registerHandoff(on)
+  registerPane(on)
 
   // The settings fallback only matters before the first prompt.compose names the style.
   let hasComposed = false
@@ -83,6 +85,7 @@ export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
     captureSession(e.isInteractive)
+    await $.command.register({ name: 'pi', description: 'Open Pi hand-off controls' })
     const current = await $.session.usage()
     await Promise.all([
       update($, usage, () => measuredUsage(current.context, current.rateLimits)),
@@ -181,6 +184,7 @@ export const register: Register = on => {
       style,
       handoff: currentHandoff.available ? summarize(currentHandoff.tasks, currentProgress, {}, nowMs) ?? undefined : undefined,
       width: e.props.bodyColumns,
+      onPi: () => { void $.ui.open({ id: 'pi-handoff', title: 'Pi hand-off', focus: true }) },
     })
   })
 }

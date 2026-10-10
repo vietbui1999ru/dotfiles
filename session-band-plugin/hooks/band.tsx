@@ -5,7 +5,7 @@ import type { HandoffSegment } from './handoff'
 import { ctxTone, limitTone, PALETTE, type Tone } from './palette'
 
 type Elements = ReturnType<EngineInterface['ui']['resolve']>
-export type BandData = { dir: string; model: string; usage: Usage; git: GitSnapshot | null; style: string | null; handoff?: HandoffSegment; width?: number }
+export type BandData = { dir: string; model: string; usage: Usage; git: GitSnapshot | null; style: string | null; handoff?: HandoffSegment; width?: number; onPi?: () => void }
 
 const handoffTone = (state: HandoffSegment['state'] | undefined, review: HandoffSegment['review']): Tone => {
   if (review === 'pending' || state === 'Queued' || state === 'Paused') return 'yellow'
@@ -27,7 +27,7 @@ export const handoffText = (handoff: HandoffSegment, width?: number): string => 
 }
 
 // Order matches the old status line: dir | git | ctx | 5h | 7d | [style] | (model) | pi
-export const drawBand = ({ Box, Text }: Elements, d: BandData) => {
+export const drawBand = ({ Box, Text, Button }: Elements, d: BandData) => {
   const tone = (t: Tone, text: string) => <Text color={PALETTE[t]}>{text}</Text>
   const pct = (label: string, v: number | undefined, toneOf: (n: number) => Tone) =>
     v === undefined ? null : <Text color={PALETTE[toneOf(v)]}> {label}:{v}%</Text>
@@ -48,6 +48,7 @@ export const drawBand = ({ Box, Text }: Elements, d: BandData) => {
         {pct('7d', d.usage.seven, limitTone)}
         {d.style && tone('muted', ` [${d.style}]`)}
         {tone('mauve', ` (${d.model})`)}
+        {d.handoff && d.onPi && <Button key="pi-open" onPress={() => d.onPi?.()}>[pi]</Button>}
         {d.handoff && tone(handoffTone(d.handoff.state, d.handoff.review), ` ${handoffText(d.handoff, d.width)}`)}
       </Text>
     </Box>
