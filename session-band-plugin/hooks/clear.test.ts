@@ -213,7 +213,7 @@ test('a fresh index.json alone is not a recent save', async ($, on) => {
   await edit($)
   const result = await $.command.run(clear())
 
-  expect(result.text).toBe('cleared')
+  expect(result.text).toStartWith('Session saved: ')
   expect(world.saveStdin, 'the summary is still saved').toBeDefined()
 })
 
