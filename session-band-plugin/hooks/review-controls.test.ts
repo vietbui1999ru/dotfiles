@@ -10,12 +10,13 @@ test('Open review picks the Neovim serving the matching repository or worktree',
 })
 
 test('Approve and review commands use only the gate and Neovim contracts', () => {
-  expect(approveArgv('run-1')).toEqual(['agent-review', 'approve', 'run-1'])
+  expect(approveArgv('/Users/test', 'run-1')).toEqual(['/Users/test/dotfiles/scripts/agent-review', 'approve', 'run-1'])
   expect(reviewRemoteArgv('/tmp/nvim', 'AgentReview')).toEqual(['nvim', '--server', '/tmp/nvim', '--remote-send', '<C-\\><C-N>:AgentReview<CR>'])
   expect(reviewRemoteArgv('/tmp/nvim', 'AgentReviewRejectAll')).toEqual(['nvim', '--server', '/tmp/nvim', '--remote-send', '<C-\\><C-N>:AgentReviewRejectAll<CR>'])
   expect(approvalAction('{"ok":true}')).toBe('approved')
+  expect(approvalAction('{"ok":true}', 'command not found')).toBe('approved')
   expect(approvalAction('{"ok":false,"reason":"tree-changed"}')).toBe('open-review')
-  expect(approvalAction('', 'command not found')).toBe('unavailable')
+  expect(approvalAction('')).toBe('unavailable')
   expect(rejectToast(0)).toBe('Sent Reject all to Neovim; the decision appears in the band when recorded.')
   expect(rejectToast(1)).toBe('Could not send Reject all to Neovim.')
 })

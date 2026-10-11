@@ -131,12 +131,11 @@ export const matchingSocket = (repo: string, sockets: readonly { path: string; c
   sockets.find(socket => socket.cwd === repo || socket.cwd.startsWith(`${repo}/`) || repo.startsWith(`${socket.cwd}/`))?.path
 export const reviewSplitArgv = (repo: string): string[] => ['herdr', 'pane', 'split', '--current', '--direction', 'right', '--cwd', repo]
 export const reviewPaneRunArgv = (pane: string, socket: string): string[] => ['herdr', 'pane', 'run', pane, 'nvim', '--listen', socket]
-export const approvalAction = (stdout: string, stderr = ''): 'approved' | 'open-review' | 'refused' | 'unavailable' => {
-  if (/not found|ENOENT/i.test(stderr)) return 'unavailable'
+export const approvalAction = (stdout: string, _stderr?: string): 'approved' | 'open-review' | 'refused' | 'unavailable' => {
   try {
-    const reply = JSON.parse(stdout) as { ok?: boolean; reason?: string }
+    const reply = JSON.parse(stdout.trim()) as { ok?: boolean; reason?: string }
     if (reply.ok) return 'approved'
-  return reply.reason === 'tree-changed' ? 'open-review' : 'refused'
+    return reply.reason === 'tree-changed' ? 'open-review' : 'refused'
   } catch { return 'unavailable' }
 }
 
@@ -162,7 +161,7 @@ async function socketFor($: EngineInterface, repo: string): Promise<string> {
 
 export const reviewRemoteArgv = (socket: string, command: 'AgentReview' | 'AgentReviewRejectAll'): string[] =>
   ['nvim', '--server', socket, '--remote-send', `<C-\\><C-N>:${command}<CR>`]
-export const approveArgv = (runId: string): string[] => ['agent-review', 'approve', runId]
+export const approveArgv = (home: string, runId: string): string[] => [`${home}/dotfiles/scripts/agent-review`, 'approve', runId]
 export const needsRejectConfirm = (current: string | undefined, runId: string): boolean => current !== runId
 export const rejectToast = (exitCode: number): string =>
   exitCode === 0 ? 'Sent Reject all to Neovim; the decision appears in the band when recorded.' : 'Could not send Reject all to Neovim.'
@@ -178,8 +177,13 @@ async function openReview($: EngineInterface, task: TrackedTask, message?: strin
 }
 
 async function approve($: EngineInterface, task: TrackedTask, pending: PendingReview) {
-  const result = await $.process.run(approveArgv(pending.runId)).catch(() => undefined)
-  const action = result ? approvalAction(result.stdout, result.stderr) : 'unavailable'
+  const home = await $.env.get('HOME')
+  if (!home) { await $.ui.toast('Review gate not available.'); return }
+  const result = await $.process.run(approveArgv(home, pending.runId), {
+    cwd: await reviewRoot($, task.cwd),
+    timeoutMs: 60_000,
+  }).catch(() => undefined)
+  const action = result ? approvalAction(result.stdout) : 'unavailable'
   if (action === 'unavailable') { await $.ui.toast('Review gate not available.'); return }
   if (action === 'approved') { await $.ui.toast('Review approved.'); return }
   let message: string | undefined
