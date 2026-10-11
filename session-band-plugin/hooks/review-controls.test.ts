@@ -5,6 +5,7 @@ import { approvalAction, approveArgv, matchingSocket, needsRejectConfirm, reject
 test('Open review picks the Neovim serving the matching repository or worktree', () => {
   expect(matchingSocket('/repo', [{ path: '/tmp/a', cwd: '/other' }, { path: '/tmp/b', cwd: '/repo/worktree' }])).toBe('/tmp/b')
   expect(matchingSocket('/repo', [{ path: '/tmp/a', cwd: '/other' }])).toBeUndefined()
+  expect(matchingSocket('/repo', [{ path: '/tmp/home', cwd: '/' }])).toBeUndefined()
   expect(reviewSplitArgv('/repo')).toEqual(['herdr', 'pane', 'split', '--current', '--direction', 'right', '--cwd', '/repo'])
   expect(reviewPaneRunArgv('w1:p2', '/tmp/nvim')).toEqual(['herdr', 'pane', 'run', 'w1:p2', 'nvim', '--listen', '/tmp/nvim'])
 })

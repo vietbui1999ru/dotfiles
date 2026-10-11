@@ -128,7 +128,7 @@ async function pendingFor($: EngineInterface, task: TrackedTask): Promise<Pendin
 }
 
 export const matchingSocket = (repo: string, sockets: readonly { path: string; cwd: string }[]): string | undefined =>
-  sockets.find(socket => socket.cwd === repo || socket.cwd.startsWith(`${repo}/`) || repo.startsWith(`${socket.cwd}/`))?.path
+  sockets.find(socket => socket.cwd === repo || socket.cwd.startsWith(`${repo}/`))?.path
 export const reviewSplitArgv = (repo: string): string[] => ['herdr', 'pane', 'split', '--current', '--direction', 'right', '--cwd', repo]
 export const reviewPaneRunArgv = (pane: string, socket: string): string[] => ['herdr', 'pane', 'run', pane, 'nvim', '--listen', socket]
 export const approvalAction = (stdout: string, _stderr?: string): 'approved' | 'open-review' | 'refused' | 'unavailable' => {
