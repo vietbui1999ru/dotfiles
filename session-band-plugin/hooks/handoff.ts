@@ -5,6 +5,7 @@ import type { ReviewState } from './review'
 export type TrackedTask = {
   id: number
   sessionId?: string
+  runId?: string
   label?: string
   cwd: string
   addedMs: number
@@ -117,7 +118,7 @@ const visible = (item: TrackedTask, review: ReviewState, nowMs: number) => {
   const state = item.task?.state
   if (live(state) || state === 'Failed' || state === 'Killed') return true
   if (state !== 'Done') return false
-  if (review === 'pending') return true
+  if (review === 'pending' || review === 'decided, waiting for the next Pi run in this repo') return true
   return nowMs - (item.finishedMs ?? item.task?.endMs ?? item.addedMs) <= 30_000
 }
 

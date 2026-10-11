@@ -34,6 +34,7 @@ export type PiProgress = {
 export type TrackedTask = {
   id: number
   sessionId?: string
+  runId?: string
   label?: string
   cwd: string
   addedMs: number

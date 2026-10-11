@@ -80,23 +80,35 @@ async function reviewRoot($: EngineInterface, cwd: string): Promise<string> {
 }
 
 async function reviewStates($: EngineInterface, tasks: readonly TrackedTask[]): Promise<Record<number, ReviewState>> {
+  const remembered = new Map<number, string>()
   const values = await Promise.all(tasks.map(async task => {
     const root = `${await reviewRoot($, task.cwd)}/.pi/agent-review`
     const pendingFiles = await $.fs.list(`${root}/pending`).catch(() => [])
-    const pending = [] as ReturnType<typeof parsePending>[]
+    const pending = [] as NonNullable<ReturnType<typeof parsePending>>[]
     for (const file of pendingFiles) {
-      if (file.kind !== 'file' || !file.name.endsWith('.json')) continue
+      if (file.kind !== 'file') continue
+      const match = file.name.match(/^(.+)\.(json|processing)$/)
+      if (!match) continue
+      const runId = match[1]!
       const parsed = parsePending(await $.fs.read(`${root}/pending/${file.name}`).catch(() => ''))
-      if (parsed) pending.push(parsed)
+      if (parsed?.runId === runId) pending.push(parsed)
+      else if (match[2] === 'processing') pending.push({ runId, files: [] })
     }
-    const decisionFiles = await $.fs.list(`${root}/decisions`).catch(() => [])
-    const decisions: unknown[] = []
-    for (const file of decisionFiles) {
-      if (file.kind !== 'file' || !file.name.endsWith('.json')) continue
-      try { decisions.push(JSON.parse(await $.fs.read(`${root}/decisions/${file.name}`))) } catch { /* malformed decision is opaque */ }
+    const runId = task.runId ?? pending[0]?.runId
+    if (!task.runId && runId) remembered.set(task.id, runId)
+    const current = runId ? pending.find(item => item.runId === runId) : undefined
+    let decision: unknown
+    if (runId) {
+      try { decision = JSON.parse(await $.fs.read(`${root}/decisions/${runId}.json`)) } catch { /* absent or malformed decision is opaque */ }
     }
-    return [task.id, reviewState(pending.filter((item): item is NonNullable<typeof item> => item !== undefined), decisions)] as const
+    return [task.id, reviewState(current, decision)] as const
   }))
+  if (remembered.size > 0) {
+    await update($, handoff, state => ({
+      ...state,
+      tasks: state.tasks.map(task => remembered.has(task.id) ? { ...task, runId: remembered.get(task.id) } : task),
+    }))
+  }
   return Object.fromEntries(values)
 }
 

@@ -8,7 +8,7 @@ type Elements = ReturnType<EngineInterface['ui']['resolve']>
 export type BandData = { dir: string; model: string; usage: Usage; git: GitSnapshot | null; style: string | null; handoff?: HandoffSegment; width?: number; onPi?: () => void }
 
 const handoffTone = (state: HandoffSegment['state'] | undefined, review: HandoffSegment['review']): Tone => {
-  if (review === 'pending' || state === 'Queued' || state === 'Paused') return 'yellow'
+  if (review === 'pending' || review === 'decided, waiting for the next Pi run in this repo' || state === 'Queued' || state === 'Paused') return 'yellow'
   if (state === 'Failed' || state === 'Killed') return 'red'
   if (state === 'Done') return 'green'
   return 'teal'
