@@ -114,13 +114,13 @@ test('summarizes lifecycle states, failures, rollups, and stale scoped files', (
   const failure = summarize([{ ...running(), task: { ...running().task!, state: 'Failed', exit: 3 } }], {}, {}, 5_000)
   expect(failure?.state).toBe('Failed')
   expect(failure?.text).toContain('exit 3')
-  const reviewPending = summarize([{ ...running(), task: { ...running().task!, state: 'Failed', exit: 1, endMs: 1_000 } }], {}, { 7: 'pending' }, 1_000_000)
+  const reviewPending = summarize([{ ...running(), task: { ...running().task!, state: 'Failed' as const, exit: 1, endMs: 1_000 } }], {}, { 7: 'pending' }, 1_000_000)
   expect(reviewPending).toMatchObject({ state: 'Done', review: 'pending' })
   expect(reviewPending?.text).toContain('pi#7✓')
   expect(reviewPending?.text).not.toContain('exit 1')
   expect(summarize([running(7), running(8)], {}, {}, 5_000)?.text).toBe('pi 2▶')
   expect(summarize([{ ...running(), task: { ...running().task!, state: 'Done', endMs: 1_000 }, finishedMs: 1_000 }], {}, {}, 32_000)).toBeNull()
-  const old = { ...running(), addedMs: 0, task: { ...running().task!, state: 'Done', endMs: 0 } }
+  const old: TrackedTask = { ...running(), addedMs: 0, task: { ...running().task!, state: 'Done' as const, endMs: 0 } }
   const stale = selectStale([old], [{ path: '/pi/x', name: 'x_pueue-task-7.jsonl', mtimeMs: 0, size: 4 }, { path: '/pi/no', name: 'other.jsonl', mtimeMs: 0, size: 99 }], 8 * 24 * 60 * 60 * 1000)
   expect(stale).toMatchObject({ bytes: 4 })
   expect(formatElapsed(61_000)).toBe('1m1s')

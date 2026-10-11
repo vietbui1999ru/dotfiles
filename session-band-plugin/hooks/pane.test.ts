@@ -14,7 +14,7 @@ test('builds only tracked-task control and Continue argv', () => {
   expect(argv[7]).toContain("cat '/tmp/pi-continue-pueue-x-1.md'")
   expect(argv[7]).not.toContain('follow-up text')
   expect(continueModel(task, { ...emptyProgress(), model: 'anthropic/sonnet', effort: 'low' })).toBe('anthropic/sonnet:low')
-  expect(continueArgv({ ...task, task: { ...task.task!, command: 'pi -p x' } }, undefined, '/tmp/unknown.md')).toBeUndefined()
+  expect(continueModel({ ...task, task: { ...task.task!, command: 'pi -p x' } }, undefined)).toBeUndefined()
 })
 
 test('shows the Monitor only for tracked rows and follows the selected task transcript', () => {

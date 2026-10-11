@@ -50,10 +50,13 @@ const finished = (state: PueueState | undefined) => state === 'Done' || state ==
 const live = (state: PueueState | undefined) => state === 'Queued' || state === 'Running' || state === 'Paused'
 const glyph = (state: PueueState | undefined) => state === 'Running' ? '▶' : state === 'Queued' ? '…' : state === 'Paused' ? 'Ⅱ' : state === 'Done' ? '✓' : state === 'Failed' || state === 'Killed' ? '!' : '?'
 const cost = (value: number) => `$${value < 0.01 ? value.toFixed(3) : value.toFixed(2)}`
+// The band and monitor deliberately use different glyphs for queued, paused, and failed tasks.
 const monitorGlyph = (state: PueueState) => state === 'Running' ? '▶' : state === 'Queued' ? '◌' : state === 'Paused' ? '⏸' : state === 'Done' ? '✓' : state === 'Failed' || state === 'Killed' ? '✗' : '?'
+const linger = (item: TrackedTask, nowMs: number) =>
+  nowMs - (item.finishedMs ?? item.task?.endMs ?? item.addedMs) <= 30_000
 const monitorVisible = (item: TrackedTask, nowMs: number) => {
   const state = item.task?.state
-  return !item.dismissed && (live(state) || state === 'Failed' || state === 'Killed' || (state === 'Done' && nowMs - (item.finishedMs ?? item.task?.endMs ?? item.addedMs) <= 30_000))
+  return !item.dismissed && (live(state) || state === 'Failed' || state === 'Killed' || (state === 'Done' && linger(item, nowMs)))
 }
 const monitorOrder = (state: PueueState) => state === 'Failed' || state === 'Killed' ? 0 : state === 'Running' ? 1 : state === 'Queued' || state === 'Paused' ? 2 : state === 'Done' ? 3 : 4
 
@@ -99,6 +102,7 @@ export const monitorRows = (
       const started = task?.startMs ?? task?.enqueuedMs ?? item.addedMs
       const ended = finished(state) ? task?.endMs ?? nowMs : nowMs
       const modelEffort = item.sessionId ? [pi?.model ?? parsed?.model, pi?.effort ?? parsed?.effort].filter(Boolean).join(':') || undefined : undefined
+      const idle = idleAge(pi, task, nowMs)
       return {
         id: item.id,
         state,
@@ -108,7 +112,7 @@ export const monitorRows = (
         activity: item.sessionId ? activityLabel(pi) : 'n/a',
         tokens: pi ? `${formatTokens(pi.tokens)} tok` : 'n/a',
         cost: pi ? cost(pi.cost) : 'n/a',
-        ...(idleAge(pi, task, nowMs) ? { idle: idleAge(pi, task, nowMs) } : {}),
+        ...(idle ? { idle } : {}),
         ...(item.label ? { label: item.label } : {}),
       }
     })
@@ -122,7 +126,7 @@ const visible = (item: TrackedTask, review: ReviewState, nowMs: number) => {
   if (live(state) || state === 'Killed' || (state === 'Failed' && !isReviewResult(item, review))) return true
   if (state !== 'Done' && !isReviewResult(item, review)) return false
   if (review === 'pending' || review === 'decided, waiting for the next Pi run in this repo') return true
-  return nowMs - (item.finishedMs ?? item.task?.endMs ?? item.addedMs) <= 30_000
+  return linger(item, nowMs)
 }
 
 export const summarize = (

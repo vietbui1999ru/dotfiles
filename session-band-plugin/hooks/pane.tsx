@@ -88,8 +88,8 @@ export const continueModel = (task: TrackedTask, pi: PiProgress | undefined): st
   return parsed.model ? [parsed.model, parsed.effort].filter(Boolean).join(':') : undefined
 }
 
-export const continueArgv = (task: TrackedTask, model: string | undefined, path: string): string[] | undefined =>
-  model ? ['pueue', 'add', '-i', '--print-task-id', '--label', task.label ?? `continue-${task.id}`, '--', dispatchCommand(model, task.sessionId ?? '', path)] : undefined
+export const continueArgv = (task: TrackedTask, model: string, path: string): string[] =>
+  ['pueue', 'add', '-i', '--print-task-id', '--label', task.label ?? `continue-${task.id}`, '--', dispatchCommand(model, task.sessionId ?? '', path)]
 
 export const continuePath = (tmp: string, sessionId: string, nowMs = Date.now()): string =>
   `${tmp.replace(/\/$/, '')}/pi-continue-${sessionId.replace(/[^A-Za-z0-9_-]/g, '-')}-${nowMs}.md`
@@ -102,7 +102,7 @@ async function continueTask($: EngineInterface, task: TrackedTask, pi: PiProgres
   const path = continuePath(tmp, task.sessionId)
   await $.fs.write(path, text)
   const label = task.label ?? `continue-${task.id}`
-  const result = await $.process.run(continueArgv(task, model, path)!)
+  const result = await $.process.run(continueArgv(task, model, path))
   const id = parseAddResult(result.stdout)
   if (id === undefined) return
   const status = await $.process.run(['pueue', 'status', '--json'])
@@ -146,6 +146,21 @@ export const approvalAction = (stdout: string, _stderr?: string): 'approved' | '
   } catch { return 'unavailable' }
 }
 
+async function waitForSocket($: EngineInterface, socket: string): Promise<boolean> {
+  if (await $.fs.exists(socket)) return true
+  return new Promise(resolve => {
+    let attempts = 0
+    const timer = $.clock.every(100, async () => {
+      const exists = await $.fs.exists(socket)
+      attempts += 1
+      if (exists || attempts >= 30) {
+        timer.cancel()
+        resolve(exists)
+      }
+    })
+  })
+}
+
 async function socketFor($: EngineInterface, repo: string): Promise<string> {
   const tmp = await $.env.get('TMPDIR') ?? '/tmp'
   const user = await $.env.get('USER') ?? 'user'
@@ -163,10 +178,7 @@ async function socketFor($: EngineInterface, repo: string): Promise<string> {
   if (!pane) throw new Error('could not open review pane')
   const socket = `${tmp.replace(/\/$/, '')}/nvim.${user}/pi-review-${Date.now()}.sock`
   await $.process.run(reviewPaneRunArgv(pane, socket))
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    if (await $.fs.exists(socket)) return socket
-    await new Promise(resolve => setTimeout(resolve, 100))
-  }
+  if (await waitForSocket($, socket)) return socket
   throw new Error('review Neovim did not start')
 }
 
@@ -203,11 +215,11 @@ async function approve($: EngineInterface, task: TrackedTask, pending: PendingRe
   await $.ui.toast(message ?? 'Review approval refused.')
 }
 
-async function rejectAll($: EngineInterface, task: TrackedTask, pending: PendingReview, confirmed: boolean) {
+async function rejectAll($: EngineInterface, task: TrackedTask, runId: string, confirmed: boolean) {
   if (!confirmed) { await $.ui.toast('Press Reject all again to confirm.'); return false }
   try {
     const socket = await socketFor($, await reviewRoot($, task.cwd))
-    const result = await $.process.run(reviewRemoteArgv(socket, 'AgentReviewRejectAll', pending.runId))
+    const result = await $.process.run(reviewRemoteArgv(socket, 'AgentReviewRejectAll', runId))
     await $.ui.toast(rejectToast(result.exitCode))
     return result.exitCode === 0
   } catch {
@@ -297,7 +309,7 @@ export const register: Register = on => {
         <Button key="pi-dismiss" onPress={() => void dismiss($, task)}>Dismiss</Button>
         {pending && <Button key="pi-open-review" onPress={() => void openReview($, task)}>Open review</Button>}
         {pending && <Button key="pi-approve" onPress={() => void approve($, task, pending)}>Approve</Button>}
-        {pending && <Button key="pi-reject-all" onPress={() => { const confirmed = !needsRejectConfirm(rejecting, pending.runId); rejecting = confirmed ? undefined : pending.runId; void rejectAll($, task, pending, confirmed) }}>Reject all</Button>}
+        {pending && <Button key="pi-reject-all" onPress={() => { const confirmed = !needsRejectConfirm(rejecting, pending.runId); rejecting = confirmed ? undefined : pending.runId; void rejectAll($, task, pending.runId, confirmed) }}>Reject all</Button>}
       </Box>}
       {task && <Input key="pi-continue" label="Continue" placeholder="Follow-up for Pi" submitLabel="send" onSubmit={value => void continueTask($, task, pi, value)} />}
       <Button key="pi-clean-stale" onPress={() => void cleanStale($)}>Clean stale</Button>

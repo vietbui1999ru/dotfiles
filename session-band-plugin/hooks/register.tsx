@@ -91,7 +91,7 @@ async function reviewStates($: EngineInterface, tasks: readonly TrackedTask[]): 
       if (!match) continue
       const runId = match[1]!
       const parsed = parsePending(await $.fs.read(`${root}/pending/${file.name}`).catch(() => ''))
-      if (parsed?.runId === runId) pending.push(parsed)
+      if (parsed && parsed.runId === runId) pending.push(parsed)
       else if (match[2] === 'processing') pending.push({ runId, files: [] })
     }
     const runId = task.runId ?? pending[0]?.runId
