@@ -254,6 +254,43 @@ sh(repo, "mv " .. quiet_file .. ".aside " .. quiet_file)
 -- Later checks expect a repo with no valid review beyond their own fixtures.
 sh(repo, "git worktree remove --force " .. wt)
 
+io.write("\nsnapshot in a linked worktree\n")
+-- In a linked worktree `git rev-parse --git-path index` is absolute. Joined onto
+-- the repo path it named no file, the seed copy was skipped, and the snapshot
+-- started from an empty index, which drops an unpopulated submodule's gitlink.
+-- Pi seeds from the real index and keeps it, so Pi rejected every decision.
+local lwt = repo .. "-linked"
+sh(repo, "git worktree add -q -b linked " .. lwt)
+sh(lwt, "git update-index --add --cacheinfo 160000," .. base .. ",sub && mkdir sub && git commit -qm gitlink")
+local linkedTree = sh(lwt, "git rev-parse HEAD^{tree}")
+local linkedId = "44444444-5555-4666-8777-888888888888"
+vim.fn.mkdir(lwt .. "/.pi/agent-review/pending", "p")
+vim.fn.writefile({ vim.json.encode({
+  runId = linkedId,
+  base = base,
+  ["end"] = sh(lwt, "git rev-parse HEAD"),
+  baseTree = linkedTree,
+  endTree = linkedTree,
+  startedAt = "2026-09-18T03:00:00Z",
+  files = { { file = "agent.txt" } },
+}) }, lwt .. "/.pi/agent-review/pending/" .. linkedId .. ".json")
+sh(repo, "mv " .. quiet_file .. " " .. quiet_file .. ".aside")
+vim.cmd.tcd(vim.fn.fnameescape(lwt))
+-- root() follows the current buffer, which earlier sections left in the main repo.
+vim.cmd.enew()
+notices = {}
+M.current = nil
+M.open()
+M.done()
+local linkedFile = lwt .. "/.pi/agent-review/decisions/" .. linkedId .. ".json"
+local linked = vim.uv.fs_stat(linkedFile) and vim.json.decode(table.concat(vim.fn.readfile(linkedFile), "\n")) or {}
+check("a linked worktree's final snapshot keeps an unpopulated submodule", linked.finalTree == linkedTree,
+  linked.finalTree and sh(lwt, "git diff --stat " .. linkedTree .. " " .. linked.finalTree) or vim.inspect(notices))
+vim.cmd.tcd(vim.fn.fnameescape(repo))
+M.current = nil
+sh(repo, "mv " .. quiet_file .. ".aside " .. quiet_file)
+sh(repo, "git worktree remove --force " .. lwt)
+
 io.write("\ndiffview buffers\n")
 -- Notes are usually taken from a diffview buffer, whose name is virtual: the
 -- module must still find the repo root and a repo-relative path from it.
