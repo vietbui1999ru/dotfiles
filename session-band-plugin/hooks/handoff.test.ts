@@ -98,8 +98,9 @@ test('reads pending and accepted or changed review decisions', () => {
   const pending = parsePending(JSON.stringify({ runId: 'r', files: [{ file: 'a.ts' }] }))
   expect(pending).toMatchObject({ runId: 'r' })
   expect(reviewState([pending!], [])).toBe('pending')
-  expect(reviewState([], [{ files: [{ accepted: true }] }])).toBe('approved')
-  expect(reviewState([], [{ files: [{ accepted: false }], notes: 'fix' }])).toBe('changes requested')
+  expect(reviewState([], [{ files: [{ file: 'a.ts', status: 'accepted' }], notes: [], patch: '' }])).toBe('approved')
+  expect(reviewState([], [{ files: [{ file: 'a.ts', status: 'changed' }], notes: ['fix'], patch: '' }])).toBe('changes requested')
+  expect(reviewState([], [{ files: [{ file: 'a.ts', status: 'accepted' }], notes: [], patch: 'diff', skipped: true }])).toBe('changes requested')
 })
 
 test('summarizes lifecycle states, failures, rollups, and stale scoped files', () => {

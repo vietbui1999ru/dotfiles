@@ -22,7 +22,14 @@ export const parsePending = (json: string): PendingReview | undefined => {
 const accepted = (value: unknown) => {
   const decision = object(value)
   const files = Array.isArray(decision?.files) ? decision.files : []
-  return !decision?.patch && !decision?.notes && !decision?.skipped && files.length > 0 && files.every(file => object(file)?.accepted === true)
+  const notes = decision?.notes
+  return typeof decision?.patch === 'string'
+    && decision.patch.trim() === ''
+    && Array.isArray(notes)
+    && notes.length === 0
+    && decision?.skipped === undefined
+    && files.length > 0
+    && files.every(file => object(file)?.status === 'accepted')
 }
 
 /** A pending record wins. A decision is meaningful only after its pending record vanished. */
