@@ -75,3 +75,18 @@ test('Clean stale excludes unrelated Pi and agent sessions', () => {
   ], 8 * 24 * 60 * 60 * 1000)
   expect(selection.sessions.map(session => session.path)).toEqual(['/pi/a'])
 })
+
+test('default selection prefers a task with a visible monitor row', () => {
+  const oldDone = { ...task, id: 9, addedMs: 9 }
+  const queued = { ...task, id: 6, addedMs: 6, task: { ...task.task!, state: 'Queued' as const } }
+  expect(selectedTask([queued, oldDone], undefined, [6])?.id).toBe(6)
+  expect(selectedTask([queued, oldDone], 9, [6])?.id).toBe(9)
+  expect(selectedTask([oldDone], undefined, [])?.id).toBe(9)
+  expect(selectedProgress([queued, oldDone], undefined, { 6: { ...emptyProgress(), tokens: 6 } }, [6])?.tokens).toBe(6)
+})
+
+test('Continue reads a quoted --model from a previous Continue without the quotes', () => {
+  const quoted = { ...task, task: { ...task.task!, command: "pi --model 'anthropic/x:high' --session-id 'pueue-x' -p \"$(cat '/tmp/p.md')\" < /dev/null" } }
+  expect(continueModel(quoted, undefined)).toBe('anthropic/x:high')
+  expect(continueModel({ ...task, task: { ...task.task!, command: 'pi -p x' } }, undefined)).toBeUndefined()
+})

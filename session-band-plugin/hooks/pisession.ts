@@ -50,7 +50,7 @@ const event = (progress: PiProgress, raw: unknown): PiProgress => {
   const parsedTimestamp = typeof row.timestamp === 'string' ? Date.parse(row.timestamp) : Number.NaN
   const dated = Number.isNaN(parsedTimestamp) || (progress.lastEventMs !== undefined && parsedTimestamp <= progress.lastEventMs)
     ? progress
-    : { ...progress, lastEventMs: parsedTimestamp, lastEventAssistant: message?.role === 'assistant' }
+    : { ...progress, lastEventMs: parsedTimestamp, lastEventAssistant: message ? message.role === 'assistant' : progress.lastEventAssistant }
   if (row.type === 'model_change') {
     const provider = typeof row.provider === 'string' ? row.provider : undefined
     const modelId = typeof row.modelId === 'string' ? row.modelId : undefined
@@ -80,7 +80,7 @@ const event = (progress: PiProgress, raw: unknown): PiProgress => {
         if (path) files.add(path)
         const args = object(item.arguments)
         const command = typeof args?.command === 'string' ? args.command : undefined
-        const text = name === 'bash' && command ? `bash ${command.slice(0, 40)}` : `${name}${path ? ` ${path}` : ''}`
+        const text = name === 'bash' && command ? `bash ${command.replace(/\s+/g, ' ').trim().slice(0, 40)}` : `${name}${path ? ` ${path}` : ''}`
         entries.push({ kind: 'tool', text })
         next = { ...next, lastActivity: text }
       }

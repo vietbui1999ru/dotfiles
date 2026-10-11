@@ -1,6 +1,6 @@
 import { atom, read, update, type EngineInterface, type Register } from 'claude-code'
 
-import { dispatchCommand, parseAddResult, parseStatus } from './pueue'
+import { dispatchCommand, parseAddResult, parsePiCommand, parseStatus } from './pueue'
 import { monitorRows, selectStale, type MonitorRow, type StaleSelection, type TrackedTask } from './handoff'
 import type { HandoffState } from './handoff.tsx'
 import { PALETTE } from './palette'
@@ -16,11 +16,16 @@ type StaleDryRun = { selection: StaleSelection; atMs: number }
 let stale: StaleDryRun | undefined
 
 const complete = (task: TrackedTask) => ['Done', 'Failed', 'Killed'].includes(task.task?.state ?? '')
-export const selectedTask = (tasks: readonly TrackedTask[], selectedId?: number): TrackedTask | undefined => {
-  const visible = tasks.filter(task => !task.dismissed)
-  return visible.find(task => task.id === selectedId)
-    ?? [...visible].filter(task => task.task?.state === 'Running').sort((left, right) => right.addedMs - left.addedMs)[0]
-    ?? [...visible].sort((left, right) => right.addedMs - left.addedMs)[0]
+// The default prefers tasks with a Monitor row (`rowIds`), so the marked row and the controls
+// agree; with no rows it falls back to any open task, so a long-finished one can still Continue.
+export const selectedTask = (tasks: readonly TrackedTask[], selectedId?: number, rowIds?: readonly number[]): TrackedTask | undefined => {
+  const open = tasks.filter(task => !task.dismissed)
+  const shown = rowIds ? open.filter(task => rowIds.includes(task.id)) : open
+  const newest = (list: readonly TrackedTask[]) => [...list].sort((left, right) => right.addedMs - left.addedMs)[0]
+  return open.find(task => task.id === selectedId)
+    ?? newest(shown.filter(task => task.task?.state === 'Running'))
+    ?? newest(shown)
+    ?? newest(open)
 }
 const taskLabel = (task: TrackedTask) => `pi#${task.id} ${task.task?.state ?? 'Other'}${task.label ? ` · ${task.label}` : ''}`
 
@@ -51,8 +56,8 @@ export const monitorText = (row: MonitorRow, columns: number): string => {
   return joined()
 }
 
-export const selectedProgress = (tasks: readonly TrackedTask[], selectedId: number | undefined, allProgress: Readonly<Record<number, PiProgress>>): PiProgress | undefined => {
-  const task = selectedTask(tasks, selectedId)
+export const selectedProgress = (tasks: readonly TrackedTask[], selectedId: number | undefined, allProgress: Readonly<Record<number, PiProgress>>, rowIds?: readonly number[]): PiProgress | undefined => {
+  const task = selectedTask(tasks, selectedId, rowIds)
   return task ? allProgress[task.id] : undefined
 }
 
@@ -78,8 +83,9 @@ async function dismiss($: EngineInterface, task: TrackedTask) {
 
 export const continueModel = (task: TrackedTask, pi: PiProgress | undefined): string | undefined => {
   if (pi?.model) return [pi.model, pi.effort].filter(Boolean).join(':')
-  const match = task.task?.command.match(/--model\s+([^\s]+)/)?.[1]
-  return match
+  // Quote-aware: a Continue's own command quotes the model, which a plain regex would keep.
+  const parsed = task.task ? parsePiCommand(task.task.command) : {}
+  return parsed.model ? [parsed.model, parsed.effort].filter(Boolean).join(':') : undefined
 }
 
 export const continueArgv = (task: TrackedTask, model: string | undefined, path: string): string[] | undefined =>
@@ -248,9 +254,10 @@ export const register: Register = on => {
     const { Box, Text, Button, Input } = $.ui.resolve(e)
     const [state, allProgress, nowMs] = await Promise.all([read($, handoff), read($, progress), $.clock.now()])
     const rows = monitorRows(state.tasks, allProgress, state.tasks.flatMap(item => item.task ? [item.task] : []), nowMs)
-    const task = selectedTask(state.tasks, state.selectedId)
+    const rowIds = rows.map(row => row.id)
+    const task = selectedTask(state.tasks, state.selectedId, rowIds)
     const pending = task ? await pendingFor($, task) : undefined
-    const pi = selectedProgress(state.tasks, state.selectedId, allProgress)
+    const pi = selectedProgress(state.tasks, state.selectedId, allProgress, rowIds)
     const transcript = pi?.entries.slice(-200) ?? []
     return <Box flexDirection="column">
       {state.tasks.length === 0 && <Text>No Pi hand-offs tracked in this session.</Text>}

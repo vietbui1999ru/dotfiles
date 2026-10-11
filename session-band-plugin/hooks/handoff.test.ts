@@ -81,6 +81,19 @@ test('builds ordered monitor rows with idle states and legacy fallbacks', () => 
   expect(legacyRow).toMatchObject({ id: 9, activity: 'n/a', tokens: 'n/a', cost: 'n/a', label: 'legacy' })
 })
 
+test('a multi-line bash command becomes a single-line activity', () => {
+  const call = { type: 'message', timestamp: '2026-10-10T00:00:01.000Z', message: { role: 'assistant', content: [{ type: 'toolCall', name: 'bash', arguments: { command: 'cd x &&\n  make\ttest' } }] } }
+  expect(fold(emptyProgress(), `${JSON.stringify(call)}\n`).lastActivity).toBe('bash cd x && make test')
+})
+
+test('a newer non-message event keeps the assistant thinking flag', () => {
+  const chunk = [
+    { type: 'message', timestamp: '2026-10-10T00:00:01.000Z', message: { role: 'assistant', content: [{ type: 'text', text: 'plan' }] } },
+    { type: 'thinking_level_change', timestamp: '2026-10-10T00:00:02.000Z', thinkingLevel: 'high' },
+  ].map(row => JSON.stringify(row)).join('\n') + '\n'
+  expect(activityLabel(fold(emptyProgress(), chunk))).toBe('thinking')
+})
+
 test('reads pending and accepted or changed review decisions', () => {
   const pending = parsePending(JSON.stringify({ runId: 'r', files: [{ file: 'a.ts' }] }))
   expect(pending).toMatchObject({ runId: 'r' })
