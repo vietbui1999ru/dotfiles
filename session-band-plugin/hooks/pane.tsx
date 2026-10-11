@@ -163,11 +163,15 @@ async function socketFor($: EngineInterface, repo: string): Promise<string> {
   if (!pane) throw new Error('could not open review pane')
   const socket = `${tmp.replace(/\/$/, '')}/nvim.${user}/pi-review-${Date.now()}.sock`
   await $.process.run(reviewPaneRunArgv(pane, socket))
-  return socket
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    if (await $.fs.exists(socket)) return socket
+    await new Promise(resolve => setTimeout(resolve, 100))
+  }
+  throw new Error('review Neovim did not start')
 }
 
-export const reviewRemoteArgv = (socket: string, command: 'AgentReview' | 'AgentReviewRejectAll'): string[] =>
-  ['nvim', '--server', socket, '--remote-send', `<C-\\><C-N>:${command}<CR>`]
+export const reviewRemoteArgv = (socket: string, command: 'AgentReview' | 'AgentReviewRejectAll', runId?: string): string[] =>
+  ['nvim', '--server', socket, '--remote-send', `<C-\\><C-N>:${command}${command === 'AgentReviewRejectAll' && runId ? ` ${runId}` : ''}<CR>`]
 export const approveArgv = (home: string, runId: string): string[] => [`${home}/dotfiles/scripts/agent-review`, 'approve', runId]
 export const needsRejectConfirm = (current: string | undefined, runId: string): boolean => current !== runId
 export const rejectToast = (exitCode: number): string =>
@@ -199,11 +203,11 @@ async function approve($: EngineInterface, task: TrackedTask, pending: PendingRe
   await $.ui.toast(message ?? 'Review approval refused.')
 }
 
-async function rejectAll($: EngineInterface, task: TrackedTask, _pending: PendingReview, confirmed: boolean) {
+async function rejectAll($: EngineInterface, task: TrackedTask, pending: PendingReview, confirmed: boolean) {
   if (!confirmed) { await $.ui.toast('Press Reject all again to confirm.'); return false }
   try {
     const socket = await socketFor($, await reviewRoot($, task.cwd))
-    const result = await $.process.run(reviewRemoteArgv(socket, 'AgentReviewRejectAll'))
+    const result = await $.process.run(reviewRemoteArgv(socket, 'AgentReviewRejectAll', pending.runId))
     await $.ui.toast(rejectToast(result.exitCode))
     return result.exitCode === 0
   } catch {
