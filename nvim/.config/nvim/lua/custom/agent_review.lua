@@ -62,8 +62,14 @@ local function git_raw(repo, args, opts)
 end
 
 local function snapshot(repo, label)
+	-- Absolute in a linked worktree. Joined onto `repo` it named no file, the seed
+	-- copy was skipped, and an empty index dropped unpopulated submodule gitlinks,
+	-- so the final tree never matched Pi's and Pi rejected the decision.
 	local index = git(repo, { "rev-parse", "--git-path", "index" })
-	index = vim.fs.normalize(vim.fs.joinpath(repo, index))
+	if index:sub(1, 1) ~= "/" then
+		index = vim.fs.joinpath(repo, index)
+	end
+	index = vim.fs.normalize(index)
 	local temp = vim.fn.tempname() .. ".index"
 	if vim.uv.fs_stat(index) then
 		assert(vim.uv.fs_copyfile(index, temp))
