@@ -116,15 +116,22 @@ async function reviewRoot($: EngineInterface, cwd: string): Promise<string> {
   return result?.exitCode === 0 && result.stdout.trim() ? result.stdout.trim() : cwd
 }
 
+export const pendingRecordFor = (task: TrackedTask, records: readonly PendingReview[]): PendingReview | undefined => {
+  const pending = records.filter(record => !record.error)
+  return pending.find(record => record.runId === task.runId)
+    ?? [...pending].sort((left, right) => (left.startedAt ?? Infinity) - (right.startedAt ?? Infinity))[0]
+}
+
 async function pendingFor($: EngineInterface, task: TrackedTask): Promise<PendingReview | undefined> {
   const dir = `${await reviewRoot($, task.cwd)}/.pi/agent-review/pending`
   const files = await $.fs.list(dir).catch(() => [])
+  const records = [] as PendingReview[]
   for (const file of files) {
     if (file.kind !== 'file' || !file.name.endsWith('.json')) continue
     const pending = parsePending(await $.fs.read(`${dir}/${file.name}`).catch(() => ''))
-    if (pending) return pending
+    if (pending) records.push(pending)
   }
-  return undefined
+  return pendingRecordFor(task, records)
 }
 
 export const matchingSocket = (repo: string, sockets: readonly { path: string; cwd: string }[]): string | undefined =>

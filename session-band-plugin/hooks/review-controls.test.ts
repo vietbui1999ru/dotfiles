@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
-import { approvalAction, approveArgv, matchingSocket, needsRejectConfirm, rejectToast, reviewPaneRunArgv, reviewRemoteArgv, reviewSplitArgv } from './pane.tsx'
+import { approvalAction, approveArgv, matchingSocket, needsRejectConfirm, pendingRecordFor, rejectToast, reviewPaneRunArgv, reviewRemoteArgv, reviewSplitArgv } from './pane.tsx'
+import type { TrackedTask } from './handoff'
 
 test('Open review picks the Neovim serving the matching repository or worktree', () => {
   expect(matchingSocket('/repo', [{ path: '/tmp/a', cwd: '/other' }, { path: '/tmp/b', cwd: '/repo/worktree' }])).toBe('/tmp/b')
@@ -20,6 +21,18 @@ test('Approve and review commands use only the gate and Neovim contracts', () =>
   expect(approvalAction('')).toBe('unavailable')
   expect(rejectToast(0)).toBe('Sent Reject all to Neovim; the decision appears in the band when recorded.')
   expect(rejectToast(1)).toBe('Could not send Reject all to Neovim.')
+})
+
+test('selects the task pending record, otherwise the oldest non-error record', () => {
+  const task = { id: 1, cwd: '/repo', addedMs: 0, runId: 'mine' } satisfies TrackedTask
+  const records = [
+    { runId: 'newer', files: [], startedAt: 20 },
+    { runId: 'oldest', files: [], startedAt: 10 },
+    { runId: 'failed', files: [], startedAt: 0, error: true as const },
+    { runId: 'mine', files: [], startedAt: 30 },
+  ]
+  expect(pendingRecordFor(task, records)?.runId).toBe('mine')
+  expect(pendingRecordFor({ ...task, runId: undefined }, records)?.runId).toBe('oldest')
 })
 
 test('Reject all requires a second press for the same pending run', () => {

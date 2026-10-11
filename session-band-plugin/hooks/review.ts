@@ -1,4 +1,4 @@
-export type PendingReview = { runId: string; repo?: string; files: { file: string }[]; startedAt?: number; endedAt?: number }
+export type PendingReview = { runId: string; repo?: string; files: { file: string }[]; startedAt?: number; endedAt?: number; error?: true }
 export type ReviewState = 'pending' | 'decided, waiting for the next Pi run in this repo' | 'approved' | 'changes requested' | undefined
 
 type Record = { [key: string]: unknown }
@@ -20,6 +20,7 @@ export const parsePending = (json: string): PendingReview | undefined => {
       files,
       ...(started !== undefined && !Number.isNaN(started) ? { startedAt: started } : {}),
       ...(ended !== undefined && !Number.isNaN(ended) ? { endedAt: ended } : {}),
+      ...(Object.hasOwn(value, 'error') ? { error: true as const } : {}),
     }
   } catch {
     return undefined
