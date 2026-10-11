@@ -8,7 +8,7 @@ import { register as registerHandoff } from './handoff.tsx'
 import { register as registerPane } from './pane.tsx'
 import { summarize, type TrackedTask } from './handoff'
 import type { PiProgress } from './pisession'
-import { parsePending, reviewState, type ReviewState } from './review'
+import { parsePending, pendingRecordFor, reviewState, type ReviewState } from './review'
 import { shortDir, shortModel, whole } from './format'
 import { toSnapshot, type GitFacts } from './git'
 import { toRepoInfo, type RepoInfo } from './repo'
@@ -94,9 +94,9 @@ async function reviewStates($: EngineInterface, tasks: readonly TrackedTask[]): 
       if (parsed && parsed.runId === runId) pending.push(parsed)
       else if (match[2] === 'processing') pending.push({ runId, files: [] })
     }
-    const runId = task.runId ?? pending[0]?.runId
+    const current = pendingRecordFor(task, pending)
+    const runId = task.runId ?? current?.runId
     if (!task.runId && runId) remembered.set(task.id, runId)
-    const current = runId ? pending.find(item => item.runId === runId) : undefined
     let decision: unknown
     if (runId) {
       try { decision = JSON.parse(await $.fs.read(`${root}/decisions/${runId}.json`)) } catch { /* absent or malformed decision is opaque */ }

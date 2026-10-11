@@ -40,6 +40,20 @@ const accepted = (value: unknown) => {
     && files.every(file => object(file)?.status === 'accepted')
 }
 
+type ReviewTask = { runId?: string; task?: { state?: string } }
+const finished = (item: ReviewTask) => ['Done', 'Failed', 'Killed'].includes(item.task?.state ?? '')
+
+/**
+ * The pending review a task follows, shared by the band and the pane so both show the same one:
+ * its own run's once bound, else, only after the task has finished, the oldest without an error.
+ * A running task has not written its review yet, so any pending record then is another run's.
+ */
+export const pendingRecordFor = (task: ReviewTask, records: readonly PendingReview[]): PendingReview | undefined => {
+  if (task.runId) return records.find(record => record.runId === task.runId)
+  if (!finished(task)) return undefined
+  return records.filter(record => !record.error).sort((left, right) => (left.startedAt ?? Infinity) - (right.startedAt ?? Infinity))[0]
+}
+
 /** A decision beside its pending record awaits a follow-up Pi session to consume it. */
 export const reviewState = (pending: PendingReview | undefined, decision: unknown | undefined): ReviewState => {
   if (pending) return decision === undefined ? 'pending' : 'decided, waiting for the next Pi run in this repo'

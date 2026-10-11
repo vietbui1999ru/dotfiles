@@ -5,7 +5,7 @@ import { monitorRows, selectStale, type MonitorRow, type StaleSelection, type Tr
 import type { HandoffState } from './handoff.tsx'
 import { PALETTE } from './palette'
 import type { PiProgress } from './pisession'
-import { parsePending, type PendingReview } from './review'
+import { parsePending, pendingRecordFor, type PendingReview } from './review'
 
 const handoff = atom({ plugin: 'session-band', key: 'handoff' } as const, { tasks: [] as TrackedTask[], available: true } satisfies HandoffState)
 const progress = atom({ plugin: 'session-band', key: 'progress' } as const, {} as Record<number, PiProgress>)
@@ -114,12 +114,6 @@ async function continueTask($: EngineInterface, task: TrackedTask, pi: PiProgres
 async function reviewRoot($: EngineInterface, cwd: string): Promise<string> {
   const result = await $.process.run(['git', '-C', cwd, 'rev-parse', '--show-toplevel']).catch(() => undefined)
   return result?.exitCode === 0 && result.stdout.trim() ? result.stdout.trim() : cwd
-}
-
-export const pendingRecordFor = (task: TrackedTask, records: readonly PendingReview[]): PendingReview | undefined => {
-  const pending = records.filter(record => !record.error)
-  return pending.find(record => record.runId === task.runId)
-    ?? [...pending].sort((left, right) => (left.startedAt ?? Infinity) - (right.startedAt ?? Infinity))[0]
 }
 
 async function pendingFor($: EngineInterface, task: TrackedTask): Promise<PendingReview | undefined> {

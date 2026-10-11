@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
-import { approvalAction, approveArgv, matchingSocket, needsRejectConfirm, pendingRecordFor, rejectToast, reviewPaneRunArgv, reviewRemoteArgv, reviewSplitArgv } from './pane.tsx'
+import { approvalAction, approveArgv, matchingSocket, needsRejectConfirm, rejectToast, reviewPaneRunArgv, reviewRemoteArgv, reviewSplitArgv } from './pane.tsx'
+import { pendingRecordFor } from './review'
 import type { TrackedTask } from './handoff'
 
 test('Open review picks the Neovim serving the matching repository or worktree', () => {
@@ -32,7 +33,11 @@ test('selects the task pending record, otherwise the oldest non-error record', (
     { runId: 'mine', files: [], startedAt: 30 },
   ]
   expect(pendingRecordFor(task, records)?.runId).toBe('mine')
-  expect(pendingRecordFor({ ...task, runId: undefined }, records)?.runId).toBe('oldest')
+  const done = { ...task, runId: undefined, task: { id: 1, cwd: '/repo', command: 'pi', state: 'Failed' as const } }
+  expect(pendingRecordFor(done, records)?.runId).toBe('oldest')
+  // A running task has not produced its review yet; any pending one is another run's.
+  expect(pendingRecordFor({ ...done, task: { ...done.task, state: 'Running' as const } }, records)).toBeUndefined()
+  expect(pendingRecordFor({ ...task, runId: 'gone' }, records)).toBeUndefined()
 })
 
 test('Reject all requires a second press for the same pending run', () => {
