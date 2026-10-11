@@ -112,7 +112,12 @@ test('summarizes lifecycle states, failures, rollups, and stale scoped files', (
   expect(single?.text).toContain('1.5k tok')
   expect(single?.review).toBe('pending')
   const failure = summarize([{ ...running(), task: { ...running().task!, state: 'Failed', exit: 3 } }], {}, {}, 5_000)
+  expect(failure?.state).toBe('Failed')
   expect(failure?.text).toContain('exit 3')
+  const reviewPending = summarize([{ ...running(), task: { ...running().task!, state: 'Failed', exit: 1, endMs: 1_000 } }], {}, { 7: 'pending' }, 1_000_000)
+  expect(reviewPending).toMatchObject({ state: 'Done', review: 'pending' })
+  expect(reviewPending?.text).toContain('pi#7✓')
+  expect(reviewPending?.text).not.toContain('exit 1')
   expect(summarize([running(7), running(8)], {}, {}, 5_000)?.text).toBe('pi 2▶')
   expect(summarize([{ ...running(), task: { ...running().task!, state: 'Done', endMs: 1_000 }, finishedMs: 1_000 }], {}, {}, 32_000)).toBeNull()
   const old = { ...running(), addedMs: 0, task: { ...running().task!, state: 'Done', endMs: 0 } }

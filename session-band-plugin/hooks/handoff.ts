@@ -114,10 +114,13 @@ export const monitorRows = (
     })
 }
 
+const isReviewResult = (item: TrackedTask, review: ReviewState) =>
+  item.task?.state === 'Failed' && item.task.exit === 1 && review !== undefined
+
 const visible = (item: TrackedTask, review: ReviewState, nowMs: number) => {
   const state = item.task?.state
-  if (live(state) || state === 'Failed' || state === 'Killed') return true
-  if (state !== 'Done') return false
+  if (live(state) || state === 'Killed' || (state === 'Failed' && !isReviewResult(item, review))) return true
+  if (state !== 'Done' && !isReviewResult(item, review)) return false
   if (review === 'pending' || review === 'decided, waiting for the next Pi run in this repo') return true
   return nowMs - (item.finishedMs ?? item.task?.endMs ?? item.addedMs) <= 30_000
 }
@@ -138,11 +141,12 @@ export const summarize = (
   const item = items[0]!
   const task = item.task
   const pi = progress[item.id]
-  const state = task?.state ?? 'Other'
+  const taskState = task?.state ?? 'Other'
+  const state = isReviewResult(item, review[item.id]) ? 'Done' : taskState
   const parsed = task ? parsePiCommand(task.command) : undefined
   const model = pi?.model ?? parsed?.model
   const started = task?.startMs ?? task?.enqueuedMs ?? item.addedMs
-  const elapsed = formatElapsed((finished(state) ? task?.endMs ?? nowMs : nowMs) - started)
+  const elapsed = formatElapsed((finished(taskState) ? task?.endMs ?? nowMs : nowMs) - started)
   const modelEffort = [model, pi?.effort ?? parsed?.effort].filter(Boolean).join(':') || undefined
   const fields = [
     `pi#${item.id}${glyph(state)}`,
