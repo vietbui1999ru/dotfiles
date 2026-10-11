@@ -5,6 +5,7 @@ import { drawBand } from './band'
 import { captureSession, register as registerBlast } from './blast'
 import { register as registerClear } from './clear'
 import { register as registerHandoff } from './handoff.tsx'
+import { register as registerHistory } from './history.tsx'
 import { register as registerPane } from './pane.tsx'
 import { summarize, type TrackedTask } from './handoff'
 import type { PiProgress } from './pisession'
@@ -116,6 +117,7 @@ export const register: Register = on => {
   registerBlast(on)
   registerClear(on)
   registerHandoff(on)
+  registerHistory(on)
   registerPane(on)
 
   // The settings fallback only matters before the first prompt.compose names the style.
@@ -125,6 +127,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     captureSession(e.isInteractive)
     await $.command.register({ name: 'pi', description: 'Open Pi hand-off controls' })
+    await $.command.register({ name: 'pi-history', description: 'Open Pi hand-off history' })
     const current = await $.session.usage()
     await Promise.all([
       update($, usage, () => measuredUsage(current.context, current.rateLimits)),

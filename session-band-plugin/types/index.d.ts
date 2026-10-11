@@ -45,6 +45,28 @@ export type TrackedTask = {
 
 export type HandoffState = { tasks: TrackedTask[]; available: boolean; selectedId?: number }
 
+export type HistoryCache = {
+  path?: string
+  size?: number
+  mtimeMs?: number
+  tokens?: number
+  cost?: number
+  tail?: string
+  loading?: boolean
+  available?: boolean
+}
+
+export type HistoryState = {
+  tasks: PueueTask[]
+  reviews: Record<number, 'pending' | 'decided, waiting for the next Pi run in this repo' | 'approved' | 'changes requested' | undefined>
+  usage: Record<string, HistoryCache | undefined>
+  filter: 'all' | 'done' | 'failed' | 'killed'
+  limit: number
+  selectedId?: number
+  open: boolean
+  available: boolean
+}
+
 export type GitSnapshot = {
   branch: string
   isDirty: boolean
@@ -69,6 +91,7 @@ declare module 'claude-code' {
       prompts: number
       handoff: HandoffState
       progress: Record<number, PiProgress>
+      history: HistoryState
     }
   }
 }
