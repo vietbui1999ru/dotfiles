@@ -58,12 +58,21 @@ Under `session-band-plugin/`. Commit as you go. The fixes above come first. The 
 | Check | How | Expect |
 |---|---|---|
 | Tests and manifest | `claude plugin test` and `claude plugin validate session-band-plugin` | green |
+| Headless rows | `bun session-band-plugin/scripts/monitor-snapshot.ts <task id>...` on real tasks | rows match the decisions above; non-Pi tasks reported as skipped |
 | Live: two tasks | dispatch two Pi tasks with `--session-id pueue-<slug>`; open `/pi` | two rows, each with its own current activity, updating |
 | Live: idle | a task in a long thinking step | `idle` appears after 30 s, turns yellow at 2 min |
-| Live: failure | `pueue add -i -- false` through Claude | a failed row sorts first and stays until dismissed |
-| Live: legacy | a task with no `--session-id` | row shows state and elapsed, activity `n/a` |
+| Live: failure | a Pi dispatch that exits non-zero, e.g. `pi --model <m> --session-id pueue-<slug> -p 'Reply OK' < /dev/null; exit 1` | a failed row sorts first and stays until dismissed |
+| Live: legacy | a Pi dispatch with no `--session-id` | row shows state and elapsed, activity `n/a` |
 
 Live rows need a human in an interactive terminal; report them pending, do not claim them.
+
+**How live tasks must be queued (corrected 2026-10-11).** The tracker (`hooks/handoff.tsx`) only picks up a task when all three hold, so a live check that breaks one shows an empty Monitor, not a bug:
+
+1. The session's own Bash call has `pueue add` in its command text. A wrapper script that runs `pueue add` inside is not seen, and a `!` command is not a Bash tool call at all.
+2. The task's working directory is inside the session's working directory or repo root.
+3. The command is a Pi dispatch (`pi … --model …`). A plain `pueue add -- false` is never tracked, which is why the failure row above uses a Pi dispatch that exits 1.
+
+The headless row is the part an agent can run; the live rows check rendering, selection and colours, which only a person watching `/pi` can.
 
 ## M7b (specified, not to be built yet)
 
