@@ -50,7 +50,7 @@ Re-running or continuing a task from here, deleting or cleaning from here, expor
 | Check | How | Expect |
 |---|---|---|
 | Tests, manifest | `claude plugin test`, `claude plugin validate session-band-plugin` | green |
-| Live: colors | open `/pi-history` with a success, a real failure (`pueue add -i -- false`), a killed task and a task with a pending review | green, red with exit code, mauve, yellow `✓ review` |
+| Live: colors | open `/pi-history` with a success, a real failure (a Pi dispatch that exits non-zero, e.g. `pi --model <m> -p 'Reply OK' < /dev/null; exit 3`; a plain `false` is not a Pi dispatch and never listed), a killed task and a task with a pending review | green, red with exit code, mauve, yellow `✓ review` |
 | Live: detail | select a Pi task | final message, tokens and cost, no `envs` |
 | Live: legacy | a Pi task without `--session-id` | row shown, usage `n/a` |
 | Live: idle | close the pane | no further `pueue status` calls |

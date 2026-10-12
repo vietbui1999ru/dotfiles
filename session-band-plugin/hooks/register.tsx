@@ -4,6 +4,12 @@ import type { Usage } from '../types'
 import { drawBand } from './band'
 import { captureSession, register as registerBlast } from './blast'
 import { register as registerClear } from './clear'
+import { register as registerHandoff } from './handoff.tsx'
+import { register as registerHistory } from './history.tsx'
+import { register as registerPane } from './pane.tsx'
+import { summarize, type TrackedTask } from './handoff'
+import type { PiProgress } from './pisession'
+import { parsePending, pendingRecordFor, reviewState, type ReviewState } from './review'
 import { shortDir, shortModel, whole } from './format'
 import { toSnapshot, type GitFacts } from './git'
 import { toRepoInfo, type RepoInfo } from './repo'
@@ -13,6 +19,8 @@ const usage = atom({ plugin: 'session-band', key: 'usage' } as const, {})
 const git = atom({ plugin: 'session-band', key: 'git' } as const, null)
 const outputStyle = atom({ plugin: 'session-band', key: 'outputStyle' } as const, null)
 const isNotified = atom({ plugin: 'session-band', key: 'isNotified' } as const, false)
+const handoff = atom({ plugin: 'session-band', key: 'handoff' } as const, { tasks: [] as TrackedTask[], available: true })
+const progress = atom({ plugin: 'session-band', key: 'progress' } as const, {} as Record<number, PiProgress>)
 
 const asWhole = (percent: number | undefined) => (percent === undefined ? undefined : whole(percent))
 
@@ -67,9 +75,50 @@ const settingStyle = async ($: EngineInterface): Promise<string | null> => {
 
 const styleForBand = (style: string | null) => (style === 'default' ? null : style)
 
+async function reviewRoot($: EngineInterface, cwd: string): Promise<string> {
+  const result = await $.process.run(['git', '-C', cwd, 'rev-parse', '--show-toplevel']).catch(() => undefined)
+  return result?.exitCode === 0 && result.stdout.trim() ? result.stdout.trim() : cwd
+}
+
+async function reviewStates($: EngineInterface, tasks: readonly TrackedTask[]): Promise<Record<number, ReviewState>> {
+  const remembered = new Map<number, string>()
+  const values = await Promise.all(tasks.map(async task => {
+    const root = `${await reviewRoot($, task.cwd)}/.pi/agent-review`
+    const pendingFiles = await $.fs.list(`${root}/pending`).catch(() => [])
+    const pending = [] as NonNullable<ReturnType<typeof parsePending>>[]
+    for (const file of pendingFiles) {
+      if (file.kind !== 'file') continue
+      const match = file.name.match(/^(.+)\.(json|processing)$/)
+      if (!match) continue
+      const runId = match[1]!
+      const parsed = parsePending(await $.fs.read(`${root}/pending/${file.name}`).catch(() => ''))
+      if (parsed && parsed.runId === runId) pending.push(parsed)
+      else if (match[2] === 'processing') pending.push({ runId, files: [] })
+    }
+    const current = pendingRecordFor(task, pending)
+    const runId = task.runId ?? current?.runId
+    if (!task.runId && runId) remembered.set(task.id, runId)
+    let decision: unknown
+    if (runId) {
+      try { decision = JSON.parse(await $.fs.read(`${root}/decisions/${runId}.json`)) } catch { /* absent or malformed decision is opaque */ }
+    }
+    return [task.id, reviewState(current, decision)] as const
+  }))
+  if (remembered.size > 0) {
+    await update($, handoff, state => ({
+      ...state,
+      tasks: state.tasks.map(task => remembered.has(task.id) ? { ...task, runId: remembered.get(task.id) } : task),
+    }))
+  }
+  return Object.fromEntries(values)
+}
+
 export const register: Register = on => {
   registerBlast(on)
   registerClear(on)
+  registerHandoff(on)
+  registerHistory(on)
+  registerPane(on)
 
   // The settings fallback only matters before the first prompt.compose names the style.
   let hasComposed = false
@@ -77,6 +126,8 @@ export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
     captureSession(e.isInteractive)
+    await $.command.register({ name: 'pi', description: 'Open Pi hand-off controls' })
+    await $.command.register({ name: 'pi-history', description: 'Open Pi hand-off history' })
     const current = await $.session.usage()
     await Promise.all([
       update($, usage, () => measuredUsage(current.context, current.rateLimits)),
@@ -153,14 +204,18 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
 
-    const [cwd, home, model, currentUsage, currentGit, capturedStyle] = await Promise.all([
+    const [cwd, home, model, currentUsage, currentGit, capturedStyle, currentHandoff, currentProgress, nowMs] = await Promise.all([
       $.session.cwd(),
       $.env.get('HOME'),
       $.session.model(),
       read($, usage),
       read($, git),
       read($, outputStyle),
+      read($, handoff),
+      read($, progress),
+      $.clock.now(),
     ])
+    const currentReview = await reviewStates($, currentHandoff.tasks)
     if (!hasComposed) settingsStyle ??= settingStyle($).catch(() => null)
     const style = styleForBand(capturedStyle ?? (hasComposed ? null : await settingsStyle))
 
@@ -170,6 +225,9 @@ export const register: Register = on => {
       usage: currentUsage,
       git: currentGit,
       style,
+      handoff: currentHandoff.available ? summarize(currentHandoff.tasks, currentProgress, currentReview, nowMs) ?? undefined : undefined,
+      width: e.props.bodyColumns,
+      onPi: () => { void $.ui.open({ id: 'pi-handoff', title: 'Pi hand-off', focus: true }) },
     })
   })
 }

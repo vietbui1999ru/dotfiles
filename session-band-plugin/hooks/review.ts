@@ -1,0 +1,62 @@
+export type PendingReview = { runId: string; repo?: string; files: { file: string }[]; startedAt?: number; endedAt?: number; error?: true }
+export type ReviewState = 'pending' | 'decided, waiting for the next Pi run in this repo' | 'approved' | 'changes requested' | undefined
+
+type Record = { [key: string]: unknown }
+const object = (value: unknown): Record | undefined => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record : undefined
+
+export const parsePending = (json: string): PendingReview | undefined => {
+  try {
+    const value = object(JSON.parse(json))
+    if (!value || typeof value.runId !== 'string' || !Array.isArray(value.files)) return undefined
+    const files = value.files.flatMap(row => {
+      const item = object(row)
+      return typeof item?.file === 'string' ? [{ file: item.file }] : []
+    })
+    const started = typeof value.startedAt === 'string' ? Date.parse(value.startedAt) : undefined
+    const ended = typeof value.endedAt === 'string' ? Date.parse(value.endedAt) : undefined
+    return {
+      runId: value.runId,
+      ...(typeof value.repo === 'string' ? { repo: value.repo } : {}),
+      files,
+      ...(started !== undefined && !Number.isNaN(started) ? { startedAt: started } : {}),
+      ...(ended !== undefined && !Number.isNaN(ended) ? { endedAt: ended } : {}),
+      ...(Object.hasOwn(value, 'error') ? { error: true as const } : {}),
+    }
+  } catch {
+    return undefined
+  }
+}
+
+const accepted = (value: unknown) => {
+  const decision = object(value)
+  const files = Array.isArray(decision?.files) ? decision.files : []
+  const notes = decision?.notes
+  return typeof decision?.patch === 'string'
+    && decision.patch.trim() === ''
+    && Array.isArray(notes)
+    && notes.length === 0
+    && decision?.skipped === undefined
+    && files.length > 0
+    && files.every(file => object(file)?.status === 'accepted')
+}
+
+type ReviewTask = { runId?: string; task?: { state?: string } }
+const finished = (item: ReviewTask) => ['Done', 'Failed', 'Killed'].includes(item.task?.state ?? '')
+
+/**
+ * The pending review a task follows, shared by the band and the pane so both show the same one:
+ * its own run's once bound, else, only after the task has finished, the oldest without an error.
+ * A running task has not written its review yet, so any pending record then is another run's.
+ */
+export const pendingRecordFor = (task: ReviewTask, records: readonly PendingReview[]): PendingReview | undefined => {
+  if (task.runId) return records.find(record => record.runId === task.runId)
+  if (!finished(task)) return undefined
+  return records.filter(record => !record.error).sort((left, right) => (left.startedAt ?? Infinity) - (right.startedAt ?? Infinity))[0]
+}
+
+/** A decision beside its pending record awaits a follow-up Pi session to consume it. */
+export const reviewState = (pending: PendingReview | undefined, decision: unknown | undefined): ReviewState => {
+  if (pending) return decision === undefined ? 'pending' : 'decided, waiting for the next Pi run in this repo'
+  if (decision === undefined) return undefined
+  return accepted(decision) ? 'approved' : 'changes requested'
+}
