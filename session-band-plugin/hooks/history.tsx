@@ -1,7 +1,7 @@
 import { atom, read, update, type EngineInterface, type Register } from 'claude-code'
 
 import type { HistoryState, PiProgress } from '../types'
-import { finalMessage, historyRowsPage, type HistoryFilter, type HistoryUsage, truncateCommand } from './history'
+import { finalMessage, historyRowsPage, leftReview, type HistoryFilter, type HistoryUsage, truncateCommand } from './history'
 import { emptyProgress, fold, sessionDir, sessionFileName } from './pisession'
 import { isPiDispatch, parsePiCommand, parseStatus, type Task } from './pueue'
 import { PALETTE } from './palette'
@@ -9,13 +9,13 @@ import { parsePending, pendingRecordFor, reviewState, type PendingReview, type R
 import type { HandoffState } from './handoff.tsx'
 
 const history = atom({ plugin: 'session-band', key: 'history' } as const, {
-  tasks: [], reviews: {}, usage: {}, filter: 'all', limit: 50, open: false, available: true,
+  tasks: [], reviews: {}, usage: {}, leftReviews: {}, filter: 'all', limit: 50, open: false, available: true,
 } satisfies HistoryState)
 const handoff = atom({ plugin: 'session-band', key: 'handoff' } as const, { tasks: [], available: true } satisfies HandoffState)
 let timer: { cancel(): void } | undefined
 let refreshing = false
 
-export const HISTORY_LEGEND = '✓ success · ✓ review pending · ✗ exit · ✗ killed'
+export const HISTORY_LEGEND = '✓ success · ✓ review · ✗ exit · ✗ killed'
 const pageSize = 50
 const finishedPi = (task: Task) => isPiDispatch(task.command) && ['Done', 'Failed', 'Killed'].includes(task.state)
 const usageKey = (task: Task, sessionId: string) => `${task.cwd}\u0000${sessionId}`
@@ -68,6 +68,19 @@ async function reviewFor($: EngineInterface, task: Task, tracked: HandoffState['
   return reviewState(current, decision)
 }
 
+const logKey = (task: Task) => `${task.id}:${task.endMs ?? 0}`
+
+// Read once per finished Failed(1) task, whose log is final: only the log still shows that the run
+// left a review after the review is resolved. A failed read is not cached, so it is retried.
+async function logLeftReview($: EngineInterface, task: Task): Promise<boolean | undefined> {
+  const result = await $.process.run(['pueue', 'log', String(task.id), '--json']).catch(() => undefined)
+  if (!result || result.exitCode !== 0) return undefined
+  try {
+    const entry = Object.values(JSON.parse(result.stdout) as Record<string, { output?: unknown }>)[0]
+    return leftReview(typeof entry?.output === 'string' ? entry.output : '')
+  } catch { return undefined }
+}
+
 async function refresh($: EngineInterface) {
   if (refreshing || !(await read($, history)).open) return
   refreshing = true
@@ -81,7 +94,11 @@ async function refresh($: EngineInterface) {
     const tracked = await read($, handoff)
     const trackedById = new Map(tracked.tasks.map(task => [task.id, task]))
     const reviews = Object.fromEntries(await Promise.all(tasks.map(async task => [task.id, await reviewFor($, task, trackedById.get(task.id))] as const)))
-    await update($, history, state => ({ ...state, tasks, reviews, available: true }))
+    const known = (await read($, history)).leftReviews
+    const unchecked = tasks.filter(task => task.state === 'Failed' && task.exit === 1 && known[logKey(task)] === undefined)
+    const checked = (await Promise.all(unchecked.map(async task => [logKey(task), await logLeftReview($, task)] as const)))
+      .filter((entry): entry is readonly [string, boolean] => entry[1] !== undefined)
+    await update($, history, state => ({ ...state, tasks, reviews, leftReviews: { ...state.leftReviews, ...Object.fromEntries(checked) }, available: true }))
   } finally {
     refreshing = false
   }
@@ -177,7 +194,7 @@ export const register: Register = on => {
     const [state, nowMs] = await Promise.all([read($, history), $.clock.now()])
     const selected = state.selectedId
     const usage = Object.fromEntries(state.tasks.map(task => [task.id, sessionUsage(task, state.usage)]))
-    const rows = historyRowsPage(state.tasks, state.reviews, usage, nowMs, state.filter, state.limit)
+    const rows = historyRowsPage(state.tasks, state.reviews, usage, nowMs, state.filter, state.limit, new Set(state.tasks.filter(task => state.leftReviews[logKey(task)]).map(task => task.id)))
     const task = rows.find(row => row.task.id === selected)?.task ?? rows[0]?.task
     const selectedSession = task ? parsePiCommand(task.command).sessionId : undefined
     const selectedCache = task && selectedSession ? state.usage[usageKey(task, selectedSession)] : undefined
@@ -186,7 +203,7 @@ export const register: Register = on => {
     const filters: HistoryFilter[] = ['all', 'done', 'failed', 'killed']
     return <Box flexDirection="column">
       <Text>Pi history</Text>
-      <Box><Text color={PALETTE.green}>✓ success</Text><Text color={PALETTE.yellow}> · ✓ review pending</Text><Text color={PALETTE.red}> · ✗ exit</Text><Text color={PALETTE.mauve}> · ✗ killed</Text></Box>
+      <Box><Text color={PALETTE.green}>✓ success</Text><Text color={PALETTE.yellow}> · ✓ review</Text><Text color={PALETTE.red}> · ✗ exit</Text><Text color={PALETTE.mauve}> · ✗ killed</Text></Box>
       <Box>{filters.map(filter => <Button key={`pi-history-${filter}`} plain label={filter === state.filter ? `[${filter}]` : filter} onPress={() => void update($, history, value => ({ ...value, filter, limit: pageSize }))} />)}</Box>
       {!state.available && <Text color={PALETTE.red}>pueue daemon unavailable</Text>}
       {rows.length === 0 && <Text>No completed Pi hand-offs in the last 7 days.</Text>}

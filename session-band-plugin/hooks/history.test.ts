@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { finalMessage, historyRows, HISTORY_PAGE_SIZE, relativeTime, resultStyle } from './history'
+import { finalMessage, historyRows, HISTORY_PAGE_SIZE, leftReview, relativeTime, resultStyle } from './history'
 import type { Task } from './pueue'
 
 const now = Date.parse('2026-10-10T12:00:00Z')
@@ -42,6 +42,18 @@ test('reports legacy usage as n/a and loaded session usage with known review out
   const [legacyRow, sessionRow] = historyRows([legacy, session], { 2: 'approved' }, { 2: { tokens: 1_500, cost: 0.2 } }, now, 'all')
   expect(legacyRow).toMatchObject({ usage: 'n/a' })
   expect(sessionRow).toMatchObject({ usage: '1.5k tok $0.20', review: 'approved', modelEffort: 'openai/gpt:high' })
+})
+
+test('a Failed(1) run that left a review stays yellow after the review is resolved', () => {
+  expect(leftReview('agent-review: run session-band (d5766fbb-5733-4fad-b7c6-01b10bbb62bd) changed 7 file(s) and is awaiting review.')).toBe(true)
+  expect(leftReview('agent-review: run 535eb0c6-7d15-4dc6-88d8-66332e10161f changed 9 file(s) and is awaiting review.')).toBe(true)
+  expect(leftReview('agent-review: input refused, review x is pending.')).toBe(false)
+  const approved = { ...task(1, 'Failed', now - 1_000), exit: 1 }
+  const fromLog = { ...task(2, 'Failed', now - 2_000), exit: 1 }
+  const crashed = { ...task(3, 'Failed', now - 3_000), exit: 1 }
+  const rows = historyRows([approved, fromLog, crashed], { 1: 'approved' }, {}, now, 'all', new Set([2]))
+  expect(rows.map(row => row.style.tone)).toEqual(['yellow', 'yellow', 'red'])
+  expect(rows[0]).toMatchObject({ review: 'approved' })
 })
 
 test('formats relative time and extracts the final assistant text without partial JSONL', () => {

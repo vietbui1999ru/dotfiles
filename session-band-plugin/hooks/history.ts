@@ -65,6 +65,9 @@ export const finalMessage = (jsonlTail: string): string | undefined => {
   return undefined
 }
 
+/** Pi's agent-review line in a task's output: this run ended Failed(1) to leave a review. */
+export const leftReview = (output: string): boolean => /agent-review: run .* awaiting review/.test(output)
+
 const repoName = (cwd: string) => cwd.split('/').filter(Boolean).pop() ?? cwd
 const labelFor = (task: Task) => task.label?.trim() || task.command.replace(/\s+/g, ' ').slice(0, 48)
 const reviewLabel = (review: ReviewState | undefined): HistoryRow['review'] =>
@@ -82,6 +85,7 @@ const rows = (
   usage: Readonly<Record<number, HistoryUsage | undefined>>,
   nowMs: number,
   filter: HistoryFilter,
+  leftReviews: ReadonlySet<number>,
 ): HistoryRow[] => tasks
   .filter(task => completed(task) && isPiDispatch(task.command) && task.endMs !== undefined && task.endMs >= nowMs - WINDOW_MS && filtered(task, filter))
   .sort((left, right) => (right.endMs ?? 0) - (left.endMs ?? 0))
@@ -92,7 +96,9 @@ const rows = (
     const end = task.endMs ?? nowMs
     return {
       task,
-      style: resultStyle(task, review === 'pending'),
+      // Any review state, or the run's own log, means it left a review. Once the review is
+      // resolved its pending record is gone, so 'pending' alone would turn every reviewed run red.
+      style: resultStyle(task, review !== undefined || leftReviews.has(task.id)),
       label: labelFor(task),
       ...([parsed.model, parsed.effort].filter(Boolean).join(':') ? { modelEffort: [parsed.model, parsed.effort].filter(Boolean).join(':') } : {}),
       duration: formatElapsed(end - start),
@@ -110,7 +116,8 @@ export const historyRows = (
   usage: Readonly<Record<number, HistoryUsage | undefined>>,
   nowMs: number,
   filter: HistoryFilter,
-): HistoryRow[] => rows(tasks, reviews, usage, nowMs, filter).slice(0, HISTORY_PAGE_SIZE)
+  leftReviews: ReadonlySet<number> = new Set(),
+): HistoryRow[] => rows(tasks, reviews, usage, nowMs, filter, leftReviews).slice(0, HISTORY_PAGE_SIZE)
 
 /** Additional pages are only used by the read-only pane's Show older button. */
 export const historyRowsPage = (
@@ -120,7 +127,8 @@ export const historyRowsPage = (
   nowMs: number,
   filter: HistoryFilter,
   limit: number,
-): HistoryRow[] => rows(tasks, reviews, usage, nowMs, filter).slice(0, limit)
+  leftReviews: ReadonlySet<number> = new Set(),
+): HistoryRow[] => rows(tasks, reviews, usage, nowMs, filter, leftReviews).slice(0, limit)
 
 export const truncateCommand = (command: string, limit = 120): string =>
   command.length <= limit ? command : `${command.slice(0, Math.max(0, limit - 1))}…`

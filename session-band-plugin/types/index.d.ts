@@ -60,6 +60,8 @@ export type HistoryState = {
   tasks: PueueTask[]
   reviews: Record<number, 'pending' | 'decided, waiting for the next Pi run in this repo' | 'approved' | 'changes requested' | undefined>
   usage: Record<string, HistoryCache | undefined>
+  /** Keyed `<id>:<endMs>` (pueue reuses ids): whether that finished Failed(1) run's log shows it left a review. */
+  leftReviews: Record<string, boolean>
   filter: 'all' | 'done' | 'failed' | 'killed'
   limit: number
   selectedId?: number
