@@ -23,11 +23,13 @@ export const trackedFrom = (tasks: readonly Task[], startedMs: number, cwd: stri
     return [{ id: task.id, cwd: task.cwd, addedMs: task.createdMs ?? startedMs, task, ...(parsed.sessionId ? { sessionId: parsed.sessionId } : {}), ...(task.label ?? parsed.label ? { label: task.label ?? parsed.label } : {}) }]
   })
 
-const mergeTasks = (old: readonly TrackedTask[], fresh: readonly Task[], nowMs: number): TrackedTask[] => {
+// A task missing from the snapshot is dropped only when it was tracked before the snapshot was
+// taken: one the tracker added while `pueue status` was running is simply not in it yet.
+const mergeTasks = (old: readonly TrackedTask[], fresh: readonly Task[], nowMs: number, snapshotMs: number): TrackedTask[] => {
   const byId = new Map(fresh.map(task => [task.id, task]))
   return old.flatMap(item => {
     const task = byId.get(item.id)
-    if (!task) return []
+    if (!task) return item.addedMs >= snapshotMs ? [item] : []
     const finishedMs = item.finishedMs ?? (isLive(task) ? undefined : nowMs)
     return [{ ...item, task, ...(finishedMs ? { finishedMs } : {}) }]
   })
@@ -51,6 +53,7 @@ async function poll($: EngineInterface) {
   if (polling) return
   polling = true
   try {
+    const snapshotMs = await $.clock.now()
     const result = await $.process.run(['pueue', 'status', '--json'])
     if (result.exitCode !== 0) {
       console.debug('session-band: pueue daemon unavailable')
@@ -59,9 +62,9 @@ async function poll($: EngineInterface) {
     }
     const fresh = parseStatus(result.stdout)
     const nowMs = await $.clock.now()
-    const state = await read($, handoff)
-    const tasks = mergeTasks(state.tasks, fresh, nowMs)
-    await update($, handoff, value => ({ ...value, tasks, available: true }))
+    // Merge inside the update so a task the tracker added meanwhile is not overwritten.
+    await update($, handoff, value => ({ ...value, tasks: mergeTasks(value.tasks, fresh, nowMs, snapshotMs), available: true }))
+    const { tasks } = await read($, handoff)
     const home = await $.env.get('HOME')
     const existing = await read($, progress)
     const next = { ...existing }
