@@ -263,6 +263,12 @@
     },
     "shadcn": {
       "url": "https://www.shadcn.io/api/mcp"
+    },
+    "excalidraw": {
+      "url": "https://api.excalidraw.com/api/v1/mcp",
+      "headers": {
+        "Authorization": "Bearer ${EXCALIDRAW_API_KEY}"
+      }
     }
   }
 }

@@ -9,6 +9,12 @@
         "CONTEXT7_API_KEY": "${env:CONTEXT7_API_KEY}"
       }
     },
+    "excalidraw": {
+      "url": "https://api.excalidraw.com/api/v1/mcp",
+      "headers": {
+        "Authorization": "Bearer ${env:EXCALIDRAW_API_KEY}"
+      }
+    },
     "shadcn": {
       "url": "https://www.shadcn.io/api/mcp"
     },
