@@ -86,7 +86,13 @@ const event = (progress: PiProgress, raw: unknown): PiProgress => {
       }
     }
     next = { ...next, files: [...files] }
-    if (message.stopReason === 'error' || typeof message.errorMessage === 'string') next = { ...next, error: typeof message.errorMessage === 'string' ? message.errorMessage : 'Pi stopped with an error' }
+    if (message.stopReason === 'error' || typeof message.errorMessage === 'string') {
+      const error = typeof message.errorMessage === 'string' && message.errorMessage.trim() ? message.errorMessage.trim() : 'Pi stopped with an error'
+      next = { ...next, error, lastActivity: 'error' }
+      // Pi retries a failed request; the same error repeated is one transcript line.
+      const last = next.entries.at(-1)
+      if (last?.kind !== 'error' || last.text !== error) entries.push({ kind: 'error', text: error })
+    }
     return append(next, entries)
   }
   if (role === 'toolResult') {
