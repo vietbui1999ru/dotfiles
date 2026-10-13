@@ -91,3 +91,4 @@ test('a tracked hand-off removed from pueue outside the pane is dropped on the n
   await clock.advance(2_000)
 
   expect(text(await $.ui.render(PANE))).not.toContain('sim-1')
+})
