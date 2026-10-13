@@ -1,12 +1,18 @@
 {
-  "_comment": "Portable URL-based MCP servers. Source of truth for all tools.",
+  "_comment": "URL-based MCP servers for OpenCode (synced by scripts/sync-agent-rules.sh). Claude Code has its own file: claude/.claude/mcp-servers.json.",
   "_note": "Stdio servers (qmd, cgc) are tool-specific \u2014 configure per tool manually.",
-  "_secrets": "API keys use ${env:VAR} syntax. Add actual values to ~/secrets/.env",
+  "_secrets": "OpenCode expands {env:VAR} (no $). Add actual values to ~/secrets/.env",
   "servers": {
     "context7": {
       "url": "https://mcp.context7.com/mcp",
       "headers": {
-        "CONTEXT7_API_KEY": "${env:CONTEXT7_API_KEY}"
+        "CONTEXT7_API_KEY": "{env:CONTEXT7_API_KEY}"
+      }
+    },
+    "excalidraw": {
+      "url": "https://api.excalidraw.com/api/v1/mcp",
+      "headers": {
+        "Authorization": "Bearer {env:EXCALIDRAW_API_KEY}"
       }
     },
     "shadcn": {

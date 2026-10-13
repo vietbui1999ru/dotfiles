@@ -1,0 +1,20 @@
+{
+  "_comment": "Claude Code user-scope MCP servers. Registered by scripts/sync-agent-rules.sh via `claude mcp add-json -s user`.",
+  "_secrets": "Claude Code expands ${VAR} and ${VAR:-default} (not ${env:VAR}). Values live in ~/secrets/.env, exported by .zshrc.",
+  "servers": {
+    "context7": {
+      "type": "http",
+      "url": "https://mcp.context7.com/mcp",
+      "headers": {
+        "CONTEXT7_API_KEY": "${CONTEXT7_API_KEY}"
+      }
+    },
+    "excalidraw": {
+      "type": "http",
+      "url": "https://api.excalidraw.com/api/v1/mcp",
+      "headers": {
+        "Authorization": "Bearer ${EXCALIDRAW_API_KEY}"
+      }
+    }
+  }
+}
