@@ -103,6 +103,22 @@ else
 	echo "  (codex CLI not in PATH — skipping MCP registration)"
 fi
 
+# ── Claude Code MCP ───────────────────────────────────────────────────────────
+# Claude Code ignores `mcpServers` in settings.json; user-scope servers live in
+# ~/.claude.json and are managed through `claude mcp`. Re-add on each run so a
+# changed entry in claude/.claude/mcp-servers.json takes effect.
+_claude_mcp="$HOME/dotfiles/claude/.claude/mcp-servers.json"
+if command -v claude >/dev/null 2>&1 && [ -f "$_claude_mcp" ]; then
+	for _name in $(jq -r '.servers | keys[]' "$_claude_mcp"); do
+		claude mcp remove -s user "$_name" >/dev/null 2>&1
+		claude mcp add-json -s user "$_name" "$(jq -c --arg n "$_name" '.servers[$n]' "$_claude_mcp")" >/dev/null 2>&1 &&
+			echo "✓ Claude Code: $_name registered (user scope)" ||
+			echo "✗ Claude Code: $_name add failed"
+	done
+else
+	echo "  (claude CLI or mcp-servers.json missing — skipping Claude MCP registration)"
+fi
+
 # ── Sync OpenCode agents from llm-wiki canonical source ──────────────────────
 # Generates .opencode/agents/*.md from claude-setup/agents/*.md with OpenCode
 # frontmatter, ending the drift between the two directories.

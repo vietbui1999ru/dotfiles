@@ -5,7 +5,7 @@
       "type": "remote",
       "url": "https://mcp.context7.com/mcp",
       "headers": {
-        "CONTEXT7_API_KEY": "${env:CONTEXT7_API_KEY}"
+        "CONTEXT7_API_KEY": "{env:CONTEXT7_API_KEY}"
       },
       "enabled": true
     },
@@ -14,7 +14,7 @@
       "enabled": true,
       "url": "https://www.shadcn.io/api/mcp",
       "oauth": {
-        "clientId": "${env:SHADCN_API_KEY}"
+        "clientId": "{env:SHADCN_API_KEY}"
       }
     },
     "sentry": {
