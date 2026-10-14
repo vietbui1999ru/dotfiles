@@ -4,6 +4,7 @@ export type Task = {
   id: number
   label?: string
   cwd: string
+  group?: string
   state: PueueState
   exit?: number
   createdMs?: number
@@ -66,6 +67,7 @@ export const parseStatus = (json: string): Task[] => {
         cwd,
         command,
         ...(typeof task.label === 'string' ? { label: task.label } : {}),
+        ...(typeof task.group === 'string' ? { group: task.group } : {}),
         createdMs: date(task.created_at),
         ...stateOf(status),
         ...times(status),

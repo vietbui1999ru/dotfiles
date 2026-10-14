@@ -1,6 +1,7 @@
 import { atom, read, update, type EngineInterface, type Register } from 'claude-code'
 
 import { dispatchCommand, parseAddResult, parsePiCommand, parseStatus } from './pueue'
+import { controlArgv, eligible, holdArgv, parsePiArgs, releaseArgv, resolveTargets, stopArgvs, type ControlAction, type Targets } from './controls'
 import { monitorRows, selectStale, type MonitorRow, type StaleSelection, type TrackedTask } from './handoff'
 import type { HandoffState } from './handoff.tsx'
 import { PALETTE } from './palette'
@@ -9,7 +10,6 @@ import { parsePending, pendingRecordFor, type PendingReview } from './review'
 
 const handoff = atom({ plugin: 'session-band', key: 'handoff' } as const, { tasks: [] as TrackedTask[], available: true } satisfies HandoffState)
 const progress = atom({ plugin: 'session-band', key: 'progress' } as const, {} as Record<number, PiProgress>)
-let aborting: number | undefined
 let rejecting: string | undefined
 type StaleDryRun = { selection: StaleSelection; atMs: number }
 
@@ -67,14 +67,64 @@ async function open($: EngineInterface) {
   await $.ui.open({ id: 'pi-handoff', title: 'Pi hand-off', focus: true })
 }
 
-export const controlArgv = (task: TrackedTask, action: 'kill' | 'pause' | 'start' | 'remove'): string[] | undefined =>
-  action === 'remove' && !complete(task) ? undefined : ['pueue', action, String(task.id)]
+const describeRefused = (refused: Targets['refused']) =>
+  refused.length ? ` Skipped ${refused.map(item => `#${item.id} (${item.reason})`).join(', ')}.` : ''
 
-async function control($: EngineInterface, task: TrackedTask, action: 'kill' | 'pause' | 'start' | 'remove') {
-  const argv = controlArgv(task, action)
-  if (!argv) return
-  await $.process.run(argv)
-  if (action === 'remove') await update($, handoff, state => ({ ...state, tasks: state.tasks.filter(item => item.id !== task.id) }))
+/** Run one /pi control action, updating the tracked list for `rm`; returns the reply text. */
+export async function runControl($: EngineInterface, action: ControlAction, ids: readonly number[], group: string): Promise<string> {
+  // Each pueue call is checked: the reply must never claim what pueue refused.
+  const run = async (argv: string[]) => {
+    const result = await $.process.run(argv)
+    if (result.exitCode === 0) return undefined
+    return `${argv.slice(0, 2).join(' ')} failed: ${(result.stderr || result.stdout).trim().split('\n')[0] || `exit ${result.exitCode}`}`
+  }
+  const list = (items: readonly number[]) => items.map(id => `#${id}`).join(' ')
+  if (action === 'release') return (await run(releaseArgv(group))) ?? `Queue ${group} released.`
+  if (ids.length === 0) return 'Nothing to do.'
+  if (action === 'kill' || action === 'hold') {
+    if (action === 'hold') {
+      const failed = await run(holdArgv(group))
+      if (failed) return `${failed}. Nothing was killed.`
+    }
+    const status = await $.process.run(['pueue', 'status', '--json'])
+    const states = new Map(parseStatus(status.stdout).map(task => [task.id, task.state]))
+    for (const argv of stopArgvs(ids, states)) {
+      const failed = await run(argv)
+      if (failed) return failed
+    }
+    const queued = ids.filter(id => states.get(id) === 'Queued')
+    const started = ids.filter(id => states.get(id) !== 'Queued')
+    const stopped = [started.length ? `Killed ${list(started)}` : '', queued.length ? `removed queued ${list(queued)}` : ''].filter(Boolean).join(', ')
+    return action === 'hold' ? `Held queue ${group}. ${stopped}. Run /pi release to start the queue again.` : `${stopped}.`
+  }
+  const failed = await run(controlArgv(action, ids))
+  if (failed) return failed
+  if (action === 'rm') await update($, handoff, state => ({ ...state, tasks: state.tasks.filter(item => !ids.includes(item.id)) }))
+  const verb = { pause: 'Paused', resume: 'Resumed', rm: 'Removed' }[action]
+  return `${verb} ${list(ids)}.`
+}
+
+export const CONFIRM_MS = 60_000
+
+/** Record a pending kill/hold in the handoff atom; the pane draws the confirm row from it. */
+export async function askConfirm($: EngineInterface, action: 'kill' | 'hold', ids: number[]) {
+  const atMs = await $.clock.now()
+  await update($, handoff, state => ({ ...state, confirm: { action, ids, atMs } }))
+}
+
+/** Re-read state, act only on ids still eligible; an expired or finished confirm does nothing. */
+export async function confirmNow($: EngineInterface) {
+  const state = await read($, handoff)
+  const confirm = state.confirm
+  await update($, handoff, value => ({ ...value, confirm: undefined }))
+  if (!confirm) return
+  if ((await $.clock.now()) - confirm.atMs > CONFIRM_MS) { await $.ui.toast('Confirmation expired; press again.'); return }
+  const status = await $.process.run(['pueue', 'status', '--json'])
+  const pueue = parseStatus(status.stdout)
+  const { ids } = resolveTargets(confirm.action, confirm.ids, state.tasks, pueue)
+  if (ids.length === 0) { await $.ui.toast('Nothing left to kill: those hand-offs already finished.'); return }
+  const group = pueue.find(task => ids.includes(task.id))?.group ?? 'default'
+  await $.ui.toast(await runControl($, confirm.action, ids, group))
 }
 
 async function dismiss($: EngineInterface, task: TrackedTask) {
@@ -266,13 +316,29 @@ async function cleanStale($: EngineInterface) {
 }
 
 export const register: Register = on => {
-  on('command.run', { command: 'pi' }, async ($, _e, _next) => {
-    await open($)
-    return { text: 'Pi hand-off pane opened.' }
+  on('command.run', { command: 'pi' }, async ($, e, _next) => {
+    const parsed = parsePiArgs(e.args)
+    if (parsed.kind === 'open') { await open($); return { text: 'Pi hand-off pane opened.' } }
+    if (parsed.kind === 'error') return { text: parsed.text }
+    const status = await $.process.run(['pueue', 'status', '--json'])
+    if (status.exitCode !== 0) return { text: 'pueue daemon unavailable.' }
+    const pueue = parseStatus(status.stdout)
+    const state = await read($, handoff)
+    const selected = selectedTask(state.tasks, state.selectedId)?.id
+    const { ids, refused } = resolveTargets(parsed.action, parsed.target, state.tasks, pueue, selected)
+    if (parsed.target === 'all' && parsed.action !== 'release' && ids.length > 0 && (parsed.action === 'kill' || parsed.action === 'hold')) {
+      const nowMs = await $.clock.now()
+      await update($, handoff, value => ({ ...value, confirm: { action: parsed.action, ids, atMs: nowMs } }))
+      await open($)
+      return { text: `Press Kill in the Pi hand-off pane to confirm ${parsed.action} of ${ids.map(id => `#${id}`).join(' ')}.` }
+    }
+    const group = pueue.find(task => ids.includes(task.id))?.group ?? 'default'
+    if (ids.length === 0 && parsed.action !== 'release') return { text: `Nothing to ${parsed.action}.${describeRefused(refused)}` }
+    return { text: `${await runControl($, parsed.action, ids, group)}${describeRefused(refused)}` }
   })
 
   on('ui.render', { component: 'Pane', requestId: 'pi-handoff' }, async ($, e, _next) => {
-    const { Box, Text, Button, Input } = $.ui.resolve(e)
+    const { Box, Text, Button, Input, Client } = $.ui.resolve(e)
     const [state, allProgress, nowMs] = await Promise.all([read($, handoff), read($, progress), $.clock.now()])
     const rows = monitorRows(state.tasks, allProgress, state.tasks.flatMap(item => item.task ? [item.task] : []), nowMs)
     const rowIds = rows.map(row => row.id)
@@ -280,26 +346,38 @@ export const register: Register = on => {
     const pending = task ? await pendingFor($, task) : undefined
     const pi = selectedProgress(state.tasks, state.selectedId, allProgress, rowIds)
     const transcript = pi?.entries.slice(-200) ?? []
+    const confirm = state.confirm && nowMs - state.confirm.atMs <= CONFIRM_MS ? state.confirm : undefined
     return <Box flexDirection="column">
       {state.tasks.length === 0 && <Text>No Pi hand-offs tracked in this session.</Text>}
+      {task && <Client key="pi-keys" module="./pane-keys.tsx" />}
+      {confirm && <Box flexDirection="row">
+        <Text color={PALETTE.red}>{`${confirm.action === 'hold' ? 'Hold queue and kill' : 'Kill'} ${confirm.ids.map(id => `#${id}`).join(' ')}? `}</Text>
+        <Button key="pi-confirm-ok" onPress={() => void confirmNow($)}>{confirm.action === 'hold' ? 'Hold + kill' : 'Kill'}</Button>
+        <Button key="pi-confirm-cancel" onPress={() => void update($, handoff, value => ({ ...value, confirm: undefined }))}>Cancel</Button>
+      </Box>}
       {hasMonitorRows(rows) && <Box flexDirection="column">
         <Text>Monitor</Text>
         {rows.map(row => {
           const selected = row.id === task?.id
           const idle = row.idle?.text
-          const columns = e.props.bodyColumns - (idle ? idle.length + 1 : 0) - 2
+          const liveRow = eligible('kill', row.state)
+          const track = state.tasks.find(item => item.id === row.id)
+          const columns = e.props.bodyColumns - (idle ? idle.length + 1 : 0) - 2 - (liveRow ? 4 : 0)
           return <Box key={`pi-monitor-${row.id}`} flexDirection="row">
             <Button key={`pi-row-${row.id}`} plain label={`${selected ? '› ' : '  '}${monitorText(row, columns)}`} onPress={() => void update($, handoff, value => ({ ...value, selectedId: row.id }))} />
             {idle && <Text color={PALETTE[row.idle!.tone]}>{` ${idle}`}</Text>}
+            {liveRow && <Button key={`pi-row-kill-${row.id}`} plain label=" ✗" onPress={() => void askConfirm($, 'kill', [row.id])} />}
+            {(eligible('pause', row.state) || eligible('resume', row.state)) && <Button key={`pi-row-pause-${row.id}`} plain label={row.state === 'Paused' ? ' ▶' : ' ⏸'} onPress={() => void runControl($, row.state === 'Paused' ? 'resume' : 'pause', [row.id], track?.task?.group ?? 'default')} />}
           </Box>
         })}
       </Box>}
       {task && <Text>{`\n${taskLabel(task)}${pi?.lastActivity ? ` · ${pi.lastActivity}` : ''}\n${pi ? `${pi.tokens} tokens · $${pi.cost.toFixed(3)}` : 'usage n/a'}`}</Text>}
       {transcript.map((entry, index) => <Text key={`entry-${index}`}>{entry.kind === 'error' ? `ERROR ${entry.text}` : entry.text.slice(0, 280)}</Text>)}
       {task && <Box>
-        {!complete(task) && <Button key="pi-abort" onPress={() => { if (aborting === task.id) { aborting = undefined; void control($, task, 'kill') } else { aborting = task.id; void $.ui.toast('Press Abort again to confirm.') } }}>Abort</Button>}
-        {!complete(task) && <Button key="pi-pause" onPress={() => void control($, task, task.task?.state === 'Paused' ? 'start' : 'pause')}>{task.task?.state === 'Paused' ? 'Resume' : 'Pause'}</Button>}
-        {complete(task) && <Button key="pi-remove" onPress={() => void control($, task, 'remove')}>Remove</Button>}
+        {!complete(task) && <Button key="pi-abort" onPress={() => void askConfirm($, 'kill', [task.id])}>Abort</Button>}
+        {task.task && eligible('kill', task.task.state) && <Button key="pi-hold" onPress={() => void askConfirm($, 'hold', [task.id])}>Hold queue</Button>}
+        {!complete(task) && <Button key="pi-pause" onPress={() => void runControl($, task.task?.state === 'Paused' ? 'resume' : 'pause', [task.id], task.task?.group ?? 'default')}>{task.task?.state === 'Paused' ? 'Resume' : 'Pause'}</Button>}
+        {complete(task) && <Button key="pi-remove" onPress={() => void runControl($, 'rm', [task.id], task.task?.group ?? 'default')}>Remove</Button>}
         <Button key="pi-dismiss" onPress={() => void dismiss($, task)}>Dismiss</Button>
         {pending && <Button key="pi-open-review" onPress={() => void openReview($, task)}>Open review</Button>}
         {pending && <Button key="pi-approve" onPress={() => void approve($, task, pending)}>Approve</Button>}
@@ -309,5 +387,32 @@ export const register: Register = on => {
       <Button key="pi-history" onPress={() => void $.ui.open({ id: 'pi-history', title: 'Pi history', focus: true })}>history</Button>
       <Button key="pi-clean-stale" onPress={() => void cleanStale($)}>Clean stale</Button>
     </Box>
+  })
+
+  on('ui.message', async ($, e, next) => {
+    if (e.requestId !== 'pi-handoff' || e.element !== 'pi-keys') return next(e)
+    const key = typeof e.data === 'object' && e.data !== null && 'key' in e.data ? e.data.key : undefined
+    if (typeof key !== 'string' || !['up', 'down', 'x', 'h', 'p', 'y', 'n'].includes(key)) return next(e)
+    const [state, allProgress, nowMs] = await Promise.all([read($, handoff), read($, progress), $.clock.now()])
+    const rowIds = monitorRows(state.tasks, allProgress, state.tasks.flatMap(item => item.task ? [item.task] : []), nowMs).map(row => row.id)
+    const task = selectedTask(state.tasks, state.selectedId, rowIds)
+    if (key === 'up' || key === 'down') {
+      if (rowIds.length > 0) {
+        const at = task?.id !== undefined ? Math.max(0, rowIds.indexOf(task.id)) : 0
+        const to = rowIds[(at + (key === 'down' ? 1 : rowIds.length - 1)) % rowIds.length]
+        if (to !== undefined) await update($, handoff, value => ({ ...value, selectedId: to }))
+      }
+    } else if (key === 'y') {
+      await confirmNow($)
+    } else if (key === 'n') {
+      await update($, handoff, value => ({ ...value, confirm: undefined }))
+    } else if (task?.task) {
+      const current = task.task.state
+      if ((key === 'x' || key === 'h') && eligible('kill', current)) await askConfirm($, key === 'x' ? 'kill' : 'hold', [task.id])
+      if (key === 'p' && (eligible('pause', current) || eligible('resume', current))) {
+        await $.ui.toast(await runControl($, current === 'Paused' ? 'resume' : 'pause', [task.id], task.task.group ?? 'default'))
+      }
+    }
+    return next(e)
   })
 }

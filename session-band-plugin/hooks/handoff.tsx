@@ -2,16 +2,17 @@ import { atom, read, update, type EngineInterface, type Register } from 'claude-
 
 import { emptyProgress, fold, sessionDir, sessionFileName, type PiProgress } from './pisession'
 import { parsePiCommand, parseStatus, type Task } from './pueue'
-import type { TrackedTask } from './handoff'
+import { finishNotice, type TrackedTask } from './handoff'
 
-export type HandoffState = { tasks: TrackedTask[]; available: boolean; selectedId?: number }
+export type HandoffState = { tasks: TrackedTask[]; available: boolean; selectedId?: number; confirm?: { action: 'kill' | 'hold'; ids: number[]; atMs: number } }
 
 const handoff = atom({ plugin: 'session-band', key: 'handoff' } as const, { tasks: [], available: true } satisfies HandoffState)
 const progress = atom({ plugin: 'session-band', key: 'progress' } as const, {} as Record<number, PiProgress>)
 let timer: { cancel(): void } | undefined
 let polling = false
 
-const isLive = (task: Task | undefined) => task?.state === 'Queued' || task?.state === 'Running' || task?.state === 'Paused'
+const liveState = (state: Task['state'] | undefined) => state === 'Queued' || state === 'Running' || state === 'Paused'
+const isLive = (task: Task | undefined) => liveState(task?.state)
 export const hasLiveTrackedTask = (tasks: readonly TrackedTask[]) => tasks.some(item => isLive(item.task))
 const inside = (path: string, root: string) => path === root || path.startsWith(`${root}/`)
 
@@ -62,6 +63,7 @@ async function poll($: EngineInterface) {
     }
     const fresh = parseStatus(result.stdout)
     const nowMs = await $.clock.now()
+    const before = new Map((await read($, handoff)).tasks.map(item => [item.id, item.task?.state]))
     // Merge inside the update so a task the tracker added meanwhile is not overwritten.
     await update($, handoff, value => ({ ...value, tasks: mergeTasks(value.tasks, fresh, nowMs, snapshotMs), available: true }))
     const { tasks } = await read($, handoff)
@@ -73,6 +75,14 @@ async function poll($: EngineInterface) {
       if (updateProgress) next[item.id] = updateProgress
     }
     await update($, progress, () => next)
+    // Notify only on a transition this poller saw live: a repeat poll sees it finished in `before`.
+    for (const item of (await read($, handoff)).tasks) {
+      const was = before.get(item.id)
+      if (!was || !liveState(was) || isLive(item.task)) continue
+      const notice = finishNotice(item, next[item.id] ?? existing[item.id])
+      const sent = await $.ui.notify(notice, { title: 'Pi hand-off' }).catch(() => undefined)
+      if (!sent?.isSent) await $.ui.toast(notice)
+    }
     await syncTimer($)
   } finally {
     polling = false

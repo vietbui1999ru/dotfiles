@@ -1,14 +1,14 @@
 import { expect, test } from 'claude-code/testing'
 
-import { confirmedStale, continueArgv, continueModel, continuePath, controlArgv, hasMonitorRows, monitorText, selectedProgress, selectedTask } from './pane.tsx'
+import { confirmedStale, continueArgv, continueModel, continuePath, hasMonitorRows, monitorText, selectedProgress, selectedTask } from './pane.tsx'
+import { controlArgv } from './controls'
 import { selectStale, type MonitorRow, type TrackedTask } from './handoff'
 import { emptyProgress } from './pisession'
 
 const task: TrackedTask = { id: 7, cwd: '/repo', addedMs: 0, sessionId: 'pueue-x', label: 'edit', task: { id: 7, cwd: '/repo', command: 'pi --model openai/gpt:high -p x', state: 'Done' } }
 
 test('builds only tracked-task control and Continue argv', () => {
-  expect(controlArgv(task, 'kill')).toEqual(['pueue', 'kill', '7'])
-  expect(controlArgv({ ...task, task: { ...task.task!, state: 'Running' } }, 'remove')).toBeUndefined()
+  expect(controlArgv('kill', [7])).toEqual(['pueue', 'kill', '7'])
   const argv = continueArgv(task, 'openai/gpt:high', '/tmp/pi-continue-pueue-x-1.md')!
   expect(argv.slice(0, 7)).toEqual(['pueue', 'add', '-i', '--print-task-id', '--label', 'edit', '--'])
   expect(argv[7]).toContain("cat '/tmp/pi-continue-pueue-x-1.md'")
