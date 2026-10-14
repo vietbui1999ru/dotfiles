@@ -63,7 +63,14 @@ const nonEmpty = (ids: readonly number[]) => {
 export const controlArgv = (action: Exclude<ControlAction, 'hold' | 'release'>, ids: readonly number[]): string[] =>
   ['pueue', { kill: 'kill', pause: 'pause', resume: 'start', rm: 'remove' }[action], ...nonEmpty(ids)]
 
-export const holdArgvs = (group: string, ids: readonly number[]): string[][] =>
-  [['pueue', 'pause', '--group', group, '--wait'], ['pueue', 'kill', ...nonEmpty(ids)]]
+/** Stops the group starting queued tasks; its running tasks keep running. */
+export const holdArgv = (group: string): string[] => ['pueue', 'pause', '--group', group, '--wait']
+
+/** `pueue kill` cannot stop a Queued task (it exits 1 and leaves it queued), so a queued one is removed. */
+export const stopArgvs = (ids: readonly number[], states: ReadonlyMap<number, PueueState>): string[][] => {
+  const queued = ids.filter(id => states.get(id) === 'Queued')
+  const started = ids.filter(id => states.get(id) !== 'Queued')
+  return [...(started.length ? [controlArgv('kill', started)] : []), ...(queued.length ? [controlArgv('rm', queued)] : [])]
+}
 
 export const releaseArgv = (group: string): string[] => ['pueue', 'start', '--group', group]

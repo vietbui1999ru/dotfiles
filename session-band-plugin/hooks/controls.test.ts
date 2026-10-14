@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { controlArgv, eligible, holdArgvs, parsePiArgs, releaseArgv, resolveTargets } from './controls'
+import { controlArgv, eligible, holdArgv, parsePiArgs, releaseArgv, resolveTargets, stopArgvs } from './controls'
 import type { Task } from './pueue'
 
 const pi = (id: number, state: Task['state']): Task => ({
@@ -51,7 +51,10 @@ test('never builds a pueue command with no ids', () => {
   expect(controlArgv('resume', [44])).toEqual(['pueue', 'start', '44'])
   expect(controlArgv('rm', [41])).toEqual(['pueue', 'remove', '41'])
   expect(() => controlArgv('kill', [])).toThrow()
-  expect(holdArgvs('default', [44])).toEqual([['pueue', 'pause', '--group', 'default', '--wait'], ['pueue', 'kill', '44']])
-  expect(() => holdArgvs('default', [])).toThrow()
+  expect(holdArgv('default')).toEqual(['pueue', 'pause', '--group', 'default', '--wait'])
+  const states = new Map([[44, 'Running'], [45, 'Queued'], [46, 'Paused']] as const)
+  expect(stopArgvs([44, 45, 46], states)).toEqual([['pueue', 'kill', '44', '46'], ['pueue', 'remove', '45']])
+  expect(stopArgvs([45], states)).toEqual([['pueue', 'remove', '45']])
+  expect(stopArgvs([], states)).toEqual([])
   expect(releaseArgv('default')).toEqual(['pueue', 'start', '--group', 'default'])
 })

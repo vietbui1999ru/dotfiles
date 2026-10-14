@@ -1,7 +1,7 @@
 import { atom, read, update, type EngineInterface, type Register } from 'claude-code'
 
 import { dispatchCommand, parseAddResult, parsePiCommand, parseStatus } from './pueue'
-import { controlArgv, eligible, holdArgvs, parsePiArgs, releaseArgv, resolveTargets, type ControlAction, type Targets } from './controls'
+import { controlArgv, eligible, holdArgv, parsePiArgs, releaseArgv, resolveTargets, stopArgvs, type ControlAction, type Targets } from './controls'
 import { monitorRows, selectStale, type MonitorRow, type StaleSelection, type TrackedTask } from './handoff'
 import type { HandoffState } from './handoff.tsx'
 import { PALETTE } from './palette'
@@ -72,16 +72,36 @@ const describeRefused = (refused: Targets['refused']) =>
 
 /** Run one /pi control action, updating the tracked list for `rm`; returns the reply text. */
 export async function runControl($: EngineInterface, action: ControlAction, ids: readonly number[], group: string): Promise<string> {
-  if (action === 'release') { await $.process.run(releaseArgv(group)); return `Queue ${group} released.` }
-  if (ids.length === 0) return 'Nothing to do.'
-  if (action === 'hold') {
-    for (const argv of holdArgvs(group, ids)) await $.process.run(argv)
-    return `Held queue ${group} and killed ${ids.map(id => `#${id}`).join(' ')}. Run /pi release to start the queue again.`
+  // Each pueue call is checked: the reply must never claim what pueue refused.
+  const run = async (argv: string[]) => {
+    const result = await $.process.run(argv)
+    if (result.exitCode === 0) return undefined
+    return `${argv.slice(0, 2).join(' ')} failed: ${(result.stderr || result.stdout).trim().split('\n')[0] || `exit ${result.exitCode}`}`
   }
-  await $.process.run(controlArgv(action, ids))
+  const list = (items: readonly number[]) => items.map(id => `#${id}`).join(' ')
+  if (action === 'release') return (await run(releaseArgv(group))) ?? `Queue ${group} released.`
+  if (ids.length === 0) return 'Nothing to do.'
+  if (action === 'kill' || action === 'hold') {
+    if (action === 'hold') {
+      const failed = await run(holdArgv(group))
+      if (failed) return `${failed}. Nothing was killed.`
+    }
+    const status = await $.process.run(['pueue', 'status', '--json'])
+    const states = new Map(parseStatus(status.stdout).map(task => [task.id, task.state]))
+    for (const argv of stopArgvs(ids, states)) {
+      const failed = await run(argv)
+      if (failed) return failed
+    }
+    const queued = ids.filter(id => states.get(id) === 'Queued')
+    const started = ids.filter(id => states.get(id) !== 'Queued')
+    const stopped = [started.length ? `Killed ${list(started)}` : '', queued.length ? `removed queued ${list(queued)}` : ''].filter(Boolean).join(', ')
+    return action === 'hold' ? `Held queue ${group}. ${stopped}. Run /pi release to start the queue again.` : `${stopped}.`
+  }
+  const failed = await run(controlArgv(action, ids))
+  if (failed) return failed
   if (action === 'rm') await update($, handoff, state => ({ ...state, tasks: state.tasks.filter(item => !ids.includes(item.id)) }))
-  const verb = { kill: 'Killed', pause: 'Paused', resume: 'Resumed', rm: 'Removed' }[action]
-  return `${verb} ${ids.map(id => `#${id}`).join(' ')}.`
+  const verb = { pause: 'Paused', resume: 'Resumed', rm: 'Removed' }[action]
+  return `${verb} ${list(ids)}.`
 }
 
 export const CONFIRM_MS = 60_000
@@ -97,7 +117,8 @@ export async function confirmNow($: EngineInterface) {
   const state = await read($, handoff)
   const confirm = state.confirm
   await update($, handoff, value => ({ ...value, confirm: undefined }))
-  if (!confirm || (await $.clock.now()) - confirm.atMs > CONFIRM_MS) { await $.ui.toast('Confirmation expired; press again.'); return }
+  if (!confirm) return
+  if ((await $.clock.now()) - confirm.atMs > CONFIRM_MS) { await $.ui.toast('Confirmation expired; press again.'); return }
   const status = await $.process.run(['pueue', 'status', '--json'])
   const pueue = parseStatus(status.stdout)
   const { ids } = resolveTargets(confirm.action, confirm.ids, state.tasks, pueue)

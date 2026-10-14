@@ -27,6 +27,7 @@ export const fakePueue = (on: On, nowMs: () => number) => {
   const tasks: Record<string, ReturnType<typeof running>> = {}
   const calls: string[][] = []
   let reached: () => void = () => undefined
+  const failing = new Set<string>()
   const gate = {
     armed: false,
     release: undefined as (() => void) | undefined,
@@ -39,6 +40,11 @@ export const fakePueue = (on: On, nowMs: () => number) => {
     if (e.argv[0] === 'pueue' && e.argv[1] !== 'status') {
       calls.push(e.argv.slice(1))
       const ids = e.argv.slice(2).filter(word => /^\d+$/.test(word))
+      // As real pueue: a failing subcommand, or `kill` on a Queued task, exits 1 and changes nothing.
+      const queued = ids.filter(id => 'Queued' in ((tasks[id]?.status ?? {}) as object))
+      if (failing.has(e.argv[1]!) || (e.argv[1] === 'kill' && queued.length > 0)) {
+        return { value: { exitCode: 1, stdout: '', stderr: `The command failed for tasks: ${ids.join(', ')}` } } as never
+      }
       for (const id of ids) {
         const task = tasks[id]
         if (!task) continue
@@ -65,7 +71,7 @@ export const fakePueue = (on: On, nowMs: () => number) => {
     tasks[id] = running(id, nowMs())
     return { result: 'ok', text: String(id) } as never
   })
-  return Object.assign(gate, { tasks, calls })
+  return Object.assign(gate, { tasks, calls, failing })
 }
 
 export const PANE = {
@@ -90,9 +96,11 @@ export const setupTracked = async ($: Kit[0], on: Kit[1], count = 1) => {
   const clock = mock.clock(on, { now: 1_000_000 })
   mock.env(on, { HOME: '/Users/test' })
   on('ui.open', () => ({ value: { isPlaced: true } } as never))
-  on('ui.toast', () => ({ value: undefined } as never))
+  const toasts: unknown[] = []
+  on('ui.toast', (_$, e) => { toasts.push(e); return { value: undefined } as never })
   const pueue = fakePueue(on, clock.now)
   for (let added = 0; added < count; added += 1) await $.tool.call({ tool: 'Bash', command: `pueue add -- ${dispatch}` })
   pueue.calls.length = 0
-  return { clock, pueue }
+  toasts.length = 0
+  return { clock, pueue, toasts }
 }

@@ -47,3 +47,32 @@ test('/pi with no arguments still opens the pane', async ($, on) => {
   await setup($, on)
   expect((await $.command.run(run(''))).text).toBe('Pi hand-off pane opened.')
 })
+
+const queue = (task: { status: unknown }) => {
+  task.status = { Queued: { enqueued_at: new Date(1_000_000).toISOString() } }
+}
+
+test('/pi kill removes a queued hand-off, which pueue kill cannot stop', async ($, on) => {
+  const { pueue } = await setup($, on)
+  queue(pueue.tasks['2']!)
+  const reply = await $.command.run(run('kill 1 2'))
+  expect(pueue.calls).toEqual([['kill', '1'], ['remove', '2']])
+  expect(reply.text).toContain('#2')
+  expect(pueue.tasks['2']).toBeUndefined()
+})
+
+test('/pi kill reports a pueue failure instead of claiming success', async ($, on) => {
+  const { pueue } = await setup($, on)
+  pueue.failing.add('kill')
+  const reply = await $.command.run(run('kill 1'))
+  expect(reply.text).toContain('failed')
+  expect(reply.text).not.toContain('Killed')
+})
+
+test('/pi hold does not kill when the queue could not be paused', async ($, on) => {
+  const { pueue } = await setup($, on)
+  pueue.failing.add('pause')
+  const reply = await $.command.run(run('hold 1'))
+  expect(pueue.calls).toEqual([['pause', '--group', 'default', '--wait']])
+  expect(reply.text).toContain('failed')
+})
