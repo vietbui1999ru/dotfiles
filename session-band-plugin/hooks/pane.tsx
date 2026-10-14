@@ -338,10 +338,14 @@ export const register: Register = on => {
         {rows.map(row => {
           const selected = row.id === task?.id
           const idle = row.idle?.text
-          const columns = e.props.bodyColumns - (idle ? idle.length + 1 : 0) - 2
+          const liveRow = eligible('kill', row.state)
+          const track = state.tasks.find(item => item.id === row.id)
+          const columns = e.props.bodyColumns - (idle ? idle.length + 1 : 0) - 2 - (liveRow ? 4 : 0)
           return <Box key={`pi-monitor-${row.id}`} flexDirection="row">
             <Button key={`pi-row-${row.id}`} plain label={`${selected ? '› ' : '  '}${monitorText(row, columns)}`} onPress={() => void update($, handoff, value => ({ ...value, selectedId: row.id }))} />
             {idle && <Text color={PALETTE[row.idle!.tone]}>{` ${idle}`}</Text>}
+            {liveRow && <Button key={`pi-row-kill-${row.id}`} plain label=" ✗" onPress={() => void askConfirm($, 'kill', [row.id])} />}
+            {(eligible('pause', row.state) || eligible('resume', row.state)) && <Button key={`pi-row-pause-${row.id}`} plain label={row.state === 'Paused' ? ' ▶' : ' ⏸'} onPress={() => void runControl($, row.state === 'Paused' ? 'resume' : 'pause', [row.id], track?.task?.group ?? 'default')} />}
           </Box>
         })}
       </Box>}
