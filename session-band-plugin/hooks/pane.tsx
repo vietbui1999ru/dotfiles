@@ -4,7 +4,7 @@ import { dispatchCommand, parseAddResult, parsePiCommand, parseStatus } from './
 import { controlArgv, eligible, holdArgv, parsePiArgs, releaseArgv, resolveTargets, stopArgvs, type ControlAction, type Targets } from './controls'
 import { monitorRows, selectStale, type MonitorRow, type StaleSelection, type TrackedTask } from './handoff'
 import type { HandoffState } from './handoff.tsx'
-import { moveTo, type Motion } from './motion'
+import { focusRing, moveTo, type Motion } from './motion'
 import { PALETTE } from './palette'
 import type { PiProgress } from './pisession'
 import { parsePending, pendingRecordFor, type PendingReview } from './review'
@@ -128,17 +128,12 @@ export async function confirmNow($: EngineInterface) {
   await $.ui.toast(`${await runControl($, confirm.action, ids, group)}${describeRefused(refused)}`)
 }
 
-/** Moves the ring onto `key`; cosmetic, so a refusal is logged rather than surfaced. */
-async function ring($: EngineInterface, key: string) {
-  await $.ui.focus({ requestId: 'pi-handoff', key }).catch((error: unknown) => console.debug(`session-band: focus ${key} refused: ${String(error)}`))
-}
-
 /** j/k/g: select the row the motion lands on and put the focus ring on it, so the two agree. */
 async function move($: EngineInterface, rowIds: readonly number[], current: number | undefined, motion: Motion) {
   const to = moveTo(rowIds, current, motion)
   if (to === undefined) return
   await update($, handoff, value => ({ ...value, selectedId: to }))
-  await ring($, `pi-row-${to}`)
+  await focusRing($, 'pi-handoff', `pi-row-${to}`)
 }
 
 async function dismiss($: EngineInterface, task: TrackedTask) {
@@ -368,7 +363,7 @@ export const register: Register = on => {
         {rowIds.length > 0 && <Button key="pi-key-down" plain dimColor hotkey="j" label="down " onPress={() => void move($, rowIds, task?.id, 'down')} />}
         {rowIds.length > 0 && <Button key="pi-key-up" plain dimColor hotkey="k" label="up " onPress={() => void move($, rowIds, task?.id, 'up')} />}
         {rowIds.length > 0 && <Button key="pi-key-top" plain dimColor hotkey="g" label="top " onPress={() => void move($, rowIds, task?.id, 'top')} />}
-        {task && <Button key="pi-key-insert" plain dimColor hotkey="i" label="continue " onPress={() => void ring($, 'pi-continue')} />}
+        {task && <Button key="pi-key-insert" plain dimColor hotkey="i" label="continue " onPress={() => void focusRing($, 'pi-handoff', 'pi-continue')} />}
         <Button key="pi-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'pi-handoff' })} />
         {task && <Text dimColor> · x kill · h hold · p pause · y/n confirm</Text>}
       </Box>
