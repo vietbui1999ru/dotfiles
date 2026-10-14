@@ -126,7 +126,7 @@ export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
     captureSession(e.isInteractive)
-    await $.command.register({ name: 'pi', description: 'Open Pi hand-off controls' })
+    await $.command.register({ name: 'pi', description: 'Open Pi hand-off controls, or kill/pause/resume/rm/hold Pi tasks', argumentHint: '[kill|pause|resume|rm|hold] [ids|all] | release', immediate: true })
     await $.command.register({ name: 'pi-history', description: 'Open Pi hand-off history' })
     const current = await $.session.usage()
     await Promise.all([

@@ -1,6 +1,7 @@
 import { atom, read, update, type EngineInterface, type Register } from 'claude-code'
 
 import { dispatchCommand, parseAddResult, parsePiCommand, parseStatus } from './pueue'
+import { controlArgv, holdArgvs, parsePiArgs, releaseArgv, resolveTargets, type ControlAction, type Targets } from './controls'
 import { monitorRows, selectStale, type MonitorRow, type StaleSelection, type TrackedTask } from './handoff'
 import type { HandoffState } from './handoff.tsx'
 import { PALETTE } from './palette'
@@ -67,14 +68,21 @@ async function open($: EngineInterface) {
   await $.ui.open({ id: 'pi-handoff', title: 'Pi hand-off', focus: true })
 }
 
-export const controlArgv = (task: TrackedTask, action: 'kill' | 'pause' | 'start' | 'remove'): string[] | undefined =>
-  action === 'remove' && !complete(task) ? undefined : ['pueue', action, String(task.id)]
+const describeRefused = (refused: Targets['refused']) =>
+  refused.length ? ` Skipped ${refused.map(item => `#${item.id} (${item.reason})`).join(', ')}.` : ''
 
-async function control($: EngineInterface, task: TrackedTask, action: 'kill' | 'pause' | 'start' | 'remove') {
-  const argv = controlArgv(task, action)
-  if (!argv) return
-  await $.process.run(argv)
-  if (action === 'remove') await update($, handoff, state => ({ ...state, tasks: state.tasks.filter(item => item.id !== task.id) }))
+/** Run one /pi control action, updating the tracked list for `rm`; returns the reply text. */
+export async function runControl($: EngineInterface, action: ControlAction, ids: readonly number[], group: string): Promise<string> {
+  if (action === 'release') { await $.process.run(releaseArgv(group)); return `Queue ${group} released.` }
+  if (ids.length === 0) return 'Nothing to do.'
+  if (action === 'hold') {
+    for (const argv of holdArgvs(group, ids)) await $.process.run(argv)
+    return `Held queue ${group} and killed ${ids.map(id => `#${id}`).join(' ')}. Run /pi release to start the queue again.`
+  }
+  await $.process.run(controlArgv(action, ids))
+  if (action === 'rm') await update($, handoff, state => ({ ...state, tasks: state.tasks.filter(item => !ids.includes(item.id)) }))
+  const verb = { kill: 'Killed', pause: 'Paused', resume: 'Resumed', rm: 'Removed' }[action]
+  return `${verb} ${ids.map(id => `#${id}`).join(' ')}.`
 }
 
 async function dismiss($: EngineInterface, task: TrackedTask) {
@@ -266,9 +274,25 @@ async function cleanStale($: EngineInterface) {
 }
 
 export const register: Register = on => {
-  on('command.run', { command: 'pi' }, async ($, _e, _next) => {
-    await open($)
-    return { text: 'Pi hand-off pane opened.' }
+  on('command.run', { command: 'pi' }, async ($, e, _next) => {
+    const parsed = parsePiArgs(e.args)
+    if (parsed.kind === 'open') { await open($); return { text: 'Pi hand-off pane opened.' } }
+    if (parsed.kind === 'error') return { text: parsed.text }
+    const status = await $.process.run(['pueue', 'status', '--json'])
+    if (status.exitCode !== 0) return { text: 'pueue daemon unavailable.' }
+    const pueue = parseStatus(status.stdout)
+    const state = await read($, handoff)
+    const selected = selectedTask(state.tasks, state.selectedId)?.id
+    const { ids, refused } = resolveTargets(parsed.action, parsed.target, state.tasks, pueue, selected)
+    if (parsed.target === 'all' && parsed.action !== 'release' && ids.length > 0 && (parsed.action === 'kill' || parsed.action === 'hold')) {
+      const nowMs = await $.clock.now()
+      await update($, handoff, value => ({ ...value, confirm: { action: parsed.action, ids, atMs: nowMs } }))
+      await open($)
+      return { text: `Press Kill in the Pi hand-off pane to confirm ${parsed.action} of ${ids.map(id => `#${id}`).join(' ')}.` }
+    }
+    const group = pueue.find(task => ids.includes(task.id))?.group ?? 'default'
+    if (ids.length === 0 && parsed.action !== 'release') return { text: `Nothing to ${parsed.action}.${describeRefused(refused)}` }
+    return { text: `${await runControl($, parsed.action, ids, group)}${describeRefused(refused)}` }
   })
 
   on('ui.render', { component: 'Pane', requestId: 'pi-handoff' }, async ($, e, _next) => {
@@ -297,9 +321,9 @@ export const register: Register = on => {
       {task && <Text>{`\n${taskLabel(task)}${pi?.lastActivity ? ` · ${pi.lastActivity}` : ''}\n${pi ? `${pi.tokens} tokens · $${pi.cost.toFixed(3)}` : 'usage n/a'}`}</Text>}
       {transcript.map((entry, index) => <Text key={`entry-${index}`}>{entry.kind === 'error' ? `ERROR ${entry.text}` : entry.text.slice(0, 280)}</Text>)}
       {task && <Box>
-        {!complete(task) && <Button key="pi-abort" onPress={() => { if (aborting === task.id) { aborting = undefined; void control($, task, 'kill') } else { aborting = task.id; void $.ui.toast('Press Abort again to confirm.') } }}>Abort</Button>}
-        {!complete(task) && <Button key="pi-pause" onPress={() => void control($, task, task.task?.state === 'Paused' ? 'start' : 'pause')}>{task.task?.state === 'Paused' ? 'Resume' : 'Pause'}</Button>}
-        {complete(task) && <Button key="pi-remove" onPress={() => void control($, task, 'remove')}>Remove</Button>}
+        {!complete(task) && <Button key="pi-abort" onPress={() => { if (aborting === task.id) { aborting = undefined; void runControl($, 'kill', [task.id], task.task?.group ?? 'default') } else { aborting = task.id; void $.ui.toast('Press Abort again to confirm.') } }}>Abort</Button>}
+        {!complete(task) && <Button key="pi-pause" onPress={() => void runControl($, task.task?.state === 'Paused' ? 'resume' : 'pause', [task.id], task.task?.group ?? 'default')}>{task.task?.state === 'Paused' ? 'Resume' : 'Pause'}</Button>}
+        {complete(task) && <Button key="pi-remove" onPress={() => void runControl($, 'rm', [task.id], task.task?.group ?? 'default')}>Remove</Button>}
         <Button key="pi-dismiss" onPress={() => void dismiss($, task)}>Dismiss</Button>
         {pending && <Button key="pi-open-review" onPress={() => void openReview($, task)}>Open review</Button>}
         {pending && <Button key="pi-approve" onPress={() => void approve($, task, pending)}>Approve</Button>}
