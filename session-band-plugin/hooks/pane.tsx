@@ -1,7 +1,7 @@
 import { atom, read, update, type EngineInterface, type Register } from 'claude-code'
 
 import { dispatchCommand, parseAddResult, parsePiCommand, parseStatus } from './pueue'
-import { controlArgv, holdArgvs, parsePiArgs, releaseArgv, resolveTargets, type ControlAction, type Targets } from './controls'
+import { controlArgv, eligible, holdArgvs, parsePiArgs, releaseArgv, resolveTargets, type ControlAction, type Targets } from './controls'
 import { monitorRows, selectStale, type MonitorRow, type StaleSelection, type TrackedTask } from './handoff'
 import type { HandoffState } from './handoff.tsx'
 import { PALETTE } from './palette'
@@ -10,7 +10,6 @@ import { parsePending, pendingRecordFor, type PendingReview } from './review'
 
 const handoff = atom({ plugin: 'session-band', key: 'handoff' } as const, { tasks: [] as TrackedTask[], available: true } satisfies HandoffState)
 const progress = atom({ plugin: 'session-band', key: 'progress' } as const, {} as Record<number, PiProgress>)
-let aborting: number | undefined
 let rejecting: string | undefined
 type StaleDryRun = { selection: StaleSelection; atMs: number }
 
@@ -83,6 +82,28 @@ export async function runControl($: EngineInterface, action: ControlAction, ids:
   if (action === 'rm') await update($, handoff, state => ({ ...state, tasks: state.tasks.filter(item => !ids.includes(item.id)) }))
   const verb = { kill: 'Killed', pause: 'Paused', resume: 'Resumed', rm: 'Removed' }[action]
   return `${verb} ${ids.map(id => `#${id}`).join(' ')}.`
+}
+
+export const CONFIRM_MS = 60_000
+
+/** Record a pending kill/hold in the handoff atom; the pane draws the confirm row from it. */
+export async function askConfirm($: EngineInterface, action: 'kill' | 'hold', ids: number[]) {
+  const atMs = await $.clock.now()
+  await update($, handoff, state => ({ ...state, confirm: { action, ids, atMs } }))
+}
+
+/** Re-read state, act only on ids still eligible; an expired or finished confirm does nothing. */
+export async function confirmNow($: EngineInterface) {
+  const state = await read($, handoff)
+  const confirm = state.confirm
+  await update($, handoff, value => ({ ...value, confirm: undefined }))
+  if (!confirm || (await $.clock.now()) - confirm.atMs > CONFIRM_MS) { await $.ui.toast('Confirmation expired; press again.'); return }
+  const status = await $.process.run(['pueue', 'status', '--json'])
+  const pueue = parseStatus(status.stdout)
+  const { ids } = resolveTargets(confirm.action, confirm.ids, state.tasks, pueue)
+  if (ids.length === 0) { await $.ui.toast('Nothing left to kill: those hand-offs already finished.'); return }
+  const group = pueue.find(task => ids.includes(task.id))?.group ?? 'default'
+  await $.ui.toast(await runControl($, confirm.action, ids, group))
 }
 
 async function dismiss($: EngineInterface, task: TrackedTask) {
@@ -304,8 +325,14 @@ export const register: Register = on => {
     const pending = task ? await pendingFor($, task) : undefined
     const pi = selectedProgress(state.tasks, state.selectedId, allProgress, rowIds)
     const transcript = pi?.entries.slice(-200) ?? []
+    const confirm = state.confirm && nowMs - state.confirm.atMs <= CONFIRM_MS ? state.confirm : undefined
     return <Box flexDirection="column">
       {state.tasks.length === 0 && <Text>No Pi hand-offs tracked in this session.</Text>}
+      {confirm && <Box flexDirection="row">
+        <Text color={PALETTE.red}>{`${confirm.action === 'hold' ? 'Hold queue and kill' : 'Kill'} ${confirm.ids.map(id => `#${id}`).join(' ')}? `}</Text>
+        <Button key="pi-confirm-ok" onPress={() => void confirmNow($)}>{confirm.action === 'hold' ? 'Hold + kill' : 'Kill'}</Button>
+        <Button key="pi-confirm-cancel" onPress={() => void update($, handoff, value => ({ ...value, confirm: undefined }))}>Cancel</Button>
+      </Box>}
       {hasMonitorRows(rows) && <Box flexDirection="column">
         <Text>Monitor</Text>
         {rows.map(row => {
@@ -321,7 +348,8 @@ export const register: Register = on => {
       {task && <Text>{`\n${taskLabel(task)}${pi?.lastActivity ? ` · ${pi.lastActivity}` : ''}\n${pi ? `${pi.tokens} tokens · $${pi.cost.toFixed(3)}` : 'usage n/a'}`}</Text>}
       {transcript.map((entry, index) => <Text key={`entry-${index}`}>{entry.kind === 'error' ? `ERROR ${entry.text}` : entry.text.slice(0, 280)}</Text>)}
       {task && <Box>
-        {!complete(task) && <Button key="pi-abort" onPress={() => { if (aborting === task.id) { aborting = undefined; void runControl($, 'kill', [task.id], task.task?.group ?? 'default') } else { aborting = task.id; void $.ui.toast('Press Abort again to confirm.') } }}>Abort</Button>}
+        {!complete(task) && <Button key="pi-abort" onPress={() => void askConfirm($, 'kill', [task.id])}>Abort</Button>}
+        {task.task && eligible('kill', task.task.state) && <Button key="pi-hold" onPress={() => void askConfirm($, 'hold', [task.id])}>Hold queue</Button>}
         {!complete(task) && <Button key="pi-pause" onPress={() => void runControl($, task.task?.state === 'Paused' ? 'resume' : 'pause', [task.id], task.task?.group ?? 'default')}>{task.task?.state === 'Paused' ? 'Resume' : 'Pause'}</Button>}
         {complete(task) && <Button key="pi-remove" onPress={() => void runControl($, 'rm', [task.id], task.task?.group ?? 'default')}>Remove</Button>}
         <Button key="pi-dismiss" onPress={() => void dismiss($, task)}>Dismiss</Button>
