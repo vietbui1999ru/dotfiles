@@ -99,6 +99,8 @@ async function refresh($: EngineInterface) {
     const checked = (await Promise.all(unchecked.map(async task => [logKey(task), await logLeftReview($, task)] as const)))
       .filter((entry): entry is readonly [string, boolean] => entry[1] !== undefined)
     await update($, history, state => ({ ...state, tasks, reviews, leftReviews: { ...state.leftReviews, ...Object.fromEntries(checked) }, available: true }))
+    // A Continue appends to a finished run's session; the tick, not a redraw, picks that up.
+    for (const task of tasks) void loadUsage($, task, true)
   } finally {
     refreshing = false
   }
@@ -125,14 +127,22 @@ const finalMessageLabel = (cache: HistoryState['usage'][string] | undefined): st
 export const tailChunkArgv = (path: string, offset: number): string[] =>
   ['sh', '-c', 'tail -c "+$1" "$2" | head -c 1048576', 'pi-history-tail', String(offset + 1), path]
 
-async function loadUsage($: EngineInterface, task: Task) {
+const inFlight = new Set<string>()
+
+// Every write here redraws the pane, and a redraw calls this again, so a call writes only when it
+// has something new: a redraw (`revalidate` false) starts only a row's first load, and the
+// refresh tick re-checks loaded rows, writing nothing while the session file is unchanged.
+async function loadUsage($: EngineInterface, task: Task, revalidate = false) {
   const sessionId = parsePiCommand(task.command).sessionId
   if (!sessionId) return
   const key = usageKey(task, sessionId)
-  const current = (await read($, history)).usage[key]
-  if (current?.loading) return
-  await update($, history, state => ({ ...state, usage: { ...state.usage, [key]: { ...state.usage[key], loading: true } } }))
+  // Claimed before the read, so a call cannot act on a read taken before another call's write.
+  if (inFlight.has(key)) return
+  inFlight.add(key)
+  let current: HistoryState['usage'][string] | undefined
   try {
+    current = (await read($, history)).usage[key]
+    if (current && !revalidate) return
     const home = await $.env.get('HOME')
     if (!home) throw new Error('HOME unavailable')
     const directory = `${home}/.pi/agent/sessions/${sessionDir(task.cwd)}`
@@ -141,10 +151,7 @@ async function loadUsage($: EngineInterface, task: Task) {
     if (!file) throw new Error('session file unavailable')
     const path = `${directory}/${file.name}`
     const stat = await $.fs.stat(path)
-    if (current?.path === path && current.size === stat.size && current.mtimeMs === stat.mtimeMs) {
-      await update($, history, state => ({ ...state, usage: { ...state.usage, [key]: { ...current, loading: false } } }))
-      return
-    }
+    if (current?.path === path && current.size === stat.size && current.mtimeMs === stat.mtimeMs) return
     let offset = 0
     let progress: PiProgress = emptyProgress()
     let tail = ''
@@ -160,7 +167,10 @@ async function loadUsage($: EngineInterface, task: Task) {
       usage: { ...state.usage, [key]: { path, size: stat.size, mtimeMs: stat.mtimeMs, tokens: progress.tokens, cost: progress.cost, tail, loading: false, available: true } },
     }))
   } catch {
+    if (current?.available === false) return
     await update($, history, state => ({ ...state, usage: { ...state.usage, [key]: { ...state.usage[key], loading: false, available: false } } }))
+  } finally {
+    inFlight.delete(key)
   }
 }
 
