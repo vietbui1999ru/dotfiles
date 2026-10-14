@@ -26,6 +26,9 @@ test('parses real pueue running, failed, and killed status shapes', () => {
 test('recognizes and decodes Pi dispatches without trusting add stdout', () => {
   expect(isPiDispatch('pi --model openai/gpt:high --session-id pueue-x -p "$(cat /tmp/a)" < /dev/null')).toBe(true)
   expect(isPiDispatch('pueue add -- false')).toBe(false)
+  // parsePiCommand tracks a pi reached by any path, so the controls must accept the same command.
+  expect(isPiDispatch('/opt/tools/bin/pi --model x/y -p hi')).toBe(true)
+  expect(isPiDispatch('./pip -p x')).toBe(false)
   expect(parseAddResult(' 42\n')).toBe(42)
   expect(parseAddResult('task 42')).toBeUndefined()
   expect(parsePiCommand("pi --model openai/gpt:high --thinking medium --session-id pueue-x --label x -p ok")).toEqual({ model: 'openai/gpt', effort: 'medium', sessionId: 'pueue-x', label: 'x' })

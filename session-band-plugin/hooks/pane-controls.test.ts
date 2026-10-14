@@ -45,22 +45,23 @@ test('Hold asks to confirm, then pauses the queue and kills the task', async ($,
   expect(pueue.calls).toEqual([['pause', '--group', 'default', '--wait'], ['kill', '1']])
 })
 
-test('each live Monitor row has its own kill and pause buttons', async ($, on) => {
-  const { pueue } = await setup($, on, 2) // #1 and #2 running
-  await $.ui.render(PANE)
-  await $.ui.press({ plugin: 'session-band', key: 'pi-row-pause-2' })
-  expect(pueue.calls).toContainEqual(['pause', '2'])
-  await $.ui.render(PANE)
-  await $.ui.press({ plugin: 'session-band', key: 'pi-row-kill-1' })
-  expect(text(await $.ui.render(PANE))).toContain('Kill #1')
+// Each row is one focus stop, so an arrow moves one row; kill and pause act on the selected row.
+test('Monitor rows carry no kill or pause buttons of their own', async ($, on) => {
+  await setup($, on, 2) // #1 and #2 running
+  const drawn = JSON.stringify(await $.ui.render(PANE))
+  expect(drawn).toContain('pi-row-2')
+  expect(drawn).not.toContain('pi-row-kill-')
+  expect(drawn).not.toContain('pi-row-pause-')
 })
 
-test('finished rows have no kill or pause button', async ($, on) => {
-  const { clock, pueue } = await setup($, on)
-  pueue.tasks['1'] = finished(pueue.tasks['1']!, { Failed: 1 }, clock.now())
-  await clock.advance(2_000)
-  const drawn = JSON.stringify(await $.ui.render(PANE))
-  expect(drawn).not.toContain('pi-row-kill-1')
+test('a confirm refused for a task gone from pueue says why', async ($, on) => {
+  const { pueue, toasts } = await setup($, on)
+  await $.ui.render(PANE)
+  await $.ui.press({ plugin: 'session-band', key: 'pi-abort' })
+  delete pueue.tasks['1']
+  await $.ui.render(PANE)
+  await $.ui.press({ plugin: 'session-band', key: 'pi-confirm-ok' })
+  expect(JSON.stringify(toasts)).toContain('Nothing to kill. Skipped #1 (not in pueue).')
 })
 
 test('y has nothing to press with no confirm showing', async ($, on) => {

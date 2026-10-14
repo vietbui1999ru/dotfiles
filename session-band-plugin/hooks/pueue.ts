@@ -79,7 +79,7 @@ export const parseStatus = (json: string): Task[] => {
 }
 
 // pueue executes a shell command. This deliberately accepts an absolute pi path too.
-export const isPiDispatch = (command: string): boolean => /(?:^|[\s;&|])(?:[^\s/]+\/)?pi(?:\s|$)/.test(command) && /(?:^|\s)(?:-p|--prompt)(?:\s|=)/.test(command)
+export const isPiDispatch = (command: string): boolean => /(?:^|[\s;&|])(?:\S*\/)?pi(?:\s|$)/.test(command) && /(?:^|\s)(?:-p|--prompt)(?:\s|=)/.test(command)
 
 export const parseAddResult = (stdout: string): number | undefined => {
   const match = stdout.trim().match(/^(\d+)$/)

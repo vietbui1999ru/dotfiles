@@ -121,10 +121,10 @@ export async function confirmNow($: EngineInterface) {
   if ((await $.clock.now()) - confirm.atMs > CONFIRM_MS) { await $.ui.toast('Confirmation expired; press again.'); return }
   const status = await $.process.run(['pueue', 'status', '--json'])
   const pueue = parseStatus(status.stdout)
-  const { ids } = resolveTargets(confirm.action, confirm.ids, state.tasks, pueue)
-  if (ids.length === 0) { await $.ui.toast('Nothing left to kill: those hand-offs already finished.'); return }
+  const { ids, refused } = resolveTargets(confirm.action, confirm.ids, state.tasks, pueue)
+  if (ids.length === 0) { await $.ui.toast(`Nothing to ${confirm.action}.${describeRefused(refused)}`); return }
   const group = pueue.find(task => ids.includes(task.id))?.group ?? 'default'
-  await $.ui.toast(await runControl($, confirm.action, ids, group))
+  await $.ui.toast(`${await runControl($, confirm.action, ids, group)}${describeRefused(refused)}`)
 }
 
 async function dismiss($: EngineInterface, task: TrackedTask) {
@@ -360,14 +360,11 @@ export const register: Register = on => {
         {rows.map(row => {
           const selected = row.id === task?.id
           const idle = row.idle?.text
-          const liveRow = eligible('kill', row.state)
-          const track = state.tasks.find(item => item.id === row.id)
-          const columns = e.props.bodyColumns - (idle ? idle.length + 1 : 0) - 2 - (liveRow ? 4 : 0)
+          const columns = e.props.bodyColumns - (idle ? idle.length + 1 : 0) - 2
+          // The row is its only focus stop, so ↑↓ move one row; x/p act on the selected row.
           return <Box key={`pi-monitor-${row.id}`} flexDirection="row">
             <Button key={`pi-row-${row.id}`} plain label={`${selected ? '› ' : '  '}${monitorText(row, columns)}`} onPress={() => void update($, handoff, value => ({ ...value, selectedId: row.id }))} />
             {idle && <Text color={PALETTE[row.idle!.tone]}>{` ${idle}`}</Text>}
-            {liveRow && <Button key={`pi-row-kill-${row.id}`} plain label=" ✗" onPress={() => void askConfirm($, 'kill', [row.id])} />}
-            {(eligible('pause', row.state) || eligible('resume', row.state)) && <Button key={`pi-row-pause-${row.id}`} plain label={row.state === 'Paused' ? ' ▶' : ' ⏸'} onPress={() => void runControl($, row.state === 'Paused' ? 'resume' : 'pause', [row.id], track?.task?.group ?? 'default')} />}
           </Box>
         })}
       </Box>}
