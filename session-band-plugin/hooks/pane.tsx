@@ -317,7 +317,7 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: 'pi-handoff' }, async ($, e, _next) => {
-    const { Box, Text, Button, Input } = $.ui.resolve(e)
+    const { Box, Text, Button, Input, Client } = $.ui.resolve(e)
     const [state, allProgress, nowMs] = await Promise.all([read($, handoff), read($, progress), $.clock.now()])
     const rows = monitorRows(state.tasks, allProgress, state.tasks.flatMap(item => item.task ? [item.task] : []), nowMs)
     const rowIds = rows.map(row => row.id)
@@ -328,6 +328,7 @@ export const register: Register = on => {
     const confirm = state.confirm && nowMs - state.confirm.atMs <= CONFIRM_MS ? state.confirm : undefined
     return <Box flexDirection="column">
       {state.tasks.length === 0 && <Text>No Pi hand-offs tracked in this session.</Text>}
+      {task && <Client key="pi-keys" module="./pane-keys.tsx" />}
       {confirm && <Box flexDirection="row">
         <Text color={PALETTE.red}>{`${confirm.action === 'hold' ? 'Hold queue and kill' : 'Kill'} ${confirm.ids.map(id => `#${id}`).join(' ')}? `}</Text>
         <Button key="pi-confirm-ok" onPress={() => void confirmNow($)}>{confirm.action === 'hold' ? 'Hold + kill' : 'Kill'}</Button>
@@ -365,5 +366,32 @@ export const register: Register = on => {
       <Button key="pi-history" onPress={() => void $.ui.open({ id: 'pi-history', title: 'Pi history', focus: true })}>history</Button>
       <Button key="pi-clean-stale" onPress={() => void cleanStale($)}>Clean stale</Button>
     </Box>
+  })
+
+  on('ui.message', async ($, e, next) => {
+    if (e.requestId !== 'pi-handoff' || e.element !== 'pi-keys') return next(e)
+    const key = typeof e.data === 'object' && e.data !== null && 'key' in e.data ? e.data.key : undefined
+    if (typeof key !== 'string' || !['up', 'down', 'x', 'h', 'p', 'y', 'n'].includes(key)) return next(e)
+    const [state, allProgress, nowMs] = await Promise.all([read($, handoff), read($, progress), $.clock.now()])
+    const rowIds = monitorRows(state.tasks, allProgress, state.tasks.flatMap(item => item.task ? [item.task] : []), nowMs).map(row => row.id)
+    const task = selectedTask(state.tasks, state.selectedId, rowIds)
+    if (key === 'up' || key === 'down') {
+      if (rowIds.length > 0) {
+        const at = task?.id !== undefined ? Math.max(0, rowIds.indexOf(task.id)) : 0
+        const to = rowIds[(at + (key === 'down' ? 1 : rowIds.length - 1)) % rowIds.length]
+        if (to !== undefined) await update($, handoff, value => ({ ...value, selectedId: to }))
+      }
+    } else if (key === 'y') {
+      await confirmNow($)
+    } else if (key === 'n') {
+      await update($, handoff, value => ({ ...value, confirm: undefined }))
+    } else if (task?.task) {
+      const current = task.task.state
+      if ((key === 'x' || key === 'h') && eligible('kill', current)) await askConfirm($, key === 'x' ? 'kill' : 'hold', [task.id])
+      if (key === 'p' && (eligible('pause', current) || eligible('resume', current))) {
+        await $.ui.toast(await runControl($, current === 'Paused' ? 'resume' : 'pause', [task.id], task.task.group ?? 'default'))
+      }
+    }
+    return next(e)
   })
 }
