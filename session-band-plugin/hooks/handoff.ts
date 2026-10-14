@@ -67,6 +67,16 @@ export const formatElapsed = (ms: number): string => {
   return minutes < 60 ? `${minutes}m${seconds % 60}s` : `${Math.floor(minutes / 60)}h${minutes % 60}m`
 }
 
+/** One line for the desktop notification when a tracked hand-off leaves the live states. */
+export const finishNotice = (item: TrackedTask, pi: PiProgress | undefined): string => {
+  const task = item.task
+  const ran = task?.startMs !== undefined && task.endMs !== undefined ? formatElapsed(task.endMs - task.startMs) : undefined
+  const label = item.label ? ` · ${item.label}` : ''
+  if (task?.state === 'Done') return `pi#${item.id} Done${ran ? ` in ${ran}` : ''}${label}`
+  if (task?.state === 'Failed') return `pi#${item.id} Failed (exit ${task.exit ?? '?'})${ran ? ` after ${ran}` : ''}${pi?.error ? `: ${pi.error}` : ''}${label}`
+  return `pi#${item.id} ${task?.state ?? 'Finished'}${ran ? ` after ${ran}` : ''}${label}`
+}
+
 export const formatTokens = (tokens: number): string => tokens >= 1_000_000 ? `${(tokens / 1_000_000).toFixed(1)}m` : tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : String(tokens)
 
 export const activityLabel = (progress: PiProgress | undefined): string =>
