@@ -1,5 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
+import { text as labelText } from './fake-pueue'
 import { HISTORY_LEGEND, tailChunkArgv } from './history.tsx'
 
 const command = { command: 'pi-history', args: '', origin: { kind: 'composer' as const }, presentation: { isFullscreen: true, columns: 120 } }
@@ -42,6 +43,37 @@ test('a closed history pane does not poll pueue, and reads session data in one M
   await $.ui.render(PANE)
   expect(pueueCalls).toBe(0)
   expect(tailChunkArgv('/tmp/session.jsonl', 4)).toEqual(['sh', '-c', 'tail -c "+$1" "$2" | head -c 1048576', 'pi-history-tail', '5', '/tmp/session.jsonl'])
+})
+
+test('j, k and g move the history selection; q closes the pane', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-10-10T12:00:00Z') })
+  on('ui.open', () => ({ value: { isPlaced: true } } as never))
+  const closed: unknown[] = []
+  on('ui.close', (_$, e) => { closed.push(e.id); return { value: undefined } as never })
+  // No --session-id, so rendering starts no lazy usage load that would outlive the test.
+  const done = (id: number, label: string, end: string) => ({
+    id, label, path: '/repo', command: 'pi --model openai/gpt:high -p x < /dev/null', created_at: '2026-10-10T11:00:00Z',
+    status: { Done: { enqueued_at: '2026-10-10T11:00:00Z', start: '2026-10-10T11:00:01Z', end, result: 'Success' } },
+  })
+  const status = JSON.stringify({ tasks: { '5': done(5, 'run-five', '2026-10-10T11:10:00Z'), '6': done(6, 'run-six', '2026-10-10T11:20:00Z') } })
+  on('process.run', (_$, e) => ({ value: { exitCode: 0, stdout: e.argv[0] === 'pueue' && e.argv[1] !== 'log' ? status : '{}', stderr: '' } } as never))
+  await $.command.run(command)
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  const press = async (key: string) => { await ui.press({ key }); await clock.settle() }
+  const selected = async () => /› ([^\n]*)/.exec(labelText(await ui.drawn()))?.[1]
+  expect((await ui.find({ key: 'pi-history-key-down' }))?.props.hotkey).toBe('j')
+  expect((await ui.find({ key: 'pi-history-key-up' }))?.props.hotkey).toBe('k')
+  expect((await ui.find({ key: 'pi-history-key-top' }))?.props.hotkey).toBe('g')
+  const first = await selected()
+  await press('pi-history-key-down')
+  const second = await selected()
+  expect(second).not.toBe(first)
+  await press('pi-history-key-down')
+  expect(await selected()).toBe(second)
+  await press('pi-history-key-top')
+  expect(await selected()).toBe(first)
+  await press('pi-history-key-quit')
+  expect(closed).toContain('pi-history')
 })
 
 test('a Failed(1) run whose log shows it left a review is not drawn as a failure', async ($, on) => {
