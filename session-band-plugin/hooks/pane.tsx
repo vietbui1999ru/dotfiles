@@ -4,6 +4,7 @@ import { dispatchCommand, parseAddResult, parsePiCommand, parseStatus } from './
 import { controlArgv, eligible, holdArgv, parsePiArgs, releaseArgv, resolveTargets, stopArgvs, type ControlAction, type Targets } from './controls'
 import { monitorRows, selectStale, type MonitorRow, type StaleSelection, type TrackedTask } from './handoff'
 import type { HandoffState } from './handoff.tsx'
+import { focusRing, moveTo, type Motion } from './motion'
 import { PALETTE } from './palette'
 import type { PiProgress } from './pisession'
 import { parsePending, pendingRecordFor, type PendingReview } from './review'
@@ -125,6 +126,14 @@ export async function confirmNow($: EngineInterface) {
   if (ids.length === 0) { await $.ui.toast(`Nothing to ${confirm.action}.${describeRefused(refused)}`); return }
   const group = pueue.find(task => ids.includes(task.id))?.group ?? 'default'
   await $.ui.toast(`${await runControl($, confirm.action, ids, group)}${describeRefused(refused)}`)
+}
+
+/** j/k/g: select the row the motion lands on and put the focus ring on it, so the two agree. */
+async function move($: EngineInterface, rowIds: readonly number[], current: number | undefined, motion: Motion) {
+  const to = moveTo(rowIds, current, motion)
+  if (to === undefined) return
+  await update($, handoff, value => ({ ...value, selectedId: to }))
+  await focusRing($, 'pi-handoff', `pi-row-${to}`)
 }
 
 async function dismiss($: EngineInterface, task: TrackedTask) {
@@ -349,7 +358,15 @@ export const register: Register = on => {
     const confirm = state.confirm && nowMs - state.confirm.atMs <= CONFIRM_MS ? state.confirm : undefined
     return <Box flexDirection="column">
       {state.tasks.length === 0 && <Text>No Pi hand-offs tracked in this session.</Text>}
-      {task && <Text dimColor>keys: ↑↓ move · x kill · h hold · p pause · y/n confirm</Text>}
+      {/* Hotkeys, not hints: a key the pane does not bind falls through to the composer. */}
+      <Box flexDirection="row">
+        {rowIds.length > 0 && <Button key="pi-key-down" plain dimColor hotkey="j" label="down " onPress={() => void move($, rowIds, task?.id, 'down')} />}
+        {rowIds.length > 0 && <Button key="pi-key-up" plain dimColor hotkey="k" label="up " onPress={() => void move($, rowIds, task?.id, 'up')} />}
+        {rowIds.length > 0 && <Button key="pi-key-top" plain dimColor hotkey="g" label="top " onPress={() => void move($, rowIds, task?.id, 'top')} />}
+        {task && <Button key="pi-key-insert" plain dimColor hotkey="i" label="continue " onPress={() => void focusRing($, 'pi-handoff', 'pi-continue')} />}
+        <Button key="pi-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'pi-handoff' })} />
+        {task && <Text dimColor> · x kill · h hold · p pause · y/n confirm</Text>}
+      </Box>
       {confirm && <Box flexDirection="row">
         <Text color={PALETTE.red}>{`${confirm.action === 'hold' ? 'Hold queue and kill' : 'Kill'} ${confirm.ids.map(id => `#${id}`).join(' ')}? `}</Text>
         <Button key="pi-confirm-ok" hotkey="y" onPress={() => void confirmNow($)}>{confirm.action === 'hold' ? 'Hold + kill' : 'Kill'}</Button>

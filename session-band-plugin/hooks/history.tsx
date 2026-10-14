@@ -2,6 +2,7 @@ import { atom, read, update, type EngineInterface, type Register } from 'claude-
 
 import type { HistoryState, PiProgress } from '../types'
 import { finalMessage, historyRowsPage, leftReview, type HistoryFilter, type HistoryUsage, truncateCommand } from './history'
+import { focusRing, moveTo, type Motion } from './motion'
 import { emptyProgress, fold, sessionDir, sessionFileName } from './pisession'
 import { isPiDispatch, parsePiCommand, parseStatus, type Task } from './pueue'
 import { PALETTE } from './palette'
@@ -174,6 +175,14 @@ async function loadUsage($: EngineInterface, task: Task, revalidate = false) {
   }
 }
 
+/** j/k/g: select the history row the motion lands on and put the focus ring on it. */
+async function move($: EngineInterface, ids: readonly number[], current: number | undefined, motion: Motion) {
+  const to = moveTo(ids, current, motion)
+  if (to === undefined) return
+  await update($, history, value => ({ ...value, selectedId: to }))
+  await focusRing($, 'pi-history', `pi-hist-${to}`)
+}
+
 export const register: Register = on => {
   on('command.run', { command: 'pi-history' }, async ($, _e, _next) => {
     await $.ui.open({ id: 'pi-history', title: 'Pi history', focus: true })
@@ -211,8 +220,16 @@ export const register: Register = on => {
     for (const row of rows) void loadUsage($, row.task)
     if (task && !rows.some(row => row.task.id === task.id)) void loadUsage($, task)
     const filters: HistoryFilter[] = ['all', 'done', 'failed', 'killed']
+    const ids = rows.map(row => row.task.id)
     return <Box flexDirection="column">
       <Text>Pi history</Text>
+      {/* Hotkeys, not hints: a key the pane does not bind falls through to the composer. */}
+      <Box flexDirection="row">
+        {ids.length > 0 && <Button key="pi-history-key-down" plain dimColor hotkey="j" label="down " onPress={() => void move($, ids, task?.id, 'down')} />}
+        {ids.length > 0 && <Button key="pi-history-key-up" plain dimColor hotkey="k" label="up " onPress={() => void move($, ids, task?.id, 'up')} />}
+        {ids.length > 0 && <Button key="pi-history-key-top" plain dimColor hotkey="g" label="top " onPress={() => void move($, ids, task?.id, 'top')} />}
+        <Button key="pi-history-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'pi-history' })} />
+      </Box>
       <Box><Text color={PALETTE.green}>✓ success</Text><Text color={PALETTE.yellow}> · ✓ review</Text><Text color={PALETTE.red}> · ✗ exit</Text><Text color={PALETTE.mauve}> · ✗ killed</Text></Box>
       <Box>{filters.map(filter => <Button key={`pi-history-${filter}`} plain label={filter === state.filter ? `[${filter}]` : filter} onPress={() => void update($, history, value => ({ ...value, filter, limit: pageSize }))} />)}</Box>
       {!state.available && <Text color={PALETTE.red}>pueue daemon unavailable</Text>}
