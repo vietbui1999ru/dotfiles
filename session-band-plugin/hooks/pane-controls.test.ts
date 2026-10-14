@@ -63,10 +63,10 @@ test('finished rows have no kill or pause button', async ($, on) => {
   expect(drawn).not.toContain('pi-row-kill-1')
 })
 
-test('y with no confirm showing does nothing and says nothing', async ($, on) => {
+test('y has nothing to press with no confirm showing', async ($, on) => {
   const { pueue, toasts } = await setup($, on)
   const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
-  await ui.post({ key: 'y' }, { in: 'pi-keys' })
+  expect(await ui.find({ key: 'pi-confirm-ok' })).toBeUndefined()
   expect(toasts).toEqual([])
   expect(pueue.calls).toEqual([])
 })
