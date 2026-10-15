@@ -16,7 +16,11 @@
       "Bash(git push:*)",
       "Bash(/usr/bin/git add:*)",
       "Bash(/usr/bin/git commit:*)",
-      "Bash(/usr/bin/git push:*)"
+      "Bash(/usr/bin/git push:*)",
+      "Bash(tmux send-keys -t claude-*)",
+      "Bash(tmux new-session -d -s claude-*)",
+      "Bash(tmux capture-pane -p -t claude-*)",
+      "Bash(tmux kill-session -t claude-*)"
     ],
     "deny": [
       "Bash(agent-review approve:*)",
@@ -36,13 +40,7 @@
     ],
     "defaultMode": "plan"
   },
-  "model": "opus",
-  "autoMode": {
-    "allow": [
-      "$defaults",
-      "The user pre-authorized (2026-10-10) git add by path, git commit, and non-force git push of the current branch, from a feature branch or a git worktree, never main or master. This covers files the user asked to change, including the agent-review gate scripts and their tests: committing records the work, it does not approve or weaken the gate. It does not cover force-push, deleting remote branches, merge, rebase, reset --hard, or running agent-review approve."
-    ]
-  },
+  "model": "haiku",
   "hooks": {
     "PostToolUse": [
       {
@@ -239,7 +237,7 @@
       "effortLevel": "high"
     },
     "claude-sonnet-5-5": {
-      "effortLevel": "high"
+      "effortLevel": "medium"
     },
     "claude-haiku-5-5": {
       "effortLevel": "medium"
@@ -247,12 +245,19 @@
   },
   "tui": "fullscreen",
   "skipWorkflowUsageWarning": true,
+  "theme": "dark",
   "editorMode": "vim",
   "verbose": true,
   "autoCompactEnabled": false,
   "teammateMode": "in-process",
   "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": true,
+  "autoMode": {
+    "allow": [
+      "$defaults",
+      "The user pre-authorized (2026-10-10) git add by path, git commit, and non-force git push of the current branch, from a feature branch or a git worktree, never main or master. This covers files the user asked to change, including the agent-review gate scripts and their tests: committing records the work, it does not approve or weaken the gate. It does not cover force-push, deleting remote branches, merge, rebase, reset --hard, or running agent-review approve."
+    ]
+  },
   "mcpServers": {
     "firecrawl": {
       "args": [

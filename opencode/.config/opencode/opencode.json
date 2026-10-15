@@ -48,6 +48,14 @@
         "set -a; [ -f \"$HOME/secrets/.env\" ] && source \"$HOME/secrets/.env\"; exec npx -y firecrawl-mcp"
       ],
       "enabled": true
+    },
+    "excalidraw": {
+      "type": "remote",
+      "enabled": true,
+      "url": "https://api.excalidraw.com/api/v1/mcp",
+      "headers": {
+        "Authorization": "Bearer {env:EXCALIDRAW_API_KEY}"
+      }
     }
   },
   "skills": {

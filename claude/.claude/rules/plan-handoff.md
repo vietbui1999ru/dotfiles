@@ -27,6 +27,8 @@ Pi handles everything else by default, including multi-file features, migrations
 
 After dispatch, report the pueue task ID. Pi commits as it works; on collection, review its commits and revert what you reject. In `~/dotfiles`, use `:AgentReview` for the live review gate.
 
+Claude may drive a nested Claude Code session for a live gate only inside a detached tmux session it creates, named claude-<purpose>, through tmux send-keys -t claude-… and tmux capture-pane. It never sends keys to any other tmux session, never answers a nested session's permission prompt beyond what the gate needs, and kills the session when the gate ends.
+
 ## Claude git: commit and push without asking
 
 This section is for Claude only (Pi's rule in `shared/` still asks before push). After each coherent unit of work in a feature branch or git worktree, stage by path, commit, and push the branch (`git push` or `git push -u origin <branch>`), without asking. Open a draft PR when the work is ready for review. `settings.json` allows `git add`, `git commit` and `git push`, and denies force-push, `--delete` and pushes to `main`/`master`. Still ask before merge, rebase and `reset --hard`. A permission denial on a commit is not an invitation to work around it: report it.
