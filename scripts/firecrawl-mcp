@@ -1,0 +1,14 @@
+#!/bin/sh
+# Launch the Firecrawl MCP server for any MCP-capable harness with the key from
+# ~/secrets/.env, instead of a literal key in each tool's config file. Same loading rule
+# as scripts/firecrawl: read only FIRECRAWL_API_KEY, override the inherited value.
+# Use as the MCP server `command` (no args) in Claude Code, Codex, OpenCode or Pi.
+
+env_file="${FIRECRAWL_ENV_FILE:-$HOME/secrets/.env}"
+
+if [ -r "$env_file" ]; then
+	key=$(sed -n -E 's/^(export[[:space:]]+)?FIRECRAWL_API_KEY=//p' "$env_file" | tail -n 1 | tr -d '\r' | sed -E "s/^[\"']//; s/[\"']\$//")
+	[ -n "$key" ] && export FIRECRAWL_API_KEY="$key"
+fi
+
+exec npx -y firecrawl-mcp "$@"

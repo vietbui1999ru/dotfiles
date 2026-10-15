@@ -1,0 +1,26 @@
+#!/bin/sh
+# Provider-neutral Firecrawl CLI shim. Symlinked to ~/.local/bin/firecrawl, ahead of the
+# Homebrew binary on PATH, so every agent harness (Claude Code, Codex, OpenCode, Pi) that
+# runs `firecrawl ...` through a shell gets the same key.
+#
+# Why: ~/secrets/.env is only sourced by interactive zsh (.zshrc), and a process started
+# before the key was rotated keeps the old value in its environment. The CLI prefers the
+# environment variable, so a stale inherited key beats a good one on disk. This shim reads
+# ONLY FIRECRAWL_API_KEY from the secrets file (never executes it, never exports the other
+# secrets) and overrides whatever the parent passed.
+#
+# Overrides: FIRECRAWL_ENV_FILE (secrets path), FIRECRAWL_REAL (real binary path).
+
+env_file="${FIRECRAWL_ENV_FILE:-$HOME/secrets/.env}"
+real="${FIRECRAWL_REAL:-/opt/homebrew/bin/firecrawl}"
+
+if [ -r "$env_file" ]; then
+	key=$(sed -n -E 's/^(export[[:space:]]+)?FIRECRAWL_API_KEY=//p' "$env_file" | tail -n 1 | tr -d '\r' | sed -E "s/^[\"']//; s/[\"']\$//")
+	[ -n "$key" ] && export FIRECRAWL_API_KEY="$key"
+fi
+
+if [ ! -x "$real" ]; then
+	echo "firecrawl shim: real binary not found at $real (set FIRECRAWL_REAL)" >&2
+	exit 127
+fi
+exec "$real" "$@"
