@@ -1,8 +1,11 @@
-import type { EngineInterface } from 'claude-code'
+import { atom, read, update, type EngineInterface, type Register } from 'claude-code'
 
 import type { WorktreeRow, WorktreeState } from '../types'
+import { nextPane } from './pane-nav'
 import { PALETTE } from './palette'
 import { countChanges, parseAheadBehind, parseHeartbeat, parseWorktrees, SYMBOL, type Worktree } from './worktrees'
+
+const view = atom({ plugin: 'session-band', key: 'worktrees' } as const, { open: false } as WorktreeState)
 
 const FRESH_MS = 60_000
 
@@ -62,4 +65,61 @@ export const paneLines = (state: WorktreeState, selected: WorktreeRow | undefine
     lines.push({ text: `  ${SYMBOL.branch} ${branch.name}${branch.upstream ? `  -> ${branch.upstream}` : ''}${branch.worktree ? `  [${branch.worktree}]` : ''}`, color: branch.worktree ? PALETTE.muted : undefined })
   }
   return lines
+}
+
+const refresh = async ($: EngineInterface) => {
+  const data = await gather($, await $.session.cwd())
+  await update($, view, state => ({ ...state, data }))
+}
+
+// j/k move the selection through the worktree rows; wraps at both ends.
+const move = async ($: EngineInterface, step: 1 | -1) => {
+  const state = await read($, view)
+  const rows = state.data?.rows ?? []
+  if (rows.length === 0) return
+  const at = Math.max(rows.findIndex(row => row.path === state.selected), 0)
+  const next = rows[(at + step + rows.length) % rows.length]
+  await update($, view, value => ({ ...value, selected: next.path }))
+}
+
+export const register: Register = on => {
+  on('command.run', { command: 'worktrees' }, async ($, _e, _next) => {
+    await $.ui.open({ id: 'worktrees', title: 'Worktrees', focus: true })
+    return { text: 'Worktrees opened.' }
+  })
+
+  on('ui.open', { id: 'worktrees' }, async ($, e, next) => {
+    const result = await next(e)
+    await update($, view, state => ({ ...state, open: true }))
+    await refresh($)
+    return result
+  })
+
+  on('ui.close', { id: 'worktrees' }, async ($, e, next) => {
+    const result = await next(e)
+    if (!('deny' in result)) await update($, view, state => ({ ...state, open: false }))
+    return result
+  })
+
+  on('ui.render', { component: 'Pane', requestId: 'worktrees' }, async ($, e, _next) => {
+    const { Box, Text, Button } = $.ui.resolve(e)
+    const state = await read($, view)
+    const rows = state.data?.rows ?? []
+    const selected = rows.find(row => row.path === state.selected) ?? rows[0]
+    return <Box flexDirection="column">
+      <Text>Worktrees</Text>
+      {/* Hotkeys, not hints: a key the pane does not bind falls through to the composer. */}
+      <Box flexDirection="row">
+        <Button key="wt-key-down" plain dimColor hotkey="j" label="down " onPress={() => void move($, 1)} />
+        <Button key="wt-key-up" plain dimColor hotkey="k" label="up " onPress={() => void move($, -1)} />
+        <Button key="wt-key-refresh" plain dimColor hotkey="r" label="refresh " onPress={() => void refresh($)} />
+        <Button key="wt-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'worktrees' })} />
+      </Box>
+      <Box flexDirection="row">
+        <Button key="wt-key-prev" plain dimColor hotkey="b" label="prev pane " onPress={() => void $.ui.panes().then(panes => { const to = nextPane(panes.map(pane => pane.id), 'worktrees', -1); if (to && to !== 'worktrees') void $.ui.open({ id: to, focus: true }) })} />
+        <Button key="wt-key-next" plain dimColor hotkey="f" label="next pane" onPress={() => void $.ui.panes().then(panes => { const to = nextPane(panes.map(pane => pane.id), 'worktrees', 1); if (to && to !== 'worktrees') void $.ui.open({ id: to, focus: true }) })} />
+      </Box>
+      {paneLines(state, selected).map((line, index) => <Text key={`wt-line-${index}`} color={line.color}>{line.text}</Text>)}
+    </Box>
+  })
 }

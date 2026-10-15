@@ -5,6 +5,7 @@ import { controlArgv, eligible, holdArgv, killGroupArgv, parsePiArgs, PS_ARGV, r
 import { monitorRows, selectStale, type MonitorRow, type StaleSelection, type TrackedTask } from './handoff'
 import type { HandoffState } from './handoff.tsx'
 import { focusRing, moveTo, type Motion } from './motion'
+import { nextPane } from './pane-nav'
 import { PALETTE } from './palette'
 import type { PiProgress } from './pisession'
 import { parsePending, pendingRecordFor, type PendingReview } from './review'
@@ -371,6 +372,9 @@ export const register: Register = on => {
         {rowIds.length > 0 && <Button key="pi-key-top" plain dimColor hotkey="g" label="top " onPress={() => void move($, rowIds, task?.id, 'top')} />}
         {task && <Button key="pi-key-insert" plain dimColor hotkey="i" label="continue " onPress={() => void focusRing($, 'pi-handoff', 'pi-continue')} />}
         <Button key="pi-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'pi-handoff' })} />
+        <Button key="pi-key-prev" plain dimColor hotkey="b" label="prev " onPress={() => void $.ui.panes().then(panes => { const to = nextPane(panes.map(pane => pane.id), 'pi-handoff', -1); if (to && to !== 'pi-handoff') void $.ui.open({ id: to, focus: true }) })} />
+        <Button key="pi-key-next" plain dimColor hotkey="f" label="next " onPress={() => void $.ui.panes().then(panes => { const to = nextPane(panes.map(pane => pane.id), 'pi-handoff', 1); if (to && to !== 'pi-handoff') void $.ui.open({ id: to, focus: true }) })} />
+        <Button key="pi-key-worktrees" plain dimColor hotkey="w" label="worktrees" onPress={() => void $.ui.open({ id: 'worktrees', title: 'Worktrees', focus: true })} />
         {task && <Text dimColor> · x kill · h hold · p pause · y/n confirm</Text>}
       </Box>
       {confirm && <Box flexDirection="row">
