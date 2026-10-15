@@ -35,25 +35,36 @@ HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 def parse_diff(base):
     """Return ({path: [(new_line, text)]}, {path: [removed text]}, [deleted paths])."""
     added, removed, deleted = {}, {}, []
-    path, new_line, is_deleted = None, 0, False
-    out = git("diff", "-U0", "--no-color", "--no-ext-diff", "--no-renames", base).stdout
+    path, new_line, is_deleted, in_hdr = None, 0, False, False
+    # -M: a renamed test file is not a deletion; its line changes count under the new path.
+    out = git("diff", "-U0", "--no-color", "--no-ext-diff", "-M", base).stdout
     for line in out.splitlines():
         if line.startswith("diff --git "):
-            path, is_deleted = None, False
-        elif line.startswith("deleted file mode"):
+            path, is_deleted, in_hdr, old = None, False, True, ""
+        elif in_hdr and line.startswith("deleted file mode"):
             is_deleted = True
-        elif line.startswith("--- "):
+        elif in_hdr and line.startswith("rename from "):
+            old = line[12:]
+        elif in_hdr and line.startswith("rename to "):
+            # a test renamed out of a test path is a deleted test file
+            if is_test(old) and not is_test(line[10:]):
+                deleted.append(old)
+        elif in_hdr and line.startswith("--- "):
+            # git appends a TAB after paths containing spaces
             if is_deleted and line.startswith("--- a/"):
-                deleted.append(line[6:])
-        elif line.startswith("+++ "):
-            path = line[6:] if line.startswith("+++ b/") else None
+                deleted.append(line[6:].rstrip("\t"))
+        elif in_hdr and line.startswith("+++ "):
+            path = line[6:].rstrip("\t") if line.startswith("+++ b/") else None
         elif m := HUNK.match(line):
-            new_line = int(m.group(3))
+            new_line, in_hdr = int(m.group(3)), False
         elif line.startswith("+") and path:
             added.setdefault(path, []).append((new_line, line[1:]))
             new_line += 1
         elif line.startswith("-") and path:
             removed.setdefault(path, []).append(line[1:])
+    # binary deletions have no --- a/ line; renames are excluded by -M
+    names = git("diff", "--name-only", "-M", "--diff-filter=D", base).stdout.splitlines()
+    deleted = sorted(set(deleted) | set(names))
     for rel in git("ls-files", "--others", "--exclude-standard").stdout.splitlines():
         try:
             with open(rel, encoding="utf-8", errors="replace") as fh:
@@ -72,7 +83,7 @@ STUBS = ["NotImplementedError", "Not implemented", "todo!(", "unimplemented!("]
 EMPTY_CATCH = re.compile(r"catch\s*(\([^)]*\))?\s*\{\s*\}")
 EXCEPT_PASS = re.compile(r"^\s*except\b[^:]*:\s*pass\b")
 EXCEPT_OPEN = re.compile(r"^\s*except\b[^:]*:\s*(#.*)?$")
-ASSERTION = re.compile(r"^\s*assert\b|expect\(")
+ASSERTION = re.compile(r"^\s*assert\b|\.assert\w*\(|expect\(")
 STATUS = re.compile(r"^status:\s*(\S+)", re.M)
 
 
