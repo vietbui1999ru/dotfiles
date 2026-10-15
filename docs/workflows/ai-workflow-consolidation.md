@@ -26,6 +26,13 @@ the top-level entry contains `SKILL.md`, including llm-wiki-backed symlinks;
 runtime cache directories do not count. The hook count includes the deliberate
 session-band plugin guard and NotchBar lifecycle hooks.
 
+**Update 2026-10-15:** the 22-skill cap is removed. The Firecrawl CLI alone brings 15
+curated skills, and the plan is to let the library grow and retrieve the relevant
+skills on demand (qmd, a small model, or a trained classifier) instead of listing
+all of them. `trial-expiry.sh` still counts skills but only caps agents, rules and
+hooks. Listing cost grows with the count until retrieval exists: about 2,700 tokens
+per 34 skill descriptions, measured on the Firecrawl set.
+
 ## Evidence this is safe
 
 Measured across 19 real Claude Code session transcripts (2026-07-10 → 2026-09-16):
