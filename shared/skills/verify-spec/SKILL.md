@@ -1,6 +1,6 @@
 ---
 name: verify-spec
-description: Verify implemented code against a spec's acceptance criteria. Two passes — agent-based (fast, reads code + spec) then test-stub generation for failing ACs. Invoke manually after implementation, before PR.
+description: Verify implemented code against a spec's acceptance criteria. Runs the spec's verify commands first (ac-run check), then a diff scan for gamed tests and suppressions (floor-guard), with a bounded fix loop of at most 3 reruns. Reads code only for manual ACs. Invoke after implementation, before PR.
 allowed-tools: "Bash,Read,Write,Edit,Agent"
 ---
 
@@ -13,100 +13,88 @@ Invoke after implementation is complete, before opening a PR:
 - After any AI-assisted feature implementation
 - When you want a structured pass/fail report against a spec
 
-## Step 1: Resolve the spec
+Status comes from exit codes, not from reading code. Reading is only for ACs marked `verify: manual`.
+
+## Step 0: Resolve the spec
 
 Try in order:
 
-**1a. Branch → GitHub issue**
+**0a. SPEC.md at the repo root**, used only when its frontmatter `branch:` equals the output of `git branch --show-current`. A SPEC.md for another branch is stale; skip it.
+
+**0b. Branch → GitHub issue**
 ```bash
 BRANCH=$(git branch --show-current)
 ISSUE=$(echo "$BRANCH" | grep -oE '[0-9]+' | tail -1)
 [ -n "$ISSUE" ] && gh issue view "$ISSUE" 2>/dev/null
 ```
 
-**1b. Local PRD file**
+**0c. Local PRD file**
 ```bash
 ls docs/superpowers/specs/*.md 2>/dev/null | head -5
 ```
 
-**1c. User fallback**
-If neither resolves: ask "Where is the spec? (issue number / file path / paste it)"
+**0d. User fallback**
+If none resolves: ask "Where is the spec? (issue number / file path / paste it)"
 
-Once resolved: extract all acceptance criteria. Look for:
-- Numbered or bulleted lists under headings like "Acceptance Criteria", "AC", "Done when", "Requirements"
-- Checkbox items (`- [ ]`)
-- BDD-style ("Given/When/Then")
+Steps 1 and 2 need SPEC.md (0a). For an issue or PRD spec, extract the acceptance criteria (lists under "Acceptance Criteria", "Done when", checkboxes, Given/When/Then), confirm the count with the user, and treat each as MANUAL in Step 3.
 
-List extracted ACs and confirm count with user before proceeding.
+## Step 1: Run the acceptance criteria (primary)
 
-## Step 2: Agent verification pass (fast)
-
-Spawn a subagent to verify each AC against the current codebase:
-
-```
-Subagent prompt:
-You are verifying that an implementation meets its acceptance criteria.
-
-Spec:
-<paste full spec>
-
-Acceptance criteria to verify:
-<numbered list of ACs>
-
-For each AC:
-1. Search the codebase for relevant code (grep, read files)
-2. Determine: PASS | FAIL | PARTIAL | UNVERIFIABLE
-3. For non-PASS: cite the specific gap (file + line or missing behavior)
-
-Output a structured table:
-| # | AC | Status | Evidence / Gap |
+```bash
+~/dotfiles/scripts/ac-run check SPEC.md
 ```
 
-Print the full report. Summarize: X passed, Y failed, Z partial/unverifiable.
+It runs every `verify:` command and prints a table `| AC | Result | Exit | Seconds |`. Results: PASS, FAIL, TIMEOUT, PRE-SATISFIED (the AC was already true before the change), MANUAL. Exit 0 means all PASS or MANUAL; 1 means a FAIL, TIMEOUT or PRE-SATISFIED; 2 is a usage, parse or branch error; 3 means the spec has no approval record and nothing ran. On exit 3, stop and tell the user the spec needs their approval; never approve it yourself.
 
-## Step 3: Test stub generation (for FAIL/PARTIAL)
+## Step 2: Scan the diff
 
-For each AC that failed or is partial:
+```bash
+~/dotfiles/scripts/floor-guard
+```
 
-Ask: "Generate test stubs for failing ACs? (yes/no)"
+It flags added suppressions, added test skips, deleted test files, removed assertions, and added stubs or swallowed errors (`path:line: [rule] text`). Findings are advisory: report every one as is. Never reword code to dodge a pattern; the human decides at review.
 
-If yes — for each failing AC, generate a test stub:
+## Step 3: Read-pass for MANUAL ACs only
+
+For each AC that Step 1 lists as MANUAL (or every AC of an issue or PRD spec), read the relevant code and judge it: PASS, FAIL or UNVERIFIABLE, citing file and line for anything not PASS. If your harness has subagents, you may delegate this read-pass to one; nothing requires it. Never use this pass to overrule a FAIL from Step 1.
+
+## Fix loop
+
+If Step 1 reports FAIL, TIMEOUT or PRE-SATISFIED: find the root cause in the code, fix it, and rerun Steps 1 and 2. Fix and rerun at most 3 times, then stop and report the outputs.
+
+- Never edit a `verify:` line or a `baseline:` line. Editing either voids approval. If a verify command itself is wrong, report it and ask the user to fix and re-approve the spec.
+- Never edit a test to make a check pass.
+- Write test stubs only for ACs whose verify target does not exist yet (for example, the named test file or test function is missing). Ask before writing them. A stub must fail until implemented:
 
 ```
 # Python (pytest)
 def test_<ac_slug>():
-    """AC #N: <AC text>"""
-    # TODO: implement
+    """AC-N: <AC text>"""
     raise NotImplementedError
 
 # TypeScript (vitest/jest)
-it('<AC text>', () => {
-  // TODO: implement
+it('AC-N: <AC text>', () => {
   expect(true).toBe(false) // force red
 })
 ```
 
-Write stubs to the appropriate test file. If no test file exists, ask where to write them.
-
-These stubs are the entry point for TDD to drive to green.
-
 ## Step 4: Report
 
-Print summary:
+Paste the full output of `ac-run check` and `floor-guard`, then:
 ```
 Spec: <source>
-ACs verified: <total>
-  PASS:          <n>
-  FAIL:          <n>
-  PARTIAL:       <n>
-  UNVERIFIABLE:  <n>
-
+ac-run check exit: <code>    floor-guard exit: <code>
+MANUAL ACs: <id: PASS | FAIL | UNVERIFIABLE, evidence>
+Fix attempts used: <n> of 3
 Test stubs written: <n files>
-Next: drive failing stubs to green with TDD
 ```
 
-## Notes
+## Rationalizations
 
-- Agent pass is fast but not exhaustive — it reads code, doesn't run it
-- UNVERIFIABLE = AC requires runtime behavior (UI, integration) that can't be checked statically
-- If spec has no explicit ACs, ask user to list 3–5 "done when" conditions before proceeding
+| Excuse | Reality |
+|---|---|
+| "The code clearly does it." | Reading is not running. Status comes from the exit code. |
+| "The verify command is wrong, I'll fix it." | Editing it voids approval. Report it and ask. |
+| "It passed before I started, so it's fine." | That is PRE-SATISFIED: the AC proved nothing about this change, unless marked `baseline: pass`. |
+| "That floor-guard finding is a false positive." | Report it; the human decides at review. Rewording to dodge it is gaming. |
+| "One more try will fix it." | The bound is 3. Report the output. |
