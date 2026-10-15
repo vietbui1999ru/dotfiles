@@ -1,0 +1,39 @@
+# Codex permission profile "dev": Codex's own :workspace sandbox plus a network allowlist.
+#
+# Why this exists: with `[features] network_proxy = true` and no allowlist, the sandbox blocks every
+# outbound host, so tools like the firecrawl CLI fail (getaddrinfo ENOTFOUND api.firecrawl.dev).
+# Extending :workspace keeps its filesystem rules (read everywhere, write only the workspace roots and
+# temp); this file only adds a domain allowlist and a few protections on top.
+#
+# Install (see docs/codex-permissions.md): put `default_permissions = "dev"` at the TOP of
+# ~/.codex/config.toml (before the first [table]) and append everything below the marker line.
+# ----- append from here -----
+
+[permissions.dev]
+description = "workspace sandbox + network allowlist for dev tooling and Firecrawl"
+extends = ":workspace"
+
+[permissions.dev.network]
+enabled = true
+
+[permissions.dev.network.domains]
+# Firecrawl CLI (pages are fetched by Firecrawl's cloud, so only the API host is needed here)
+"api.firecrawl.dev" = "allow"
+# Source hosting and package registries used by builds and tests
+"github.com" = "allow"
+"api.github.com" = "allow"
+"codeload.github.com" = "allow"
+"objects.githubusercontent.com" = "allow"
+"raw.githubusercontent.com" = "allow"
+"pypi.org" = "allow"
+"files.pythonhosted.org" = "allow"
+"registry.npmjs.org" = "allow"
+"crates.io" = "allow"
+"index.crates.io" = "allow"
+"static.crates.io" = "allow"
+"proxy.golang.org" = "allow"
+"sum.golang.org" = "allow"
+# Local servers started by verify commands
+"localhost" = "allow"
+"127.0.0.1" = "allow"
+"::1" = "allow"
