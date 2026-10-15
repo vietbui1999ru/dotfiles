@@ -1,7 +1,7 @@
 import { atom, read, update, type EngineInterface, type Register } from 'claude-code'
 
 import { dispatchCommand, parseAddResult, parsePiCommand, parseStatus } from './pueue'
-import { controlArgv, eligible, holdArgv, killGroupArgv, parsePiArgs, PS_ARGV, releaseArgv, resolveTargets, stopArgvs, strayGroups, type ControlAction, type Targets } from './controls'
+import { controlArgv, eligible, holdArgv, parsePiArgs, PS_ARGV, releaseArgv, resolveTargets, signalGroupArgv, stopArgvs, strayGroups, type ControlAction, type Targets } from './controls'
 import { monitorRows, selectStale, type MonitorRow, type StaleSelection, type TrackedTask } from './handoff'
 import type { HandoffState } from './handoff.tsx'
 import { focusRing, moveTo, type Motion } from './motion'
@@ -71,6 +71,14 @@ async function open($: EngineInterface) {
 const describeRefused = (refused: Targets['refused']) =>
   refused.length ? ` Skipped ${refused.map(item => `#${item.id} (${item.reason})`).join(', ')}.` : ''
 
+/** Signal the detached tool groups of the given started tasks. The tree is intact while stopped, so strays still trace. */
+async function signalStrays($: EngineInterface, ids: readonly number[], signal: 'STOP' | 'CONT') {
+  const tasks = parseStatus((await $.process.run(['pueue', 'status', '--json'])).stdout)
+  const commands = tasks.filter(task => ids.includes(task.id) && task.state !== 'Queued').map(task => task.command)
+  if (commands.length === 0) return
+  for (const pgid of strayGroups((await $.process.run(PS_ARGV)).stdout, commands)) await $.process.run(signalGroupArgv(signal, pgid))
+}
+
 /** Run one /pi control action, updating the tracked list for `rm`; returns the reply text. */
 export async function runControl($: EngineInterface, action: ControlAction, ids: readonly number[], group: string): Promise<string> {
   // Each pueue call is checked: the reply must never claim what pueue refused.
@@ -98,7 +106,7 @@ export async function runControl($: EngineInterface, action: ControlAction, ids:
       if (failed) return failed
     }
     // A group already gone exits 1 ("No such process"); nothing is left to kill then.
-    for (const pgid of strays) await $.process.run(killGroupArgv(pgid))
+    for (const pgid of strays) await $.process.run(signalGroupArgv('KILL', pgid))
     const queued = ids.filter(id => states.get(id) === 'Queued')
     const started = ids.filter(id => states.get(id) !== 'Queued')
     const stopped = [started.length ? `Killed ${list(started)}` : '', queued.length ? `removed queued ${list(queued)}` : ''].filter(Boolean).join(', ')
@@ -106,6 +114,7 @@ export async function runControl($: EngineInterface, action: ControlAction, ids:
   }
   const failed = await run(controlArgv(action, ids))
   if (failed) return failed
+  if (action === 'pause' || action === 'resume') await signalStrays($, ids, action === 'pause' ? 'STOP' : 'CONT')
   if (action === 'rm') await update($, handoff, state => ({ ...state, tasks: state.tasks.filter(item => !ids.includes(item.id)) }))
   const verb = { pause: 'Paused', resume: 'Resumed', rm: 'Removed' }[action]
   return `${verb} ${list(ids)}.`

@@ -101,4 +101,5 @@ export const strayGroups = (ps: string, commands: readonly string[]): number[] =
   return [...groups].sort((a, b) => a - b)
 }
 
-export const killGroupArgv = (pgid: number): string[] => ['/bin/kill', '-KILL', '--', `-${pgid}`]
+/** `pueue pause` and `pueue start` signal only the task's own group, so the tool groups get the same signal here. */
+export const signalGroupArgv = (signal: 'KILL' | 'STOP' | 'CONT', pgid: number): string[] => ['/bin/kill', `-${signal}`, '--', `-${pgid}`]
