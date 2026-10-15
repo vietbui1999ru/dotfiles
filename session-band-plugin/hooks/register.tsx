@@ -120,12 +120,12 @@ const startHeartbeat = async ($: EngineInterface) => {
   const tmp = await $.env.get('TMPDIR') ?? '/tmp'
   const path = heartbeatPath(tmp, await $.session.id())
   const beat = async () => {
-    if (path) await $.fs.write(path, heartbeatBody(await $.clock.now()))
+    if (path) await $.fs.write(path, heartbeatBody(await $.clock.now(), await $.session.cwd()))
     const current = await $.session.usage()
     await update($, usage, () => measuredUsage(current.context, current.rateLimits))
     await refreshGit($)
   }
-  if (path) await $.fs.write(path, heartbeatBody(await $.clock.now()))
+  if (path) await $.fs.write(path, heartbeatBody(await $.clock.now(), await $.session.cwd()))
   $.clock.every(HEARTBEAT_INTERVAL_MS, () => { void beat().catch(() => undefined) })
 }
 

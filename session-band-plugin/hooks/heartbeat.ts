@@ -8,4 +8,5 @@ const SAFE_ID = /^[A-Za-z0-9_-]+$/
 export const heartbeatPath = (tmp: string, sessionId: string): string | undefined =>
   SAFE_ID.test(sessionId) ? `${tmp}/session-band-${sessionId}.alive` : undefined
 
-export const heartbeatBody = (nowMs: number): string => `${Math.floor(nowMs / 1000)}\n`
+// "<unix seconds>\t<session cwd>": the worktrees pane reads the cwd to show which worktrees have a live session.
+export const heartbeatBody = (nowMs: number, cwd: string): string => `${Math.floor(nowMs / 1000)}\t${cwd}\n`

@@ -12,5 +12,5 @@ test('a session id that could escape the directory gets no path', () => {
 })
 
 test('heartbeat body is the unix time in whole seconds', () => {
-  expect(heartbeatBody(1_791_400_000_999)).toBe('1791400000\n')
+  expect(heartbeatBody(1_791_400_000_999, '/repo/wt')).toBe('1791400000\t/repo/wt\n')
 })
