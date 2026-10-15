@@ -26,6 +26,16 @@ mkdir -p "$CODEX_DIR"
 cp "$SHARED" "$CODEX_DIR/AGENTS.md"
 echo "✓ Codex: $CODEX_DIR/AGENTS.md"
 
+# Codex lists a symlinked agent TOML but cannot spawn it, so copy the stowed definitions
+# as regular files. Edit codex/.codex/agents/*.toml in dotfiles; this overwrites the copy.
+mkdir -p "$CODEX_DIR/agents"
+for _agent in "$HOME"/dotfiles/codex/.codex/agents/*.toml; do
+	[ -f "$_agent" ] || continue
+	rm -f "$CODEX_DIR/agents/$(basename "$_agent")"
+	cp "$_agent" "$CODEX_DIR/agents/"
+	echo "✓ Codex: agents/$(basename "$_agent")"
+done
+
 # ── MCP Servers ───────────────────────────────────────────────────────────────
 # Inject portable URL-based MCP servers into each tool's config.
 
