@@ -159,7 +159,7 @@ pushed or merged, not to commits.
 
 1. If SPEC.md exists at the repo root and its `branch:` matches the current branch, read it before writing code. Work only toward its AC ids. Obey its Boundaries.
 2. Never run `~/dotfiles/scripts/ac-run approve`. Only the human approves a spec. (Approval can be forged by anyone with a shell; this rule is the defence.)
-3. In an unattended or pueue run, stop at a lint-clean SPEC.md with `status: draft`. Implementation is a separate run after approval.
+3. When you are asked to write a spec in an unattended or pueue run, stop at a lint-clean SPEC.md with `status: draft`. Implementation is a separate run after approval. A run asked to implement an approved spec proceeds normally.
 4. Never edit a `verify:` line or a test to make a check pass. Report the failure.
 5. When rule 1 applies, before saying "done", run `~/dotfiles/scripts/ac-run check SPEC.md` and `~/dotfiles/scripts/floor-guard`. Paste both outputs.
 6. When rule 1 applies, if a check fails, fix and rerun. Stop after 3 tries and report the failing output.

@@ -63,7 +63,7 @@ For each AC that Step 1 lists as MANUAL (or every AC of an issue or PRD spec), r
 If Step 1 reports FAIL, TIMEOUT or PRE-SATISFIED: find the root cause in the code, fix it, and rerun Steps 1 and 2. Fix and rerun at most 3 times, then stop and report the outputs.
 
 - Never edit a `verify:` line or a `baseline:` line. Editing either voids approval. If a verify command itself is wrong, report it and ask the user to fix and re-approve the spec.
-- Never edit a test to make a check pass.
+- Never edit an existing test to make a check pass, and never weaken an assertion. The one allowed edit: replace the `raise NotImplementedError` (or `expect(true).toBe(false)`) placeholder body of a stub you wrote for this spec with the real assertions.
 - Write test stubs only for ACs whose verify target does not exist yet (for example, the named test file or test function is missing). Ask before writing them. A stub must fail until implemented:
 
 ```

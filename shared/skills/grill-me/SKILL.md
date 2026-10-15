@@ -9,6 +9,8 @@ Ask the questions one at a time.
 
 If a question can be answered by exploring the codebase, explore the codebase instead.
 
+**Relaxed mode.** When a written spec already exists (issue body, PRD, a project instructions section, a detailed message) and you would otherwise start grilling, first print one line: `Spec detected — say 'just do it' to skip questions and self-generate.` If the user opts out ("just do it", "no questions", "skip the grill"), ask at most one question, and only for a true blocker that cannot be inferred from the spec or the codebase; if there is none, proceed silently, resolve everything else yourself, then write SPEC.md and follow the STOP section below.
+
 ## Final step: write SPEC.md
 
 When the interview is done, write `SPEC.md` at the repo root in the format below, with `branch:` set to the output of `git branch --show-current` and `status: draft`. Every acceptance criterion (AC) gets exactly one `verify:` line: a shell command in backticks whose exit code is the verdict, or `manual - <reason>` when only a human can judge it. List every unresolved question under Open Questions with your default answer.
