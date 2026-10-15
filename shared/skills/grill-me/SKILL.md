@@ -15,7 +15,7 @@ If a question can be answered by exploring the codebase, explore the codebase in
 
 When the interview is done, write `SPEC.md` at the repo root in the format below, with `branch:` set to the output of `git branch --show-current` and `status: draft`. Every acceptance criterion (AC) gets exactly one `verify:` line: a shell command in backticks whose exit code is the verdict, or `manual - <reason>` when only a human can judge it. List every unresolved question under Open Questions with your default answer.
 
-Write verify commands that do not depend on the caller's environment: use `uv run pytest` rather than a bare `pytest` from an activated virtualenv, and absolute tool paths where a tool is not on the default `PATH`.
+Write verify commands that do not depend on the caller's environment: use `uv run pytest` rather than a bare `pytest` from an activated virtualenv, and absolute tool paths where a tool is not on the default `PATH`. Each verify command must start and stop whatever it needs (a server, a fixture): `ac-run` kills the command's whole process group when it finishes, so nothing one AC leaves running is available to the next.
 
 ```markdown
 ---
