@@ -2,6 +2,7 @@
 kind: spec
 work_type: spec
 status: draft
+branch: feat/example
 goal: ""
 task: ""
 tags: []
@@ -60,13 +61,16 @@ tags: []
 - Edit `node_modules/` or vendor directories
 - Remove a failing test without explicit approval
 
-## Conformance Criteria
+## Acceptance Criteria
 
-- Must pass all cases in `conformance.yaml`
-- Acceptance criteria checklist:
+- AC-1: <observable behaviour>
+  verify: `<command whose exit code is the verdict>`
+- AC-2: <behaviour only a human can judge>
+  verify: manual - <reason>
 
-- [ ] Criterion 1
-- [ ] Criterion 2
+## Open Questions
+
+- <question>? Default: <answer>.
 
 ## Notes
 
