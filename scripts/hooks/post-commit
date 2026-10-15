@@ -1,0 +1,17 @@
+#!/bin/sh
+# Sync agent rules to tool-specific locations after a commit in the MAIN checkout only.
+#
+# sync-agent-rules.sh rewrites live config under $HOME (Codex and OpenCode AGENTS.md, MCP
+# servers). A commit from a linked worktree (a feature branch, or an agent's scratch checkout)
+# must not trigger that, so skip when this git dir is not the repository's common git dir.
+#
+# Installed by scripts/bootstrap-dirs.sh as a link at <common git dir>/hooks/post-commit.
+
+git_dir=$(git rev-parse --absolute-git-dir 2>/dev/null) || exit 0
+common_dir=$(cd "$(git rev-parse --git-common-dir)" 2>/dev/null && pwd -P) || exit 0
+[ "$(cd "$git_dir" && pwd -P)" = "$common_dir" ] || exit 0
+
+top=$(git rev-parse --show-toplevel) || exit 0
+cd "$top" || exit 0
+[ -x ./scripts/sync-agent-rules.sh ] || exit 0
+exec ./scripts/sync-agent-rules.sh

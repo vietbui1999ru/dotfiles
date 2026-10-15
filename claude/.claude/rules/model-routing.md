@@ -20,7 +20,7 @@ Also available with no assigned role: `openai-codex/gpt-6-sol`, `gpt-6.1-sol`, `
 - Break-even: a handoff that costs as much as the edit is not a saving. Keep small, fully known changes in the main session.
 - Precedence for a subagent's model: per-call `model`, then the agent's frontmatter `model`, then `CLAUDE_CODE_SUBAGENT_MODEL`, then the main model. The variable only fills gaps.
 - Subagent effort is not documented to follow a model's `modelSettings`. Set `effort` in the agent's frontmatter; `scout` and `worker` do.
-- Custom agents: `scout` (read-only) and `worker` (bounded edits), both Haiku 5.5 medium. Otherwise use built-in `Explore`, `Plan`, or general-purpose with an explicit `model`.
+- Custom agents: `scout` (read-only) and `worker` (bounded edits), both Haiku 5.5 medium, are defined in `claude/.claude/agents/` but are only available where that folder is linked into `~/.claude/agents`; on a machine with a real `~/.claude/agents` folder (this one) they are not loaded, and the core agent budget is 0. `firecrawl` (web research) is linked by hand here. Otherwise use built-in `Explore`, `Plan`, or general-purpose with an explicit `model`.
 - Cost reasoning and price table: wiki `concepts/subagent-cost-model`.
 
 ## Missing model

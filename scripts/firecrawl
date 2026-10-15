@@ -1,7 +1,7 @@
 #!/bin/sh
-# Provider-neutral Firecrawl CLI shim. Symlinked to ~/.local/bin/firecrawl, ahead of the
-# Homebrew binary on PATH, so every agent harness (Claude Code, Codex, OpenCode, Pi) that
-# runs `firecrawl ...` through a shell gets the same key.
+# Provider-neutral Firecrawl CLI shim. Symlinked to ~/.local/bin/firecrawl, ahead of the real
+# binary on PATH, so every agent harness (Claude Code, Codex, OpenCode, Pi) that runs
+# `firecrawl ...` through a shell gets the same key.
 #
 # Why: ~/secrets/.env is only sourced by interactive zsh (.zshrc), and a process started
 # before the key was rotated keeps the old value in its environment. The CLI prefers the
@@ -9,18 +9,35 @@
 # ONLY FIRECRAWL_API_KEY from the secrets file (never executes it, never exports the other
 # secrets) and overrides whatever the parent passed.
 #
+# The real binary is found on PATH (skipping this script), so it works wherever npm puts it.
 # Overrides: FIRECRAWL_ENV_FILE (secrets path), FIRECRAWL_REAL (real binary path).
 
+# A harness may launch with a sparse PATH; the key lookup below needs sed, tail and tr.
+PATH="$PATH:/usr/bin:/bin"
+
 env_file="${FIRECRAWL_ENV_FILE:-$HOME/secrets/.env}"
-real="${FIRECRAWL_REAL:-/opt/homebrew/bin/firecrawl}"
 
 if [ -r "$env_file" ]; then
 	key=$(sed -n -E 's/^(export[[:space:]]+)?FIRECRAWL_API_KEY=//p' "$env_file" | tail -n 1 | tr -d '\r' | sed -E "s/^[\"']//; s/[\"']\$//")
 	[ -n "$key" ] && export FIRECRAWL_API_KEY="$key"
 fi
 
-if [ ! -x "$real" ]; then
-	echo "firecrawl shim: real binary not found at $real (set FIRECRAWL_REAL)" >&2
+real="${FIRECRAWL_REAL:-}"
+if [ -z "$real" ]; then
+	old_ifs=$IFS
+	IFS=:
+	for dir in $PATH; do
+		cand="$dir/firecrawl"
+		if [ -x "$cand" ] && [ ! "$cand" -ef "$0" ]; then
+			real=$cand
+			break
+		fi
+	done
+	IFS=$old_ifs
+fi
+
+if [ -z "$real" ] || [ ! -x "$real" ]; then
+	echo "firecrawl shim: real firecrawl CLI not found on PATH (npm install -g firecrawl-cli, or set FIRECRAWL_REAL)" >&2
 	exit 127
 fi
 exec "$real" "$@"
