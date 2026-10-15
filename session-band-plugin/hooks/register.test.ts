@@ -1,6 +1,8 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
+import { ctxBar } from './format'
+
 const START = { cwd: '/work', surface: 'terminal' as const, isInteractive: true }
 const BAND = {
   component: 'AbovePrompt' as const,
@@ -90,12 +92,12 @@ test('draws whole ctx percentages with green, yellow, and red threshold colours'
   setup(on, source)
   await $.session.start(START)
 
-  for (const [percent, color] of [[39, '#a9b665'], [40, '#d8a657'], [70, '#d75f5f']] as const) {
+  for (const [percent, color] of [[39, '#a9b665'], [40, '#e78a4e'], [70, '#d75f5f']] as const) {
     source.percent = percent
     await $.session.measure({ context: { window: 200_000, percent }, rateLimits: [], changed: ['context'] })
 
     const ctx = textElements(await $.ui.render(BAND))
-      .find(element => element.color !== undefined && element.text === ` ctx:${percent}%`)
+      .find(element => element.color !== undefined && element.text === ` ${ctxBar(percent)}`)
     expect(ctx?.color).toBe(color)
   }
 })

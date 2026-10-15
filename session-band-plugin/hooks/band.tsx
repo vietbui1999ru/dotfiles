@@ -2,7 +2,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { GitSnapshot, Usage } from '../types'
 import type { HandoffSegment } from './handoff'
-import { ctxLeft } from './format'
+import { ctxBar, ctxLeft } from './format'
 import { ctxTone, limitTone, PALETTE, type Tone } from './palette'
 
 type Elements = ReturnType<EngineInterface['ui']['resolve']>
@@ -44,8 +44,8 @@ export const drawBand = ({ Box, Text, Button }: Elements, d: BandData) => {
         {g && g.behind > 0 && tone('yellow', ` bhd:${g.behind}`)}
         {g && g.stash > 0 && tone('peach', ` stsh:${g.stash}`)}
         {g?.worktree && tone('muted', ` [wt:${g.worktree}]`)}
-        {pct('ctx', d.usage.ctx, ctxTone)}
-        {d.usage.ctx !== undefined && tone('muted', ` (${ctxLeft(d.usage.ctx)}% left)`)}
+        {d.usage.ctx !== undefined && tone(ctxTone(d.usage.ctx), ` ${ctxBar(d.usage.ctx)}`)}
+        {d.usage.ctx !== undefined && tone('muted', ` ${ctxLeft(d.usage.ctx)}% left`)}
         {pct('5h', d.usage.five, limitTone)}
         {pct('7d', d.usage.seven, limitTone)}
         {d.style && tone('muted', ` [${d.style}]`)}
