@@ -14,6 +14,7 @@ import re
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -119,9 +120,12 @@ def validate(front, sections, acs, errors):
 def load(path):
     """Parse and lint SPEC.md and check the branch. Return a spec dict or raise Usage."""
     try:
-        lines = Path(path).read_text(encoding="utf-8").splitlines()
+        raw = Path(path).read_bytes()
+        lines = raw.decode("utf-8").splitlines()
     except OSError as e:
         raise Usage([f"{path}: cannot read: {e.strerror}"])
+    except UnicodeDecodeError as e:
+        raise Usage([f"{path}: not UTF-8 (byte {e.start}); expected: a UTF-8 text file"])
     front, sections, acs, errors = parse(lines)
     validate(front, sections, acs, errors)
     if errors:
@@ -136,7 +140,7 @@ def load(path):
     if have != want:
         raise Usage([f"{path}:{line}: branch: is {want}, current branch is {have}"])
     rel = os.path.relpath(Path(path).resolve(), Path(top).resolve())
-    return {"path": path, "rel": rel, "top": top, "branch": want, "acs": acs, "lines": lines,
+    return {"path": path, "rel": rel, "top": top, "branch": want, "acs": acs, "raw": raw,
             "status_line": front["status"][1]}
 
 
@@ -158,9 +162,18 @@ def record_path(spec):
 
 
 def set_status_approved(spec):
-    lines = list(spec["lines"])
-    lines[spec["status_line"] - 1] = "status: approved"
-    Path(spec["path"]).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    """Rewrite only the status: line, keeping its line ending. False if the file changed."""
+    path = Path(spec["path"])
+    if path.read_bytes() != spec["raw"]:
+        return False
+    lines = spec["raw"].decode("utf-8").splitlines(keepends=True)
+    old = lines[spec["status_line"] - 1]
+    lines[spec["status_line"] - 1] = "status: approved" + old[len(old.rstrip("\r\n")):]
+    try:
+        path.write_bytes("".join(lines).encode("utf-8"))
+    except OSError:  # read-only file; the record is already written
+        return False
+    return True
 
 
 def cmd_approve(args):
@@ -176,9 +189,14 @@ def cmd_approve(args):
     rec = {"spec": spec["rel"], "branch": spec["branch"],
            "approved": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
            "baseline": take_baseline(spec, args.timeout)}
+    if Path(spec["path"]).read_bytes() != spec["raw"]:
+        print(f"not approved: {args.spec} changed since it was read; run approve again")
+        return 1
     STATE.mkdir(parents=True, exist_ok=True)
     record_path(spec).write_text(json.dumps(rec, indent=2) + "\n", encoding="utf-8")
-    set_status_approved(spec)
+    if not set_status_approved(spec):
+        print(f"{args.spec} changed or is not writable; record written, "
+              "set status: approved by hand")
     print(f"approved: record {record_path(spec)}")
     return 0
 
@@ -187,18 +205,26 @@ def run_one(cmd, top, timeout):
     """Run cmd under /bin/sh in its own process group. Return (exit or None, seconds, tail)."""
     env = {k: os.environ[k] for k in KEEP_ENV if k in os.environ}
     start = time.monotonic()
-    proc = subprocess.Popen(["/bin/sh", "-c", cmd], cwd=top, env=env, stdin=subprocess.DEVNULL,
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            start_new_session=True)
-    try:
-        out, code = proc.communicate(timeout=timeout)[0], proc.returncode
-    except subprocess.TimeoutExpired:
+    # Output goes to a temp file, not a pipe: a child that leaves the group (setsid) and
+    # keeps the pipe open would otherwise block the read after the timeout kill.
+    with tempfile.TemporaryFile() as out:
+        proc = subprocess.Popen(["/bin/sh", "-c", cmd], cwd=top, env=env,
+                                stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+                                start_new_session=True)
+        try:
+            code = proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            code = None
+        # Kill the group after a normal exit too, so a background child cannot change the
+        # tree after the verdict.
         try:
             os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        out, code = proc.communicate()[0], None
-    tail = out.decode("utf-8", "replace").splitlines()[-40:]
+        except OSError:  # gone, or EPERM on macOS when only the shell zombie is left
+            if code is None:
+                proc.kill()
+        proc.wait()
+        out.seek(max(0, out.seek(0, os.SEEK_END) - 65536))  # only the last 40 lines are kept
+        tail = out.read().decode("utf-8", "replace").splitlines()[-40:]
     return code, time.monotonic() - start, tail
 
 
@@ -246,6 +272,8 @@ def cmd_check(args):
         print(f"{args.spec}: no approval record for these verify lines; "
               "a human must run: ~/dotfiles/scripts/ac-run approve SPEC.md", file=sys.stderr)
         return 3
+    rec = rec if isinstance(rec, dict) else {}
+    baseline = rec.get("baseline") if isinstance(rec.get("baseline"), dict) else {}
     rows, failed, tails = [], False, []
     for a in spec["acs"]:
         name = f"AC-{a['n']}"
@@ -253,7 +281,7 @@ def cmd_check(args):
             rows.append((name, "MANUAL", "-", "-"))
             continue
         code, secs, tail = run_one(a["cmd"], spec["top"], args.timeout)
-        result = classify(code, rec["baseline"].get(name, "unknown"), a["baseline"] == "pass")
+        result = classify(code, baseline.get(name, "unknown"), a["baseline"] == "pass")
         failed |= result in ("FAIL", "TIMEOUT", "PRE-SATISFIED")
         rows.append((name, result, "-" if code is None else str(code), f"{secs:.1f}"))
         if result in ("FAIL", "TIMEOUT"):
@@ -262,7 +290,7 @@ def cmd_check(args):
     print("|---|---|---|---|")
     for row in rows:
         print("| " + " | ".join(row) + " |")
-    print(f"\napproved: {rec['approved']}")
+    print(f"\napproved: {rec.get('approved', 'unknown')}")
     for name, tail in tails:
         print(f"\n{name} output (last 40 lines):\n```\n" + "\n".join(tail) + "\n```")
     return 1 if failed else 0
