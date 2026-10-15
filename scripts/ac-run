@@ -1,0 +1,301 @@
+#!/usr/bin/env python3
+"""ac-run: lint, approve and check the acceptance criteria in SPEC.md.
+
+lint     grammar and branch check; prints the human-only approve line on success
+approve  human only: prints every verify command, reads y, records a hash and a baseline
+check    runs the approved verify commands and classifies them against the baseline
+"""
+import argparse
+import datetime
+import hashlib
+import json
+import os
+import re
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+HUMAN = "HUMAN ONLY (agents must not run this): ~/dotfiles/scripts/ac-run approve SPEC.md"
+STATE = Path(os.path.expanduser("~")) / ".local" / "state" / "ac-run"
+KEEP_ENV = ("PATH", "HOME", "USER", "LANG", "LC_ALL", "TMPDIR", "TERM")
+SECTIONS = ("objective", "acceptance criteria", "boundaries", "open questions")
+SUBSECTIONS = ("always", "ask first", "never")
+AC_RE = re.compile(r"^- AC-(\d+):")
+MANUAL_RE = re.compile(r"^manual\s*[-—:]\s*\S")
+
+
+class Usage(Exception):
+    """Exit 2 with these message lines."""
+
+
+def git(*args, cwd):
+    r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+def parse(lines):
+    """Return (front, sections, acs, errors). front maps key -> (value, line)."""
+    front, sections, acs, errors = {}, {}, [], []
+    body = 0
+    if lines and lines[0].strip() == "---":
+        for i, line in enumerate(lines[1:], 2):
+            if line.strip() == "---":
+                body = i
+                break
+            key, sep, value = line.partition(":")
+            if sep:
+                front[key.strip()] = (value.strip(), i)
+    section, fence, ac = None, False, None
+    for i, line in enumerate(lines[body:], body + 1):
+        if line.lstrip().startswith("```"):
+            fence = not fence
+        if fence:
+            continue
+        m = re.match(r"^(#{2,3})\s+(.*?)\s*$", line)
+        if m:
+            name = m.group(2).lower()
+            if len(m.group(1)) == 2:
+                section, ac = name, None
+                sections.setdefault(name, {"line": i, "subs": set()})
+            elif section in sections:
+                sections[section]["subs"].add(name)
+            continue
+        if section != "acceptance criteria":
+            continue
+        m = AC_RE.match(line)
+        if m:
+            ac = {"n": int(m.group(1)), "line": i, "verify": [], "baseline": ""}
+            acs.append(ac)
+        elif ac and line.strip().startswith("verify:"):
+            ac["verify"].append((line.strip()[7:].strip(), i))
+        elif ac and line.strip().startswith("baseline:"):
+            value = line.strip()[9:].strip()
+            if value.lower() != "pass":
+                errors.append((i, f"AC-{ac['n']} baseline is {value!r}", "baseline: pass"))
+            ac["baseline"] = "pass"
+    return front, sections, acs, errors
+
+
+def validate(front, sections, acs, errors):
+    """Append grammar errors; set ac['cmd'] (None for manual) and ac['raw'] on good ACs."""
+    for key, form in (("status", "status: draft"), ("branch", "branch: <current branch>")):
+        if key not in front:
+            errors.append((1, f"frontmatter has no {key}", form))
+    for name in SECTIONS:
+        if name not in sections:
+            errors.append((1, f"missing section {name.title()}", f"## {name.title()}"))
+    if "boundaries" in sections:
+        b = sections["boundaries"]
+        for sub in SUBSECTIONS:
+            if sub not in b["subs"]:
+                errors.append((b["line"], f"Boundaries has no {sub.capitalize()} subsection",
+                               f"### {sub.capitalize()}"))
+    if "acceptance criteria" in sections and not acs:
+        errors.append((sections["acceptance criteria"]["line"], "no ACs", "- AC-1: <criterion>"))
+    seen = 0
+    for ac in acs:
+        name = f"AC-{ac['n']}"
+        if ac["n"] <= seen:
+            errors.append((ac["line"], f"{name} repeats or is out of order after AC-{seen}",
+                           f"- AC-{seen + 1}: (unique, ascending ids)"))
+        seen = max(seen, ac["n"])
+        if len(ac["verify"]) != 1:
+            what = "has no verify line" if not ac["verify"] else "has more than one verify line"
+            errors.append((ac["line"], f"{name} {what}", "verify: `<command>`"))
+            continue
+        raw, line = ac["verify"][0]
+        ac["raw"] = raw
+        if MANUAL_RE.match(raw):
+            ac["cmd"] = None
+        elif raw.count("`") >= 2 and raw[raw.index("`") + 1:raw.rindex("`")].strip():
+            ac["cmd"] = raw[raw.index("`") + 1:raw.rindex("`")].strip()
+        else:
+            errors.append((line, f"{name} verify is neither a command nor manual",
+                           "verify: `<command>` or verify: manual - <reason>"))
+
+
+def load(path):
+    """Parse and lint SPEC.md and check the branch. Return a spec dict or raise Usage."""
+    try:
+        lines = Path(path).read_text(encoding="utf-8").splitlines()
+    except OSError as e:
+        raise Usage([f"{path}: cannot read: {e.strerror}"])
+    front, sections, acs, errors = parse(lines)
+    validate(front, sections, acs, errors)
+    if errors:
+        raise Usage([f"{path}:{n}: {p}; expected: {f}" for n, p, f in sorted(errors)])
+    top = git("rev-parse", "--show-toplevel", cwd=Path(path).resolve().parent)
+    if top is None:
+        raise Usage([f"{path}: not inside a git repository"])
+    want, line = front["branch"]
+    have = git("branch", "--show-current", cwd=top)
+    if not have:
+        raise Usage([f"{path}:{line}: detached HEAD; check out branch {want}"])
+    if have != want:
+        raise Usage([f"{path}:{line}: branch: is {want}, current branch is {have}"])
+    rel = os.path.relpath(Path(path).resolve(), Path(top).resolve())
+    return {"path": path, "rel": rel, "top": top, "branch": want, "acs": acs, "lines": lines,
+            "status_line": front["status"][1]}
+
+
+def cmd_lint(args):
+    spec = load(args.spec)
+    print(f"{args.spec}: {len(spec['acs'])} ACs, lint clean")
+    print(HUMAN)
+    return 0
+
+
+def spec_hash(spec):
+    parts = [spec["rel"].strip(), spec["branch"].strip()]
+    parts += [f"AC-{a['n']}\t{a['raw'].strip()}\t{a['baseline'].strip()}" for a in spec["acs"]]
+    return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
+
+
+def record_path(spec):
+    return STATE / f"{spec_hash(spec)}.json"
+
+
+def set_status_approved(spec):
+    lines = list(spec["lines"])
+    lines[spec["status_line"] - 1] = "status: approved"
+    Path(spec["path"]).write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def cmd_approve(args):
+    spec = load(args.spec)
+    print(f"Approving {spec['rel']} on branch {spec['branch']}. Verify commands:")
+    for ac in spec["acs"]:
+        print(f"  AC-{ac['n']}: {ac['cmd'] if ac['cmd'] is not None else ac['raw']}")
+    print("Run these on this machine? [y/N] ", end="", flush=True)
+    answer = sys.stdin.readline()
+    if answer.strip().lower() != "y":
+        print("not approved")
+        return 1
+    rec = {"spec": spec["rel"], "branch": spec["branch"],
+           "approved": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+           "baseline": take_baseline(spec, args.timeout)}
+    STATE.mkdir(parents=True, exist_ok=True)
+    record_path(spec).write_text(json.dumps(rec, indent=2) + "\n", encoding="utf-8")
+    set_status_approved(spec)
+    print(f"approved: record {record_path(spec)}")
+    return 0
+
+
+def run_one(cmd, top, timeout):
+    """Run cmd under /bin/sh in its own process group. Return (exit or None, seconds, tail)."""
+    env = {k: os.environ[k] for k in KEEP_ENV if k in os.environ}
+    start = time.monotonic()
+    proc = subprocess.Popen(["/bin/sh", "-c", cmd], cwd=top, env=env, stdin=subprocess.DEVNULL,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            start_new_session=True)
+    try:
+        out, code = proc.communicate(timeout=timeout)[0], proc.returncode
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        out, code = proc.communicate()[0], None
+    tail = out.decode("utf-8", "replace").splitlines()[-40:]
+    return code, time.monotonic() - start, tail
+
+
+def base_ref(top):
+    for ref in ("origin/HEAD", "main", "master"):
+        mb = git("merge-base", "HEAD", ref, cwd=top)
+        if mb:
+            return mb
+    return None
+
+
+def tree_clean(spec):
+    """True when only SPEC.md differs from the merge-base (committed or not)."""
+    r = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"],
+                       cwd=spec["top"], capture_output=True, text=True)
+    if r.returncode or any(l[3:] != spec["rel"] for l in r.stdout.splitlines() if l):
+        return False
+    mb = base_ref(spec["top"])
+    if mb is None:
+        return False
+    r = subprocess.run(["git", "diff", "--quiet", mb, "HEAD", "--", ".", f":!{spec['rel']}"],
+                       cwd=spec["top"], capture_output=True)
+    return r.returncode == 0
+
+
+def take_baseline(spec, timeout):
+    runnable = [a for a in spec["acs"] if a["cmd"] is not None]
+    if not tree_clean(spec):
+        print("baseline skipped: tree has changes")
+        return {f"AC-{a['n']}": "unknown" for a in runnable}
+    baseline = {}
+    for a in runnable:
+        code = run_one(a["cmd"], spec["top"], timeout)[0]
+        baseline[f"AC-{a['n']}"] = "pass" if code == 0 else "fail"
+        if code != 0 and a["baseline"] == "pass":
+            print(f"WARN AC-{a['n']} marked baseline: pass but fails now")
+    return baseline
+
+
+def cmd_check(args):
+    spec = load(args.spec)
+    try:
+        rec = json.loads(record_path(spec).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        print(f"{args.spec}: no approval record for these verify lines; "
+              "a human must run: ~/dotfiles/scripts/ac-run approve SPEC.md", file=sys.stderr)
+        return 3
+    rows, failed, tails = [], False, []
+    for a in spec["acs"]:
+        name = f"AC-{a['n']}"
+        if a["cmd"] is None:
+            rows.append((name, "MANUAL", "-", "-"))
+            continue
+        code, secs, tail = run_one(a["cmd"], spec["top"], args.timeout)
+        result = classify(code, rec["baseline"].get(name, "unknown"), a["baseline"] == "pass")
+        failed |= result in ("FAIL", "TIMEOUT", "PRE-SATISFIED")
+        rows.append((name, result, "-" if code is None else str(code), f"{secs:.1f}"))
+        if result in ("FAIL", "TIMEOUT"):
+            tails.append((name, tail))
+    print("| AC | Result | Exit | Seconds |")
+    print("|---|---|---|---|")
+    for row in rows:
+        print("| " + " | ".join(row) + " |")
+    print(f"\napproved: {rec['approved']}")
+    for name, tail in tails:
+        print(f"\n{name} output (last 40 lines):\n```\n" + "\n".join(tail) + "\n```")
+    return 1 if failed else 0
+
+
+def classify(code, baseline, keep):
+    if code is None:
+        return "TIMEOUT"
+    if code != 0:
+        return "FAIL"
+    if baseline == "unknown":
+        return "PASS (no baseline)"
+    if baseline == "pass":
+        return "PASS (kept)" if keep else "PRE-SATISFIED"
+    return "PASS"
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="ac-run", description=__doc__.splitlines()[0])
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    for name in ("lint", "approve", "check"):
+        p = sub.add_parser(name)
+        if name != "lint":
+            p.add_argument("--timeout", type=int, default=120, help="seconds per AC (default 120)")
+        p.add_argument("spec", metavar="SPEC_PATH")
+    args = ap.parse_args()
+    handler = {"lint": cmd_lint, "approve": cmd_approve, "check": cmd_check}[args.cmd]
+    try:
+        return handler(args)
+    except Usage as e:
+        print("\n".join(e.args[0]), file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
