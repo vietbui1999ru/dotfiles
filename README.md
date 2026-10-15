@@ -146,10 +146,20 @@ Research tools have exclusive primary scopes:
 - **Firecrawl** — general web search, URLs, news, crawling, and page extraction
 
 Fallback is allowed only when the primary tool lacks coverage. Canonical policy
-lives in `shared/research-tool-routing.md`; `bootstrap-dirs.sh` syncs the scoped
-Firecrawl skill to `~/.agents/skills/firecrawl`. It also syncs GitHub's
-`gh-stack` skill to `~/.agents/skills/gh-stack` for Pi and other compatible
-agent harnesses.
+lives in `shared/research-tool-routing.md`.
+
+Firecrawl is CLI first, for every harness. `bootstrap-dirs.sh` calls
+`scripts/firecrawl-setup.sh`, which links two shims into `~/.local/bin`
+(`firecrawl` and `firecrawl-mcp`, both read `FIRECRAWL_API_KEY` from
+`~/secrets/.env` so a stale inherited key cannot win), installs the CLI with npm if
+it is missing, runs `firecrawl init` for the CLI's own skills, and keeps only the
+ones listed in `shared/firecrawl-skills.txt`. The rest are moved to
+`~/.agents/skills-disabled/`, not deleted. Add a name to that file and re-run
+bootstrap to bring one back; `scripts/firecrawl-setup.sh --refresh` re-installs.
+The same bootstrap links the shared personal skills (`gh-stack`, `grill-me`,
+`verify-spec` and others) into `~/.agents/skills` for Pi and other compatible
+harnesses. Codex needs a permission profile before its sandbox lets the
+Firecrawl CLI reach the network: see `docs/codex-permissions.md`.
 
 ### Herdr agent flow
 

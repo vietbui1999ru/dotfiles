@@ -10,16 +10,23 @@ set -euo pipefail
 mkdir -p "$HOME/repos" "$HOME/.local/bin"
 echo "✓ ~/repos"
 
-# Keep the shared Firecrawl skill consistent across Pi, Claude Code, and other
-# Agent Skills-compatible harnesses. Its routing excludes Context7 docs and
-# Ketch code search so the three research tools do not duplicate work.
-FIRECRAWL_SKILL_SRC="$HOME/dotfiles/shared/skills/firecrawl"
-FIRECRAWL_SKILL_DEST="$HOME/.agents/skills/firecrawl"
-if [ -d "$FIRECRAWL_SKILL_SRC" ]; then
-	mkdir -p "$FIRECRAWL_SKILL_DEST/rules"
-	cp "$FIRECRAWL_SKILL_SRC/SKILL.md" "$FIRECRAWL_SKILL_DEST/SKILL.md"
-	cp "$FIRECRAWL_SKILL_SRC/rules/install.md" "$FIRECRAWL_SKILL_DEST/rules/install.md"
-	echo "✓ ~/.agents/skills/firecrawl (synced research routing)"
+# Firecrawl, CLI first: the CLI's own skills (curated in shared/firecrawl-skills.txt) are the
+# default for every harness, and the key-loading shim is linked. The research-tool routing
+# (Context7 vs Ketch vs Firecrawl) lives in shared/research-tool-routing.md, not in a skill copy.
+"${DOTFILES:-$HOME/dotfiles}/scripts/firecrawl-setup.sh"
+
+# The post-commit hook that syncs agent rules is tracked in scripts/git-hooks and linked into the
+# repo's common hooks folder, so every clone has it and it skips commits from linked worktrees.
+HOOK_SRC="${DOTFILES:-$HOME/dotfiles}/scripts/git-hooks/post-commit"
+if [ -x "$HOOK_SRC" ] && git -C "${DOTFILES:-$HOME/dotfiles}" rev-parse --git-common-dir >/dev/null 2>&1; then
+	hook_dir="$(cd "${DOTFILES:-$HOME/dotfiles}" && cd "$(git rev-parse --git-common-dir)" && pwd -P)/hooks"
+	mkdir -p "$hook_dir"
+	if [ -e "$hook_dir/post-commit" ] && [ ! -L "$hook_dir/post-commit" ]; then
+		mv "$hook_dir/post-commit" "$hook_dir/post-commit.bak"
+		echo "⚠ existing post-commit hook saved as post-commit.bak"
+	fi
+	ln -sfn "$HOOK_SRC" "$hook_dir/post-commit"
+	echo "✓ dotfiles post-commit hook → scripts/git-hooks/post-commit"
 fi
 
 # Shared personal skills are symlinked so Claude and Pi cannot drift. Never
