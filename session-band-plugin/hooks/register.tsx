@@ -13,6 +13,7 @@ import { parsePending, pendingRecordFor, reviewState, type ReviewState } from '.
 import { shortDir, shortModel, whole } from './format'
 import { toSnapshot, type GitFacts } from './git'
 import { toRepoInfo, type RepoInfo } from './repo'
+import { heartbeatBody, heartbeatPath, HEARTBEAT_INTERVAL_MS } from './heartbeat'
 import { guardAgent, softStop, type SoftStopCheck } from './threshold'
 
 const usage = atom({ plugin: 'session-band', key: 'usage' } as const, {})
@@ -113,6 +114,16 @@ async function reviewStates($: EngineInterface, tasks: readonly TrackedTask[]): 
   return Object.fromEntries(values)
 }
 
+// Written now and every HEARTBEAT_INTERVAL_MS; the status line fallback goes silent while it is fresh.
+const startHeartbeat = async ($: EngineInterface) => {
+  const tmp = await $.env.get('TMPDIR') ?? '/tmp'
+  const path = heartbeatPath(tmp, await $.session.id())
+  if (!path) return
+  const beat = async () => $.fs.write(path, heartbeatBody(await $.clock.now()))
+  await beat()
+  $.clock.every(HEARTBEAT_INTERVAL_MS, () => { void beat().catch(() => undefined) })
+}
+
 export const register: Register = on => {
   registerBlast(on)
   registerClear(on)
@@ -126,6 +137,7 @@ export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
     captureSession(e.isInteractive)
+    await startHeartbeat($)
     await $.command.register({ name: 'pi', description: 'Open Pi hand-off controls, or kill/pause/resume/rm/hold Pi tasks', argumentHint: '[kill|pause|resume|rm|hold] [ids|all] | release', immediate: true })
     await $.command.register({ name: 'pi-history', description: 'Open Pi hand-off history' })
     const current = await $.session.usage()
