@@ -1,7 +1,7 @@
 import { atom, read, update, type EngineInterface, type Register } from 'claude-code'
 
 import { dispatchCommand, parseAddResult, parsePiCommand, parseStatus } from './pueue'
-import { controlArgv, eligible, holdArgv, parsePiArgs, releaseArgv, resolveTargets, stopArgvs, type ControlAction, type Targets } from './controls'
+import { controlArgv, eligible, holdArgv, killGroupArgv, parsePiArgs, PS_ARGV, releaseArgv, resolveTargets, stopArgvs, strayGroups, type ControlAction, type Targets } from './controls'
 import { monitorRows, selectStale, type MonitorRow, type StaleSelection, type TrackedTask } from './handoff'
 import type { HandoffState } from './handoff.tsx'
 import { focusRing, moveTo, type Motion } from './motion'
@@ -88,11 +88,17 @@ export async function runControl($: EngineInterface, action: ControlAction, ids:
       if (failed) return `${failed}. Nothing was killed.`
     }
     const status = await $.process.run(['pueue', 'status', '--json'])
-    const states = new Map(parseStatus(status.stdout).map(task => [task.id, task.state]))
+    const tasks = parseStatus(status.stdout)
+    const states = new Map(tasks.map(task => [task.id, task.state]))
+    // Snapshot before the kill: afterwards the strays hang off launchd and no longer trace to the task.
+    const commands = tasks.filter(task => ids.includes(task.id) && task.state !== 'Queued').map(task => task.command)
+    const strays = commands.length ? strayGroups((await $.process.run(PS_ARGV)).stdout, commands) : []
     for (const argv of stopArgvs(ids, states)) {
       const failed = await run(argv)
       if (failed) return failed
     }
+    // A group already gone exits 1 ("No such process"); nothing is left to kill then.
+    for (const pgid of strays) await $.process.run(killGroupArgv(pgid))
     const queued = ids.filter(id => states.get(id) === 'Queued')
     const started = ids.filter(id => states.get(id) !== 'Queued')
     const stopped = [started.length ? `Killed ${list(started)}` : '', queued.length ? `removed queued ${list(queued)}` : ''].filter(Boolean).join(', ')

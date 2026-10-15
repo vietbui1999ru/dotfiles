@@ -17,6 +17,22 @@ test('Abort shows an inline confirm; Kill kills, Cancel does not', async ($, on)
   expect(pueue.calls).toContainEqual(['kill', '1'])
 })
 
+// `pueue kill` SIGKILLs the task's group, so Pi never reaps the bash tools it ran in groups of their own.
+test('Kill also kills the process groups the task tree left outside its group', async ($, on) => {
+  const { pueue } = await setup($, on)
+  pueue.ps = [
+    `  200   100   200 sh -c ${pueue.tasks[1]!.command}`,
+    '  201   200   200 node pi',
+    '  300   201   300 /bin/zsh -c sleep 900',
+  ].join('\n')
+  await $.ui.render(PANE)
+  await $.ui.press({ plugin: 'session-band', key: 'pi-abort' })
+  await $.ui.render(PANE)
+  await $.ui.press({ plugin: 'session-band', key: 'pi-confirm-ok' })
+  expect(pueue.calls).toContainEqual(['kill', '1'])
+  expect(pueue.signals).toEqual([['-KILL', '--', '-300']])
+})
+
 test('a confirm whose task finished meanwhile kills nothing', async ($, on) => {
   const { clock, pueue } = await setup($, on)
   await $.ui.render(PANE)

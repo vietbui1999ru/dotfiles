@@ -26,6 +26,8 @@ export const dispatch = '"pi --model opencode-go/flash:high --session-id pueue-s
 export const fakePueue = (on: On, nowMs: () => number) => {
   const tasks: Record<string, ReturnType<typeof running>> = {}
   const calls: string[][] = []
+  // `ps` is the process table the fake reports; `signals` records each `/bin/kill` argv after the program.
+  const signals: string[][] = []
   let reached: () => void = () => undefined
   const failing = new Set<string>()
   const gate = {
@@ -37,6 +39,11 @@ export const fakePueue = (on: On, nowMs: () => number) => {
   on('session.cwd', () => ({ value: '/work' }))
   on('session.root', () => ({ value: '/work' }))
   on('process.run', async (_$, e) => {
+    if (e.argv[0] === 'ps') return { value: { exitCode: 0, stdout: fake.ps, stderr: '' } } as never
+    if (e.argv[0] === '/bin/kill') {
+      signals.push(e.argv.slice(1))
+      return { value: { exitCode: 0, stdout: '', stderr: '' } } as never
+    }
     if (e.argv[0] === 'pueue' && e.argv[1] !== 'status') {
       calls.push(e.argv.slice(1))
       const ids = e.argv.slice(2).filter(word => /^\d+$/.test(word))
@@ -49,7 +56,11 @@ export const fakePueue = (on: On, nowMs: () => number) => {
         const task = tasks[id]
         if (!task) continue
         const at = new Date(nowMs()).toISOString()
-        if (e.argv[1] === 'kill') tasks[id] = { ...task, status: { Done: { enqueued_at: at, start: at, end: at, result: 'Killed' } } } as never
+        if (e.argv[1] === 'kill') {
+          tasks[id] = { ...task, status: { Done: { enqueued_at: at, start: at, end: at, result: 'Killed' } } } as never
+          // The killed tree's root is gone and its strays now hang off launchd: a later snapshot finds nothing.
+          fake.ps = ''
+        }
         if (e.argv[1] === 'pause') tasks[id] = { ...task, status: { Paused: { enqueued_at: at, start: at } } } as never
         if (e.argv[1] === 'start') tasks[id] = { ...task, status: { Running: { enqueued_at: at, start: at } } } as never
         if (e.argv[1] === 'remove') delete tasks[id]
@@ -71,7 +82,8 @@ export const fakePueue = (on: On, nowMs: () => number) => {
     tasks[id] = running(id, nowMs())
     return { result: 'ok', text: String(id) } as never
   })
-  return Object.assign(gate, { tasks, calls, failing })
+  const fake = Object.assign(gate, { tasks, calls, failing, signals, ps: '' })
+  return fake
 }
 
 export const PANE = {
