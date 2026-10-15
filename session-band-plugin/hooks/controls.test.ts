@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { controlArgv, eligible, holdArgv, parsePiArgs, releaseArgv, resolveTargets, stopArgvs } from './controls'
+import { controlArgv, eligible, holdArgv, parsePiArgs, releaseArgv, resolveTargets, stopArgvs, strayGroups } from './controls'
 import type { Task } from './pueue'
 
 const pi = (id: number, state: Task['state']): Task => ({
@@ -57,4 +57,24 @@ test('never builds a pueue command with no ids', () => {
   expect(stopArgvs([45], states)).toEqual([['pueue', 'remove', '45']])
   expect(stopArgvs([], states)).toEqual([])
   expect(releaseArgv('default')).toEqual(['pueue', 'start', '--group', 'default'])
+})
+
+// Pi runs each bash tool in its own process group; `pueue kill` SIGKILLs only the task's group.
+test('finds the process groups a task tree left outside its own group', () => {
+  const cmd = "pi --model m --session-id pueue-a -p 'x' < /dev/null"
+  const ps = [
+    '   50   301    50 sleep 1',
+    '  100     1   100 /opt/homebrew/bin/pueued -d',
+    `  200   100   200 sh -c ${cmd}`,
+    '  201   200   200 node /opt/homebrew/bin/pi --model m --session-id pueue-a -p x',
+    '  300   201   300 /bin/zsh -c sleep 900',
+    '  301   300   300 sleep 900',
+    '  302   201   302 /bin/zsh -c git status',
+    '  400   100   400 sh -c pi --model m --session-id pueue-b -p y < /dev/null',
+    '  401   400   401 /bin/zsh -c sleep 5',
+  ].join('\n')
+  // pid 50 sorts first but is a grandchild of 300 (pids wrap).
+  expect(strayGroups(ps, [cmd])).toEqual([50, 300, 302])
+  expect(strayGroups(ps, ['not running'])).toEqual([])
+  expect(strayGroups('', [cmd])).toEqual([])
 })

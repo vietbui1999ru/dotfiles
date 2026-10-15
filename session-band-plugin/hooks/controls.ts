@@ -74,3 +74,31 @@ export const stopArgvs = (ids: readonly number[], states: ReadonlyMap<number, Pu
 }
 
 export const releaseArgv = (group: string): string[] => ['pueue', 'start', '--group', group]
+
+/** Every process with its parent and group; `-ww` keeps long commands whole so they match pueue's. */
+export const PS_ARGV = ['ps', '-A', '-ww', '-o', 'pid=,ppid=,pgid=,command=']
+
+/**
+ * Process groups under a task's tree other than the task's own group. pueue runs each task as
+ * `sh -c <command>` in a group of its own and `pueue kill` SIGKILLs that group, so Pi never gets
+ * to reap the bash tools it ran detached; they would outlive the kill unless killed by group.
+ */
+export const strayGroups = (ps: string, commands: readonly string[]): number[] => {
+  const rows = ps.split('\n').flatMap(line => {
+    const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s(.*)$/.exec(line)
+    return match ? [{ pid: Number(match[1]), ppid: Number(match[2]), pgid: Number(match[3]), command: match[4]! }] : []
+  })
+  const groups = new Set<number>()
+  for (const root of rows.filter(row => commands.some(command => row.command === `sh -c ${command}`))) {
+    // Repeat until nothing joins: pids wrap, so a child can sort before its parent.
+    const tree = new Set([root.pid])
+    for (let size = 0; size !== tree.size;) {
+      size = tree.size
+      for (const row of rows) if (tree.has(row.ppid)) tree.add(row.pid)
+    }
+    for (const row of rows) if (tree.has(row.pid) && row.pgid !== root.pgid) groups.add(row.pgid)
+  }
+  return [...groups].sort((a, b) => a - b)
+}
+
+export const killGroupArgv = (pgid: number): string[] => ['/bin/kill', '-KILL', '--', `-${pgid}`]
