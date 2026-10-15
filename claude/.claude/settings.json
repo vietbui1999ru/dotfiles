@@ -40,7 +40,7 @@
     ],
     "defaultMode": "plan"
   },
-  "model": "haiku",
+  "model": "opus",
   "hooks": {
     "PostToolUse": [
       {
@@ -234,7 +234,7 @@
   "effortLevel": "high",
   "modelSettings": {
     "claude-opus-5-5": {
-      "effortLevel": "high"
+      "effortLevel": "medium"
     },
     "claude-sonnet-5-5": {
       "effortLevel": "medium"
