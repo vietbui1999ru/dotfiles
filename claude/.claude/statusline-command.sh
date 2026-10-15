@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Fallback status line. The session-band mod draws the primary band above the prompt;
-# this covers sessions where the mod is not loaded (background jobs, /reload-plugins, other machines).
+# Backup status line, shown only when the session-band mod is dead. The mod draws the primary band above
+# the prompt and rewrites ~/.claude/state/session-band-<session_id>.alive every 15s (session-band-plugin/hooks/heartbeat.ts).
+# Fresh heartbeat -> print nothing. Missing or stale (no mod loaded, /reload-plugins, crashed) -> draw this line.
 # Input: Claude Code status JSON on stdin. Docs: https://code.claude.com/docs/en/statusline
 # Segments: dir, worktree, branch, ctx headroom, 5h, 7d, output style, model.
 command -v jq >/dev/null || { echo "statusline: jq missing"; exit 0; }
@@ -17,6 +18,13 @@ IFS=$'\x1f' read -r cwd wt used left five seven style model < <(
           .output_style.name // "",
           .model.display_name // ""] | map(tostring) | join("\u001f")' <<<"$input"
 )
+
+sid=$(jq -r '.session_id // empty' <<<"$input")
+hb="${TMPDIR:-/tmp}/session-band-${sid}.alive"
+if [[ "$sid" =~ ^[A-Za-z0-9_-]+$ ]] && [ -f "$hb" ]; then
+  mtime=$(stat -f %m "$hb" 2>/dev/null || stat -c %Y "$hb")
+  [ $(( $(date +%s) - mtime )) -lt 60 ] && exit 0
+fi
 c() { printf '\033[%sm%s\033[0m' "$1" "$2"; }
 # pct VALUE WARN CRIT -> green/yellow/red by threshold
 tone() { awk -v v="$1" -v w="$2" -v c="$3" 'BEGIN{print (v>=c)?31:(v>=w)?33:32}'; }
