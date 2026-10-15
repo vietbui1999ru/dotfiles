@@ -76,6 +76,17 @@ if command -v rg >/dev/null; then rg "$pattern" "$dir"; else grep -r "$pattern" 
 Installed here: `eza`, `rg`, `bat`, `fd`, `delta`. Not installed: `sd`, `dust` — use
 `sed` and `du` for those.
 
+<!-- spec-loop:start -->
+## Spec loop
+
+1. If SPEC.md exists at the repo root and its `branch:` matches the current branch, read it before writing code. Work only toward its AC ids. Obey its Boundaries.
+2. Never run `~/dotfiles/scripts/ac-run approve`. Only the human approves a spec. (Approval can be forged by anyone with a shell; this rule is the defence.)
+3. When you are asked to write a spec in an unattended or pueue run, stop at a lint-clean SPEC.md with `status: draft`. Implementation is a separate run after approval. A run asked to implement an approved spec proceeds normally.
+4. Never edit a `verify:` line or a test to make a check pass. Report the failure.
+5. When rule 1 applies, before saying "done", run `~/dotfiles/scripts/ac-run check SPEC.md` and `~/dotfiles/scripts/floor-guard`. Paste both outputs.
+6. When rule 1 applies, if a check fails, fix and rerun. Stop after 3 tries and report the failing output.
+<!-- spec-loop:end -->
+
 ## Code discipline: YAGNI
 
 Build only what the current request needs. Do not add features, parameters,

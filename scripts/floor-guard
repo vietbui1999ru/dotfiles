@@ -1,0 +1,159 @@
+#!/usr/bin/env python3
+"""floor-guard: advisory scan of a branch diff for weakened quality floors.
+
+Usage: floor-guard [--base REF]
+Prints `<path>:<line>: [rule<N>] <text>` per finding. Exit 0 clean, 1 findings, 2 error.
+"""
+import argparse
+import os
+import re
+import subprocess
+import sys
+
+
+def git(*args, check=True):
+    r = subprocess.run(["git", "-c", "core.quotePath=false", *args],
+                       capture_output=True, text=True)
+    if check and r.returncode != 0:
+        raise RuntimeError(r.stderr.strip() or f"git {' '.join(args)} failed")
+    return r
+
+
+def resolve_base(ref):
+    if ref:
+        return git("rev-parse", "--verify", ref + "^{commit}").stdout.strip()
+    for cand in ("origin/HEAD", "main", "master"):
+        r = git("merge-base", "HEAD", cand, check=False)
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip()
+    return None
+
+
+HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+
+
+def parse_diff(base):
+    """Return ({path: [(new_line, text)]}, {path: [removed text]}, [deleted paths])."""
+    added, removed, deleted = {}, {}, []
+    path, new_line, is_deleted, in_hdr = None, 0, False, False
+    # -M: a renamed test file is not a deletion; its line changes count under the new path.
+    out = git("diff", "-U0", "--no-color", "--no-ext-diff", "-M", base).stdout
+    for line in out.splitlines():
+        if line.startswith("diff --git "):
+            path, is_deleted, in_hdr, old = None, False, True, ""
+        elif in_hdr and line.startswith("deleted file mode"):
+            is_deleted = True
+        elif in_hdr and line.startswith("rename from "):
+            old = line[12:]
+        elif in_hdr and line.startswith("rename to "):
+            # a test renamed out of a test path is a deleted test file
+            if is_test(old) and not is_test(line[10:]):
+                deleted.append(old)
+        elif in_hdr and line.startswith("--- "):
+            # git appends a TAB after paths containing spaces
+            if is_deleted and line.startswith("--- a/"):
+                deleted.append(line[6:].rstrip("\t"))
+        elif in_hdr and line.startswith("+++ "):
+            path = line[6:].rstrip("\t") if line.startswith("+++ b/") else None
+        elif m := HUNK.match(line):
+            new_line, in_hdr = int(m.group(3)), False
+        elif line.startswith("+") and path:
+            added.setdefault(path, []).append((new_line, line[1:]))
+            new_line += 1
+        elif line.startswith("-") and path:
+            removed.setdefault(path, []).append(line[1:])
+    # binary deletions have no --- a/ line; renames are excluded by -M
+    names = git("diff", "--name-only", "-M", "--diff-filter=D", base).stdout.splitlines()
+    deleted = sorted(set(deleted) | set(names))
+    for rel in git("ls-files", "--others", "--exclude-standard").stdout.splitlines():
+        try:
+            with open(rel, encoding="utf-8", errors="replace") as fh:
+                added[rel] = list(enumerate(fh.read().splitlines(), 1))
+        except OSError:
+            continue
+    return added, removed, deleted
+
+
+SUPPRESS = ["@ts-ignore", "@ts-expect-error", "eslint-disable", "biome-ignore", "# noqa",
+            "# type: ignore", "shellcheck disable", "istanbul ignore", "Stryker disable",
+            "nosemgrep", "gitleaks:allow"]
+SKIPS = re.compile(r"\.skip\(|(?<![\w.])(?:xit|xdescribe)\(|@pytest\.mark\.skip|@unittest\.skip"
+                   r"|\bt\.Skip\(|#\[ignore\]")
+STUBS = ["NotImplementedError", "Not implemented", "todo!(", "unimplemented!("]
+EMPTY_CATCH = re.compile(r"catch\s*(\([^)]*\))?\s*\{\s*\}")
+EXCEPT_PASS = re.compile(r"^\s*except\b[^:]*:\s*pass\b")
+EXCEPT_OPEN = re.compile(r"^\s*except\b[^:]*:\s*(#.*)?$")
+ASSERTION = re.compile(r"^\s*assert\b|\.assert\w*\(|expect\(")
+STATUS = re.compile(r"^status:\s*(\S+)", re.M)
+
+
+def is_test(path):
+    parts = path.split("/")
+    name = parts[-1]
+    return ("tests" in parts[:-1] or name.startswith("test_") or
+            re.search(r"(_test|\.test|\.spec)\.[^/]+$", name) is not None)
+
+
+def scan_added(path, lines, findings):
+    by_no = dict(lines)
+    for no, text in lines:
+        if any(s in text for s in SUPPRESS):
+            findings.append((path, no, 1, text))
+        if SKIPS.search(text):
+            findings.append((path, no, 2, text))
+        if is_test(path):
+            continue
+        nxt = by_no.get(no + 1, "")
+        if (any(s in text for s in STUBS) or EMPTY_CATCH.search(text) or EXCEPT_PASS.match(text)
+                or (EXCEPT_OPEN.match(text) and nxt.strip() == "pass")):
+            findings.append((path, no, 5, text))
+
+
+def spec_status(text):
+    m = STATUS.search(text or "")
+    return m.group(1) if m else "none"
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="floor-guard")
+    ap.add_argument("--base", metavar="REF")
+    args = ap.parse_args()
+    try:
+        top = git("rev-parse", "--show-toplevel").stdout.strip()
+        os.chdir(top)
+        base = resolve_base(args.base)
+        if not base:
+            print("no base; pass --base <ref>", file=sys.stderr)
+            return 2
+        added, removed, deleted = parse_diff(base)
+    except RuntimeError as e:
+        print(f"floor-guard: {e}", file=sys.stderr)
+        return 2
+    findings = []
+    for path in sorted(added):
+        scan_added(path, added[path], findings)
+    for path in sorted(deleted):
+        if is_test(path):
+            findings.append((path, 0, 3, "test file deleted"))
+    for path in sorted(set(added) | set(removed)):
+        if not is_test(path) or path in deleted:
+            continue
+        gone = sum(1 for t in removed.get(path, []) if ASSERTION.search(t))
+        new = sum(1 for _, t in added.get(path, []) if ASSERTION.search(t))
+        if gone > new:
+            findings.append((path, 0, 4, f"net {gone - new} assertion line(s) removed"))
+    for path, no, rule, text in findings:
+        print(f"{path}:{no}: [rule{rule}] {text.strip()}")
+    old = spec_status(git("show", f"{base}:SPEC.md", check=False).stdout)
+    try:
+        with open("SPEC.md", encoding="utf-8") as fh:
+            new_status = spec_status(fh.read())
+    except OSError:
+        new_status = "none"
+    if old != new_status:
+        print(f"INFO SPEC.md status: {old} -> {new_status}")
+    return 1 if findings else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
