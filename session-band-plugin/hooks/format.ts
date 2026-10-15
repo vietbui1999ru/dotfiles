@@ -11,3 +11,6 @@ export const shortDir = (cwd: string, home: string | undefined): string => {
 export const shortModel = (model: string): string => model.replace(/^claude-/, '')
 
 export const whole = (pct: number): number => Math.round(pct)
+
+// Context still free, as the old status line showed it: 100 - used, never below zero.
+export const ctxLeft = (usedPct: number): number => Math.max(0, 100 - usedPct)

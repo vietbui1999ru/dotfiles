@@ -114,13 +114,18 @@ async function reviewStates($: EngineInterface, tasks: readonly TrackedTask[]): 
   return Object.fromEntries(values)
 }
 
-// Written now and every HEARTBEAT_INTERVAL_MS; the status line fallback goes silent while it is fresh.
+// Every HEARTBEAT_INTERVAL_MS: write the liveness file (the status line fallback goes silent while it is fresh),
+// and re-read usage and git so the band does not depend on Bash calls or turn ends to stay current.
 const startHeartbeat = async ($: EngineInterface) => {
   const tmp = await $.env.get('TMPDIR') ?? '/tmp'
   const path = heartbeatPath(tmp, await $.session.id())
-  if (!path) return
-  const beat = async () => $.fs.write(path, heartbeatBody(await $.clock.now()))
-  await beat()
+  const beat = async () => {
+    if (path) await $.fs.write(path, heartbeatBody(await $.clock.now()))
+    const current = await $.session.usage()
+    await update($, usage, () => measuredUsage(current.context, current.rateLimits))
+    await refreshGit($)
+  }
+  if (path) await $.fs.write(path, heartbeatBody(await $.clock.now()))
   $.clock.every(HEARTBEAT_INTERVAL_MS, () => { void beat().catch(() => undefined) })
 }
 
