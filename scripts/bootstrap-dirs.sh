@@ -38,7 +38,7 @@ link_shared_skill() {
 	echo "✓ ~/.agents/skills/$name → shared/skills/$name"
 }
 
-for shared_skill in gh-stack approval-workflow delegate-pi kanban-status; do
+for shared_skill in gh-stack approval-workflow delegate-pi kanban-status grill-me verify-spec; do
 	link_shared_skill "$shared_skill"
 done
 
