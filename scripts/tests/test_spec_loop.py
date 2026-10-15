@@ -404,7 +404,10 @@ class SpecLoopCases(Fixture):
         self.floor_repo()
         self.put("tests/test_new.py",  # untracked counts as added
                  "import pytest\n\n\n@pytest.mark.skip\ndef test_a():\n    assert True\n")
-        self.assert_finding(self.run_floor(), "tests/test_new.py", 4, 2)
+        self.put("src/cli.py", "import sys; sys.exit(0)\nexit(1)\n")  # xit( must not match exit(
+        r = self.run_floor()
+        self.assert_finding(r, "tests/test_new.py", 4, 2)
+        self.assertNotRegex(r.stdout + r.stderr, re.compile(r"^src/cli\.py:\d+: \[rule2\]", re.M))
 
     def test_floor_rule3(self):
         self.floor_repo()
