@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+"""skill-prune: keep the skill list lean by moving aside unmanaged skills nobody has used lately.
+
+The skill library is uncapped, so something has to stop it filling up with skills that sessions
+generated once and never touched again. A skill is UNMANAGED when it is a real directory (not a
+link) in ~/.agents/skills or ~/.claude/skills and is not part of the knowledge base: not in
+dotfiles shared/skills or claude/.claude/skills, not in llm-wiki claude-setup/skills, not in the
+curated Firecrawl list, and not on the keep list (~/.config/skill-prune/keep, one name per line).
+Managed skills are never touched.
+
+An unmanaged skill is IDLE when its last use in a Claude transcript AND the modification time of
+its SKILL.md are both older than --days (default 30). Idle skills are moved to
+~/.agents/skills-disabled/pruned/<date>/<name> (reversible: --restore NAME), never deleted.
+
+Usage:
+  skill-prune                  dry run: show every unmanaged skill and the verdict
+  skill-prune --check          print one line only if something is idle (for session start)
+  skill-prune --apply          move the idle ones aside and log it
+  skill-prune --restore NAME   put a pruned skill back
+
+Limit: use is read from Claude transcripts only (Skill-tool calls). A skill used only from Codex,
+OpenCode or Pi looks idle, so review the dry run, and put such skills on the keep list.
+Override the home directory for tests with SKILL_PRUNE_HOME.
+"""
+import argparse
+import json
+import os
+import shutil
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+HOME = Path(os.environ.get("SKILL_PRUNE_HOME", Path.home()))
+SKILL_ROOTS = [HOME / ".agents/skills", HOME / ".claude/skills"]
+LINK_ROOTS = SKILL_ROOTS + [HOME / ".codex/skills", HOME / ".config/opencode/skills", HOME / ".pi/agent/skills"]
+KB_ROOTS = [HOME / "dotfiles/shared/skills", HOME / "dotfiles/claude/.claude/skills",
+            HOME / "repos/llm-wiki/claude-setup/skills"]
+LISTS = [HOME / "dotfiles/shared/firecrawl-skills.txt", HOME / ".config/skill-prune/keep"]
+PRUNED = HOME / ".agents/skills-disabled/pruned"
+JOURNAL = HOME / ".local/state/skill-prune/log.jsonl"
+NOTICE = HOME / ".local/state/skill-prune/notice"  # cached --check line the session-start hook prints
+
+
+def managed_names():
+    names = set()
+    for root in KB_ROOTS:
+        if root.is_dir():
+            names.update(p.name for p in root.iterdir())
+    for path in LISTS:
+        if path.is_file():
+            for line in path.read_text().splitlines():
+                line = line.split("#")[0].strip()
+                if line:
+                    names.add(line)
+    return names
+
+
+def unmanaged_skills():
+    """Real (non-link) skill directories that are not part of the knowledge base."""
+    kept = managed_names()
+    found = {}
+    for root in SKILL_ROOTS:
+        if not root.is_dir():
+            continue
+        for p in sorted(root.iterdir()):
+            if p.is_dir() and not p.is_symlink() and (p / "SKILL.md").is_file() and p.name not in kept:
+                found.setdefault(p.name, p)
+    return found
+
+
+def last_uses():
+    """name -> (latest timestamp as epoch seconds, count) from Skill-tool calls in Claude transcripts."""
+    seen = {}
+    for path in (HOME / ".claude/projects").glob("**/*.jsonl"):
+        try:
+            lines = path.read_text(errors="ignore").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            if '"Skill"' not in line:
+                continue
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            content = (rec.get("message") or {}).get("content")
+            ts = rec.get("timestamp")
+            if not isinstance(content, list) or not ts:
+                continue
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "tool_use" and part.get("name") == "Skill":
+                    name = ((part.get("input") or {}).get("skill") or "").split(":")[-1]
+                    try:
+                        epoch = datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+                    except ValueError:
+                        continue
+                    prev = seen.get(name, (0.0, 0))
+                    seen[name] = (max(prev[0], epoch), prev[1] + 1)
+    return seen
+
+
+def assess(days):
+    """Rows (name, path, last_use_epoch or None, total_uses, idle) for every unmanaged skill."""
+    uses = last_uses()
+    cutoff = time.time() - days * 86400
+    rows = []
+    for name, path in unmanaged_skills().items():
+        used, count = uses.get(name, (0.0, 0))
+        newest = max(used, (path / "SKILL.md").stat().st_mtime)
+        rows.append((name, path, used or None, count, newest < cutoff))
+    return rows
+
+
+def fmt(epoch):
+    return datetime.fromtimestamp(epoch, timezone.utc).strftime("%Y-%m-%d") if epoch else "never"
+
+
+def apply(rows):
+    """Move idle skills aside (reversible), drop links left dangling, and journal each move."""
+    stamp = datetime.now().strftime("%Y%m%d")
+    moved = 0
+    for name, path, used, _count, idle in rows:
+        if not idle:
+            continue
+        dest = PRUNED / stamp / name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.move(str(path), str(dest))
+        for root in LINK_ROOTS:
+            link = root / name
+            if link.is_symlink() and not link.exists():
+                link.unlink()
+        JOURNAL.parent.mkdir(parents=True, exist_ok=True)
+        with JOURNAL.open("a") as fh:
+            fh.write(json.dumps({"ts": time.time(), "name": name, "from": str(path), "to": str(dest), "last_used": used}) + "\n")
+        moved += 1
+    if NOTICE.is_file():
+        NOTICE.write_text("")  # the cached "N skills are idle" line no longer applies
+    return moved
+
+
+def restore(name):
+    entries = [json.loads(x) for x in JOURNAL.read_text().splitlines()] if JOURNAL.is_file() else []
+    mine = [e for e in entries if e["name"] == name and Path(e["to"]).is_dir()]
+    if not mine:
+        sys.exit(f"skill-prune: no pruned skill named {name}")
+    origin = Path(mine[-1]["from"])
+    if origin.exists():
+        sys.exit(f"skill-prune: {origin} already exists; not overwriting")
+    origin.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(mine[-1]["to"], str(origin))
+    print(f"restored {name} to {origin}")
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="skill-prune", description="Move idle, unmanaged skills aside (reversible).")
+    ap.add_argument("--days", type=int, default=30, help="idle threshold in days (default 30)")
+    ap.add_argument("--apply", action="store_true", help="move idle skills aside")
+    ap.add_argument("--check", action="store_true", help="one line if anything is idle, else silent")
+    ap.add_argument("--restore", metavar="NAME", help="put a pruned skill back")
+    args = ap.parse_args()
+    if args.restore:
+        restore(args.restore)
+        return 0
+    rows = assess(args.days)
+    idle = [r for r in rows if r[4]]
+    if args.check:
+        if idle:
+            print(f"{len(idle)} unmanaged skill(s) idle {args.days}+ days: {', '.join(r[0] for r in idle)}. "
+                  "Review with `skill-prune`, move aside with `skill-prune --apply`.")
+        return 0
+    print(f"{'skill':26} {'last Claude use':16} {'uses (all time)':>15}  verdict")
+    for name, _path, used, count, is_idle in rows:
+        print(f"{name:26} {fmt(used):16} {count:15}  {'IDLE' if is_idle else 'keep'}")
+    if args.apply:
+        print(f"moved {apply(rows)} skill(s) to {PRUNED}")
+    else:
+        print(f"dry run: {len(idle)} of {len(rows)} unmanaged skills would be moved (use --apply). "
+              "Use is read from Claude transcripts only; keep list: ~/.config/skill-prune/keep")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
