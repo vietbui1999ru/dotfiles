@@ -41,6 +41,10 @@
     "defaultMode": "plan"
   },
   "model": "haiku",
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/statusline-command.sh"
+  },
   "hooks": {
     "PostToolUse": [
       {
