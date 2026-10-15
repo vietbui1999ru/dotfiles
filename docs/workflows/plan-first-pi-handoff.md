@@ -159,9 +159,11 @@ Note: this shell's rtk wrapper discards exit codes at the top level. To check a 
 
 ## Risks and open items
 
-- **`bin/council` is missing.** `delegate-pi`'s council mode points at a `bin/council` engine that
-  does not exist in this repo (only `repos/llm-wiki/.council/`). Delegate mode, which this work
-  order uses, does not need it — but council mode is probably broken and deserves its own look.
+- **`bin/council` is not in this repo.** `delegate-pi`'s council mode calls a `bin/council` engine
+  that lives in the Commandr repo (`~/repos/Commandr/bin/council`, linked at `~/.local/bin/council`),
+  not in dotfiles. Delegate mode, which this work order uses, does not need it. Whether council
+  mode works end to end was not tested (corrected 2026-10-15: this item used to say the engine
+  was missing).
 - **Plan mode costs one approval per session.** Approving a plan exits plan mode and asks auto vs.
   manual for the remainder. If the friction outweighs the benefit, the revert is one word in
   `settings.json`.

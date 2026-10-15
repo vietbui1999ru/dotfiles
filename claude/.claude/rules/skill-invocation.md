@@ -29,14 +29,7 @@ These overrides apply where superpowers defaults conflict with personal rules:
 
 ## grill-me — relaxed mode
 
-When a written spec is present (GitHub issue body, PRD, CLAUDE.md section, detailed chat message) and `grill-me` would trigger, prepend one line before the first question:
-
-> "Spec detected — say 'just do it' to skip questions and self-generate."
-
-If user opts out ("just do it", "no questions", "skip the grill"):
-- Ask at most **one** question — only a true blocker that cannot be inferred from the spec, codebase, or CLAUDE.md
-- If no true blocker exists, proceed silently
-- Everything inferable from spec + codebase is resolved without asking
+Defined once, in the `grill-me` skill itself (`shared/skills/grill-me/SKILL.md`), so every harness gets it, not only Claude. Not repeated here.
 
 ## Skip skills for
 
