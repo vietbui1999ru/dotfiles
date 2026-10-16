@@ -5,6 +5,8 @@ import { nextPane } from './pane-nav'
 import { countChanges, liveByTree, paneLines, parseAheadBehind, parseHeartbeat, parseWorktrees, treeKeys, type Worktree } from './worktrees'
 
 const view = atom({ plugin: 'session-band', key: 'worktrees' } as const, { open: false, legend: true } as WorktreeState)
+// Same key as send-it.tsx, which sets it at session start; the state scan needs the atom declared in each file that reads it.
+const sendItAtom = atom({ plugin: 'session-band', key: 'sendIt' } as const, false)
 
 const FRESH_MS = 60_000
 
@@ -86,8 +88,7 @@ export const register: Register = on => {
     const rows = state.data?.rows ?? []
     const branches = state.data?.branches ?? []
     const selectedKey = state.selected ?? treeKeys(rows, branches)[0]
-    // P3 replaces this literal with the send-it atom; until then the header never shows.
-    const sendIt = false
+    const sendIt = await read($, sendItAtom)
     const lines = paneLines(rows, branches, state.legend, selectedKey, sendIt)
     return <Box flexDirection="column">
       <Text weight="bold">Worktrees</Text>

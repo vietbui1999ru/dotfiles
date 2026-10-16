@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { SEND_IT_BLOCK, acceptsOrigin, disable, enable, isEligible, isOn, refusedRepos } from './send-it'
+import { SEND_IT_BLOCK, acceptsOrigin, disable, enable, hasSendItBlock, isEligible, isOn, refusedRepos, sendItOn } from './send-it'
 
 const recent = '2026-11-01T00:00:00Z'
 const home = '/Users/test'
@@ -142,4 +142,19 @@ test('isOn is true after enable, false after disable, false on "{}"', () => {
   expect(isOn('{}\n')).toBe(false)
   expect(isOn(enable('{}\n'))).toBe(true)
   expect(isOn(disable(enable('{}\n')))).toBe(false)
+})
+
+test('sendItOn needs both SEND_IT=1 and defaultMode dontAsk', () => {
+  expect(sendItOn({ env: { SEND_IT: '1' }, permissions: { defaultMode: 'dontAsk' } })).toBe(true)
+  expect(sendItOn({ env: { SEND_IT: '1' } })).toBe(false)
+  expect(sendItOn({ permissions: { defaultMode: 'dontAsk' } })).toBe(false)
+  expect(sendItOn({ env: { SEND_IT: '1' }, permissions: { defaultMode: 'plan' } })).toBe(false)
+  expect(sendItOn({})).toBe(false)
+})
+
+test('hasSendItBlock reads the marker from raw text, even when malformed', () => {
+  expect(hasSendItBlock(enable('{}\n'))).toBe(true)
+  expect(hasSendItBlock('{"env": {"SEND_IT": "1" ')).toBe(true)
+  expect(hasSendItBlock('{"env": {"SEND_IT": "0"}}')).toBe(false)
+  expect(hasSendItBlock('{}')).toBe(false)
 })
