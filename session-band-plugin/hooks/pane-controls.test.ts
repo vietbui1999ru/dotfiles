@@ -33,6 +33,26 @@ test('Kill also kills the process groups the task tree left outside its group', 
   expect(pueue.signals).toEqual([['-KILL', '--', '-300']])
 })
 
+// `pueue pause` SIGSTOPs only the task's group, so the detached tool group keeps running unless it is stopped too.
+test('Pause also stops, and Resume also continues, the tool groups outside the task group', async ($, on) => {
+  const { clock, pueue } = await setup($, on)
+  pueue.ps = [
+    `  200   100   200 sh -c ${pueue.tasks[1]!.command}`,
+    '  201   200   200 node pi',
+    '  300   201   300 /bin/zsh -c sleep 900',
+  ].join('\n')
+  await $.ui.render(PANE)
+  await $.ui.press({ plugin: 'session-band', key: 'pi-pause' })
+  expect(pueue.calls).toContainEqual(['pause', '1'])
+  expect(pueue.signals).toEqual([['-STOP', '--', '-300']])
+  // The button reads the poll's state, so let one poll see the pause before Resume is pressed.
+  await clock.advance(2_000)
+  expect(text(await $.ui.render(PANE))).toContain('Resume')
+  await $.ui.press({ plugin: 'session-band', key: 'pi-pause' })
+  expect(pueue.calls).toContainEqual(['start', '1'])
+  expect(pueue.signals).toEqual([['-STOP', '--', '-300'], ['-CONT', '--', '-300']])
+})
+
 test('a confirm whose task finished meanwhile kills nothing', async ($, on) => {
   const { clock, pueue } = await setup($, on)
   await $.ui.render(PANE)
