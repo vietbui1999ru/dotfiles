@@ -3,7 +3,7 @@
 import type { WorktreeBranch, WorktreeRow } from '../types'
 import { PALETTE } from './palette'
 
-export const SYMBOL = { branch: '⎇', ahead: '↑', behind: '↓', dirty: '✎', live: '●', detached: '⊘', prunable: '⚠' } as const
+export const SYMBOL = { branch: '⎇', ahead: '↑', behind: '↓', dirty: '✎', live: '●', detached: '⊘', prunable: '⊗', stash: '≡' } as const
 
 export type Worktree = { path: string; head: string; branch?: string; detached: boolean; prunable: boolean }
 
@@ -43,7 +43,7 @@ export const parseHeartbeat = (body: string): { atSec: number; cwd: string } | u
 
 export type Flags = { changes: number; ahead: number; behind: number; live: number; prunable?: boolean }
 export type TreeItem = { key: string; label: string; flags: Flags; path?: string; action: boolean }
-export type TreeLine = { key?: string; text: string; color?: string }
+export type TreeLine = { key?: string; text: string; color?: string; strong?: boolean }
 
 const basename = (path: string): string => path.split('/').filter(Boolean).pop() ?? path
 
@@ -57,8 +57,6 @@ export const flagText = (f: Flags): string => [
   f.live > 0 ? `${SYMBOL.live}${f.live}` : '',
   f.prunable ? SYMBOL.prunable : '',
 ].filter(Boolean).join(' ')
-
-const withFlags = (text: string, f: Flags): string => (flagText(f) ? `${text}  ${flagText(f)}` : text)
 
 // Branch groups under the root, then detached worktrees; the needs-action ones first within each.
 export const treeItems = (rows: readonly WorktreeRow[], branches: readonly WorktreeBranch[]): TreeItem[] => {
@@ -94,31 +92,60 @@ export const liveByTree = (cwds: readonly string[], paths: readonly string[]): M
 export const treeKeys = (rows: readonly WorktreeRow[], branches: readonly WorktreeBranch[]): string[] =>
   rows[0] ? [rows[0].path, ...treeItems(rows, branches).map(item => item.key)] : []
 
-const legendLines = (): TreeLine[] => [
-  { text: `${SYMBOL.branch} branch   ${SYMBOL.ahead} ahead   ${SYMBOL.behind} behind   ${SYMBOL.dirty} changed files   ${SYMBOL.live} live sessions   ${SYMBOL.detached} detached   ${SYMBOL.prunable} prunable`, color: PALETTE.muted },
-  { text: '' },
+// Two short muted lines, so a narrow docked pane does not wrap an entry in half. Only symbols the tree draws.
+export const legendLines = (): TreeLine[] => [
+  { text: `${SYMBOL.ahead} ahead  ${SYMBOL.behind} behind  ${SYMBOL.dirty} changed  ${SYMBOL.live} live`, color: PALETTE.muted },
+  { text: `${SYMBOL.detached} detached  ${SYMBOL.prunable} prunable  › selected`, color: PALETTE.muted },
 ]
 
 // The hybrid tree: main checkout at the root, each branch a group, its worktree nested under it.
-export const treeLines = (rows: readonly WorktreeRow[], branches: readonly WorktreeBranch[], legend: boolean, selected: string | undefined): TreeLine[] => {
+// Column 0 is the selection mark on every line; the flags line up in one column after the widest name.
+export const treeLines = (rows: readonly WorktreeRow[], branches: readonly WorktreeBranch[], selected: string | undefined): TreeLine[] => {
   const main = rows[0]
   if (!main) return []
   const mark = (key: string) => (key === selected ? '›' : ' ')
   const items = treeItems(rows, branches)
-  const lines: TreeLine[] = legend ? legendLines() : []
-  lines.push({ key: main.path, text: withFlags(`${mark(main.path)}${basename(main.path)}  ${main.branch ?? `⊘ ${main.head}`}`, main) })
-  if (items.length > 0) lines.push({ text: '|' })
+  const rootName = `${mark(main.path)}${basename(main.path)}  ${main.branch ?? `⊘ ${main.head}`}`
+  const names = items.map((item, index) => `${mark(item.key)}${index === items.length - 1 ? '└─' : '├─'} ${item.label}`)
+  const width = Math.max(rootName.length, ...names.map(name => name.length))
+  const withFlags = (name: string, f: Flags): string => (flagText(f) ? `${name.padEnd(width)}  ${flagText(f)}` : name)
+  const lines: TreeLine[] = [{ key: main.path, text: withFlags(rootName, main), strong: main.path === selected }]
+  if (items.length > 0) lines.push({ text: ' │', color: PALETTE.muted })
   items.forEach((item, index) => {
     const last = index === items.length - 1
-    lines.push({ key: item.key, text: withFlags(`${mark(item.key)}${last ? '\\' : '|'}__ ${item.label}`, item.flags), color: item.action ? undefined : PALETTE.muted })
-    if (item.path) lines.push({ text: `${last ? ' ' : '|'}   \\__ ${basename(item.path)}`, color: PALETTE.muted })
+    lines.push({ key: item.key, text: withFlags(names[index] ?? '', item.flags), color: item.action ? undefined : PALETTE.muted, strong: item.key === selected })
+    if (item.path) lines.push({ text: ` ${last ? ' ' : '│'}  └─ ${basename(item.path)}`, color: PALETTE.muted })
   })
   return lines
 }
 
-// Detail for the selected row: shown below the tree, secondary to it.
-export const detailLines = (row: WorktreeRow | undefined): TreeLine[] => row ? [
-  { text: '' },
-  { text: row.path, color: PALETTE.muted },
-  { text: `HEAD ${row.head}  ${row.branch ?? 'detached'}  ${row.changes} changed · ${row.ahead} ahead · ${row.behind} behind · ${row.live} live`, color: PALETTE.muted },
-] : []
+// Detail for the selected entry: what it is first, where it lives second (muted), its counts last (muted).
+// A branch with no worktree still gets a line, so moving the selection never makes the detail vanish.
+export const detailLines = (rows: readonly WorktreeRow[], branches: readonly WorktreeBranch[], selected: string | undefined): TreeLine[] => {
+  const main = rows[0]
+  const key = selected ?? main?.path
+  const item = treeItems(rows, branches).find(entry => entry.key === key)
+  const row = rows.find(r => r.path === (key === main?.path ? key : item?.path))
+  if (row) return [
+    { text: `${row.branch ?? `${SYMBOL.detached} detached`} · HEAD ${row.head}` },
+    { text: row.path, color: PALETTE.muted },
+    { text: `${row.changes} changed · ${row.ahead} ahead · ${row.behind} behind · ${row.live} live`, color: PALETTE.muted },
+  ]
+  if (item) return [
+    { text: `${item.label} · no worktree` },
+    { text: `${item.flags.ahead} ahead · ${item.flags.behind} behind`, color: PALETTE.muted },
+  ]
+  return []
+}
+
+// The pane body under the key row: tree, then detail, then legend, one blank line between each.
+export const paneLines = (rows: readonly WorktreeRow[], branches: readonly WorktreeBranch[], legend: boolean, selected: string | undefined): TreeLine[] => {
+  const tree = treeLines(rows, branches, selected)
+  if (tree.length === 0) return []
+  const detail = detailLines(rows, branches, selected)
+  return [
+    ...tree,
+    ...(detail.length > 0 ? [{ text: '' }, ...detail] : []),
+    ...(legend ? [{ text: '' }, ...legendLines()] : []),
+  ]
+}
