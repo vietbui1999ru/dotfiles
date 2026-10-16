@@ -28,7 +28,7 @@ Provisioning uses three mechanisms — know which applies before editing a packa
 | `claude/` | `~/.claude/` | stow (partial) — including `settings.json`; `skills/`+`agents/` mix dotfiles and `llm-wiki` sources |
 | `opencode/` | `~/.config/opencode/` | partial — `plugins/` stow; `opencode.json` materialized; `agents/`/`skills/` unmanaged |
 | `codex/` | `~/.codex/` | **no-op stub today** — Codex is sync-pushed via `sync-agent-rules.sh`, not stowed |
-| `pi/` | `~/.pi/` | stow (extensions only); `~/.pi/agent/` runtime state is unmanaged |
+| `pi/` | `~/.pi/` | stow (extensions only); `~/.pi/agent/` runtime state is unmanaged, except portable MCP entries sync-pushed to `mcp.json` |
 | `herdr/` | `~/.config/herdr/config.toml` | stow — not in the `stow` line above; back up the live file before first `stow herdr`; `~/.config/herdr/` logs/sockets/session-history are unmanaged runtime state; `herdr server reload-config` after edits |
 | `launchd/` | `~/Library/LaunchAgents/` | stow — user LaunchAgents such as the Herdr→Sketchybar bridge |
 
@@ -124,6 +124,10 @@ The `pi/` stow package includes these Pi extensions:
 pi-lens owns non-mutating turn-end static safety/context signals; its LSP,
 test, format, and autofix runners are disabled. `post-run-verifier.ts` alone
 owns format, lint, typecheck, and focused behavioral tests.
+
+Pi uses its built-in MCP client. `scripts/sync-agent-rules.sh` syncs the
+portable servers in `shared/mcp-servers.json` into `~/.pi/agent/mcp.json`,
+preserving machine-specific entries. Do not install `pi-mcp-adapter`.
 
 ### Intentional generated/config forks
 

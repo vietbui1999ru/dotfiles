@@ -1,7 +1,7 @@
 {
-  "_comment": "URL-based MCP servers for OpenCode (synced by scripts/sync-agent-rules.sh). Claude Code has its own file: claude/.claude/mcp-servers.json.",
+  "_comment": "Portable URL-based MCP server catalogue. scripts/sync-agent-rules.sh converts it for OpenCode and Pi; Claude Code has its own file: claude/.claude/mcp-servers.json.",
   "_note": "Stdio servers (qmd, cgc) are tool-specific \u2014 configure per tool manually.",
-  "_secrets": "OpenCode expands {env:VAR} (no $). Add actual values to ~/secrets/.env",
+  "_secrets": "OpenCode expands {env:VAR} (no $); Pi sync transforms it to ${VAR}. Add actual values to ~/secrets/.env",
   "servers": {
     "context7": {
       "url": "https://mcp.context7.com/mcp",
