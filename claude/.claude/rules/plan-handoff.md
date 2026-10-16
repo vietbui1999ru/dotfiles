@@ -32,3 +32,5 @@ Claude may drive a nested Claude Code session for a live gate only inside a deta
 ## Claude git: commit and push without asking
 
 This section is for Claude only (Pi's rule in `shared/` still asks before push). After each coherent unit of work in a feature branch or git worktree, stage by path, commit, and push the branch (`git push` or `git push -u origin <branch>`), without asking. Open a draft PR when the work is ready for review. `settings.json` allows `git add`, `git commit` and `git push`, and denies force-push, `--delete` and pushes to `main`/`master`. Still ask before merge, rebase and `reset --hard`. A permission denial on a commit is not an invitation to work around it: report it.
+
+send-it has its own rule file, `send-it.md`. Its rules apply only while send-it is on.
