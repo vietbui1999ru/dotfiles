@@ -1,10 +1,29 @@
-import type { CommandRunInput, CommandRunResult, EngineInterface, Register } from 'claude-code'
+import { atom, read, update, type CommandRunInput, type CommandRunResult, type EngineInterface, type Register } from 'claude-code'
 
-import { acceptsOrigin, disable, enable, isEligible, isOn, refusedRepos, SEND_IT_SINCE } from './send-it'
+import { acceptsOrigin, disable, enable, hasSendItBlock, isEligible, isOn, refusedRepos, SEND_IT_SINCE, sendItOn } from './send-it'
 
 const LOG = '.claude/state/send-it.log'
 const SETTINGS = '.claude/settings.local.json'
 const CONFLICT_PREFIX = 'send-it: refused, these keys already hold other values:'
+const RULE = '.claude/rules/send-it.md'
+const MISSING_RULE = 'send-it is on but ~/.claude/rules/send-it.md is missing or unreadable; the mode runs without its rules.'
+const REFUSED_CHANGE = 'send-it: this settings change is refused mid-session and applies at the next session start.'
+
+// True while send-it runs in this session. Set at session start, read by the rule and the ConfigChange guard.
+const sendItAtom = atom({ plugin: 'session-band', key: 'sendIt' } as const, false)
+
+// Reads the repo's local settings as loaded and records whether send-it runs in this session.
+export async function refreshSendIt($: EngineInterface): Promise<boolean> {
+  const on = sendItOn(await $.settings.read({ source: 'local' }))
+  await update($, sendItAtom, () => on)
+  return on
+}
+
+// The local settings as they are on disk now: a mid-session edit is visible here, not in the loaded settings.
+const onDiskLocalText = async ($: EngineInterface): Promise<string> => {
+  const top = (await git($, ['rev-parse', '--show-toplevel'])).split('\n')[0] ?? ''
+  return top ? $.fs.read(`${top}/${SETTINGS}`).catch(() => '') : ''
+}
 
 const git = async ($: EngineInterface, args: string[]): Promise<string> => {
   const r = await $.process.run(['git', ...args]).catch(() => undefined)
@@ -61,4 +80,24 @@ const handle = async ($: EngineInterface, e: CommandRunInput): Promise<CommandRu
 
 export const register: Register = on => {
   on('command.run', { command: 'send-it' }, async ($, e, _next) => handle($, e))
+
+  // Settings changes are refused while send-it runs or its block sits in the repo; they apply at the next start.
+  on('classic.ConfigChange', async ($, e, next) => {
+    if (e.source !== 'local_settings' && e.source !== 'user_settings') return next(e)
+    const guarded = await read($, sendItAtom) || hasSendItBlock(await onDiskLocalText($))
+    return guarded ? { block: REFUSED_CHANGE } : next(e)
+  })
+
+  // The rule is injected only while send-it is on. Refreshing here too keeps it right whichever start hook runs first.
+  on('classic.SessionStart', async ($, e, next) => {
+    const result = await next(e)
+    if (!(await refreshSendIt($))) return result
+    const home = await $.env.get('HOME')
+    const text = home ? await $.fs.read(`${home}/${RULE}`).catch(() => undefined) : undefined
+    if (text === undefined) {
+      $.ui.toast(MISSING_RULE, { timeoutMs: 15_000 })
+      return { ...result, additionalContext: [...(result.additionalContext ?? []), MISSING_RULE] }
+    }
+    return { ...result, additionalContext: [...(result.additionalContext ?? []), text] }
+  })
 }
