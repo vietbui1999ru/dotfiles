@@ -8,6 +8,9 @@
   },
   "permissions": {
     "allow": [
+      "Bash(gh pr merge --repo vietbui1999ru/agent-events*)",
+      "Bash(git -C /Users/vietquocbui/repos/agent-events push*)",
+      "Bash(/usr/bin/git -C /Users/vietquocbui/repos/agent-events push*)",
       "Bash(~/.claude/plugins/cache/claude-plugins-official/superpowers/*/skills/brainstorming/scripts/start-server.sh:*)",
       "mcp__sentry__authenticate",
       "mcp__sentry__complete_authentication",
