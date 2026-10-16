@@ -1,1 +1,1 @@
-../../../../../../../repos/llm-wiki/claude-setup/rules/send-it.md
+../../../../repos/llm-wiki/claude-setup/rules/send-it.md
