@@ -191,6 +191,20 @@ scripts/agent-workflow status ~/repos/example
 scripts/agent-workflow detach ~/repos/example
 ```
 
+### Spec loop
+
+The spec loop is the six numbered rules between the `<!-- spec-loop:start -->` and `<!-- spec-loop:end -->` markers in `shared/AGENTS.md`. The same block is mirrored in `shared/research-tool-routing.md`; the two copies must stay identical. The rules themselves are canonical in that block; this section describes the workflow they govern.
+
+Prerequisites: `python3` and `git`. The scripts are not on PATH, so call them as `~/dotfiles/scripts/ac-run` and `~/dotfiles/scripts/floor-guard`.
+
+1. **Grill.** The `grill-me` skill interviews you and writes `SPEC.md` at the repo root. `shared/templates/spec.md` is the starting template: copy it to the repo root as `SPEC.md` and set `branch:` to the current branch. Lint must pass: the sections Objective, Acceptance Criteria, Boundaries (Always / Ask first / Never) and Open Questions are required.
+2. **Approve (human only).** Run `~/dotfiles/scripts/ac-run approve SPEC.md` yourself. It prints the verify commands and asks for confirmation. If the tree is clean apart from `SPEC.md`, it runs the non-manual commands once for a baseline; otherwise the baseline is recorded as unknown. It stores a record under `~/.local/state/ac-run/`, named by a hash of the spec path, branch, AC ids and each AC's `verify:` and `baseline:` lines, and sets `status: approved`. Changing any of those voids the approval. Agents never run `approve`.
+3. **Implement.** An agent reads `SPEC.md` when its `branch:` matches the current branch, works only toward its AC ids, and obeys its Boundaries.
+4. **Verify.** The `verify-spec` skill runs `~/dotfiles/scripts/ac-run check SPEC.md` and `~/dotfiles/scripts/floor-guard`. `check` exits 0 when every AC is PASS or MANUAL, 1 on FAIL, TIMEOUT or PRE-SATISFIED (an AC that was already true before the change), 2 on a lint or branch error, and 3 when no approval record exists. `floor-guard` is advisory: exit 0 clean, 1 findings, 2 error. It flags added suppressions, skipped or deleted tests, removed assertions, and stubs or swallowed errors, and scans untracked files too. On failure the agent fixes the code and reruns, at most 3 times, then reports. It never edits a `verify:` or `baseline:` line or a test to make a check pass.
+5. **Review and PR.** Review the diff through the gate described in `docs/workflows/agent-review.md` before it is pushed or merged. Then push the branch and open a draft PR.
+
+Tests for both scripts: `python3 -m unittest scripts/tests/test_spec_loop.py`.
+
 ### Stacked pull requests
 
 Use GitHub's `gh stack` extension for a single feature split into dependent,
