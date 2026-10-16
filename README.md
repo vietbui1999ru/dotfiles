@@ -89,7 +89,7 @@ git submodule update --remote repos/llm-wiki
 git add repos/llm-wiki && git commit -m "chore(submodule): bump llm-wiki"
 ```
 
-`~/repos/llm-wiki` and `~/dotfiles/repos/llm-wiki` are independent clones on this machine. `bootstrap-dirs.sh` creates a redirect to the submodule only when no standalone clone exists; it never replaces an existing clone. Claude rules, agents, and skills resolve to the standalone clone.
+`~/repos/llm-wiki` and `~/dotfiles/repos/llm-wiki` are independent clones on this machine. `bootstrap-dirs.sh` creates a redirect to the submodule only when no standalone clone exists; it never replaces an existing clone. Claude rules, agents, and skills resolve to the standalone clone. Commit and push wiki changes from the standalone clone first, then bump the pin here so the submodule matches its `main`.
 
 ## AI Agents
 
