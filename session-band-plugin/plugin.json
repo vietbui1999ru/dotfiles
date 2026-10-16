@@ -1,0 +1,7 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "session-band",
+  "version": "0.1.0",
+  "description": "Codex session overview workflow using native status and Git tools.",
+  "skills": "./skills/"
+}

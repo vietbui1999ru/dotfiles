@@ -1,0 +1,7 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "codex-guardrails",
+  "version": "1.0.0",
+  "description": "Codex hooks adapted from personal Claude Code safety rules.",
+  "hooks": "./hooks/hooks.json"
+}
