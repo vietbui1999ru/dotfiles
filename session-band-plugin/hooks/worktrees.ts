@@ -139,11 +139,12 @@ export const detailLines = (rows: readonly WorktreeRow[], branches: readonly Wor
 }
 
 // The pane body under the key row: tree, then detail, then legend, one blank line between each.
-export const paneLines = (rows: readonly WorktreeRow[], branches: readonly WorktreeBranch[], legend: boolean, selected: string | undefined): TreeLine[] => {
+export const paneLines = (rows: readonly WorktreeRow[], branches: readonly WorktreeBranch[], legend: boolean, selected: string | undefined, sendIt = false): TreeLine[] => {
   const tree = treeLines(rows, branches, selected)
   if (tree.length === 0) return []
   const detail = detailLines(rows, branches, selected)
   return [
+    ...(sendIt ? [{ text: 'send-it ON · dontAsk · sandbox · auto-merge', color: PALETTE.red, strong: true }] : []),
     ...tree,
     ...(detail.length > 0 ? [{ text: '' }, ...detail] : []),
     ...(legend ? [{ text: '' }, ...legendLines()] : []),

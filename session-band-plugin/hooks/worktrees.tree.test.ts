@@ -60,3 +60,11 @@ test('a session inside a linked worktree counts for that worktree only, not the 
   // Two sessions sit under /repo: /repo/src, and the look-alike /repo/.claude/worktreesx (not a child of worktrees/x).
   expect(counts.get('/repo')).toBe(2)
 })
+
+test('send-it on adds one header line above the tree; off leaves the pane unchanged', () => {
+  const off = paneLines(rows, branches, false, undefined).map(line => line.text)
+  expect(paneLines(rows, branches, false, undefined, false).map(line => line.text)).toEqual(off)
+  const on = paneLines(rows, branches, false, undefined, true)
+  expect(on[0]?.text).toBe('send-it ON · dontAsk · sandbox · auto-merge')
+  expect(on.slice(1).map(line => line.text)).toEqual(off)
+})

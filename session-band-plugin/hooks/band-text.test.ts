@@ -40,3 +40,14 @@ test('the Pi chip gets the room the status line leaves, and keeps its required f
   const narrow = layoutBand({ ...full, handoff, width: 120, wt: true })
   expect(narrow.pi).toBe('pi#12! openai/gpt:high changes requested exit 1')
 })
+
+test('send-it run: red, after the alerts; no run when sendIt is false', () => {
+  expect(statusText(statusGroups({ ...full, sendIt: true }))).toBe('llm-wiki feat/x* local ↑2 ↓1 ≡1 · [####30%-----] 5h:12% 7d:34% · ⚠2 ⇉ send-it · opus-5-5 explanatory')
+  expect(statusText(statusGroups({ ...full, sendIt: false }))).toBe(statusText(statusGroups(full)))
+  expect(statusGroups({ ...full, openAlerts: undefined, sendIt: true })[2]?.[0]).toEqual({ text: '⇉ send-it', tone: 'red' })
+})
+
+test('the send-it run survives fitStatus at narrow widths; style, local and stash go first', () => {
+  expect(statusText(fitStatus(statusGroups({ ...full, sendIt: true }), 60))).toBe('llm-wiki feat/x* ↑2 ↓1 · [####30%-----] 5h:12% 7d:34% · ⚠2 ⇉ send-it · opus-5-5')
+  expect(statusText(fitStatus(statusGroups({ ...full, openAlerts: undefined, sendIt: true }), 20))).toContain('⇉ send-it')
+})
