@@ -77,6 +77,19 @@ export const treeItems = (rows: readonly WorktreeRow[], branches: readonly Workt
   return items.sort((a, b) => Number(b.action) - Number(a.action) || a.key.localeCompare(b.key))
 }
 
+// Each live session counts once, for the worktree it sits in. Linked worktrees live under the main checkout,
+// so the longest matching path wins: a session in <repo>/.claude/worktrees/x is not also counted for <repo>.
+export const liveByTree = (cwds: readonly string[], paths: readonly string[]): Map<string, number> => {
+  const counts = new Map<string, number>()
+  for (const cwd of cwds) {
+    const owner = paths
+      .filter(path => cwd === path || cwd.startsWith(`${path}/`))
+      .sort((a, b) => b.length - a.length)[0]
+    if (owner) counts.set(owner, (counts.get(owner) ?? 0) + 1)
+  }
+  return counts
+}
+
 // Order of selection: the root first, then the items in display order.
 export const treeKeys = (rows: readonly WorktreeRow[], branches: readonly WorktreeBranch[]): string[] =>
   rows[0] ? [rows[0].path, ...treeItems(rows, branches).map(item => item.key)] : []

@@ -146,9 +146,11 @@ export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
     captureSession(e.isInteractive)
-    await startHeartbeat($)
+    // A heartbeat failure must not cost the session its command registrations (F3).
+    await startHeartbeat($).catch(() => undefined)
     await $.command.register({ name: 'pi', description: 'Open Pi hand-off controls, or kill/pause/resume/rm/hold Pi tasks', argumentHint: '[kill|pause|resume|rm|hold] [ids|all] | release', immediate: true })
     await $.command.register({ name: 'pi-history', description: 'Open Pi hand-off history' })
+    await $.command.register({ name: 'worktrees', description: 'Open the worktrees and branches pane' })
     const current = await $.session.usage()
     await Promise.all([
       update($, usage, () => measuredUsage(current.context, current.rateLimits)),
