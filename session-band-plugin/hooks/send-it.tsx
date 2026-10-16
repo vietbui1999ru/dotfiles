@@ -4,6 +4,7 @@ import { acceptsOrigin, disable, enable, isEligible, isOn, refusedRepos, SEND_IT
 
 const LOG = '.claude/state/send-it.log'
 const SETTINGS = '.claude/settings.local.json'
+const CONFLICT_PREFIX = 'send-it: refused, these keys already hold other values:'
 
 const git = async ($: EngineInterface, args: string[]): Promise<string> => {
   const r = await $.process.run(['git', ...args]).catch(() => undefined)
@@ -48,8 +49,11 @@ const handle = async ($: EngineInterface, e: CommandRunInput): Promise<CommandRu
     const text = (await $.fs.exists(path)) ? await $.fs.read(path) : '{}'
     if (args === 'status') return reply($, home, args, common, `send-it is ${isOn(text) ? 'on' : 'off'} for this repo`)
     await $.fs.write(path, args === 'on' ? enable(text) : disable(text))
-  } catch {
-    // Fixed text: the parse error can quote the file, and the file holds env values.
+  } catch (err) {
+    // Only the conflict refusal is shown as-is: it names key paths, never values.
+    // Any other error keeps the fixed text, since parse errors can quote the file.
+    const msg = err instanceof Error ? err.message : ''
+    if (msg.startsWith(CONFLICT_PREFIX)) return reply($, home, args, common, msg)
     return reply($, home, args, common, `send-it: ${SETTINGS} could not be read as a JSON object; not editing it`)
   }
   return reply($, home, args, common, 'written; restart to apply')

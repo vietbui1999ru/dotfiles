@@ -63,12 +63,17 @@ test('a composer origin on a refused repo is refused and nothing is written', as
 })
 
 test('a composer origin on an eligible repo writes the block, and off restores the text', async ($, on) => {
-  const world = setup(on)
+  const world = setup(on, { files: { [SETTINGS]: '{}\n' } })
   const original = world.files[SETTINGS]
 
   const on1 = await $.command.run(send('on'))
   expect(on1.text).toBe('written; restart to apply')
-  expect(JSON.parse(world.files[SETTINGS]!).send_it_block).toEqual(SEND_IT_BLOCK)
+  const written = JSON.parse(world.files[SETTINGS]!)
+  expect(written.env.SEND_IT).toBe('1')
+  expect(written.model).toBe('opus')
+  expect(written.permissions.defaultMode).toBe('dontAsk')
+  expect(written.sandbox.enabled).toBe(true)
+  expect(written.send_it_block).toBeUndefined()
 
   const off1 = await $.command.run(send('off'))
   expect(off1.text).toBe('written; restart to apply')
@@ -86,8 +91,20 @@ test('a malformed settings file is reported and not overwritten', async ($, on) 
   expect(world.files[SETTINGS]).toBe('{"env": {"TOKEN": "x" ')
 })
 
+test('a conflicting key is named in the reply without its value, and nothing is written', async ($, on) => {
+  const world = setup(on)
+  const before = world.files[SETTINGS]
+
+  const result = await $.command.run(send('on'))
+
+  expect(result.text).toContain('already hold other values')
+  expect(result.text).toContain('model')
+  expect(result.text).not.toContain('sonnet')
+  expect(world.files[SETTINGS]).toBe(before)
+})
+
 test('status reports on and off as the file holds them', async ($, on) => {
-  setup(on)
+  setup(on, { files: { [SETTINGS]: '{}' } })
 
   expect((await $.command.run(send('status'))).text).toBe('send-it is off for this repo')
   await $.command.run(send('on'))
