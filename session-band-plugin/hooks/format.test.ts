@@ -2,10 +2,11 @@ import { expect, test } from 'claude-code/testing'
 
 import { ctxBar, ctxLeft, shortDir, shortModel } from './format'
 
-test('context bar fills with # and carries the percentage in its middle', () => {
-  expect(ctxBar(0)).toBe('[-----0%-----]')
-  expect(ctxBar(50)).toBe('[####50%-----]')
-  expect(ctxBar(100)).toBe('[####100%####]')
+test('context bar fills with block glyphs and carries the percentage in its middle', () => {
+  expect(ctxBar(0)).toBe('░░░░░0%░░░░░')
+  expect(ctxBar(50)).toBe('████50%░░░░░')
+  expect(ctxBar(100)).toBe('████100%████')
+  expect(ctxBar(12.5)).toBe('█▌░░13%░░░░░')
 })
 
 test('headroom is what is left of the context, never negative', () => {
