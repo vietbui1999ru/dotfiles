@@ -12,7 +12,7 @@ export type Seg = { text: string; tone: Tone; drop?: number }
 /** Between groups. Runs inside a group are joined by one space. */
 export const SEP = ' · '
 
-export type StatusInput = { dir: string; model: string; usage: Usage; git: GitSnapshot | null; style: string | null; openAlerts?: number }
+export type StatusInput = { dir: string; model: string; usage: Usage; git: GitSnapshot | null; style: string | null; openAlerts?: number; sendIt?: boolean }
 
 /** Left to right: where (dir, branch, sync), budget (ctx, 5h, 7d), alerts, who (model, style). */
 export const statusGroups = (d: StatusInput): Seg[][] => {
@@ -31,6 +31,8 @@ export const statusGroups = (d: StatusInput): Seg[][] => {
   if (u.five !== undefined) budget.push({ text: `5h:${u.five}%`, tone: limitTone(u.five) })
   if (u.seven !== undefined) budget.push({ text: `7d:${u.seven}%`, tone: limitTone(u.seven) })
   const alerts: Seg[] = d.openAlerts ? [{ text: `⚠${d.openAlerts}`, tone: 'red' }] : []
+  // No drop rank: fitStatus never removes it, so the send-it state stays visible at any width.
+  if (d.sendIt) alerts.push({ text: '⇉ send-it', tone: 'red' })
   const who: Seg[] = [{ text: d.model, tone: 'mauve' }]
   if (d.style) who.push({ text: d.style, tone: 'muted', drop: 1 })
   return [where, budget, alerts, who].filter(group => group.length > 0)
