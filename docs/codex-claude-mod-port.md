@@ -2,6 +2,8 @@
 
 ## Packaged plugins
 
+- `.agents/plugins/marketplace.json` exposes the local packages to Codex's
+  plugin manager.
 - `llm-wiki-plugin/plugin.json` makes the existing `build-agent` skill
   available as a Codex-compatible plugin package.
 - `session-band-plugin/plugin.json` exposes a Codex session overview skill.

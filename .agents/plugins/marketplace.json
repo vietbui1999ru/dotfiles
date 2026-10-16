@@ -1,0 +1,44 @@
+{
+  "name": "vietbui-dotfiles",
+  "interface": {
+    "displayName": "Viet Bui Dotfiles"
+  },
+  "plugins": [
+    {
+      "name": "llm-wiki",
+      "source": {
+        "source": "url",
+        "url": "./llm-wiki-plugin"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    },
+    {
+      "name": "session-band",
+      "source": {
+        "source": "url",
+        "url": "./session-band-plugin"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    },
+    {
+      "name": "codex-guardrails",
+      "source": {
+        "source": "url",
+        "url": "./codex-guardrails-plugin"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}
