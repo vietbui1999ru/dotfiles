@@ -50,17 +50,14 @@ caveman undercounted because it fires via hook rather than the Skill tool.
 
 1. **Two independent llm-wiki clones exist.** `~/repos/llm-wiki` is a standalone clone
    with its own `.git`. `~/dotfiles/repos/llm-wiki` is a git submodule with a separate
-   git dir. They are at the same commit today but are NOT the same checkout, and the
-   README's claim that the former is a symlink to the latter is false. **Every rule,
-   agent, and skill symlink under `~/.claude/` resolves to the standalone clone.** So
-   edits to rules/agents/skills are commits in `~/repos/llm-wiki`, and the dotfiles
-   submodule pin does not move until you separately commit there and bump the submodule.
+   git dir. They are NOT the same checkout: the standalone clone is the live authoring
+   checkout, and the submodule is a pinned snapshot bumped after the wiki's `main`
+   moves (resolved 2026-10-16; see Phase 6). **Rule, agent, and skill links under `~/.claude/` that point into llm-wiki resolve to the standalone clone, but not all of them.** Skills under `~/dotfiles/shared/skills/` and `~/dotfiles/claude/.claude/skills/`, `tool-routing.md`, and four rule files tracked in `claude/.claude/rules/` resolve into dotfiles; `~/.claude/agents` holds only a dotfiles link. The llm-wiki copies of `grill-me` and `verify-spec` are `MOVED.md` stubs. Check with `readlink` before editing. Edits that resolve into llm-wiki are commits in `~/repos/llm-wiki`, and the dotfiles submodule pin does not move until you separately commit there and bump the submodule.
 2. **Concurrent work is in flight.** `~/repos/llm-wiki` has uncommitted changes including
    `AGENT-UPDATE-2026-09-16-graphify-removed.md` dated today, and `~/dotfiles` has a large
    uncommitted pi-extension/theming stream. Another session is mutating this system. Check
    `git status` in both repos before each phase and do not assume a clean tree.
-3. **Three distinct homes for artifacts.** Rules and agents and most skills live in
-   `~/repos/llm-wiki/claude-setup/`. A few skills live in `~/dotfiles/claude/.claude/skills/`.
+3. **Three distinct homes for artifacts.** Claude rules and skills are split between `~/repos/llm-wiki/claude-setup/` and `~/dotfiles/claude/.claude/` (see trap 1 for which links resolve where). Shared skills (`grill-me`, `verify-spec`, `gh-stack` and others) live in `~/dotfiles/shared/skills/`.
    Six skills exist ONLY as real directories in `~/.claude/skills/` with no tracked source
    — deleting those is unrecoverable, so commit them into dotfiles first if keeping.
 4. **Deletion is the mechanism, git is the safety net.** Every removal below must land as
@@ -209,8 +206,10 @@ Once measured:
 - Audit remaining copy-based flows: `shared/AGENTS.md` → opencode/codex, plus the two
   "materialize once, never re-sync" files (`known_marketplaces.json`,
   `agent-workflow.default.json`). Symlink them or document the fork deliberately.
-- Reconcile the two llm-wiki clones (trap 1). Either make `~/repos/llm-wiki` a symlink to
-  the submodule as the README claims, or update the README to describe reality.
+- Done 2026-10-16: reconciled the two llm-wiki clones (trap 1). The submodule was strictly
+  behind the standalone clone (ca9ac4d is an ancestor of 94e56a0), so no commits were lost. The
+  pin moved to 94e56a0 and the README describes both clones. No symlink swap: it would require
+  deleting the standalone clone, which holds uncommitted local config.
 
 ## Phase 7 — mechanical expiry (the anti-regrowth mechanism)
 

@@ -8,6 +8,9 @@
   },
   "permissions": {
     "allow": [
+      "Bash(gh pr merge --repo vietbui1999ru/agent-events*)",
+      "Bash(git -C /Users/vietquocbui/repos/agent-events push*)",
+      "Bash(/usr/bin/git -C /Users/vietquocbui/repos/agent-events push*)",
       "Bash(~/.claude/plugins/cache/claude-plugins-official/superpowers/*/skills/brainstorming/scripts/start-server.sh:*)",
       "mcp__sentry__authenticate",
       "mcp__sentry__complete_authentication",
@@ -16,11 +19,7 @@
       "Bash(git push:*)",
       "Bash(/usr/bin/git add:*)",
       "Bash(/usr/bin/git commit:*)",
-      "Bash(/usr/bin/git push:*)",
-      "Bash(tmux send-keys -t claude-*)",
-      "Bash(tmux new-session -d -s claude-*)",
-      "Bash(tmux capture-pane -p -t claude-*)",
-      "Bash(tmux kill-session -t claude-*)"
+      "Bash(/usr/bin/git push:*)"
     ],
     "deny": [
       "Bash(agent-review approve:*)",
@@ -36,11 +35,40 @@
       "Bash(/usr/bin/git push* -f *)",
       "Bash(/usr/bin/git push*--delete*)",
       "Bash(/usr/bin/git push* main)",
-      "Bash(/usr/bin/git push* master)"
+      "Bash(/usr/bin/git push* master)",
+      "Bash(git -C * push*--force*)",
+      "Bash(git -C * push* -f)",
+      "Bash(git -C * push* -f *)",
+      "Bash(git -C * push*--delete*)",
+      "Bash(git -C * push* main)",
+      "Bash(git -C * push* master)",
+      "Bash(/usr/bin/git -C * push*--force*)",
+      "Bash(/usr/bin/git -C * push* -f)",
+      "Bash(/usr/bin/git -C * push* -f *)",
+      "Bash(/usr/bin/git -C * push*--delete*)",
+      "Bash(/usr/bin/git -C * push* main)",
+      "Bash(/usr/bin/git -C * push* master)",
+      "Edit(**/.claude/settings.local.json)",
+      "Edit(~/.claude/rules/send-it.md)",
+      "Edit(//Users/vietquocbui/repos/llm-wiki/claude-setup/rules/send-it.md)",
+      "Bash(*settings.local.json*)",
+      "Bash(gh api*protection*)",
+      "Bash(gh repo delete*)",
+      "Bash(gh api -X DELETE*)",
+      "Bash(gh api --method DELETE*)",
+      "Bash(git push*--force-with-lease*)",
+      "Bash(git push*--force-if-includes*)",
+      "Bash(git push*+*)",
+      "Bash(git push* :*)",
+      "Bash(git clean*-*f*)"
     ],
     "defaultMode": "plan"
   },
   "model": "opus",
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/statusline-command.sh"
+  },
   "hooks": {
     "PostToolUse": [
       {
@@ -165,6 +193,15 @@
       }
     ],
     "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/dotfiles/scripts/mistake-alert-hook.mjs"
+          }
+        ]
+      },
       {
         "hooks": [
           {

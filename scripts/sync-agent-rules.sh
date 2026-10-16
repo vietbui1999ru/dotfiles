@@ -40,7 +40,7 @@ done
 # Inject portable URL-based MCP servers into each tool's config.
 
 python3 <<'PYEOF'
-import json, os
+import json, os, re
 
 _home = os.path.expanduser("~")
 shared_path = f"{_home}/dotfiles/shared/mcp-servers.json"
@@ -75,6 +75,48 @@ config["mcp"]["qmd"] = {
 with open(opencode_path, "w") as f:
     json.dump(config, f, indent=2)
 print("✓ OpenCode: mcp servers synced (incl. qmd stdio)")
+
+# ── Pi ──
+# Pi's built-in MCP client accepts the standard `mcpServers` shape. Preserve
+# machine-specific servers and translate OpenCode's {env:NAME} placeholders.
+pi_path = f"{_home}/.pi/agent/mcp.json"
+try:
+    with open(pi_path) as f:
+        pi_config = json.load(f)
+except FileNotFoundError:
+    pi_config = {}
+
+pi_servers = pi_config.setdefault("mcpServers", {})
+
+def pi_value(value):
+    if isinstance(value, str):
+        return re.sub(r"\{env:([^}]+)\}", r"${\1}", value)
+    if isinstance(value, dict):
+        return {key: pi_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [pi_value(item) for item in value]
+    return value
+
+for name, cfg in servers.items():
+    entry = {
+        key: pi_value(value)
+        for key, value in cfg.items()
+        if not key.startswith("_")
+    }
+    pi_servers.setdefault(name, {}).update(entry)
+
+if "qmd" not in pi_servers:
+    pi_servers["qmd"] = {
+        "command": "qmd",
+        "args": ["mcp"],
+        "description": "Search the local knowledge base.",
+    }
+
+os.makedirs(os.path.dirname(pi_path), exist_ok=True)
+with open(pi_path, "w") as f:
+    json.dump(pi_config, f, indent=2)
+    f.write("\n")
+print("✓ Pi: built-in MCP servers synced (incl. qmd stdio)")
 
 PYEOF
 

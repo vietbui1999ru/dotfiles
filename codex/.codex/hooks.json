@@ -1,142 +1,85 @@
 {
-  "hooks" : {
-    "PostToolUse" : [
+  "hooks": {
+    "PostToolUse": [
       {
-        "hooks" : [
+        "hooks": [
           {
-            "command" : "'\/Users\/vietquocbui\/.codex\/hooks\/observe-session.sh'",
-            "type" : "command"
+            "command": "'/Users/vietquocbui/.codex/hooks/observe-session.sh'",
+            "type": "command"
           }
         ],
-        "matcher" : ".*"
+        "matcher": ".*"
       },
       {
-        "hooks" : [
+        "hooks": [
           {
-            "command" : "'\/Users\/vietquocbui\/repos\/llm-wiki\/scripts\/capture-bash-error.sh'",
-            "type" : "command"
+            "command": "'/Users/vietquocbui/repos/llm-wiki/scripts/capture-bash-error.sh'",
+            "type": "command"
           },
           {
-            "command" : "cd ~\/repos\/llm-wiki && git diff --name-only HEAD 2>\/dev\/null | grep -q 'log\\.md' && .\/scripts\/publish-ai-kb.sh || true",
-            "type" : "command"
+            "command": "cd ~/repos/llm-wiki && git diff --name-only HEAD 2>/dev/null | grep -q 'log\\.md' && ./scripts/publish-ai-kb.sh || true",
+            "type": "command"
           }
         ],
-        "matcher" : "Bash"
+        "matcher": "Bash"
       },
       {
-        "hooks" : [
+        "hooks": [
           {
-            "command" : "'\/Users\/vietquocbui\/.codex\/hooks\/lint-on-write.sh'",
-            "type" : "command"
-          },
-          {
-            "command" : "'\/Users\/vietquocbui\/.codex\/hooks\/judge-reminder.sh'",
-            "type" : "command"
+            "command": "'/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/codex-notify-hook.sh' # notchbar-agents-codex-hook",
+            "type": "command"
           }
         ],
-        "matcher" : "Write|Edit|MultiEdit"
-      },
-      {
-        "hooks" : [
-          {
-            "command" : "'\/Users\/vietquocbui\/Library\/Application Support\/Bartender\/NotchBar\/AgentStatus\/hooks\/codex-notify-hook.sh' # notchbar-agents-codex-hook",
-            "type" : "command"
-          }
-        ],
-        "matcher" : "Bash"
+        "matcher": "Bash"
       }
     ],
-    "PreToolUse" : [
+    "PreToolUse": [
       {
-        "hooks" : [
+        "hooks": [
           {
-            "command" : "'\/Users\/vietquocbui\/.codex\/hooks\/context-threshold-check.sh'",
-            "type" : "command"
+            "command": "'/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/codex-notify-hook.sh' # notchbar-agents-codex-hook",
+            "type": "command"
           }
         ],
-        "matcher" : ".*"
-      },
-      {
-        "hooks" : [
-          {
-            "command" : "'\/Users\/vietquocbui\/.codex\/hooks\/enforce-agent-whitelist.sh'",
-            "type" : "command"
-          }
-        ],
-        "matcher" : "Agent"
-      },
-      {
-        "hooks" : [
-          {
-            "command" : "'\/Users\/vietquocbui\/.codex\/hooks\/protect-lint-configs.sh'",
-            "type" : "command"
-          }
-        ],
-        "matcher" : "Write|Edit|MultiEdit"
-      },
-      {
-        "hooks" : [
-          {
-            "command" : "'\/Users\/vietquocbui\/.codex\/hooks\/enforce-bash-safety.sh'",
-            "type" : "command"
-          }
-        ],
-        "matcher" : "Bash"
-      },
-      {
-        "hooks" : [
-          {
-            "command" : "'\/Users\/vietquocbui\/Library\/Application Support\/Bartender\/NotchBar\/AgentStatus\/hooks\/codex-notify-hook.sh' # notchbar-agents-codex-hook",
-            "type" : "command"
-          }
-        ],
-        "matcher" : "Bash"
+        "matcher": "Bash"
       }
     ],
-    "SessionStart" : [
+    "SessionStart": [
       {
-        "hooks" : [
+        "hooks": [
           {
-            "command" : "bash '\/Users\/vietquocbui\/.codex\/herdr-agent-state.sh' session",
-            "timeout" : 10,
-            "type" : "command"
-          }
-        ]
-      },
-      {
-        "hooks" : [
-          {
-            "command" : "'\/Users\/vietquocbui\/Library\/Application Support\/Bartender\/NotchBar\/AgentStatus\/hooks\/codex-notify-hook.sh' # notchbar-agents-codex-hook",
-            "type" : "command"
+            "command": "'/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/codex-notify-hook.sh' # notchbar-agents-codex-hook",
+            "type": "command"
           }
         ],
-        "matcher" : "startup|resume"
-      }
-    ],
-    "Stop" : [
-      {
-        "hooks" : [
-          {
-            "command" : "'\/Users\/vietquocbui\/.codex\/hooks\/lint-autofix.sh'",
-            "type" : "command"
-          }
-        ]
+        "matcher": "startup|resume"
       },
       {
-        "hooks" : [
+        "hooks": [
           {
-            "command" : "'\/Users\/vietquocbui\/Library\/Application Support\/Bartender\/NotchBar\/AgentStatus\/hooks\/codex-notify-hook.sh' # notchbar-agents-codex-hook",
-            "type" : "command"
+            "command": "bash '/Users/vietquocbui/.codex/herdr-agent-state.sh' session",
+            "timeout": 10,
+            "type": "command"
           }
         ]
       }
     ],
-    "UserPromptSubmit" : [
+    "Stop": [
       {
-        "hooks" : [
+        "hooks": [
           {
-            "command" : "'\/Users\/vietquocbui\/Library\/Application Support\/Bartender\/NotchBar\/AgentStatus\/hooks\/codex-notify-hook.sh' # notchbar-agents-codex-hook",
-            "type" : "command"
+            "command": "'/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/codex-notify-hook.sh' # notchbar-agents-codex-hook",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "command": "'/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/codex-notify-hook.sh' # notchbar-agents-codex-hook",
+            "type": "command"
           }
         ]
       }

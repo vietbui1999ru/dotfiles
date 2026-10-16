@@ -2,6 +2,16 @@
 
 Run in order at session start. Skip silently when their conditions don't apply.
 
+## 0. Resume from saved context (first, always)
+
+Trigger: a cleared/new session, or the user says "continue", "pick up", "previous session", "where were we".
+
+Before any other check, look for saved context from the previous session:
+1. Job tmp: `$CLAUDE_JOB_DIR/tmp` (`/Users/vietquocbui/.claude/jobs/<job>/tmp`). Read plan files and prompt files named in the last saved state.
+2. Session notes: `.agents/sessions/` in the repo. Read the newest `status: active` note, and its `Next Session Should` list.
+
+Then tell the user what was found (goal, done, next step) and confirm the direction before acting. Skip only when the user says "start fresh" or "ignore session state".
+
 ## 1. CodeGraphContext check (coding projects only)
 
 Skip entirely for: markdown-only repos, dotfiles repos, `~/repos/llm-wiki`.

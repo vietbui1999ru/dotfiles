@@ -28,7 +28,7 @@ Provisioning uses three mechanisms — know which applies before editing a packa
 | `claude/` | `~/.claude/` | stow (partial) — including `settings.json`; `skills/`+`agents/` mix dotfiles and `llm-wiki` sources |
 | `opencode/` | `~/.config/opencode/` | partial — `plugins/` stow; `opencode.json` materialized; `agents/`/`skills/` unmanaged |
 | `codex/` | `~/.codex/` | **no-op stub today** — Codex is sync-pushed via `sync-agent-rules.sh`, not stowed |
-| `pi/` | `~/.pi/` | stow (extensions only); `~/.pi/agent/` runtime state is unmanaged |
+| `pi/` | `~/.pi/` | stow (extensions only); `~/.pi/agent/` runtime state is unmanaged, except portable MCP entries sync-pushed to `mcp.json` |
 | `herdr/` | `~/.config/herdr/config.toml` | stow — not in the `stow` line above; back up the live file before first `stow herdr`; `~/.config/herdr/` logs/sockets/session-history are unmanaged runtime state; `herdr server reload-config` after edits |
 | `launchd/` | `~/Library/LaunchAgents/` | stow — user LaunchAgents such as the Herdr→Sketchybar bridge |
 
@@ -87,9 +87,12 @@ ansible-playbook ansible/site.yml --limit admin_redhat -i ansible/inventory/host
 # Update llm-wiki pin to latest upstream commit
 git submodule update --remote repos/llm-wiki
 git add repos/llm-wiki && git commit -m "chore(submodule): bump llm-wiki"
+
+# After pulling a commit that moves the pin, check out the pinned commit
+git submodule update --init repos/llm-wiki
 ```
 
-`~/repos/llm-wiki` and `~/dotfiles/repos/llm-wiki` are independent clones on this machine. `bootstrap-dirs.sh` creates a redirect to the submodule only when no standalone clone exists; it never replaces an existing clone. Claude rules, agents, and skills resolve to the standalone clone.
+`~/repos/llm-wiki` and `~/dotfiles/repos/llm-wiki` are independent clones on this machine. `bootstrap-dirs.sh` creates a redirect to the submodule only when no standalone clone exists; it never replaces an existing clone. Many Claude rules and skills are symlinks into the standalone clone (check with `readlink`); the spec-loop rules and skills, and the rules model-routing, plan-handoff, skill-invocation and startup, live in this repo. Commit and push wiki changes from the standalone clone first, then bump the pin here so the submodule matches its `main`.
 
 ## AI Agents
 
@@ -121,6 +124,10 @@ The `pi/` stow package includes these Pi extensions:
 pi-lens owns non-mutating turn-end static safety/context signals; its LSP,
 test, format, and autofix runners are disabled. `post-run-verifier.ts` alone
 owns format, lint, typecheck, and focused behavioral tests.
+
+Pi uses its built-in MCP client. `scripts/sync-agent-rules.sh` syncs the
+portable servers in `shared/mcp-servers.json` into `~/.pi/agent/mcp.json`,
+preserving machine-specific entries. Do not install `pi-mcp-adapter`.
 
 ### Intentional generated/config forks
 
@@ -190,6 +197,20 @@ scripts/agent-workflow status ~/repos/example
 # Remove only the managed hook; keep task history by default
 scripts/agent-workflow detach ~/repos/example
 ```
+
+### Spec loop
+
+The spec loop is the six numbered rules between the `<!-- spec-loop:start -->` and `<!-- spec-loop:end -->` markers in `shared/AGENTS.md`. The same block is mirrored in `shared/research-tool-routing.md`; the two copies must stay identical. The rules themselves are canonical in that block; this section describes the workflow they govern.
+
+Prerequisites: `python3` and `git`. The scripts are not on PATH, so call them as `~/dotfiles/scripts/ac-run` and `~/dotfiles/scripts/floor-guard`. Those paths point at the primary checkout, which may be on another branch; when working in a feature worktree, call the scripts from that worktree's `scripts/` directory instead.
+
+1. **Grill.** The `grill-me` skill interviews you and writes `SPEC.md` at the repo root. `shared/templates/spec.md` is the starting template: copy it to the repo root as `SPEC.md` and set `branch:` to the current branch. Lint must pass: the sections Objective, Acceptance Criteria, Boundaries (Always / Ask first / Never) and Open Questions are required.
+2. **Approve (human only).** Run `~/dotfiles/scripts/ac-run approve SPEC.md` yourself. It prints the verify commands and asks for confirmation. It runs the non-manual commands once for a baseline only when three things hold: a merge-base against `origin/HEAD`, `main` or `master` exists, no non-spec changes have been committed since that merge-base, and the working tree is clean apart from `SPEC.md`. Otherwise the baseline is recorded as unknown, and `check` later reports a passing command as `PASS (no baseline)`. It stores a record under `~/.local/state/ac-run/`, named by a hash of normalized values: the spec path relative to the repo, the branch, the AC ids, and each AC's `verify:` and `baseline:` values with leading and trailing whitespace stripped. Changing one of those values voids the approval (`check` exits 3), but these are limits of the record: leading or trailing whitespace changes keep it, edits to the Objective, Boundaries or AC prose do not void it, and an identical relative spec on the same branch in another repo on the same machine can reuse it. It then writes `status: approved` into `SPEC.md`, but `check` never reads the status line, so the record alone authorizes execution. If `SPEC.md` is read-only, `approve` prints a warning and still exits 0 after writing the record. Agents never run `approve`.
+3. **Implement.** An agent reads `SPEC.md` when its `branch:` matches the current branch, works only toward its AC ids, and obeys its Boundaries.
+4. **Verify.** The `verify-spec` skill runs `~/dotfiles/scripts/ac-run check SPEC.md` and `~/dotfiles/scripts/floor-guard`. `check` exits 0 when every AC is PASS or MANUAL, 1 on FAIL, TIMEOUT or PRE-SATISFIED (an AC that was already true before the change), 2 on a lint or branch error, and 3 when no approval record exists. `floor-guard` is advisory: exit 0 clean, 1 findings, 2 error. It diffs against the merge-base with `origin/HEAD`, `main` or `master`; when none exists it exits 2 with `no base; pass --base <ref>`, so pass `--base <ref>` (a repo with no commits exits 2 even then). It flags added suppressions, skipped or deleted tests, removed assertions, and stubs or swallowed errors, and scans untracked files too. On exit 3 the agent stops and asks the human for approval; on FAIL, TIMEOUT or PRE-SATISFIED it fixes the code and reruns, and it reports `floor-guard` findings as they are, without rewording code to dodge them. Rule 6 says stop after 3 tries, while `verify-spec` allows 3 fix-and-rerun cycles after the first run; this README does not reconcile the two, and where they differ the rule governs. Rule 4 forbids editing a `verify:` line or a test to make a check pass, and `verify-spec` also forbids editing `baseline:` lines. `verify-spec` permits one narrower edit that rule 4 does not mention: replacing the placeholder body of a test stub the agent wrote for this spec with real assertions.
+5. **Review and PR.** Review the diff through the gate described in `docs/workflows/agent-review.md` before it is pushed or merged. The gate is a human workflow; neither script enforces it. Then push the branch and open a draft PR.
+
+Tests for both scripts: `python3 -m unittest scripts/tests/test_spec_loop.py`.
 
 ### Stacked pull requests
 

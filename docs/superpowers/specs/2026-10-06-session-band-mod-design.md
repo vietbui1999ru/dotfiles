@@ -26,6 +26,7 @@ Date: 2026-10-06. Status: approved design, not yet implemented.
 - **Review segment:** `rev <id> +N −M` in the warning tone while a pending review exists. It is derived from the pending records and disappears once decided.
 - **Existing code:** `band.tsx`, `git.ts`, `format.ts`, `palette.ts`, `repo.ts` and `threshold.ts` are reused. `hooks.json` already names `./register.tsx`, which does not exist yet. Phase 1 writes it.
 - **Retires:** `claude/.claude/statusline-command.sh`, `claude/.claude/hooks/context-threshold.sh`, the `statusLine` block in `settings.json`, and the context-threshold hook entry.
+- **Update 2026-10-15, fallback reinstated (reverses decision 3 for the status line only):** the mod does not load in unattended background jobs, after `/reload-plugins`, or on a machine without the plugin folder, and those sessions had no status line at all. `claude/.claude/statusline-command.sh` is back as a small fallback (dir, worktree, branch, ctx headroom, 5h, 7d, style, model, same thresholds) and `settings.json` sets `statusLine` to it again. When the mod is loaded both render: the band above the prompt, the fallback below.
 
 ## Blast radius
 

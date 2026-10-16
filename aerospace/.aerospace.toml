@@ -282,6 +282,18 @@ T = ['MAG 275UD', 'main']
     shift-down = ['volume set 0', 'mode main']
 
 [[on-window-detected]]
+if.app-id = 'com.apple.UserNotificationCenter'  
+run = ['layout floating']
+
+[[on-window-detected]]
+if.app-id = 'com.apple.notificationcenterui'  
+run = ['layout floating']
+
+[[on-window-detected]]
+if.app-id = 'com.apple.wifi.WifiAgent'  
+run = ['layout floating']
+
+[[on-window-detected]]
 if.app-id = 'com.apple.finder'  
 run = ['layout floating']
 
@@ -375,7 +387,7 @@ run = ['layout floating', 'move-node-to-workspace O']
 [[on-window-detected]]
     if.app-id = 'com.hnc.Discord'
     check-further-callbacks = true
-    run = ['layout tiling', 'move-node-to-workspace N']  # The callback itself
+    run = ['layout floating', 'move-node-to-workspace N']  # The callback itself
 
 [[on-window-detected]]
     if.app-id = 'md.obsidian'

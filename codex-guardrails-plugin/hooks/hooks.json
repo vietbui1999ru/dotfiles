@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${PLUGIN_ROOT}/hooks/block-dangerous-shell.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "apply_patch|Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${PLUGIN_ROOT}/hooks/protect-lint-configs.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}
