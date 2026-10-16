@@ -15,6 +15,7 @@ import { shortDir, shortModel, whole } from './format'
 import { toSnapshot, type GitFacts } from './git'
 import { toRepoInfo, type RepoInfo } from './repo'
 import { heartbeatBody, heartbeatPath, HEARTBEAT_INTERVAL_MS } from './heartbeat'
+import { openForSession, parseAlerts } from './mistake-alerts'
 import { guardAgent, softStop, type SoftStopCheck } from './threshold'
 
 const usage = atom({ plugin: 'session-band', key: 'usage' } as const, {})
@@ -236,6 +237,10 @@ export const register: Register = on => {
       $.clock.now(),
     ])
     const currentReview = await reviewStates($, currentHandoff.tasks)
+    // Mistake alerts are written by the PostToolUseFailure hook; the band shows only this session's open ones.
+    const sessionId = await $.session.id().catch(() => '')
+    const alertsRaw = home ? await $.fs.read(`${home}/.claude/state/mistake-alerts.json`).catch(() => undefined) : undefined
+    const openAlerts = openForSession(parseAlerts(typeof alertsRaw === 'string' ? alertsRaw : undefined), sessionId)
     if (!hasComposed) settingsStyle ??= settingStyle($).catch(() => null)
     const style = styleForBand(capturedStyle ?? (hasComposed ? null : await settingsStyle))
 
@@ -249,6 +254,7 @@ export const register: Register = on => {
       width: e.props.bodyColumns,
       onPi: () => { void $.ui.open({ id: 'pi-handoff', title: 'Pi hand-off', focus: true }) },
       onWorktrees: () => { void $.ui.open({ id: 'worktrees', title: 'Worktrees', focus: true }) },
+      openAlerts,
     })
   })
 }
