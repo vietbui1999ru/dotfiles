@@ -19,11 +19,7 @@
       "Bash(git push:*)",
       "Bash(/usr/bin/git add:*)",
       "Bash(/usr/bin/git commit:*)",
-      "Bash(/usr/bin/git push:*)",
-      "Bash(tmux send-keys -t claude-*)",
-      "Bash(tmux new-session -d -s claude-*)",
-      "Bash(tmux capture-pane -p -t claude-*)",
-      "Bash(tmux kill-session -t claude-*)"
+      "Bash(/usr/bin/git push:*)"
     ],
     "deny": [
       "Bash(agent-review approve:*)",
@@ -39,7 +35,19 @@
       "Bash(/usr/bin/git push* -f *)",
       "Bash(/usr/bin/git push*--delete*)",
       "Bash(/usr/bin/git push* main)",
-      "Bash(/usr/bin/git push* master)"
+      "Bash(/usr/bin/git push* master)",
+      "Bash(git -C * push*--force*)",
+      "Bash(git -C * push* -f)",
+      "Bash(git -C * push* -f *)",
+      "Bash(git -C * push*--delete*)",
+      "Bash(git -C * push* main)",
+      "Bash(git -C * push* master)",
+      "Bash(/usr/bin/git -C * push*--force*)",
+      "Bash(/usr/bin/git -C * push* -f)",
+      "Bash(/usr/bin/git -C * push* -f *)",
+      "Bash(/usr/bin/git -C * push*--delete*)",
+      "Bash(/usr/bin/git -C * push* main)",
+      "Bash(/usr/bin/git -C * push* master)"
     ],
     "defaultMode": "plan"
   },
