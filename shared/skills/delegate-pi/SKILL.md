@@ -85,7 +85,7 @@ Every pueue dispatch carries `--label <slug>` (pueue flag, before `--`) and `--s
 | medium | `PI_DELEGATE_MEDIUM_MODEL` from `~/.pi/agent/routing.env` |
 | low | `PI_DELEGATE_LOW_MODEL` from `~/.pi/agent/routing.env` |
 
-Default routes: high=`openai-codex/gpt-5.5:high`, medium=`opencode-go/deepseek-v4-pro:high`, low=`opencode-go/deepseek-v4-flash:off`. Note: `--fallback-models` requires a custom extension (not built-in). Without it, assign model per task at dispatch time.
+Default routes: high=`openai-codex/gpt-6.1-sol:high`, medium=`opencode-go/deepseek-v4-pro:high`, low=`opencode-go/deepseek-v4.1-flash:off`. These match the tiers in `claude/.claude/rules/model-routing.md`; change both together. Check an ID with `pi --list-models <name>` before adding it. Note: `--fallback-models` requires a custom extension (not built-in). Without it, assign model per task at dispatch time.
 
 ---
 
@@ -137,7 +137,7 @@ S_IMPL="impl-$(openssl rand -hex 4)"
 S_LOW="low-$(openssl rand -hex 4)"
 
 T_REVIEW=$(pueue add -i --print-task-id --label "$S_REVIEW" -- \
-  "pi --model openai-codex/gpt-5.5:high --session-id pueue-$S_REVIEW \
+  "pi --model openai-codex/gpt-6.1-sol:high --session-id pueue-$S_REVIEW \
       -p '<review task>' < /dev/null")
 
 T_IMPL=$(pueue add -i --print-task-id --label "$S_IMPL" -- \
@@ -145,7 +145,7 @@ T_IMPL=$(pueue add -i --print-task-id --label "$S_IMPL" -- \
       -p '<implementation task>' < /dev/null")
 
 T_LOW=$(pueue add -i --print-task-id --label "$S_LOW" -- \
-  "pi --model opencode-go/deepseek-v4-flash:off --session-id pueue-$S_LOW \
+  "pi --model opencode-go/deepseek-v4.1-flash:off --session-id pueue-$S_LOW \
       -p '<low-difficulty task>' < /dev/null")
 
 # 2. Optional: check status without blocking
@@ -173,7 +173,7 @@ Task: [specific bounded task]
 Output format: [JSON / bullet list / code block]
 Constraints: [length limit, scope limit]
 EOF
-)" --model opencode-go/deepseek-v4-flash:off --no-session --no-extensions --no-skills
+)" --model opencode-go/deepseek-v4.1-flash:off --no-session --no-extensions --no-skills
 ```
 
 **When NOT to use subagent mode:** Tasks requiring access to local files (pi starts with empty context), tasks needing tool calls beyond what pi supports by default, tasks where failure has no retry.

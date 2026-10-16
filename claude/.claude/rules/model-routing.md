@@ -6,10 +6,10 @@ Classify complexity before every task and agent spawn. No silent defaults.
 |---|---|---|---|
 | Orchestrator (main session) | Opus 5.5 (`opus`) | `medium`; `/effort high` or `xhigh` for hard architecture or security work | Decisions, root cause, the review gate, anything with judgment |
 | Light delegate | Haiku 5.5 (`claude-haiku-5-5`) | `medium` | Read-only exploration (`scout`), rote bounded edits (`worker`), lookups, shell commands |
-| Implementation | `openai-codex/gpt-5.6-terra:high`, `openai-codex/gpt-6-luna:high`, or `opencode-go/deepseek-v4-pro:high` | `high` | Multi-file features, migrations, refactors, dispatched to Pi per `plan-handoff.md` |
+| Implementation | high: `openai-codex/gpt-6.1-sol:high`; medium: `opencode-go/deepseek-v4-pro:high`; low: `opencode-go/deepseek-v4.1-flash:off` | per tier | Multi-file features, migrations, refactors, dispatched to Pi per `plan-handoff.md`. Same tiers as `delegate-pi` and `~/.pi/agent/routing.env` |
 
 Sonnet 5.5 has no default role. Pass `model: sonnet` on a spawn when a task needs it.
-Also available with no assigned role: `openai-codex/gpt-6-sol`, `gpt-6.1-sol`, `gpt-6-astra`, and `opencode-go` `kimi-k3`, `glm-5.3`, `qwen3.8-max`, `deepseek-v4.1-flash`.
+Also available with no assigned role: `openai-codex/gpt-6-sol`, `gpt-6-luna`, `gpt-6-astra`, `gpt-5.6-terra`, and `opencode-go` `kimi-k3`, `glm-5.3`, `qwen3.8-max`.
 
 **Escalate to the orchestrator** if any: irreversible side effects, deep multi-domain reasoning, failure hard to detect, output used as downstream ground truth.
 **Delegate to Haiku** only if all: bounded, mechanical, fully specified, no judgment needed.
