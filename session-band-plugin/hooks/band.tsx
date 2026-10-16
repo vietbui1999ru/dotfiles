@@ -6,7 +6,7 @@ import { ctxBar, ctxLeft } from './format'
 import { ctxTone, limitTone, PALETTE, type Tone } from './palette'
 
 type Elements = ReturnType<EngineInterface['ui']['resolve']>
-export type BandData = { dir: string; model: string; usage: Usage; git: GitSnapshot | null; style: string | null; handoff?: HandoffSegment; width?: number; onPi?: () => void; onWorktrees?: () => void }
+export type BandData = { dir: string; model: string; usage: Usage; git: GitSnapshot | null; style: string | null; handoff?: HandoffSegment; width?: number; onPi?: () => void; onWorktrees?: () => void; openAlerts?: number }
 
 const handoffTone = (state: HandoffSegment['state'] | undefined, review: HandoffSegment['review']): Tone => {
   if (review === 'pending' || review === 'decided, waiting for the next Pi run in this repo' || state === 'Queued' || state === 'Paused') return 'yellow'
@@ -49,6 +49,7 @@ export const drawBand = ({ Box, Text, Button }: Elements, d: BandData) => {
         {d.usage.ctx !== undefined && tone('muted', ` ${ctxLeft(d.usage.ctx)}% left`)}
         {pct('5h', d.usage.five, limitTone)}
         {pct('7d', d.usage.seven, limitTone)}
+        {d.openAlerts ? tone('red', ` ⚠${d.openAlerts}`) : null}
         {d.style && tone('muted', ` [${d.style}]`)}
         {tone('mauve', ` (${d.model})`)}
       </Text>
