@@ -97,7 +97,7 @@ test('draws whole ctx percentages with green, yellow, and red threshold colours'
     await $.session.measure({ context: { window: 200_000, percent }, rateLimits: [], changed: ['context'] })
 
     const ctx = textElements(await $.ui.render(BAND))
-      .find(element => element.color !== undefined && element.text === ` ${ctxBar(percent)}`)
+      .find(element => element.color !== undefined && element.text === ctxBar(percent))
     expect(ctx?.color).toBe(color)
   }
 })

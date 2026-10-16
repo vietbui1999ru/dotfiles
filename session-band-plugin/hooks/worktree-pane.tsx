@@ -2,7 +2,7 @@ import { atom, read, update, type EngineInterface, type Register } from 'claude-
 
 import type { WorktreeBranch, WorktreeRow, WorktreeState } from '../types'
 import { nextPane } from './pane-nav'
-import { countChanges, detailLines, liveByTree, parseAheadBehind, parseHeartbeat, parseWorktrees, treeKeys, treeLines, treeItems, type Worktree } from './worktrees'
+import { countChanges, liveByTree, paneLines, parseAheadBehind, parseHeartbeat, parseWorktrees, treeKeys, type Worktree } from './worktrees'
 
 const view = atom({ plugin: 'session-band', key: 'worktrees' } as const, { open: false, legend: true } as WorktreeState)
 
@@ -86,24 +86,20 @@ export const register: Register = on => {
     const rows = state.data?.rows ?? []
     const branches = state.data?.branches ?? []
     const selectedKey = state.selected ?? treeKeys(rows, branches)[0]
-    const selectedPath = selectedKey === rows[0]?.path ? selectedKey : treeItems(rows, branches).find(item => item.key === selectedKey)?.path
-    const selectedRow = rows.find(row => row.path === selectedPath)
-    const lines = [...treeLines(rows, branches, state.legend, selectedKey), ...detailLines(selectedRow)]
+    const lines = paneLines(rows, branches, state.legend, selectedKey)
     return <Box flexDirection="column">
-      <Text>Worktrees</Text>
+      <Text weight="bold">Worktrees</Text>
       {/* Hotkeys, not hints: a key the pane does not bind falls through to the composer. */}
-      <Box flexDirection="row">
-        <Button key="wt-key-down" plain dimColor hotkey="j" label="down " onPress={() => void move($, 1)} />
-        <Button key="wt-key-up" plain dimColor hotkey="k" label="up " onPress={() => void move($, -1)} />
-        <Button key="wt-key-legend" plain dimColor hotkey="h" label="legend " onPress={() => void update($, view, value => ({ ...value, legend: !value.legend }))} />
-        <Button key="wt-key-refresh" plain dimColor hotkey="r" label="refresh " onPress={() => void refresh($)} />
+      <Box flexDirection="row" flexWrap="wrap" columnGap={2} marginBottom={1}>
+        <Button key="wt-key-down" plain dimColor hotkey="j" label="down" onPress={() => void move($, 1)} />
+        <Button key="wt-key-up" plain dimColor hotkey="k" label="up" onPress={() => void move($, -1)} />
+        <Button key="wt-key-legend" plain dimColor hotkey="h" label="legend" onPress={() => void update($, view, value => ({ ...value, legend: !value.legend }))} />
+        <Button key="wt-key-refresh" plain dimColor hotkey="r" label="refresh" onPress={() => void refresh($)} />
+        <Button key="wt-key-prev" plain dimColor hotkey="b" label="prev pane" onPress={() => void $.ui.panes().then(panes => { const to = nextPane(panes.map(pane => pane.id), 'worktrees', -1); if (to && to !== 'worktrees') void $.ui.open({ id: to, focus: true }) })} />
+        <Button key="wt-key-next" plain dimColor hotkey="f" label="next pane" onPress={() => void $.ui.panes().then(panes => { const to = nextPane(panes.map(pane => pane.id), 'worktrees', 1); if (to && to !== 'worktrees') void $.ui.open({ id: to, focus: true }) })} />
         <Button key="wt-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'worktrees' })} />
       </Box>
-      <Box flexDirection="row">
-        <Button key="wt-key-prev" plain dimColor hotkey="b" label="prev pane " onPress={() => void $.ui.panes().then(panes => { const to = nextPane(panes.map(pane => pane.id), 'worktrees', -1); if (to && to !== 'worktrees') void $.ui.open({ id: to, focus: true }) })} />
-        <Button key="wt-key-next" plain dimColor hotkey="f" label="next pane" onPress={() => void $.ui.panes().then(panes => { const to = nextPane(panes.map(pane => pane.id), 'worktrees', 1); if (to && to !== 'worktrees') void $.ui.open({ id: to, focus: true }) })} />
-      </Box>
-      {lines.map((line, index) => <Text key={`wt-line-${index}`} color={line.color}>{line.text}</Text>)}
+      {lines.map((line, index) => <Text key={`wt-line-${index}`} mono color={line.color} weight={line.strong ? 'bold' : undefined}>{line.text}</Text>)}
     </Box>
   })
 }

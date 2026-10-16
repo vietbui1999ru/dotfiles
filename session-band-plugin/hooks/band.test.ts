@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { handoffText } from './band.tsx'
+import { handoffText } from './band-text'
 
 test('renders a full single Pi handoff segment and retains required fields when narrow', () => {
   const handoff = { kind: 'single' as const, text: '', id: 12, glyph: '!', state: 'Failed' as const, model: 'openai/gpt', effort: 'high', elapsed: '3m', tokens: '12k', cost: '$0.10', files: 2, label: 'fix', review: 'changes requested' as const, exit: 1 }
