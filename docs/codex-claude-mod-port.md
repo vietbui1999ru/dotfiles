@@ -7,6 +7,8 @@
 - `session-band-plugin/plugin.json` exposes a Codex session overview skill.
   The Codex status line already provides directory, Git branch, context,
   five-hour and weekly usage, model, and run-state fields.
+- `codex-guardrails-plugin/plugin.json` packages Codex-native pre-tool hooks
+  for dangerous shell commands and protected lint configuration files.
 
 ## Other Claude configuration
 
@@ -25,6 +27,9 @@
 Codex plugins do not expose Claude's custom above-prompt React panel, buttons,
 or its plugin state API. The session overview skill provides an on-demand,
 read-only summary; it does not reproduce the live panel or its controls.
-Claude keybindings, output-style plugins, and Claude-specific hook payloads
-also have no direct package-level equivalent. Existing Codex hooks are left
-under their current configuration because that file has local edits in progress.
+Claude keybindings, output-style plugins, and custom above-prompt panels have
+no direct package-level equivalent. Lint reporting/autofix and trial expiry
+are not ported: Codex lacks equivalent write events for the existing Claude
+scripts, and trial expiry is specific to Claude. Existing global Codex hooks
+are left under their current configuration because that file has local edits
+in progress. Plugin hooks require Codex trust review before they run.
