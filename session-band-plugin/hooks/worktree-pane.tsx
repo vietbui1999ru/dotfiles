@@ -2,7 +2,7 @@ import { atom, read, update, type EngineInterface, type Register } from 'claude-
 
 import type { WorktreeBranch, WorktreeRow, WorktreeState } from '../types'
 import { nextPane } from './pane-nav'
-import { countChanges, detailLines, parseAheadBehind, parseHeartbeat, parseWorktrees, treeKeys, treeLines, treeItems, type Worktree } from './worktrees'
+import { countChanges, detailLines, liveByTree, parseAheadBehind, parseHeartbeat, parseWorktrees, treeKeys, treeLines, treeItems, type Worktree } from './worktrees'
 
 const view = atom({ plugin: 'session-band', key: 'worktrees' } as const, { open: false, legend: true } as WorktreeState)
 
@@ -27,11 +27,12 @@ const liveCwds = async ($: EngineInterface): Promise<string[]> => {
 export const gather = async ($: EngineInterface, cwd: string): Promise<WorktreeState['data']> => {
   const trees: Worktree[] = parseWorktrees((await git($, cwd, ['worktree', 'list', '--porcelain'])) ?? '')
   const cwds = await liveCwds($)
+  const liveByPath = liveByTree(cwds, trees.map(tree => tree.path))
   const rows: WorktreeRow[] = await Promise.all(trees.map(async tree => {
     const changes = countChanges((await git($, tree.path, ['status', '--porcelain'])) ?? '')
     const ab = await git($, tree.path, ['rev-list', '--left-right', '--count', '@{u}...HEAD'])
     const { ahead, behind } = ab ? parseAheadBehind(ab) : { ahead: 0, behind: 0 }
-    const live = cwds.filter(dir => dir === tree.path || dir.startsWith(`${tree.path}/`)).length
+    const live = liveByPath.get(tree.path) ?? 0
     return { ...tree, changes, ahead, behind, live }
   }))
   const refs = (await git($, cwd, ['for-each-ref', '--format=%(refname:short)\t%(upstream:short)\t%(worktreepath)', 'refs/heads'])) ?? ''

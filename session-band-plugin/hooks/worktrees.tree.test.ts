@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { WorktreeBranch, WorktreeRow } from '../types'
-import { treeItems, treeKeys, treeLines } from './worktrees'
+import { liveByTree, treeItems, treeKeys, treeLines } from './worktrees'
 
 const main: WorktreeRow = { path: '/repo', head: '1234567', branch: 'main', detached: false, prunable: false, changes: 0, ahead: 0, behind: 0, live: 1 }
 const laya: WorktreeRow = { path: '/repo/.claude/worktrees/lightrag-opencode', head: 'abcdef1', branch: 'docs/laya', detached: false, prunable: false, changes: 2, ahead: 0, behind: 0, live: 0 }
@@ -45,4 +45,11 @@ test('the legend is a first line that the toggle removes', () => {
 
 test('a lone main checkout draws only its root line', () => {
   expect(treeLines([main], [{ name: 'main', worktree: '/repo' }], false, undefined).map(line => line.text)).toEqual([' repo  main  ●1'])
+})
+
+test('a session inside a linked worktree counts for that worktree only, not the main checkout above it', () => {
+  const counts = liveByTree(['/repo/.claude/worktrees/x/src', '/repo/src', '/repo/.claude/worktreesx'], ['/repo', '/repo/.claude/worktrees/x'])
+  expect(counts.get('/repo/.claude/worktrees/x')).toBe(1)
+  // Two sessions sit under /repo: /repo/src, and the look-alike /repo/.claude/worktreesx (not a child of worktrees/x).
+  expect(counts.get('/repo')).toBe(2)
 })
