@@ -623,6 +623,13 @@ class SpecLoopCases(Fixture):
         self.assertIn("INFO SPEC.md status: draft -> approved", r.stdout + r.stderr)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
+    # The spec-loop rule block is duplicated for two loaders; the copies must match
+    def test_rule_blocks_identical(self):
+        def block(name):
+            text = (ROOT / "shared" / name).read_text()
+            return text[text.index("<!-- spec-loop:start -->"):text.index("<!-- spec-loop:end -->")]
+        self.assertEqual(block("AGENTS.md"), block("research-tool-routing.md"))
+
     # AC-15: the example inside grill-me lints clean
     def test_lint_skill_example(self):
         path = ROOT / "shared" / "skills" / "grill-me" / "SKILL.md"
