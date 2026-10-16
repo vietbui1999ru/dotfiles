@@ -1,25 +1,33 @@
 import { expect, test } from 'claude-code/testing'
 
-import { REFUSED_REPOS, SEND_IT_BLOCK, acceptsOrigin, disable, enable, isEligible, isOn } from './send-it'
+import { SEND_IT_BLOCK, acceptsOrigin, disable, enable, isEligible, isOn, refusedRepos } from './send-it'
 
 const recent = '2026-11-01T00:00:00Z'
-const home = '/Users/me'
+const home = '/Users/test'
+
+test('refusedRepos returns the three absolute common dirs under HOME', () => {
+  expect(refusedRepos(home)).toEqual(['/Users/test/dotfiles/.git', '/Users/test/repos/llm-wiki/.git', '/Users/test/repos/agent-events/.git'])
+})
 
 test('the three repos are refused, and so is a worktree of each (it reports the common dir)', () => {
-  expect(REFUSED_REPOS).toEqual(['dotfiles/.git', 'repos/llm-wiki/.git', 'repos/agent-events/.git'])
-  for (const repo of REFUSED_REPOS) expect(isEligible(`${home}/${repo}`, recent)).toBe(false)
-  expect(isEligible(`${home}/repos/llm-wiki/.git`, '')).toBe(false)
+  for (const repo of refusedRepos(home)) expect(isEligible(repo, recent, home)).toBe(false)
+  expect(isEligible(`${home}/repos/llm-wiki/.git`, '', home)).toBe(false)
+})
+
+test('matching is exact: the same suffix under another home is eligible', () => {
+  expect(isEligible('/Users/other/dotfiles/.git', recent, home)).toBe(true)
+  expect(isEligible('/Users/test/code/dotfiles/.git', recent, home)).toBe(true)
 })
 
 test('a root commit before SEND_IT_SINCE is refused; on or after it is eligible', () => {
-  expect(isEligible(`${home}/code/old/.git`, '2026-10-15T23:59:59Z')).toBe(false)
-  expect(isEligible(`${home}/code/new/.git`, '2026-10-16T00:00:00Z')).toBe(true)
-  expect(isEligible(`${home}/code/new/.git`, recent)).toBe(true)
+  expect(isEligible(`${home}/code/old/.git`, '2026-10-15T23:59:59Z', home)).toBe(false)
+  expect(isEligible(`${home}/code/new/.git`, '2026-10-16T00:00:00Z', home)).toBe(true)
+  expect(isEligible(`${home}/code/new/.git`, recent, home)).toBe(true)
 })
 
 test('an empty repo is eligible; an unparseable root date is refused', () => {
-  expect(isEligible(`${home}/code/empty/.git`, '')).toBe(true)
-  expect(isEligible(`${home}/code/bad/.git`, 'not-a-date')).toBe(false)
+  expect(isEligible(`${home}/code/empty/.git`, '', home)).toBe(true)
+  expect(isEligible(`${home}/code/bad/.git`, 'not-a-date', home)).toBe(false)
 })
 
 test('only the composer origin is accepted', () => {

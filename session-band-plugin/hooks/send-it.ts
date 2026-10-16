@@ -1,19 +1,13 @@
-// Repos send-it never touches, as paths under $HOME. node:os is not importable from a hooks
-// module, so the home prefix is not expanded here: isEligible matches the suffix (fail closed).
-export const REFUSED_REPOS: readonly string[] = Object.freeze([
-  'dotfiles/.git',
-  'repos/llm-wiki/.git',
-  'repos/agent-events/.git',
-])
+// Repos send-it never touches, as absolute git common dirs. HOME comes from the caller:
+// node:os is not importable from a hooks module.
+export const refusedRepos = (home: string): readonly string[] =>
+  Object.freeze([`${home}/dotfiles/.git`, `${home}/repos/llm-wiki/.git`, `${home}/repos/agent-events/.git`])
 
 export const SEND_IT_SINCE = '2026-10-16T00:00:00Z'
 
-const isRefusedRepo = (commonDir: string): boolean =>
-  REFUSED_REPOS.some(repo => commonDir === repo || commonDir.endsWith(`/${repo}`))
-
 // An empty root commit date means an empty repo, which is eligible. Anything unparseable is refused.
-export const isEligible = (commonDir: string, rootCommitDate: string): boolean => {
-  if (isRefusedRepo(commonDir)) return false
+export const isEligible = (commonDir: string, rootCommitDate: string, home: string): boolean => {
+  if (refusedRepos(home).includes(commonDir)) return false
   if (rootCommitDate === '') return true
   const root = Date.parse(rootCommitDate)
   return !Number.isNaN(root) && root >= Date.parse(SEND_IT_SINCE)
