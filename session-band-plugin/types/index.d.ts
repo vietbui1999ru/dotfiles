@@ -100,6 +100,7 @@ declare module 'claude-code' {
       progress: Record<number, PiProgress>
       history: HistoryState
       worktrees: WorktreeState
+      sendIt: boolean
     }
   }
 }

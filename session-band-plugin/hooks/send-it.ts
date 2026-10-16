@@ -15,6 +15,16 @@ export const isEligible = (commonDir: string, rootCommitDate: string, home: stri
 
 export const acceptsOrigin = (kind: string): boolean => kind === 'composer'
 
+const field = (value: unknown): Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {}
+
+// Both keys must hold: one stray key alone never turns send-it on.
+export const sendItOn = (settings: Readonly<Record<string, unknown>>): boolean =>
+  field(settings.env).SEND_IT === '1' && field(settings.permissions).defaultMode === 'dontAsk'
+
+// Works on raw text, so a malformed file still answers. Any SEND_IT "1" marks the block.
+export const hasSendItBlock = (text: string): boolean => /"SEND_IT"\s*:\s*"1"/.test(text)
+
 // Real Claude Code settings keys, written into the repo's settings.local.json.
 export const SEND_IT_BLOCK = {
   env: { SEND_IT: '1', SEND_IT_ENV: '~/.config/send-it/.env' },
