@@ -12,9 +12,10 @@ AGENTS_DIR="$HOME/.claude/agents"
 RULES_FILE="$HOME/.claude/CLAUDE.md"
 SETTINGS_FILE="$HOME/.claude/settings.json"
 TODAY=$(date -u +%F)
-# Current installed-core budget. Skills are top-level ~/.claude/skills entries
-# with SKILL.md, including llm-wiki-backed symlinks; cache directories do not count.
-CORE_SKILL_BUDGET=22
+# Installed-core budget for agents, rules and hooks. Skills are counted (top-level
+# ~/.claude/skills entries with SKILL.md, including symlinks; cache directories do not
+# count) but NOT capped: the library is meant to grow, with the right skills retrieved on
+# demand instead of all being listed. It was capped at 22 until 2026-10-15.
 CORE_AGENT_BUDGET=0
 CORE_RULE_BUDGET=4
 CORE_HOOK_BUDGET=18
@@ -71,13 +72,13 @@ agents=$(count_agent_files)
 rules=$(count_loaded_rules)
 hooks=$(count_hook_commands)
 over_budget=false
-(( skills > CORE_SKILL_BUDGET || agents > CORE_AGENT_BUDGET || rules > CORE_RULE_BUDGET || hooks > CORE_HOOK_BUDGET )) && over_budget=true
+(( agents > CORE_AGENT_BUDGET || rules > CORE_RULE_BUDGET || hooks > CORE_HOOK_BUDGET )) && over_budget=true
 
 if (( ${#expired[@]} > 0 )) || [[ "$over_budget" == true ]]; then
 	if (( ${#expired[@]} > 0 )); then
 		printf '%s trial artifacts expired: %s.\n' "${#expired[@]}" "$(IFS=', '; echo "${expired[*]}")"
 	fi
-	printf 'Core budget: skills %s/%s, agents %s/%s, rules %s/%s, hooks %s/%s.\n' \
-		"$skills" "$CORE_SKILL_BUDGET" "$agents" "$CORE_AGENT_BUDGET" \
+	printf 'Core budget: skills %s (no cap), agents %s/%s, rules %s/%s, hooks %s/%s.\n' \
+		"$skills" "$agents" "$CORE_AGENT_BUDGET" \
 		"$rules" "$CORE_RULE_BUDGET" "$hooks" "$CORE_HOOK_BUDGET"
 fi

@@ -64,7 +64,7 @@
     ],
     "defaultMode": "plan"
   },
-  "model": "haiku",
+  "model": "opus",
   "statusLine": {
     "type": "command",
     "command": "~/.claude/statusline-command.sh"
@@ -271,7 +271,7 @@
   "effortLevel": "high",
   "modelSettings": {
     "claude-opus-5-5": {
-      "effortLevel": "high"
+      "effortLevel": "medium"
     },
     "claude-sonnet-5-5": {
       "effortLevel": "medium"

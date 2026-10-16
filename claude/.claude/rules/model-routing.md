@@ -4,7 +4,7 @@ Classify complexity before every task and agent spawn. No silent defaults.
 
 | Role | Model | Effort | Use for |
 |---|---|---|---|
-| Orchestrator (main session) | Opus 5.5 (`opus`) | `high`; `/effort xhigh` for hard architecture or security work | Decisions, root cause, the review gate, anything with judgment |
+| Orchestrator (main session) | Opus 5.5 (`opus`) | `medium`; `/effort high` or `xhigh` for hard architecture or security work | Decisions, root cause, the review gate, anything with judgment |
 | Light delegate | Haiku 5.5 (`claude-haiku-5-5`) | `medium` | Read-only exploration (`scout`), rote bounded edits (`worker`), lookups, shell commands |
 | Implementation | `openai-codex/gpt-5.6-terra:high`, `openai-codex/gpt-6-luna:high`, or `opencode-go/deepseek-v4-pro:high` | `high` | Multi-file features, migrations, refactors, dispatched to Pi per `plan-handoff.md` |
 
