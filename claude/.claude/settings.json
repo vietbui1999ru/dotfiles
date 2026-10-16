@@ -47,7 +47,20 @@
       "Bash(/usr/bin/git -C * push* -f *)",
       "Bash(/usr/bin/git -C * push*--delete*)",
       "Bash(/usr/bin/git -C * push* main)",
-      "Bash(/usr/bin/git -C * push* master)"
+      "Bash(/usr/bin/git -C * push* master)",
+      "Edit(**/.claude/settings.local.json)",
+      "Edit(~/.claude/rules/send-it.md)",
+      "Edit(//Users/vietquocbui/repos/llm-wiki/claude-setup/rules/send-it.md)",
+      "Bash(*settings.local.json*)",
+      "Bash(gh api*protection*)",
+      "Bash(gh repo delete*)",
+      "Bash(gh api -X DELETE*)",
+      "Bash(gh api --method DELETE*)",
+      "Bash(git push*--force-with-lease*)",
+      "Bash(git push*--force-if-includes*)",
+      "Bash(git push*+*)",
+      "Bash(git push* :*)",
+      "Bash(git clean*-*f*)"
     ],
     "defaultMode": "plan"
   },
