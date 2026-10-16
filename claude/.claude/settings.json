@@ -295,7 +295,7 @@
     "firecrawl": {
       "args": [
         "-lc",
-        "set -a; [ -f \"$HOME/secrets/.env\" ] && source \"$HOME/secrets/.env\"; exec npx -y firecrawl-mcp"
+        "set -a; if [ \"${SEND_IT:-}\" = 1 ]; then F=\"$HOME/.config/send-it/.env\"; else F=\"$HOME/secrets/.env\"; fi; [ -f \"$F\" ] && . \"$F\"; exec npx -y firecrawl-mcp"
       ],
       "command": "bash"
     },
