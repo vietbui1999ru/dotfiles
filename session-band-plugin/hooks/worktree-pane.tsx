@@ -86,7 +86,9 @@ export const register: Register = on => {
     const rows = state.data?.rows ?? []
     const branches = state.data?.branches ?? []
     const selectedKey = state.selected ?? treeKeys(rows, branches)[0]
-    const lines = paneLines(rows, branches, state.legend, selectedKey)
+    // P3 replaces this literal with the send-it atom; until then the header never shows.
+    const sendIt = false
+    const lines = paneLines(rows, branches, state.legend, selectedKey, sendIt)
     return <Box flexDirection="column">
       <Text weight="bold">Worktrees</Text>
       {/* Hotkeys, not hints: a key the pane does not bind falls through to the composer. */}
