@@ -85,8 +85,25 @@ const deleteIfEmpty = (holder: Settings, key: string): void => {
   if (Object.keys(asObject(holder[key])).length === 0) delete holder[key]
 }
 
+// Block keys that already hold a different value. Names only: the values can be secrets.
+const conflictingKeys = (settings: Settings): string[] => {
+  const env = asObject(settings.env)
+  const permissions = asObject(settings.permissions)
+  const found: string[] = []
+  if (settings.model !== undefined && settings.model !== SEND_IT_BLOCK.model) found.push('model')
+  if (settings.sandbox !== undefined && !sameJson(settings.sandbox, SEND_IT_BLOCK.sandbox)) found.push('sandbox')
+  if (env.SEND_IT !== undefined && env.SEND_IT !== SEND_IT_BLOCK.env.SEND_IT) found.push('env.SEND_IT')
+  if (env.SEND_IT_ENV !== undefined && env.SEND_IT_ENV !== SEND_IT_BLOCK.env.SEND_IT_ENV) found.push('env.SEND_IT_ENV')
+  if (permissions.defaultMode !== undefined && permissions.defaultMode !== SEND_IT_BLOCK.permissions.defaultMode) found.push('permissions.defaultMode')
+  return found
+}
+
 export const enable = (json: string): string => {
   const settings = parseSettings(json)
+  const conflicts = conflictingKeys(settings)
+  if (conflicts.length > 0) {
+    throw new Error(`send-it: refused, these keys already hold other values: ${conflicts.join(', ')}. Resolve them by hand, then run /send-it on again.`)
+  }
   const env = asObject(settings.env)
   const permissions = asObject(settings.permissions)
   const allow = asList(permissions.allow)

@@ -86,6 +86,36 @@ test('enable twice gives the same text as once (no duplicate allow/deny entries)
   expect(enable(once)).toBe(once)
 })
 
+const refusal = (json: string): string => {
+  try {
+    enable(json)
+  } catch (err) {
+    return (err as Error).message
+  }
+  throw new Error('expected enable to throw')
+}
+
+test('enable refuses a model other than opus and names only the key', () => {
+  const message = refusal('{"model": "sonnet"}\n')
+  expect(message).toContain('model')
+  expect(message).not.toContain('sonnet')
+})
+
+test('enable refuses a different sandbox and names only the key', () => {
+  const message = refusal('{"sandbox": {"enabled": false, "network": {"allowedDomains": ["example.org"]}}}\n')
+  expect(message).toContain('sandbox')
+  expect(message).not.toContain('example.org')
+})
+
+test('enable refuses a different env.SEND_IT and names the key', () => {
+  expect(refusal('{"env": {"SEND_IT": "0"}}\n')).toContain('env.SEND_IT')
+})
+
+test('enable on a file that already holds the block values does not throw', () => {
+  const block = JSON.stringify(SEND_IT_BLOCK)
+  expect(enable(block)).toBe(enable(enable(block)))
+})
+
 test('enable then disable on the formatted input returns the original text exactly', () => {
   const text = '{\n  "theme": "dark",\n  "env": {\n    "A": "1"\n  }\n}\n'
   expect(disable(enable(text))).toBe(text)
