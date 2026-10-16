@@ -1,6 +1,18 @@
 import { expect, test } from 'claude-code/testing'
 
-import { shortDir, shortModel } from './format'
+import { ctxBar, ctxLeft, shortDir, shortModel } from './format'
+
+test('context bar fills with # and carries the percentage in its middle', () => {
+  expect(ctxBar(0)).toBe('[-----0%-----]')
+  expect(ctxBar(50)).toBe('[####50%-----]')
+  expect(ctxBar(100)).toBe('[####100%####]')
+})
+
+test('headroom is what is left of the context, never negative', () => {
+  expect(ctxLeft(55)).toBe(45)
+  expect(ctxLeft(100)).toBe(0)
+  expect(ctxLeft(104)).toBe(0)
+})
 
 test('shortDir keeps two segments under home, ~ at home itself', () => {
   expect(shortDir('/Users/me', '/Users/me')).toBe('~')

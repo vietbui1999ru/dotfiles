@@ -56,6 +56,11 @@ export type HistoryCache = {
   available?: boolean
 }
 
+// One worktree of the repo the session is in, with the facts the pane shows. `live` counts fresh sessions inside it.
+export type WorktreeRow = { path: string; head: string; branch?: string; detached: boolean; prunable: boolean; changes: number; ahead: number; behind: number; live: number }
+export type WorktreeBranch = { name: string; upstream?: string; worktree?: string }
+export type WorktreeState = { open: boolean; selected?: string; data?: { rows: WorktreeRow[]; branches: WorktreeBranch[]; at: number } }
+
 export type HistoryState = {
   tasks: PueueTask[]
   reviews: Record<number, 'pending' | 'decided, waiting for the next Pi run in this repo' | 'approved' | 'changes requested' | undefined>
@@ -94,6 +99,7 @@ declare module 'claude-code' {
       handoff: HandoffState
       progress: Record<number, PiProgress>
       history: HistoryState
+      worktrees: WorktreeState
     }
   }
 }

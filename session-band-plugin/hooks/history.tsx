@@ -3,6 +3,7 @@ import { atom, read, update, type EngineInterface, type Register } from 'claude-
 import type { HistoryState, PiProgress } from '../types'
 import { finalMessage, historyRowsPage, leftReview, type HistoryFilter, type HistoryUsage, truncateCommand } from './history'
 import { focusRing, moveTo, type Motion } from './motion'
+import { nextPane } from './pane-nav'
 import { emptyProgress, fold, sessionDir, sessionFileName } from './pisession'
 import { isPiDispatch, parsePiCommand, parseStatus, type Task } from './pueue'
 import { PALETTE } from './palette'
@@ -229,6 +230,9 @@ export const register: Register = on => {
         {ids.length > 0 && <Button key="pi-history-key-up" plain dimColor hotkey="k" label="up " onPress={() => void move($, ids, task?.id, 'up')} />}
         {ids.length > 0 && <Button key="pi-history-key-top" plain dimColor hotkey="g" label="top " onPress={() => void move($, ids, task?.id, 'top')} />}
         <Button key="pi-history-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'pi-history' })} />
+        <Button key="pi-history-key-prev" plain dimColor hotkey="b" label="prev " onPress={() => void $.ui.panes().then(panes => { const to = nextPane(panes.map(pane => pane.id), 'pi-history', -1); if (to && to !== 'pi-history') void $.ui.open({ id: to, focus: true }) })} />
+        <Button key="pi-history-key-next" plain dimColor hotkey="f" label="next " onPress={() => void $.ui.panes().then(panes => { const to = nextPane(panes.map(pane => pane.id), 'pi-history', 1); if (to && to !== 'pi-history') void $.ui.open({ id: to, focus: true }) })} />
+        <Button key="pi-history-key-worktrees" plain dimColor hotkey="w" label="worktrees" onPress={() => void $.ui.open({ id: 'worktrees', title: 'Worktrees', focus: true })} />
       </Box>
       <Box><Text color={PALETTE.green}>✓ success</Text><Text color={PALETTE.yellow}> · ✓ review</Text><Text color={PALETTE.red}> · ✗ exit</Text><Text color={PALETTE.mauve}> · ✗ killed</Text></Box>
       <Box>{filters.map(filter => <Button key={`pi-history-${filter}`} plain label={filter === state.filter ? `[${filter}]` : filter} onPress={() => void update($, history, value => ({ ...value, filter, limit: pageSize }))} />)}</Box>

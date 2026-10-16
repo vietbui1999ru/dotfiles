@@ -7,6 +7,7 @@ import { register as registerClear } from './clear'
 import { register as registerHandoff } from './handoff.tsx'
 import { register as registerHistory } from './history.tsx'
 import { register as registerPane } from './pane.tsx'
+import { register as registerWorktrees } from './worktree-pane.tsx'
 import { summarize, type TrackedTask } from './handoff'
 import type { PiProgress } from './pisession'
 import { parsePending, pendingRecordFor, reviewState, type ReviewState } from './review'
@@ -114,13 +115,19 @@ async function reviewStates($: EngineInterface, tasks: readonly TrackedTask[]): 
   return Object.fromEntries(values)
 }
 
-// Written now and every HEARTBEAT_INTERVAL_MS; the status line fallback goes silent while it is fresh.
+// Every HEARTBEAT_INTERVAL_MS: write the liveness file (the status line fallback goes silent while it is fresh),
+// and re-read usage and git so the band does not depend on Bash calls or turn ends to stay current.
 const startHeartbeat = async ($: EngineInterface) => {
   const tmp = await $.env.get('TMPDIR') ?? '/tmp'
-  const path = heartbeatPath(tmp, await $.session.id())
-  if (!path) return
-  const beat = async () => $.fs.write(path, heartbeatBody(await $.clock.now()))
-  await beat()
+  // A failed id lookup must not cost the session its start hooks: an empty id yields no heartbeat path.
+  const path = heartbeatPath(tmp, await $.session.id().catch(() => ''))
+  const beat = async () => {
+    if (path) await $.fs.write(path, heartbeatBody(await $.clock.now(), await $.session.cwd()))
+    const current = await $.session.usage()
+    await update($, usage, () => measuredUsage(current.context, current.rateLimits))
+    await refreshGit($)
+  }
+  if (path) await $.fs.write(path, heartbeatBody(await $.clock.now(), await $.session.cwd()))
   $.clock.every(HEARTBEAT_INTERVAL_MS, () => { void beat().catch(() => undefined) })
 }
 
@@ -130,6 +137,7 @@ export const register: Register = on => {
   registerHandoff(on)
   registerHistory(on)
   registerPane(on)
+  registerWorktrees(on)
 
   // The settings fallback only matters before the first prompt.compose names the style.
   let hasComposed = false
@@ -240,6 +248,7 @@ export const register: Register = on => {
       handoff: currentHandoff.available ? summarize(currentHandoff.tasks, currentProgress, currentReview, nowMs) ?? undefined : undefined,
       width: e.props.bodyColumns,
       onPi: () => { void $.ui.open({ id: 'pi-handoff', title: 'Pi hand-off', focus: true }) },
+      onWorktrees: () => { void $.ui.open({ id: 'worktrees', title: 'Worktrees', focus: true }) },
     })
   })
 }
