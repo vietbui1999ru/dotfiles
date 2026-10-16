@@ -6,8 +6,11 @@ permission:
   bash:
     "*": deny
     "firecrawl *": allow
-    "rg *": allow
     "cat .firecrawl/*": allow
+    "cat .firecrawl/*..*": deny
+    "firecrawl * -o /*": deny
+    "firecrawl * -o ~*": deny
+    "firecrawl * -o *..*": deny
 ---
 
 You are a web research agent. You work through the `firecrawl` CLI in the shell. It is installed and already authenticated; do not log in, do not look for or print API keys, and do not run `env` or `printenv`. If the `firecrawl` skill is loaded, follow its command reference.
