@@ -7,6 +7,7 @@ import { register as registerClear } from './clear'
 import { register as registerHandoff } from './handoff.tsx'
 import { register as registerHistory } from './history.tsx'
 import { register as registerPane } from './pane.tsx'
+import { register as registerSendIt } from './send-it.tsx'
 import { register as registerWorktrees } from './worktree-pane.tsx'
 import { summarize, type TrackedTask } from './handoff'
 import type { PiProgress } from './pisession'
@@ -139,6 +140,7 @@ export const register: Register = on => {
   registerHistory(on)
   registerPane(on)
   registerWorktrees(on)
+  registerSendIt(on)
 
   // The settings fallback only matters before the first prompt.compose names the style.
   let hasComposed = false
@@ -151,6 +153,7 @@ export const register: Register = on => {
     await $.command.register({ name: 'pi', description: 'Open Pi hand-off controls, or kill/pause/resume/rm/hold Pi tasks', argumentHint: '[kill|pause|resume|rm|hold] [ids|all] | release', immediate: true })
     await $.command.register({ name: 'pi-history', description: 'Open Pi hand-off history' })
     await $.command.register({ name: 'worktrees', description: 'Open the worktrees and branches pane' })
+    await $.command.register({ name: 'send-it', description: 'Turn send-it mode on or off for this repo, or show its state', argumentHint: 'on|off|status' })
     const current = await $.session.usage()
     await Promise.all([
       update($, usage, () => measuredUsage(current.context, current.rateLimits)),
