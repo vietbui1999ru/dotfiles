@@ -147,15 +147,6 @@
         ]
       },
       {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/trial-expiry.sh"
-          }
-        ]
-      },
-      {
         "hooks": [
           {
             "type": "command",
