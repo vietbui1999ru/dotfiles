@@ -87,9 +87,12 @@ ansible-playbook ansible/site.yml --limit admin_redhat -i ansible/inventory/host
 # Update llm-wiki pin to latest upstream commit
 git submodule update --remote repos/llm-wiki
 git add repos/llm-wiki && git commit -m "chore(submodule): bump llm-wiki"
+
+# After pulling a commit that moves the pin, check out the pinned commit
+git submodule update --init repos/llm-wiki
 ```
 
-`~/repos/llm-wiki` and `~/dotfiles/repos/llm-wiki` are independent clones on this machine. `bootstrap-dirs.sh` creates a redirect to the submodule only when no standalone clone exists; it never replaces an existing clone. Claude rules, agents, and skills resolve to the standalone clone. Commit and push wiki changes from the standalone clone first, then bump the pin here so the submodule matches its `main`.
+`~/repos/llm-wiki` and `~/dotfiles/repos/llm-wiki` are independent clones on this machine. `bootstrap-dirs.sh` creates a redirect to the submodule only when no standalone clone exists; it never replaces an existing clone. Many Claude rules and skills are symlinks into the standalone clone (check with `readlink`); the spec-loop rules and skills, and the rules model-routing, plan-handoff, skill-invocation and startup, live in this repo. Commit and push wiki changes from the standalone clone first, then bump the pin here so the submodule matches its `main`.
 
 ## AI Agents
 
