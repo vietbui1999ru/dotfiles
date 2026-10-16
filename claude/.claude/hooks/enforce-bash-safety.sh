@@ -34,4 +34,32 @@ if echo "$CMD" | grep -qE 'git\s+reset\s+--hard\s+origin/'; then
   exit 2
 fi
 
+# ── git clean with -f (removes untracked files; -fd, -df, -fdx) ───────────────
+if echo "$CMD" | grep -qE 'git\s+clean\s+-[a-zA-Z]*f'; then
+  echo "BLOCKED: git clean -f deletes untracked files irreversibly."
+  echo "List what would go with git clean -n first, then confirm with user."
+  exit 2
+fi
+
+# ── git push with lease or if-includes force flags ────────────────────────────
+if echo "$CMD" | grep -qE 'git\s+push\s+.*--force-(with-lease|if-includes)'; then
+  echo "BLOCKED: forced push (--force-with-lease / --force-if-includes)."
+  echo "This rewrites remote history. If intentional, confirm with user first."
+  exit 2
+fi
+
+# ── git push with a +refspec (forced update of one ref) ───────────────────────
+if echo "$CMD" | grep -qE 'git\s+push\s+.*\s\+\S'; then
+  echo "BLOCKED: git push +refspec forces a ref update."
+  echo "If intentional, confirm with user first."
+  exit 2
+fi
+
+# ── git push with a :refspec (deletes a remote branch) ────────────────────────
+if echo "$CMD" | grep -qE 'git\s+push\s+.*\s:\S'; then
+  echo "BLOCKED: git push :branch deletes a remote branch."
+  echo "If intentional, confirm with user first."
+  exit 2
+fi
+
 exit 0

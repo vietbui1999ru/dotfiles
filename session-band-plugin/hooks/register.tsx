@@ -7,7 +7,7 @@ import { register as registerClear } from './clear'
 import { register as registerHandoff } from './handoff.tsx'
 import { register as registerHistory } from './history.tsx'
 import { register as registerPane } from './pane.tsx'
-import { register as registerSendIt } from './send-it.tsx'
+import { refreshSendIt, register as registerSendIt } from './send-it.tsx'
 import { register as registerWorktrees } from './worktree-pane.tsx'
 import { summarize, type TrackedTask } from './handoff'
 import type { PiProgress } from './pisession'
@@ -150,6 +150,8 @@ export const register: Register = on => {
     captureSession(e.isInteractive)
     // A heartbeat failure must not cost the session its command registrations (F3).
     await startHeartbeat($).catch(() => undefined)
+    // A settings read failure leaves send-it off for this session rather than failing the start.
+    await refreshSendIt($).catch(() => false)
     await $.command.register({ name: 'pi', description: 'Open Pi hand-off controls, or kill/pause/resume/rm/hold Pi tasks', argumentHint: '[kill|pause|resume|rm|hold] [ids|all] | release', immediate: true })
     await $.command.register({ name: 'pi-history', description: 'Open Pi hand-off history' })
     await $.command.register({ name: 'worktrees', description: 'Open the worktrees and branches pane' })
