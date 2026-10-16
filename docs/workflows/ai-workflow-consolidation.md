@@ -43,8 +43,9 @@ caveman undercounted because it fires via hook rather than the Skill tool.
 
 1. **Two independent llm-wiki clones exist.** `~/repos/llm-wiki` is a standalone clone
    with its own `.git`. `~/dotfiles/repos/llm-wiki` is a git submodule with a separate
-   git dir. They are at the same commit today but are NOT the same checkout, and the
-   README's claim that the former is a symlink to the latter is false. **Every rule,
+   git dir. They are NOT the same checkout: the standalone clone is the live authoring
+   checkout, and the submodule is a pinned snapshot bumped after the wiki's `main`
+   moves (resolved 2026-10-16; see Phase 6). **Every rule,
    agent, and skill symlink under `~/.claude/` resolves to the standalone clone.** So
    edits to rules/agents/skills are commits in `~/repos/llm-wiki`, and the dotfiles
    submodule pin does not move until you separately commit there and bump the submodule.
@@ -202,8 +203,10 @@ Once measured:
 - Audit remaining copy-based flows: `shared/AGENTS.md` → opencode/codex, plus the two
   "materialize once, never re-sync" files (`known_marketplaces.json`,
   `agent-workflow.default.json`). Symlink them or document the fork deliberately.
-- Reconcile the two llm-wiki clones (trap 1). Either make `~/repos/llm-wiki` a symlink to
-  the submodule as the README claims, or update the README to describe reality.
+- Done 2026-10-16: reconciled the two llm-wiki clones (trap 1). The submodule was strictly
+  behind the standalone clone (ca9ac4d is an ancestor of 94e56a0), so no commits were lost. The
+  pin moved to 94e56a0 and the README describes both clones. No symlink swap: it would require
+  deleting the standalone clone, which holds uncommitted local config.
 
 ## Phase 7 — mechanical expiry (the anti-regrowth mechanism)
 
