@@ -6,10 +6,21 @@ Classify complexity before every task and agent spawn. No silent defaults.
 |---|---|---|---|
 | Orchestrator (main session) | Opus 5.5 (`opus`) | `medium`; `/effort high` or `xhigh` for hard architecture or security work | Decisions, root cause, the review gate, anything with judgment |
 | Light delegate | Haiku 5.5 (`claude-haiku-5-5`) | `medium` | Read-only exploration (`scout`), rote bounded edits (`worker`), lookups, shell commands |
-| Implementation | `openai-codex/gpt-5.6-terra:high`, `openai-codex/gpt-6-luna:high`, or `opencode-go/deepseek-v4-pro:high` | `high` | Multi-file features, migrations, refactors, dispatched to Pi per `plan-handoff.md` |
+| Implementation | high: `openai-codex/gpt-6.1-sol:high`; medium: `opencode-go/deepseek-v4-pro:high`; low: `opencode-go/deepseek-v4.1-flash:off` | per tier | Multi-file features, migrations, refactors, dispatched to Pi per `plan-handoff.md`. Same tiers as `delegate-pi` and `~/.pi/agent/routing.env` |
+
+| Council voice | `openai-codex/gpt-6.1-sol` | `high` | Cross-vendor advisory review (`pi -p ... --no-session`, `council.py` voice B) |
+| Pi default | `opencode-go/deepseek-v4.1-flash` | `medium` | Plain `pi` with no `--model`: the Haiku-equivalent. Set in `~/.pi/agent/settings.json` (`defaultProvider`, `defaultModel`, `defaultThinkingLevel`) |
 
 Sonnet 5.5 has no default role. Pass `model: sonnet` on a spawn when a task needs it.
-Also available with no assigned role: `openai-codex/gpt-6-sol`, `gpt-6.1-sol`, `gpt-6-astra`, and `opencode-go` `kimi-k3`, `glm-5.3`, `qwen3.8-max`, `deepseek-v4.1-flash`.
+
+**Pi scoped models** (`/scoped-models`, `enabledModels` in `~/.pi/agent/settings.json`, read 2026-10-17). Pick Pi models from this set; anything else is not in Ctrl+P cycling.
+
+| Provider | Models |
+|---|---|
+| `openai-codex` | `gpt-6.1-sol` (high, council), `gpt-6-sol`, `gpt-6-luna`, `gpt-6-astra`, `gpt-5.6-terra` |
+| `opencode-go` | `deepseek-v4-pro` (medium), `deepseek-v4.1-flash` (low, Pi default), `kimi-k3`, `kimi-k2.7-code`, `glm-5.3`, `qwen3.8-max`, `minimax-m3`, `grok-4.7` |
+
+Models with no role in parentheses are available but unassigned. When the scoped set changes, update this table, `delegate-pi`, and `~/.pi/agent/routing.env` together.
 
 **Escalate to the orchestrator** if any: irreversible side effects, deep multi-domain reasoning, failure hard to detect, output used as downstream ground truth.
 **Delegate to Haiku** only if all: bounded, mechanical, fully specified, no judgment needed.
