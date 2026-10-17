@@ -27,7 +27,7 @@ nvimvenv() {
   fi
 }
 
-# LLM council — voices: sonnet + gpt-5.4 | chairman: opus
+# LLM council — voices: claude-sonnet-5-5 + gpt-6.1-sol | chairman: claude-opus-5-5
 council() {
   source ~/repos/llm-wiki/templates/env-model-routing.sh
   uv run ~/repos/llm-wiki/templates/council.py "$@"
