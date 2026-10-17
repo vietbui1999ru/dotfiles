@@ -12,13 +12,18 @@ export const shortModel = (model: string): string => model.replace(/^claude-/, '
 
 export const whole = (pct: number): number => Math.round(pct)
 
-// [####50%-----]: '#' fills to the used share, the percentage sits in the middle of the bar.
+// ████50%░░░░░: block glyphs fill to the used share in eighth-cell steps and the percentage
+// overwrites the middle cells. One plain string, so the caller's single tone colours the label too.
+const PARTIAL = ['', '▏', '▎', '▍', '▌', '▋', '▊', '▉']
 export const ctxBar = (usedPct: number, width = 12): string => {
   const share = Math.min(100, Math.max(0, usedPct))
-  const filled = Math.round((share / 100) * width)
-  const cells = Array.from({ length: width }, (_, i) => (i < filled ? '#' : '-'))
+  const eighths = Math.round((share / 100) * width * 8)
+  const cells = Array.from({ length: width }, (_, i) => {
+    const n = eighths - i * 8
+    return n >= 8 ? '█' : n > 0 ? PARTIAL[n] : '░'
+  })
   const label = `${Math.round(share)}%`
   const start = Math.floor((width - label.length) / 2)
   label.split('').forEach((ch, i) => { cells[start + i] = ch })
-  return `[${cells.join('')}]`
+  return cells.join('')
 }
