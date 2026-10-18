@@ -7,7 +7,6 @@ Classify complexity before every task and agent spawn. No silent defaults.
 | Orchestrator (main session) | Opus 5.5 (`opus`) | `medium`; `/effort high` or `xhigh` for hard architecture or security work | Decisions, root cause, the review gate, anything with judgment |
 | Light delegate | Haiku 5.5 (`claude-haiku-5-5`) | `medium` | Read-only exploration (`scout`), rote bounded edits (`worker`), lookups, shell commands |
 | Implementation | high: `openai-codex/gpt-6.1-sol:high`; medium: `opencode-go/deepseek-v4-pro:high`; low: `opencode-go/deepseek-v4.1-flash:off` | per tier | Multi-file features, migrations, refactors, dispatched to Pi per `plan-handoff.md`. Same tiers as `delegate-pi` and `~/.pi/agent/routing.env` |
-
 | Council voice | `openai-codex/gpt-6.1-sol` | `high` | Cross-vendor advisory review (`pi -p ... --no-session`, `council.py` voice B) |
 | Pi default | `opencode-go/deepseek-v4.1-flash` | `medium` | Plain `pi` with no `--model`: the Haiku-equivalent. Set in `~/.pi/agent/settings.json` (`defaultProvider`, `defaultModel`, `defaultThinkingLevel`) |
 
