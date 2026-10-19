@@ -60,6 +60,8 @@ Alternative considered and rejected: one central store under `$(git rev-parse --
 
 ## Known race: decision consumed at session_start vs a `pi -p` prompt
 
+**Status: fixed in #123 (2026-10-19).** In print mode (`ctx.hasUI === false`), a follow-up found at `session_start` is now held and queued as a `followUp` at `agent_start`. Interactive sessions are unchanged. Test: `agent-review.startup.test.ts`. The analysis below is kept because cross-worktree approval makes this path common: it is the normal way a decision reaches its owner.
+
 Observed 2026-10-19 (pueue task #67). The human finished `:AgentReviewDone` for run `5783111c` while no Pi session was running in that worktree, so the decision sat in `decisions/` until the next Pi start. The next pueue run (`pi -p "<plan>"`) started in that worktree. At `session_start` (`index.ts` ~:554-568) the extension found the decision, ran `processDecision`, and sent the review's follow-up message to the agent. That started a turn. The `-p` prompt then arrived while the agent was busy, and Pi rejected it:
 
 ```
@@ -82,10 +84,18 @@ Test: a temporary repo with a pending record and a decision file, then start `pi
 - New tests for each edge case above, using temporary repos with real `git worktree add`.
 - A manual use-test: dispatch a pueue Pi run with `-w` into a worktree, then confirm it appears from the root nvim, the band chip and `agent-review status --all`, and that reject edits only the worktree.
 
-## Immediate unblock (no code)
+## Resolved since this plan was written
 
-- Open nvim inside `~/dotfiles/.claude/worktrees/design-brief` and run `:AgentReview` for run `5783111c`.
-- Decide on the stale root record `bcd1a32b` (`pi-built-in-mcp`, 2026-10-16): review it or skip it.
+- Run `5783111c` (design-brief) was reviewed from inside its worktree.
+- The stale root record `bcd1a32b` (`pi-built-in-mcp`, 2026-10-16) was skipped on 2026-10-19 after checking that all its changes were already on main. Recipe for a stale review with no live Pi session, used here:
+  1. `pi --no-tools --no-session -p "/review skip <id>"` in the owner. This writes the skip decision; the process exits before its watcher handles it.
+  2. `pi --no-tools --no-session -p "Reply with exactly: ok"` in the owner. `session_start` consumes the decision and deletes the refs; the follow-up runs without tools, so it cannot edit files.
+  The tool should not need two runs. Add a CLI `agent-review skip <id>` that writes the decision and consumes it directly (snapshot, delete refs, delete pending) when no Pi session is live in the owner, sharing code with the approve path.
+
+## Additional scope from the 2026-10-19 sessions
+
+- Stale-record visibility: list each pending review with its age, and flag records whose `end` changes are already contained in `origin/main` as "landed, safe to skip". That check is what made `bcd1a32b` safe to dismiss.
+- The `locate()` early return is the first fix to make: it is the whole cause of the observed miss and is a few lines in one file.
 
 ## Ownership
 
