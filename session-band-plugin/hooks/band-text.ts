@@ -66,21 +66,23 @@ export const handoffText = (handoff: HandoffSegment, width?: number): string => 
 // A plain Button draws its label alone, no brackets; the band's columnGap={1} adds one cell to its neighbour.
 const GAP = 1
 
-/** The icon chips: worktrees and Pi history on the left, the Pi hand-off on the right. Each glyph is one cell. */
+/** The icon chips: worktrees, Pi history and draft PRs on the left, the Pi hand-off on the right. Each glyph is one cell. */
 export const PI_HISTORY = '⟲'
+export const DRAFT_PRS = '⑂'
 export const PI_HANDOFF = 'π'
 
-export type BandInput = StatusInput & { handoff?: HandoffSegment; width?: number; wt: boolean; history: boolean; piChip?: boolean }
-export type BandLayout = { wt?: string; history?: string; status: Seg[][]; pi?: string }
+export type BandInput = StatusInput & { handoff?: HandoffSegment; width?: number; wt: boolean; history: boolean; drafts?: boolean; piChip?: boolean }
+export type BandLayout = { wt?: string; history?: string; drafts?: string; status: Seg[][]; pi?: string }
 
 /** Every chip is one glyph plus its gap; the status line gets the rest. The hand-off detail lives in the pi-handoff pane. */
 export const layoutBand = (d: BandInput): BandLayout => {
   const wt = d.wt ? SYMBOL.branch : undefined
   const history = d.history ? PI_HISTORY : undefined
+  const drafts = d.drafts ? DRAFT_PRS : undefined
   const pi = d.handoff || d.piChip ? PI_HANDOFF : undefined
   const groups = statusGroups(d)
-  if (d.width === undefined) return { wt, history, status: groups, pi }
-  const navCells = [wt, history].reduce((n, chip) => n + (chip ? chip.length + GAP : 0), 0)
+  if (d.width === undefined) return { wt, history, drafts, status: groups, pi }
+  const navCells = [wt, history, drafts].reduce((n, chip) => n + (chip ? chip.length + GAP : 0), 0)
   const piFloor = pi ? pi.length + GAP : 0
-  return { wt, history, status: fitStatus(groups, d.width - navCells - piFloor), pi }
+  return { wt, history, drafts, status: fitStatus(groups, d.width - navCells - piFloor), pi }
 }

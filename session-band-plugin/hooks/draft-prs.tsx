@@ -1,0 +1,63 @@
+import { atom, read, update, type EngineInterface, type Register } from 'claude-code'
+
+import type { DraftPrsState } from '../types'
+import { GH_ARGV, prLine, readGh, summaryLine } from './draft-prs'
+import { nextPane } from './pane-nav'
+
+const view = atom({ plugin: 'session-band', key: 'draftPrs' } as const, { loading: false } as DraftPrsState)
+
+// Read-only: `gh pr list` is the only gh call. A spawn failure or timeout resolves undefined, which readGh names.
+const refresh = async ($: EngineInterface) => {
+  await update($, view, state => ({ ...state, loading: true }))
+  const r = await $.process.run(GH_ARGV, { cwd: await $.session.cwd(), timeoutMs: 15_000 }).catch(() => undefined)
+  const now = await $.clock.now()
+  await update($, view, state => ({ ...state, loading: false, ...readGh(r, now) }))
+}
+
+// j/k move through the rows in display order; wraps at both ends, as the worktrees pane does.
+const move = async ($: EngineInterface, step: 1 | -1) => {
+  const state = await read($, view)
+  const ids = (state.prs ?? []).map(pr => pr.number)
+  if (ids.length === 0) return
+  const at = Math.max(state.selected === undefined ? 0 : ids.indexOf(state.selected), 0)
+  await update($, view, value => ({ ...value, selected: ids[(at + step + ids.length) % ids.length] }))
+}
+
+export const register: Register = on => {
+  on('command.run', { command: 'draft-prs' }, async ($, _e, _next) => {
+    await $.ui.open({ id: 'draft-prs', title: 'Draft PRs', focus: true })
+    return { text: 'Draft PRs opened.' }
+  })
+
+  // No timer: the list loads when the pane opens and on r.
+  on('ui.open', { id: 'draft-prs' }, async ($, e, next) => {
+    const result = await next(e)
+    await refresh($)
+    return result
+  })
+  on('ui.render', { component: 'Pane', requestId: 'draft-prs' }, async ($, e, _next) => {
+    const { Box, Text, Button, Link } = $.ui.resolve(e)
+    const state = await read($, view)
+    const now = await $.clock.now()
+    const prs = state.prs ?? []
+    const pick = prs.find(pr => pr.number === state.selected) ?? prs[0]
+    const go = (step: 1 | -1) => void $.ui.panes().then(panes => { const to = nextPane(panes.map(pane => pane.id), 'draft-prs', step); if (to && to !== 'draft-prs') void $.ui.open({ id: to, focus: true }) })
+    const note = state.error ?? (state.loading ? 'Loading…' : prs.length === 0 ? 'No open or recently merged PRs.' : undefined)
+    return <Box flexDirection="column">
+      <Text weight="bold">Draft PRs</Text>
+      {/* Hotkeys, not hints: a key the pane does not bind falls through to the composer. */}
+      <Box flexDirection="row" flexWrap="wrap" columnGap={2} marginBottom={1}>
+        <Button key="pr-key-down" plain dimColor hotkey="j" label="down" onPress={() => void move($, 1)} />
+        <Button key="pr-key-up" plain dimColor hotkey="k" label="up" onPress={() => void move($, -1)} />
+        <Button key="pr-key-reload" plain dimColor hotkey="r" label="reload" onPress={() => void refresh($)} />
+        <Button key="pr-key-copy" plain dimColor hotkey="y" label="copy url" onPress={press => { if (pick) void $.ui.copy({ text: pick.url, surface: press.surface }) }} />
+        <Button key="pr-key-prev" plain dimColor hotkey="b" label="prev pane" onPress={() => go(-1)} />
+        <Button key="pr-key-next" plain dimColor hotkey="f" label="next pane" onPress={() => go(1)} />
+        <Button key="pr-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'draft-prs' })} />
+      </Box>
+      <Text dimColor={note !== undefined}>{note ?? summaryLine(prs)}</Text>
+      {prs.map(pr => <Text key={`pr-line-${pr.number}`} mono weight={pr === pick ? 'bold' : undefined}>{prLine(pr, pr === pick, now)}</Text>)}
+      {pick && <Text mono dimColor><Link href={pick.url} label={pick.url} /></Text>}
+    </Box>
+  })
+}
