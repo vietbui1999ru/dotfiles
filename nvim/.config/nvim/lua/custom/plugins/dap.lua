@@ -79,4 +79,4 @@ dap.adapters.firefox = {
 vim.keymap.set("n", "<leader>dc", "<cmd>DapContinue<cr>", { desc = "DAP Continue" })
 vim.keymap.set("n", "<leader>db", "<cmd>DapToggleBreakpoint<cr>", { desc = "DAP Breakpoint" })
 vim.keymap.set("n", "<leader>dr", "<cmd>DapToggleRepl<cr>", { desc = "DAP REPL" })
-vim.keymap.set("n", "<leader>du", "<cmd>DapUI<cr>", { desc = "DAP UI Toggle" })
+vim.keymap.set("n", "<leader>du", dapui.toggle, { desc = "DAP UI Toggle" })
