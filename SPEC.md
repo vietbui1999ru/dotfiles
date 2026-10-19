@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 branch: worktree-pueue-lifecycle-spec
 ---
 # SPEC: Pueue lifecycle for Pi sessions
