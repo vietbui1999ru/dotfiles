@@ -1,6 +1,6 @@
 # Gates pane: approve specs and Pi reviews from one place
 
-Date: 2026-10-19. Status: draft, awaiting approval.
+Date: 2026-10-19. Status: approved 2026-10-19.
 
 ## Intent
 
