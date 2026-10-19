@@ -61,6 +61,12 @@ export type WorktreeRow = { path: string; head: string; branch?: string; detache
 export type WorktreeBranch = { name: string; upstream?: string; worktree?: string; ahead?: number; behind?: number }
 export type WorktreeState = { open: boolean; legend: boolean; selected?: string; data?: { rows: WorktreeRow[]; branches: WorktreeBranch[]; at: number } }
 
+// One PR the draft PRs pane lists. `at` is when it merged (merged) or last changed (open), in ms.
+export type PrState = 'draft' | 'ready' | 'merged'
+export type PrChecks = 'passing' | 'failing' | 'pending' | 'none'
+export type DraftPr = { number: number; title: string; branch: string; url: string; state: PrState; checks: PrChecks; at: number }
+export type DraftPrsState = { loading: boolean; selected?: number; prs?: DraftPr[]; error?: string }
+
 export type HistoryState = {
   tasks: PueueTask[]
   reviews: Record<number, 'pending' | 'decided, waiting for the next Pi run in this repo' | 'approved' | 'changes requested' | undefined>
@@ -100,6 +106,7 @@ declare module 'claude-code' {
       progress: Record<number, PiProgress>
       history: HistoryState
       worktrees: WorktreeState
+      draftPrs: DraftPrsState
       sendIt: boolean
     }
   }
