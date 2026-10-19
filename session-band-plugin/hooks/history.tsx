@@ -231,18 +231,18 @@ export const register: Register = on => {
     return <Box flexDirection="column">
       <Text>Pi history</Text>
       {/* Hotkeys, not hints: a key the pane does not bind falls through to the composer. */}
-      <Box flexDirection="row">
-        {ids.length > 0 && <Button key="pi-history-key-down" plain dimColor hotkey="j" label="down " onPress={() => void move($, ids, task?.id, 'down')} />}
-        {ids.length > 0 && <Button key="pi-history-key-up" plain dimColor hotkey="k" label="up " onPress={() => void move($, ids, task?.id, 'up')} />}
-        {ids.length > 0 && <Button key="pi-history-key-top" plain dimColor hotkey="g" label="top " onPress={() => void move($, ids, task?.id, 'top')} />}
-        <Button key="pi-history-key-reload" plain dimColor hotkey="r" label="reload " onPress={() => void refresh($)} />}
-        <Button key="pi-history-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'pi-history' })} />
-        <Button key="pi-history-key-prev" plain dimColor hotkey="b" label="prev " onPress={() => void cycle($, -1)} />
-        <Button key="pi-history-key-next" plain dimColor hotkey="f" label="next " onPress={() => void cycle($, 1)} />
+      <Box flexDirection="row" flexWrap="wrap" columnGap={2} marginBottom={1}>
+        {ids.length > 0 && <Button key="pi-history-key-down" plain dimColor hotkey="j" label="down" onPress={() => void move($, ids, task?.id, 'down')} />}
+        {ids.length > 0 && <Button key="pi-history-key-up" plain dimColor hotkey="k" label="up" onPress={() => void move($, ids, task?.id, 'up')} />}
+        {ids.length > 0 && <Button key="pi-history-key-top" plain dimColor hotkey="g" label="top" onPress={() => void move($, ids, task?.id, 'top')} />}
+        <Button key="pi-history-key-reload" plain dimColor hotkey="r" label="reload" onPress={() => void refresh($)} />
+        <Button key="pi-history-key-prev" plain dimColor hotkey="b" label="prev" onPress={() => void cycle($, -1)} />
+        <Button key="pi-history-key-next" plain dimColor hotkey="f" label="next" onPress={() => void cycle($, 1)} />
         <Button key="pi-history-key-worktrees" plain dimColor hotkey="w" label="worktrees" onPress={() => void goTo($, 'worktrees')} />
+        <Button key="pi-history-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'pi-history' })} />
       </Box>
       <Box><Text color={PALETTE.green}>✓ success</Text><Text color={PALETTE.yellow}> · ✓ review</Text><Text color={PALETTE.red}> · ✗ exit</Text><Text color={PALETTE.mauve}> · ✗ killed</Text></Box>
-      <Box>{filters.map(filter => <Button key={`pi-history-${filter}`} plain label={filter === state.filter ? `[${filter}]` : filter} onPress={() => void update($, history, value => ({ ...value, filter, limit: pageSize }))} />)}</Box>
+      <Box flexDirection="row" columnGap={2} marginBottom={1}>{filters.map(filter => <Button key={`pi-history-${filter}`} plain label={filter === state.filter ? `[${filter}]` : filter} onPress={() => void update($, history, value => ({ ...value, filter, limit: pageSize }))} />)}</Box>
       {!state.available && <Text color={PALETTE.red}>pueue daemon unavailable</Text>}
       {rows.length === 0 && <Text>No completed Pi hand-offs in the last 7 days.</Text>}
       {rows.map(row => <Box key={`pi-history-row-${row.task.id}`} flexDirection="row">

@@ -43,7 +43,8 @@ export const monitorText = (row: MonitorRow, columns: number): string => {
     { name: 'cost', text: row.cost },
     ...(row.label ? [{ text: row.label }] : []),
   ]
-  const joined = () => fields.map(field => field.text).join(' ')
+  const gap = '  '
+  const joined = () => fields.map(field => field.text).join(gap)
   // The model always stays: it is how a row says which tier is working. Activity shrinks instead.
   for (const name of ['cost', 'tokens'] as const) {
     if (joined().length <= columns) break
@@ -52,8 +53,8 @@ export const monitorText = (row: MonitorRow, columns: number): string => {
   }
   const activity = fields.find(field => field.name === 'activity')
   if (activity && joined().length > columns) {
-    const others = fields.filter(field => field !== activity).map(field => field.text).join(' ')
-    const available = Math.max(1, columns - others.length - (others ? 1 : 0))
+    const others = fields.filter(field => field !== activity).map(field => field.text).join(gap)
+    const available = Math.max(1, columns - others.length - (others ? gap.length : 0))
     activity.text = activity.text.length <= available ? activity.text : `${activity.text.slice(0, Math.max(0, available - 1))}…`
   }
   return joined()
@@ -382,20 +383,20 @@ export const register: Register = on => {
     return <Box flexDirection="column">
       {state.tasks.length === 0 && <Text>No Pi hand-offs tracked in this session.</Text>}
       {/* Hotkeys, not hints: a key the pane does not bind falls through to the composer. */}
-      <Box flexDirection="row">
-        {rowIds.length > 0 && <Button key="pi-key-down" plain dimColor hotkey="j" label="down " onPress={() => void move($, rowIds, task?.id, 'down')} />}
-        {rowIds.length > 0 && <Button key="pi-key-up" plain dimColor hotkey="k" label="up " onPress={() => void move($, rowIds, task?.id, 'up')} />}
-        {rowIds.length > 0 && <Button key="pi-key-top" plain dimColor hotkey="g" label="top " onPress={() => void move($, rowIds, task?.id, 'top')} />}
-        {task && <Button key="pi-key-insert" plain dimColor hotkey="i" label="continue " onPress={() => void focusRing($, 'pi-handoff', 'pi-continue')} />}
-        <Button key="pi-key-reload" plain dimColor hotkey="r" label="reload " onPress={() => void open($)} />
-        <Button key="pi-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'pi-handoff' })} />
-        <Button key="pi-key-prev" plain dimColor hotkey="b" label="prev " onPress={() => void cycle($, -1)} />
-        <Button key="pi-key-next" plain dimColor hotkey="f" label="next " onPress={() => void cycle($, 1)} />
+      <Box flexDirection="row" flexWrap="wrap" columnGap={2} marginBottom={1}>
+        {rowIds.length > 0 && <Button key="pi-key-down" plain dimColor hotkey="j" label="down" onPress={() => void move($, rowIds, task?.id, 'down')} />}
+        {rowIds.length > 0 && <Button key="pi-key-up" plain dimColor hotkey="k" label="up" onPress={() => void move($, rowIds, task?.id, 'up')} />}
+        {rowIds.length > 0 && <Button key="pi-key-top" plain dimColor hotkey="g" label="top" onPress={() => void move($, rowIds, task?.id, 'top')} />}
+        {task && <Button key="pi-key-insert" plain dimColor hotkey="i" label="continue" onPress={() => void focusRing($, 'pi-handoff', 'pi-continue')} />}
+        <Button key="pi-key-reload" plain dimColor hotkey="r" label="reload" onPress={() => void open($)} />
+        <Button key="pi-key-prev" plain dimColor hotkey="b" label="prev" onPress={() => void cycle($, -1)} />
+        <Button key="pi-key-next" plain dimColor hotkey="f" label="next" onPress={() => void cycle($, 1)} />
         <Button key="pi-key-worktrees" plain dimColor hotkey="w" label="worktrees" onPress={() => void goTo($, 'worktrees')} />
-        {task && <Text dimColor> · x kill · h hold · p pause · y/n confirm</Text>}
+        <Button key="pi-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'pi-handoff' })} />
+        {task && <Text dimColor>x kill  h hold  p pause  y/n confirm</Text>}
       </Box>
-      {confirm && <Box flexDirection="row">
-        <Text color={PALETTE.red}>{`${confirm.action === 'hold' ? 'Hold queue and kill' : 'Kill'} ${confirm.ids.map(id => `#${id}`).join(' ')}? `}</Text>
+      {confirm && <Box flexDirection="row" columnGap={1}>
+        <Text color={PALETTE.red}>{`${confirm.action === 'hold' ? 'Hold queue and kill' : 'Kill'} ${confirm.ids.map(id => `#${id}`).join(' ')}?`}</Text>
         <Button key="pi-confirm-ok" hotkey="y" onPress={() => void confirmNow($)}>{confirm.action === 'hold' ? 'Hold + kill' : 'Kill'}</Button>
         <Button key="pi-confirm-cancel" hotkey="n" onPress={() => void update($, handoff, value => ({ ...value, confirm: undefined }))}>Cancel</Button>
       </Box>}
@@ -414,7 +415,7 @@ export const register: Register = on => {
       </Box>}
       {task && <Text>{`\n${taskLabel(task)}${pi?.lastActivity ? ` · ${pi.lastActivity}` : ''}\n${pi ? `${pi.tokens} tokens · $${pi.cost.toFixed(3)}` : 'usage n/a'}`}</Text>}
       {transcript.map((entry, index) => <Text key={`entry-${index}`}>{entry.kind === 'error' ? `ERROR ${entry.text}` : entry.text.slice(0, 280)}</Text>)}
-      {task && <Box>
+      {task && <Box flexDirection="row" flexWrap="wrap" columnGap={1} marginTop={1}>
         {!complete(task) && <Button key="pi-abort" hotkey="x" onPress={() => void askConfirm($, 'kill', [task.id])}>Abort</Button>}
         {task.task && eligible('kill', task.task.state) && <Button key="pi-hold" hotkey="h" onPress={() => void askConfirm($, 'hold', [task.id])}>Hold queue</Button>}
         {!complete(task) && <Button key="pi-pause" hotkey="p" onPress={() => void runControl($, task.task?.state === 'Paused' ? 'resume' : 'pause', [task.id], task.task?.group ?? 'default')}>{task.task?.state === 'Paused' ? 'Resume' : 'Pause'}</Button>}
@@ -425,8 +426,10 @@ export const register: Register = on => {
         {pending && <Button key="pi-reject-all" onPress={() => { const confirmed = !needsRejectConfirm(rejecting, pending.runId); rejecting = confirmed ? undefined : pending.runId; void rejectAll($, task, pending.runId, confirmed) }}>Reject all</Button>}
       </Box>}
       {task && <Input key="pi-continue" label="Continue" placeholder="Follow-up for Pi" submitLabel="send" onSubmit={value => void continueTask($, task, pi, value)} />}
-      <Button key="pi-history" onPress={() => void goTo($, 'pi-history')}>history</Button>
-      <Button key="pi-clean-stale" onPress={() => void cleanStale($)}>Clean stale</Button>
+      <Box flexDirection="row" columnGap={1} marginTop={1}>
+        <Button key="pi-history" onPress={() => void goTo($, 'pi-history')}>history</Button>
+        <Button key="pi-clean-stale" onPress={() => void cleanStale($)}>Clean stale</Button>
+      </Box>
     </Box>
   })
 
