@@ -50,7 +50,8 @@ collect() {
     [[ "$pat" == "none" ]] && continue
     [[ -n "$pat" ]] || continue
     local m
-    m=$(grep -inE -- "$pat" "$FILE" 2>/dev/null)
+    # Case-sensitive on purpose: -i made "Inter" match "pointer".
+    m=$(grep -nE -- "$pat" "$FILE" 2>/dev/null)
     [[ -n "$m" ]] && MATCHES="${MATCHES}${MATCHES:+$'\n'}${m}"
   done < <(grep -E '^[[:space:]]*-?[[:space:]]*pattern:[[:space:]]*' "$reg" 2>/dev/null | sed -E 's/^[[:space:]]*-?[[:space:]]*pattern:[[:space:]]*//')
 }
@@ -58,8 +59,9 @@ collect() {
 collect "$GLOBAL_REG"
 collect "$PROJECT_REG"
 
+OUT=""
 if [[ -n "$MATCHES" ]]; then
-  printf 'design-slop: %s\n%s\n' "$FILE" "$MATCHES"
+  OUT=$(printf 'design-slop: %s\n%s\n' "$FILE" "$MATCHES")
 fi
 
 # Once-per-session reminder: taste (first 20 lines) + register entry titles.
@@ -68,14 +70,20 @@ if [[ -n "$SESSION_ID" ]]; then
   if [[ ! -e "$SENTINEL" ]]; then
     mkdir -p "$(dirname "$SENTINEL")" 2>/dev/null || true
     if [[ -f "$TASTE_FILE" ]]; then
-      printf 'design-brief reminder (first UI write this session):\n'
-      head -n 20 "$TASTE_FILE" 2>/dev/null
+      OUT="${OUT}${OUT:+$'\n'}design-brief reminder (first UI write this session):"$'\n'"$(head -n 20 "$TASTE_FILE" 2>/dev/null)"
     fi
     if [[ -n "$TITLES" ]]; then
-      printf 'design-slop register entries:\n%s\n' "$TITLES"
+      OUT="${OUT}${OUT:+$'\n'}design-slop register entries:"$'\n'"${TITLES}"
     fi
     touch "$SENTINEL" 2>/dev/null || true
   fi
+fi
+
+# PostToolUse plain stdout only reaches the debug log; additionalContext is
+# what Claude actually sees next to the tool result.
+if [[ -n "$OUT" ]]; then
+  jq -n --arg c "$OUT" \
+    '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: $c}}'
 fi
 
 exit 0

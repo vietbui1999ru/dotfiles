@@ -36,5 +36,5 @@ A big number, small label, and gradient accent is the default hero treatment.
 Scattered entrance animations on every section read as AI-generated.
 
 ## Default font families
-- pattern: (Inter|Roboto|Open[[:space:]]Sans|system-ui|-apple-system|Helvetica|Arial)
+- pattern: (^|[^[:alnum:]_-])(Inter|Roboto|Open[[:space:]]Sans|system-ui|-apple-system|Helvetica|Arial)([^[:alnum:]_-]|$)
 Reaching for a default family rather than choosing one for the brief.
