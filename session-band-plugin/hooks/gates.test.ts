@@ -1,13 +1,27 @@
 import { expect, test } from 'claude-code/testing'
 
 import { parseWorktrees } from './worktrees'
-import { specBranch, specRows, parseSpecStatus, acRunArgv, approveTimeoutMs, editRemoteArgv } from './gates'
+import { specBranch, specRows, parseSpecStatus, acRunArgv, approveTimeoutMs, editRemoteArgv, parseReviewList, reviewRows, REVIEW_LIST_ARGV, skipArgv } from './gates'
 
 test('gates builds spec argv, baseline timeout and space-safe Neovim edit argv', () => {
   expect(acRunArgv('/h', 'status', '/r/SPEC.md')).toEqual(['/h/dotfiles/scripts/ac-run', 'status', '/r/SPEC.md'])
   expect(approveTimeoutMs(2)).toBe(345000)
   expect(editRemoteArgv('/s', '/a b/SPEC.md')).toEqual(['nvim', '--server', '/s', '--remote-send', '<C-\\><C-N>:edit /a\\ b/SPEC.md<CR>'])
   expect(editRemoteArgv('/s', '/a%#|"\\/SPEC.md')[4]).toBe('<C-\\><C-N>:edit /a\\%\\#\\|\\"\\\\/SPEC.md<CR>')
+})
+
+test('gates parses only review arrays, drops missing ids and keys orphan rows', () => {
+  expect(parseReviewList('not json')).toBeUndefined()
+  expect(parseReviewList('{"a":1}')).toBeUndefined()
+  const entries = [
+    { runId: 'run-1', owner: '/r', branch: 'main', name: 'one', startedAt: '', processing: false, error: false, landed: true, orphan: false },
+    { runId: 'run-2', owner: null, branch: '', name: '', startedAt: '', processing: false, error: false, landed: false, orphan: true },
+  ]
+  const parsed = parseReviewList(JSON.stringify([...entries, {}, null]))
+  expect(parsed).toEqual(entries)
+  expect(reviewRows(parsed!)).toEqual(entries.map(entry => ({ kind: 'review', key: `review:${entry.runId}`, worktree: entry.owner, entry })))
+  expect(REVIEW_LIST_ARGV('/h')).toEqual(['/h/dotfiles/scripts/agent-review', 'list', '--all', '--json'])
+  expect(skipArgv('/h', 'run-2')).toEqual(['/h/dotfiles/scripts/agent-review', 'skip', 'run-2'])
 })
 
 const trees = parseWorktrees('worktree /r\nHEAD abcdef123\nbranch refs/heads/feat/x\n\nworktree /r/.claude/worktrees/w\nHEAD abcdef123\nbranch refs/heads/feat/x\n')

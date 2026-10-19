@@ -14,7 +14,7 @@ const lines = (node: unknown): string[] => {
   return children.flatMap(lines)
 }
 
-const setup = (on: Parameters<Parameters<typeof test>[1]>[1], state = 'draft', hold = false) => {
+const setup = (on: Parameters<Parameters<typeof test>[1]>[1], state = 'draft', hold = false, reviews = { ...OK, stdout: '[]' }, approval = '{"ok":true}') => {
   const clock = mock.clock(on, { now: 1000 })
   mock.env(on, { HOME: '/h', TMPDIR: '/tmp', USER: 'test' })
   on('ui.open', () => ({ value: { isPlaced: true } } as never))
@@ -41,12 +41,97 @@ const setup = (on: Parameters<Parameters<typeof test>[1]>[1], state = 'draft', h
         return { value: { ...OK, stdout: 'approved: fixture record\n' } } as never
       }
     }
+    if (e.argv[0]?.endsWith('/agent-review')) {
+      if (e.argv[1] === 'list') return { value: reviews } as never
+      return { value: { ...OK, stdout: e.argv[1] === 'approve' ? approval : '{"message":"Skipped."}' } } as never
+    }
     if (e.argv[0] === 'fd') return { value: { ...OK, stdout: '/tmp/nvim.test/nvim.1.0\n' } } as never
     if (e.argv.includes('--remote-expr')) return { value: { ...OK, stdout: '/r/w' } } as never
     return { value: OK } as never
   })
   return { clock, calls, release: () => release?.(), reached }
 }
+
+const review = (over: Record<string, unknown> = {}) => ({ runId: 'run-12345678', owner: '/r/w', branch: 'feat/w', name: 'build', startedAt: '', processing: false, error: false, landed: true, orphan: false, ...over })
+
+test('gates unavailable reviews leave spec rows visible for failed and malformed replies', async ($, on) => {
+  const response = { exitCode: 1, stdout: '', stderr: 'failed' }
+  const { clock } = setup(on, 'draft', false, response)
+  await $.command.run(RUN)
+  expect(lines(await $.ui.render(PANE))).toContain('reviews unavailable')
+  expect(lines(await $.ui.render(PANE))).toContain('› SPEC.md  draft')
+  response.exitCode = 0
+  response.stdout = '{"not":"an array"}'
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  await ui.press({ key: 'gates-key-reload' })
+  await clock.settle()
+  expect(lines(await $.ui.render(PANE))).toContain('reviews unavailable')
+  expect(lines(await $.ui.render(PANE))).toContain('› SPEC.md  draft')
+})
+
+test('gates groups an owned review under its worktree and approves from session cwd', async ($, on) => {
+  const { clock, calls } = setup(on, 'draft', false, { ...OK, stdout: JSON.stringify([review()]) })
+  on('ui.toast', () => ({ value: undefined } as never))
+  await $.command.run(RUN)
+  const rows = lines(await $.ui.render(PANE))
+  expect(rows).toContain('  review run-1234  build  [landed]')
+  expect(rows.indexOf('feat/w')).toBeLessThan(rows.indexOf('  review run-1234  build  [landed]'))
+  expect(rows.indexOf('  review run-1234  build  [landed]')).toBeLessThan(rows.indexOf('main'))
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  await ui.press({ key: 'gates-key-down' })
+  await clock.settle()
+  await ui.press({ key: 'gates-approve' })
+  await clock.settle()
+  expect(calls.filter(call => call.argv[1] === 'approve')).toEqual([{ argv: ['/h/dotfiles/scripts/agent-review', 'approve', 'run-12345678'], cwd: '/r/w', timeoutMs: 60000 }])
+  expect(calls.filter(call => call.argv[1] === 'list').every(call => call.cwd === '/r/w')).toBe(true)
+})
+
+test('gates processing reviews do not approve or edit', async ($, on) => {
+  const { clock, calls } = setup(on, 'draft', false, { ...OK, stdout: JSON.stringify([review({ processing: true })]) })
+  await $.command.run(RUN)
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  await ui.press({ key: 'gates-key-down' })
+  await clock.settle()
+  await ui.press({ key: 'gates-approve' })
+  await ui.press({ key: 'gates-edit' })
+  await clock.settle()
+  expect(calls.filter(call => call.argv[1] === 'approve' || call.argv[0] === 'nvim')).toEqual([])
+})
+
+test('gates orphans skip only after two presses and cannot approve or open', async ($, on) => {
+  const { clock, calls } = setup(on, 'draft', false, { ...OK, stdout: JSON.stringify([review({ owner: null, orphan: true })]) })
+  on('ui.toast', () => ({ value: undefined } as never))
+  await $.command.run(RUN)
+  expect(lines(await $.ui.render(PANE))).toContain('(no worktree)')
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  await ui.press({ key: 'gates-key-up' })
+  await clock.settle()
+  await ui.press({ key: 'gates-approve' })
+  await ui.press({ key: 'gates-open' })
+  await ui.press({ key: 'gates-reject' })
+  await clock.settle()
+  expect(calls.filter(call => ['skip', 'approve'].includes(call.argv[1]!) || call.argv[0] === 'nvim')).toEqual([])
+  await ui.press({ key: 'gates-reject' })
+  await clock.settle()
+  expect(calls.filter(call => call.argv[1] === 'skip')).toEqual([{ argv: ['/h/dotfiles/scripts/agent-review', 'skip', 'run-12345678'], cwd: '/r/w', timeoutMs: undefined }])
+})
+
+test('gates tree-changed approval opens owner review and normal reject sends Neovim RejectAll', async ($, on) => {
+  const { clock, calls } = setup(on, 'draft', false, { ...OK, stdout: JSON.stringify([review()]) }, '{"ok":false,"reason":"tree-changed"}')
+  on('ui.toast', () => ({ value: undefined } as never))
+  await $.command.run(RUN)
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  await ui.press({ key: 'gates-key-down' })
+  await clock.settle()
+  await ui.press({ key: 'gates-approve' })
+  await clock.settle()
+  expect(calls.some(call => call.argv[4] === '<C-\\><C-N>:AgentReview<CR>')).toBe(true)
+  await ui.press({ key: 'gates-reject' })
+  await clock.settle()
+  await ui.press({ key: 'gates-reject' })
+  await clock.settle()
+  expect(calls.some(call => call.argv[4] === '<C-\\><C-N>:AgentReviewRejectAll run-12345678<CR>')).toBe(true)
+})
 
 test('/gates lists each worktree matching spec with state and full verify detail', async ($, on) => {
   setup(on)
