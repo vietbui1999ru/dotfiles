@@ -1,5 +1,5 @@
 // Pure logic for the draft PRs pane: read one `gh pr list` result, roll up its checks, pick and order the PRs,
-// and draw the row strings. No engine here; draft-prs.tsx runs gh and maps these strings to Text.
+// group them by state, and draw the row strings. No engine here; draft-prs.tsx runs gh and maps these strings to Text.
 import type { DraftPr, DraftPrsState, PrChecks, PrState } from '../types'
 
 export const GH_ARGV = ['gh', 'pr', 'list', '--state', 'all', '--limit', '30', '--json', 'number,title,headRefName,url,isDraft,state,mergedAt,updatedAt,statusCheckRollup'] as const
@@ -66,10 +66,26 @@ export const age = (ms: number): string => {
 
 const cut = (title: string, max: number) => (title.length > max ? `${title.slice(0, max - 1)}…` : title)
 
-export const prLine = (pr: DraftPr, selected: boolean, now: number): string =>
-  `${selected ? '›' : ' '}#${pr.number}  ${pr.state.padEnd(6)}  ${pr.checks.padEnd(7)}  ${cut(pr.title, 50)}  ${pr.branch}  ${age(now - pr.at)}`
-
-export const summaryLine = (prs: readonly DraftPr[]): string => {
-  const count = (state: PrState) => prs.filter(pr => pr.state === state).length
-  return `${count('draft')} draft · ${count('ready')} ready · ${count('merged')} merged (7d)`
+/** One glyph per check rollup, and the theme color it is drawn in; `none` stays dim. */
+export const CHECK_MARK: Record<PrChecks, { glyph: string; color?: 'success' | 'error' | 'warning' }> = {
+  passing: { glyph: '✓', color: 'success' },
+  failing: { glyph: '✗', color: 'error' },
+  pending: { glyph: '•', color: 'warning' },
+  none: { glyph: '·' },
 }
+
+const GROUP_LABEL: Record<PrState, string> = { draft: 'Draft', ready: 'Ready', merged: 'Merged 7d' }
+
+/** The PRs split by state in display order, empty groups left out, each with its header. */
+export const groups = (prs: readonly DraftPr[]): { header: string; prs: DraftPr[] }[] =>
+  (['draft', 'ready', 'merged'] as const)
+    .map(state => ({ state, prs: prs.filter(pr => pr.state === state) }))
+    .filter(group => group.prs.length > 0)
+    .map(group => ({ header: `${GROUP_LABEL[group.state]} · ${group.prs.length}`, prs: group.prs }))
+
+// `feat(session-band): x` reads as `x`: the group header and branch already carry the context.
+const bare = (title: string) => title.replace(/^[a-z]+(\([^)]*\))?!?:\s*/i, '') || title
+
+/** The row after its selection mark and check glyph: number, short title, age. State is the group's, branch the detail's. */
+export const prLine = (pr: DraftPr, now: number): string =>
+  `#${pr.number} ${cut(bare(pr.title), 44).padEnd(44)}  ${age(now - pr.at)}`

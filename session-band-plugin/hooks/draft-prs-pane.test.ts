@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 import { GH_ARGV, GH_AUTH } from './draft-prs'
-import { NOW, PRS, ROWS, SUMMARY } from './draft-prs-fixture'
+import { HEADERS, NOW, PRS, ROWS } from './draft-prs-fixture'
 
 const PANE = {
   component: 'Pane' as const,
@@ -34,8 +34,13 @@ test('/draft-prs lists drafts, then ready, then merged in the last 7 days, from 
   await $.command.run(RUN)
   const rows = lines(await $.ui.render(PANE))
   expect(rows[0]).toBe('Draft PRs')
-  expect(rows).toContain(SUMMARY)
+  for (const header of HEADERS) expect(rows).toContain(header)
   for (const row of ROWS) expect(rows).toContain(row)
+  // Drafts first under their own header; the branch shows only on the selected PR's detail line.
+  expect(rows.indexOf('Draft · 1')).toBeLessThan(rows.indexOf(ROWS[0]))
+  expect(rows.indexOf(ROWS[0])).toBeLessThan(rows.indexOf('Ready · 1'))
+  expect(rows).toContain('band-icon-only · ')
+  expect(rows.some(row => row.includes('pi-reload'))).toBe(false)
   expect(calls).toEqual([[...GH_ARGV]])
 })
 
