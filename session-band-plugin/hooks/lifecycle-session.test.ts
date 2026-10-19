@@ -32,3 +32,13 @@ test('session end removes its owner', async ($, on) => {
   await $.session.end({ reason: 'prompt_input_exit', sessionId: 's1', resume: { id: 's1' } })
   expect(JSON.parse(files[OWNERS]!).owners).toEqual([])
 })
+
+test('the idle check shuts an empty daemon down after 15 minutes with no owner', async ($, on) => {
+  const { clock, pueue } = world(on)
+  await $.session.start(START)
+  await clock.advance(14 * 60_000)
+  expect(pueue.order).not.toContain('pueue shutdown')
+  await clock.advance(2 * 60_000)
+  expect(pueue.order).toContain('pueue shutdown')
+  expect(pueue.down).toBe(true)
+})

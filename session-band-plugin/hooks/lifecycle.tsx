@@ -5,6 +5,8 @@ import { addOwner, daemonState, ensureArgvs, freshIds, idleCheck, ownersPath, pa
 // The id the heartbeat file is named by, read at session start as register.tsx's heartbeat reads it.
 // After a /clear the process keeps writing that heartbeat, so the owner keeps that id too.
 let ownerId: string | undefined
+let timer: { cancel(): void } | undefined
+const CHECK_MS = 60_000
 
 const status = async ($: EngineInterface) => {
   const result = await $.process.run(['pueue', 'status', '--json']).catch(() => undefined)
@@ -58,6 +60,8 @@ async function check($: EngineInterface, ending?: string) {
 export async function onSessionStart($: EngineInterface) {
   ownerId = await $.session.id().catch(() => undefined)
   await check($).catch(() => undefined)
+  timer?.cancel()
+  timer = $.clock.every(CHECK_MS, () => { void check($).catch(() => undefined) })
 }
 
 export const register: Register = on => {
