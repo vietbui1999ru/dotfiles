@@ -60,7 +60,27 @@ local function claimed_tasks(bus)
 	return tasks
 end
 
+--- Run an async vim.ui-style function and wait for its callback. Must be called
+--- inside a coroutine; handles both async pickers (telescope-ui-select) and ones
+--- that call back synchronously (the builtin vim.ui.select).
+local function await(start)
+	local co = coroutine.running()
+	local sync_result
+	start(function(...)
+		if coroutine.status(co) == "suspended" then
+			coroutine.resume(co, ...)
+		else
+			sync_result = { ... }
+		end
+	end)
+	if sync_result then
+		return unpack(sync_result)
+	end
+	return coroutine.yield()
+end
+
 --- Pick a task interactively. Returns (id, bus) or (nil, nil) if cancelled.
+--- Must be called inside a coroutine (see M.setup keymaps).
 local function pick_task()
 	local bus = resolve_bus_dir()
 	if not bus then
@@ -71,10 +91,10 @@ local function pick_task()
 
 	if #tasks == 0 then
 		-- No claimed tasks: prompt for manual ID (user might know it)
-		local ok, id = pcall(vim.ui.input, {
-			prompt = "Task ID (no claimed tasks, enter manually): ",
-		})
-		if not ok or not id or id == "" then
+		local id = await(function(cb)
+			vim.ui.input({ prompt = "Task ID (no claimed tasks, enter manually): " }, cb)
+		end)
+		if not id or id == "" then
 			return nil, nil
 		end
 		return id, bus
@@ -88,26 +108,13 @@ local function pick_task()
 	local choices = vim.tbl_map(function(t)
 		return t.id
 	end, tasks)
-	local picked_idx = nil
-	local ok = pcall(vim.ui.select, choices, {
-		prompt = "Select task for annotation:",
-		format_item = function(item)
-			return item
-		end,
-	}, function(choice)
-		if choice then
-			for i, t in ipairs(tasks) do
-				if t.id == choice then
-					picked_idx = i
-					break
-				end
-			end
-		end
+	local choice = await(function(cb)
+		vim.ui.select(choices, { prompt = "Select task for annotation:" }, cb)
 	end)
-	if not ok or not picked_idx then
+	if not choice then
 		return nil, nil
 	end
-	return tasks[picked_idx].id, bus
+	return choice, bus
 end
 
 --- Compute the next turn number from existing annotations for a task.
@@ -262,23 +269,27 @@ function M.capture_dap()
 	end
 
 	local session = dap.session()
+	-- nvim-dap: session.threads is keyed by thread id; thread.frames, frame.scopes
+	-- and scope.variables are plain lists, present only once fetched
 	local threads = session.threads or {}
 	local frames_data = {}
 	local total_frames = 0
+	local thread_count = 0
 
 	-- Collect stack info from all threads
-	for _, thread in ipairs(threads) do
-		local frames = thread and thread._stackFrames or {}
+	for _, thread in pairs(threads) do
+		thread_count = thread_count + 1
+		local frames = thread.frames or {}
 		total_frames = total_frames + #frames
 		for i, frame in ipairs(frames) do
 			if i <= 20 then
 				local scopes_list = {}
-				local scopes_ok, scopes = pcall(frame.scopes, frame)
-				if scopes_ok and scopes then
+				local scopes = frame.scopes
+				if scopes then
 					for _, scope in ipairs(scopes) do
 						local vars = {}
-						local vars_ok, variables = pcall(scope.variables, scope)
-						if vars_ok and variables then
+						local variables = scope.variables
+						if variables then
 							for j = 1, math.min(#variables, 10) do
 								local v = variables[j]
 								table.insert(vars, {
@@ -299,8 +310,9 @@ function M.capture_dap()
 				table.insert(frames_data, {
 					id = frame.id or 0,
 					name = frame.name or "",
-					line = (frame.line or 0) + 1,
-					column = (frame.column or 0) + 1,
+					-- nvim-dap requests 1-based lines/columns (linesStartAt1)
+					line = frame.line or 0,
+					column = frame.column or 0,
 					source = (frame.source and frame.source.path) or "",
 					scopes = scopes_list,
 				})
@@ -311,7 +323,7 @@ function M.capture_dap()
 	local turn = next_turn(bus, task_id)
 	local body = vim.json.encode({
 		type = "dap-snapshot",
-		thread_count = #threads,
+		thread_count = thread_count,
 		total_frames = total_frames,
 		frames = frames_data,
 		buf_file = vim.fn.expand("%:p"),
@@ -364,13 +376,11 @@ function M.capture_diff_hunk()
 	local cursor_lnum = vim.fn.line(".")
 	local current_hunk = nil
 	for _, hunk in ipairs(hunks) do
-		-- hunk has: added, removed, lines (table of {type, value, lnum})
-		if hunk.added_start and hunk.removed_start then
-			local start_lnum = math.min(hunk.added_start, hunk.removed_start)
-			local end_lnum = math.max(
-				hunk.added_start + (hunk.added or 0) - 1,
-				hunk.removed_start + (hunk.removed or 0) - 1
-			)
+		-- gitsigns hunk: added/removed = { start, count, lines }; the cursor is in the
+		-- working buffer, so match on the added range (a pure deletion has count 0)
+		if hunk.added and hunk.added.start then
+			local start_lnum = hunk.added.start
+			local end_lnum = start_lnum + math.max(hunk.added.count, 1) - 1
 			if cursor_lnum >= start_lnum and cursor_lnum <= end_lnum then
 				current_hunk = hunk
 				break
@@ -408,8 +418,8 @@ function M.capture_diff_hunk()
 		cursor_lnum = cursor_lnum,
 		hunk_found = current_hunk ~= nil,
 		hunk_stats = current_hunk and {
-			added = current_hunk.added,
-			removed = current_hunk.removed,
+			added = current_hunk.added.count,
+			removed = current_hunk.removed.count,
 		} or nil,
 		diff = diff_output,
 	})
@@ -420,19 +430,20 @@ end
 -- ─── Setup ──────────────────────────────────────────────────────────────────
 
 function M.setup()
+	-- captures run in a coroutine so pick_task() can wait on vim.ui pickers
 	-- LSP evidence capture
 	vim.keymap.set("n", "<leader>ae", function()
-		M.capture_lsp()
+		coroutine.wrap(M.capture_lsp)()
 	end, { desc = "Evidence: capture LSP diagnostics" })
 
 	-- DAP evidence capture
 	vim.keymap.set("n", "<leader>ad", function()
-		M.capture_dap()
+		coroutine.wrap(M.capture_dap)()
 	end, { desc = "Evidence: capture DAP session" })
 
 	-- Diff hunk evidence
 	vim.keymap.set("n", "<leader>ah", function()
-		M.capture_diff_hunk()
+		coroutine.wrap(M.capture_diff_hunk)()
 	end, { desc = "Evidence: pin diff hunk" })
 end
 
