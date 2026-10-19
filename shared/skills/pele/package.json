@@ -1,0 +1,9 @@
+{
+  "name": "pele-skill",
+  "private": true,
+  "type": "module",
+  "description": "Pinned pele (Mermaid to SVG) for the pele skill and pele-render CLI.",
+  "dependencies": {
+    "pele": "1.6.0"
+  }
+}
