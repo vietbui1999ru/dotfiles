@@ -17,13 +17,13 @@ const handoffTone = (state: HandoffSegment['state'] | undefined, review: Handoff
 
 // Left: the worktrees (⎇) and Pi history (⟲) icon chips, then where · budget · alerts · who. Right: the Pi hand-off icon (π), coloured by state. The strings come from band-text.ts.
 export const drawBand = ({ Box, Text, Button }: Elements, d: BandData) => {
-  const lay = layoutBand({ ...d, wt: !!d.onWorktrees, history: !!d.onPiHistory })
+  const lay = layoutBand({ ...d, wt: !!d.onWorktrees, history: !!d.onPiHistory, piChip: !!d.onPi })
   const run = (seg: Seg, key: string) => <Text key={key} color={PALETTE[seg.tone]}>{seg.text}</Text>
   const status = lay.status.flatMap((group, gi) => [
     ...(gi > 0 ? [<Text key={`sep-${gi}`} color={PALETTE.muted}>{SEP}</Text>] : []),
     ...group.flatMap((seg, si) => (si > 0 ? [' ', run(seg, `seg-${gi}-${si}`)] : [run(seg, `seg-${gi}-${si}`)])),
   ])
-  const piColor = d.handoff ? PALETTE[handoffTone(d.handoff.state, d.handoff.review)] : undefined
+  const piColor = d.handoff ? PALETTE[handoffTone(d.handoff.state, d.handoff.review)] : PALETTE.muted
 
   return (
     <Box flexDirection="row" justifyContent="space-between" columnGap={1}>
