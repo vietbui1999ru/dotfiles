@@ -68,3 +68,14 @@ test('the send-it run survives fitStatus at narrow widths; style, local and stas
   expect(statusText(fitStatus(statusGroups({ ...full, sendIt: true }), 60))).toBe('llm-wiki feat/x* ↑2 ↓1 · ━━━╸──────── 30% 5h:12% 7d:34% · ⚠2 ⇉ send-it · opus-5-5')
   expect(statusText(fitStatus(statusGroups({ ...full, openAlerts: undefined, sendIt: true }), 20))).toContain('⇉ send-it')
 })
+
+test('the draft PRs chip is one icon and reserves two cells', () => {
+  const kept = 'llm-wiki feat/x* local ↑2 ↓1 ≡1 · ━━━╸──────── 30% 5h:12% 7d:34% · ⚠2 · opus-5-5 explanatory'
+  const alone = layoutBand({ ...full, width: 98, wt: false, history: false, drafts: true })
+  expect(alone.drafts).toBe('⑂')
+  expect(statusText(alone.status)).toBe(kept)
+  expect(statusText(layoutBand({ ...full, width: 98, wt: true, history: true, drafts: true }).status)).toBe(kept)
+  const withPi = layoutBand({ ...full, width: 98, wt: true, history: true, drafts: true, piChip: true })
+  expect(statusText(withPi.status)).toBe('llm-wiki feat/x* local ↑2 ↓1 ≡1 · ━━━╸──────── 30% 5h:12% 7d:34% · ⚠2 · opus-5-5')
+  expect(layoutBand({ ...full, width: 98, wt: true, history: true }).drafts).toBeUndefined()
+})
