@@ -44,7 +44,8 @@ export const monitorText = (row: MonitorRow, columns: number): string => {
     ...(row.label ? [{ text: row.label }] : []),
   ]
   const joined = () => fields.map(field => field.text).join(' ')
-  for (const name of ['cost', 'tokens', 'modelEffort'] as const) {
+  // The model always stays: it is how a row says which tier is working. Activity shrinks instead.
+  for (const name of ['cost', 'tokens'] as const) {
     if (joined().length <= columns) break
     const index = fields.findIndex(field => field.name === name)
     if (index >= 0) fields.splice(index, 1)
