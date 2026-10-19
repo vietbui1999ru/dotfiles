@@ -45,6 +45,11 @@ test('the Pi hand-off chip is one icon and reserves two cells', () => {
   expect(layoutBand({ ...full, width: 98, wt: true, history: true }).pi).toBeUndefined()
 })
 
+test('the Pi chip shows with no hand-off when the band wires it', () => {
+  expect(layoutBand({ ...full, wt: true, history: true, piChip: true }).pi).toBe('π')
+  expect(layoutBand({ ...full, wt: true, history: true }).pi).toBeUndefined()
+})
+
 test('each icon chip reserves two cells: the status line drops style once both chips show', () => {
   const one = layoutBand({ ...full, width: 95, wt: true, history: false })
   expect(statusText(one.status)).toBe('llm-wiki feat/x* local ↑2 ↓1 ≡1 · ━━━╸──────── 30% 5h:12% 7d:34% · ⚠2 · opus-5-5 explanatory')

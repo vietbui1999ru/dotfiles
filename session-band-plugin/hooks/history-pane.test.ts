@@ -64,6 +64,7 @@ test('j, k and g move the history selection; q closes the pane', async ($, on) =
   expect((await ui.find({ key: 'pi-history-key-down' }))?.props.hotkey).toBe('j')
   expect((await ui.find({ key: 'pi-history-key-up' }))?.props.hotkey).toBe('k')
   expect((await ui.find({ key: 'pi-history-key-top' }))?.props.hotkey).toBe('g')
+  expect((await ui.find({ key: 'pi-history-key-reload' }))?.props.hotkey).toBe('r')
   const first = await selected()
   await press('pi-history-key-down')
   const second = await selected()

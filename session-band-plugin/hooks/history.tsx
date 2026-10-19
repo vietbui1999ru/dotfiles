@@ -229,6 +229,7 @@ export const register: Register = on => {
         {ids.length > 0 && <Button key="pi-history-key-down" plain dimColor hotkey="j" label="down " onPress={() => void move($, ids, task?.id, 'down')} />}
         {ids.length > 0 && <Button key="pi-history-key-up" plain dimColor hotkey="k" label="up " onPress={() => void move($, ids, task?.id, 'up')} />}
         {ids.length > 0 && <Button key="pi-history-key-top" plain dimColor hotkey="g" label="top " onPress={() => void move($, ids, task?.id, 'top')} />}
+        <Button key="pi-history-key-reload" plain dimColor hotkey="r" label="reload " onPress={() => void refresh($)} />}
         <Button key="pi-history-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'pi-history' })} />
         <Button key="pi-history-key-prev" plain dimColor hotkey="b" label="prev " onPress={() => void $.ui.panes().then(panes => { const to = nextPane(panes.map(pane => pane.id), 'pi-history', -1); if (to && to !== 'pi-history') void $.ui.open({ id: to, focus: true }) })} />
         <Button key="pi-history-key-next" plain dimColor hotkey="f" label="next " onPress={() => void $.ui.panes().then(panes => { const to = nextPane(panes.map(pane => pane.id), 'pi-history', 1); if (to && to !== 'pi-history') void $.ui.open({ id: to, focus: true }) })} />
