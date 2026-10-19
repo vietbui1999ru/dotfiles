@@ -45,7 +45,7 @@ link_shared_skill() {
 	echo "✓ ~/.agents/skills/$name → shared/skills/$name"
 }
 
-for shared_skill in gh-stack approval-workflow delegate-pi kanban-status grill-me verify-spec pele; do
+for shared_skill in gh-stack approval-workflow delegate-pi kanban-status grill-me verify-spec pele design-brief; do
 	link_shared_skill "$shared_skill"
 done
 
@@ -67,6 +67,13 @@ if [ -f "$PELE_DIR/package-lock.json" ]; then
 		ln -s ../../.agents/skills/pele "$HOME/.claude/skills/pele"
 		echo "✓ ~/.claude/skills/pele → ~/.agents/skills/pele"
 	fi
+fi
+
+# design-brief: Claude reads it through ~/.agents/skills, like pele. Its
+# design-on-write hook is linked by stow with the rest of claude/.claude/hooks.
+if [[ -d "$HOME/.claude/skills" && ! -e "$HOME/.claude/skills/design-brief" ]]; then
+	ln -s ../../.agents/skills/design-brief "$HOME/.claude/skills/design-brief"
+	echo "✓ ~/.claude/skills/design-brief → ~/.agents/skills/design-brief"
 fi
 
 if [ -x "$HOME/dotfiles/scripts/agent-workflow" ]; then
