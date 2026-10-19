@@ -56,6 +56,25 @@ Alternative considered and rejected: one central store under `$(git rev-parse --
 - Approve from the root on a worktree run: snapshot and `endTree` comparison run in the owner.
 - A detached-HEAD worktree (branch missing in the porcelain output).
 - The `.processing` and error records that the gate counts as blocking also show up in the listing.
+- A decision made from another worktree or the root is consumed at the next Pi `session_start` in the owner, and that can race the session's own prompt (see below).
+
+## Known race: decision consumed at session_start vs a `pi -p` prompt
+
+Observed 2026-10-19 (pueue task #67). The human finished `:AgentReviewDone` for run `5783111c` while no Pi session was running in that worktree, so the decision sat in `decisions/` until the next Pi start. The next pueue run (`pi -p "<plan>"`) started in that worktree. At `session_start` (`index.ts` ~:554-568) the extension found the decision, ran `processDecision`, and sent the review's follow-up message to the agent. That started a turn. The `-p` prompt then arrived while the agent was busy, and Pi rejected it:
+
+```
+Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.
+Extension error (<boundary>): turn_end could not resolve the persisted assistant entry ID
+```
+
+The task exited 1 having done nothing. The decision was consumed (pending went to 0), so an identical re-run (#68) succeeded. The failure only happens when a decision is waiting at startup, and a cross-worktree reviewer makes that much more likely, because the person approving is not in a live Pi session for that tree.
+
+Fix options for the implementing session:
+1. **Recommended.** At `session_start`, process waiting decisions (consume the record, delete the refs) but do not send the follow-up as a new turn. Queue it with `streamingBehavior: 'followUp'` so it runs after the prompt, or drop it when the session was started non-interactively with `-p`.
+2. Make the CLI/nvim decision path wake an idle owner: if no Pi session is live in the owner, process the decision immediately from the reviewer side (snapshot, `endTree` check, consume), leaving nothing for `session_start`.
+3. Minimum: in `delegate-pi`, before `pueue add -w <tree>`, refuse to dispatch while `<tree>/.pi/agent-review/decisions/` holds unprocessed files, and say why.
+
+Test: a temporary repo with a pending record and a decision file, then start `pi -p "echo"` in it, and assert the prompt runs and the decision is consumed exactly once.
 
 ## Verification to require
 
