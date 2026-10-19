@@ -640,6 +640,57 @@ class SpecLoopCases(Fixture):
         end = lines.index("```", starts[0] + 1)
         self.lint_file_example(path, "\n".join(lines[starts[0] + 1:end]) + "\n")
 
+    def test_lint_prints_reject_line(self):
+        r = self.lint_text(spec_text([(1, "true")]))
+        self.assert_clean_lint(r)
+        self.assertIn("~/dotfiles/scripts/ac-run reject SPEC.md", r.stdout)
+
+    def test_approve_summary(self):
+        self.init_repo()
+        self.put("SPEC.md", spec_text([(1, "touch sentinel.txt"), (2, "manual - wording"),
+                                       (3, "true", True)]))
+        r = self.approve("")
+        out = r.stdout + r.stderr
+        self.assertEqual(r.returncode, 1, out)
+        self.assertIn("not approved", out)
+        self.assertEqual(self.records(), [])
+        self.assertFalse((self.repo / "sentinel.txt").exists())
+        for text in ("runs: touch sentinel.txt", "checked by a human: manual - wording",
+                     "must keep passing", "status: approved", "[y/N]"):
+            self.assertIn(text, r.stdout)
+        self.assertNotIn("\x1b", r.stdout)
+
+    def test_reject(self):
+        self.approved([(1, "touch ran.txt")])
+        (self.repo / "ran.txt").unlink(missing_ok=True)  # baseline ran it
+        for want in ("removed record", "no approval record"):
+            with self.subTest(want):
+                r = self.run_acrun("reject", "SPEC.md")
+                out = r.stdout + r.stderr
+                self.assertEqual(r.returncode, 0, out)
+                self.assertEqual(len(r.stdout.strip().splitlines()), 1, out)
+                self.assertIn(want, out)
+                self.assertEqual(self.records(), [])
+                self.assertRegex((self.repo / "SPEC.md").read_text(), r"(?m)^status: draft$")
+        self.assertEqual(self.check().returncode, 3)
+        self.assertFalse((self.repo / "ran.txt").exists())
+
+    def test_status(self):
+        self.init_repo()
+        self.write_spec([(1, "true")])
+        c = self.run_acrun("status", "SPEC.md")
+        self.assertEqual(c.returncode, 3, c.stdout + c.stderr)
+        self.assertIn("draft (no record)", c.stdout)
+        self.approve("y\n")
+        c = self.run_acrun("status", "SPEC.md")
+        self.assertEqual(c.returncode, 0, c.stdout + c.stderr)
+        self.assertIn("approved (record matches)", c.stdout)
+        spec = self.repo / "SPEC.md"
+        spec.write_text(spec.read_text().replace("`true`", "`false`"))
+        c = self.run_acrun("status", "SPEC.md")
+        self.assertEqual(c.returncode, 3, c.stdout + c.stderr)
+        self.assertIn("stale (spec changed since approval; approve again)", c.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

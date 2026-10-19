@@ -4,6 +4,8 @@
 lint     grammar and branch check; prints the human-only approve line on success
 approve  human only: prints every verify command, reads y, records a hash and a baseline
 check    runs the approved verify commands and classifies them against the baseline
+reject   human only: removes this spec's approval record, sets status: draft, runs nothing
+status   prints approved, draft or stale; exit 0 only when approved
 """
 import argparse
 import datetime
@@ -19,6 +21,7 @@ import time
 from pathlib import Path
 
 HUMAN = "HUMAN ONLY (agents must not run this): ~/dotfiles/scripts/ac-run approve SPEC.md"
+REJECT = "Reject or revoke (runs nothing): ~/dotfiles/scripts/ac-run reject SPEC.md"
 STATE = Path(os.path.expanduser("~")) / ".local" / "state" / "ac-run"
 KEEP_ENV = ("PATH", "HOME", "USER", "LANG", "LC_ALL", "TMPDIR", "TERM")
 SECTIONS = ("objective", "acceptance criteria", "boundaries", "open questions")
@@ -34,6 +37,11 @@ class Usage(Exception):
 def git(*args, cwd):
     r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
     return r.stdout.strip() if r.returncode == 0 else None
+
+
+def shown(s):
+    """Escape control characters so SPEC text cannot rewrite the approve prompt."""
+    return "".join(c if c.isprintable() else c.encode("unicode_escape").decode() for c in s)
 
 
 def parse(lines):
@@ -67,7 +75,8 @@ def parse(lines):
             continue
         m = AC_RE.match(line)
         if m:
-            ac = {"n": int(m.group(1)), "line": i, "verify": [], "baseline": ""}
+            ac = {"n": int(m.group(1)), "title": line[m.end():].strip(), "line": i,
+                  "verify": [], "baseline": ""}
             acs.append(ac)
         elif ac and line.strip().startswith("verify:"):
             ac["verify"].append((line.strip()[7:].strip(), i))
@@ -141,12 +150,14 @@ def load(path):
         raise Usage([f"{path}:{line}: branch: is {want}, current branch is {have}"])
     rel = os.path.relpath(Path(path).resolve(), Path(top).resolve())
     return {"path": path, "rel": rel, "top": top, "branch": want, "acs": acs, "raw": raw,
-            "status_line": front["status"][1]}
+            "status_line": front["status"][1],
+            "status": front["status"][0]}
 
 
 def cmd_lint(args):
     spec = load(args.spec)
     print(f"{args.spec}: {len(spec['acs'])} ACs, lint clean")
+    print(REJECT)
     print(HUMAN)
     return 0
 
@@ -161,14 +172,15 @@ def record_path(spec):
     return STATE / f"{spec_hash(spec)}.json"
 
 
-def set_status_approved(spec):
-    """Rewrite only the status: line, keeping its line ending. False if the file changed."""
+def set_status(spec, value):
+    """Rewrite only the status: line to `status: <value>`, keeping its line ending. False if the
+    file changed or is not writable."""
     path = Path(spec["path"])
     if path.read_bytes() != spec["raw"]:
         return False
     lines = spec["raw"].decode("utf-8").splitlines(keepends=True)
     old = lines[spec["status_line"] - 1]
-    lines[spec["status_line"] - 1] = "status: approved" + old[len(old.rstrip("\r\n")):]
+    lines[spec["status_line"] - 1] = f"status: {value}" + old[len(old.rstrip("\r\n")):]
     try:
         path.write_bytes("".join(lines).encode("utf-8"))
     except OSError:  # read-only file; the record is already written
@@ -178,9 +190,19 @@ def set_status_approved(spec):
 
 def cmd_approve(args):
     spec = load(args.spec)
-    print(f"Approving {spec['rel']} on branch {spec['branch']}. Verify commands:")
+    runnable = [a for a in spec["acs"] if a["cmd"] is not None]
+    print(f"Approve {spec['rel']} on branch {spec['branch']}: {len(spec['acs'])} ACs")
     for ac in spec["acs"]:
-        print(f"  AC-{ac['n']}: {ac['cmd'] if ac['cmd'] is not None else ac['raw']}")
+        print(f"\n  AC-{ac['n']}: {shown(ac['title']) or '(no title)'}")
+        if ac["cmd"] is None:
+            print(f"    checked by a human: {shown(ac['raw'])}")
+        else:
+            keep = "  (baseline: pass, must keep passing)" if ac["baseline"] == "pass" else ""
+            print(f"    runs: {shown(ac['cmd'])}{keep}")
+    print(f"\nApproving records the {len(runnable)} commands above (a hash of every verify "
+          "and baseline line), runs them once now for a baseline (skipped if the tree has "
+          "changes), and sets status: approved in SPEC.md. Editing a verify or baseline "
+          "line later voids the approval.")
     print("Run these on this machine? [y/N] ", end="", flush=True)
     answer = sys.stdin.readline()
     if answer.strip().lower() != "y":
@@ -194,10 +216,41 @@ def cmd_approve(args):
         return 1
     STATE.mkdir(parents=True, exist_ok=True)
     record_path(spec).write_text(json.dumps(rec, indent=2) + "\n", encoding="utf-8")
-    if not set_status_approved(spec):
+    if not set_status(spec, "approved"):
         print(f"{args.spec} changed or is not writable; record written, "
               "set status: approved by hand")
     print(f"approved: record {record_path(spec)}")
+    print(REJECT)
+    return 0
+
+
+def cmd_reject(args):
+    spec = load(args.spec)
+    path = record_path(spec)
+    try:
+        path.unlink()
+        what = f"removed record {path}"
+    except FileNotFoundError:
+        what = "no approval record for these verify lines"
+    except OSError as e:
+        print(f"{args.spec}: cannot remove record {path}: {e.strerror}", file=sys.stderr)
+        return 1
+    status = "status: draft" if set_status(spec, "draft") else "set status: draft by hand"
+    print(f"rejected {args.spec}: {what}; {status}")
+    return 0
+
+
+def cmd_status(args):
+    spec = load(args.spec)
+    try:
+        json.loads(record_path(spec).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        if spec["status"] == "approved":
+            print("stale (spec changed since approval; approve again)")
+        else:
+            print("draft (no record)")
+        return 3
+    print("approved (record matches)")
     return 0
 
 
@@ -311,13 +364,14 @@ def classify(code, baseline, keep):
 def main():
     ap = argparse.ArgumentParser(prog="ac-run", description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("lint", "approve", "check"):
+    for name in ("lint", "approve", "check", "reject", "status"):
         p = sub.add_parser(name)
-        if name != "lint":
+        if name in ("approve", "check"):
             p.add_argument("--timeout", type=int, default=120, help="seconds per AC (default 120)")
         p.add_argument("spec", metavar="SPEC_PATH")
     args = ap.parse_args()
-    handler = {"lint": cmd_lint, "approve": cmd_approve, "check": cmd_check}[args.cmd]
+    handler = {"lint": cmd_lint, "approve": cmd_approve, "check": cmd_check,
+               "reject": cmd_reject, "status": cmd_status}[args.cmd]
     try:
         return handler(args)
     except Usage as e:
