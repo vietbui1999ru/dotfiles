@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 branch: feat/design-brief
 ---
 # SPEC: design-brief overlay skill for distinctive frontend work
