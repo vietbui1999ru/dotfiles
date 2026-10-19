@@ -297,6 +297,10 @@ vim.keymap.set("n", "<leader>gd", "<cmd>DiffviewOpen<cr>", { desc = "Diffview: o
 vim.keymap.set("n", "<leader>gf", "<cmd>DiffviewFileHistory %<cr>", { desc = "Diffview: file history" })
 vim.keymap.set("n", "<leader>gq", "<cmd>DiffviewClose<cr>", { desc = "Diffview: close" })
 
+if require("custom.agent_workflow").enabled("diffviewer") then
+	require("custom.plugins.diffviewer-local")
+end
+
 vim.cmd.packadd("code-preview.nvim")
 require("code-preview").setup({
 	diff = {
