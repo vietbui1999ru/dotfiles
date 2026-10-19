@@ -2,7 +2,8 @@
 """ac-run: lint, approve and check the acceptance criteria in SPEC.md.
 
 lint     grammar and branch check; prints the human-only approve line on success
-approve  human only: prints every verify command, reads y, records a hash and a baseline
+approve  human only: macOS dialog, then records a hash and a baseline
+show     prints the approval summary; runs nothing and writes nothing
 check    runs the approved verify commands and classifies them against the baseline
 reject   human only: removes this spec's approval record, sets status: draft, runs nothing
 status   prints approved, draft or stale; exit 0 only when approved
@@ -20,7 +21,7 @@ import tempfile
 import time
 from pathlib import Path
 
-HUMAN = "HUMAN ONLY (agents must not run this): ~/dotfiles/scripts/ac-run approve SPEC.md"
+HUMAN = "HUMAN ONLY (agents must not run this): approve in the session-band /gates pane, or ~/dotfiles/scripts/ac-run approve SPEC.md"
 REJECT = "Reject or revoke (runs nothing): ~/dotfiles/scripts/ac-run reject SPEC.md"
 STATE = Path(os.path.expanduser("~")) / ".local" / "state" / "ac-run"
 KEEP_ENV = ("PATH", "HOME", "USER", "LANG", "LC_ALL", "TMPDIR", "TERM")
@@ -188,9 +189,7 @@ def set_status(spec, value):
     return True
 
 
-def cmd_approve(args):
-    spec = load(args.spec)
-    runnable = [a for a in spec["acs"] if a["cmd"] is not None]
+def print_summary(spec, runnable):
     print(f"Approve {spec['rel']} on branch {spec['branch']}: {len(spec['acs'])} ACs")
     for ac in spec["acs"]:
         print(f"\n  AC-{ac['n']}: {shown(ac['title']) or '(no title)'}")
@@ -203,9 +202,46 @@ def cmd_approve(args):
           "and baseline line), runs them once now for a baseline (skipped if the tree has "
           "changes), and sets status: approved in SPEC.md. Editing a verify or baseline "
           "line later voids the approval.")
-    print("Run these on this machine? [y/N] ", end="", flush=True)
-    answer = sys.stdin.readline()
-    if answer.strip().lower() != "y":
+
+
+def confirm(spec, runnable):
+    """Human-only macOS dialog. No stdin or terminal fallback."""
+    commands = [shown(a["cmd"])[:240] for a in runnable[:10]]
+    if len(runnable) > 10:
+        commands.append(f"+{len(runnable) - 10} more")
+    message = (f"Approve {shown(spec['rel'])} on branch {shown(spec['branch'])}: "
+               f"{len(spec['acs'])} ACs?\n\n"
+               "Approving runs these commands on this machine now for a baseline:\n"
+               + "\n".join(commands))
+    script = [
+        "on run argv",
+        'display dialog (item 1 of argv) with title "ac-run" buttons {"Cancel", "Approve"} '
+        'default button "Cancel" cancel button "Cancel" giving up after 60',
+        "return button returned of result",
+        "end run",
+    ]
+    command = ["/usr/bin/osascript"] + [a for line in script for a in ("-e", line)] + [message]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=75)
+    except (OSError, subprocess.TimeoutExpired):
+        print("Approval needs the macOS dialog; it was unavailable or timed out.", file=sys.stderr)
+        return False
+    if result.returncode != 0:
+        print("Approval needs the macOS dialog; it was cancelled or unavailable.", file=sys.stderr)
+    return result.returncode == 0 and result.stdout.strip() == "Approve"
+
+
+def cmd_show(args):
+    spec = load(args.spec)
+    print_summary(spec, [a for a in spec["acs"] if a["cmd"] is not None])
+    return 0
+
+
+def cmd_approve(args):
+    spec = load(args.spec)
+    runnable = [a for a in spec["acs"] if a["cmd"] is not None]
+    print_summary(spec, runnable)
+    if not confirm(spec, runnable):
         print("not approved")
         return 1
     rec = {"spec": spec["rel"], "branch": spec["branch"],
@@ -364,14 +400,14 @@ def classify(code, baseline, keep):
 def main():
     ap = argparse.ArgumentParser(prog="ac-run", description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("lint", "approve", "check", "reject", "status"):
+    for name in ("lint", "approve", "check", "reject", "status", "show"):
         p = sub.add_parser(name)
         if name in ("approve", "check"):
             p.add_argument("--timeout", type=int, default=120, help="seconds per AC (default 120)")
         p.add_argument("spec", metavar="SPEC_PATH")
     args = ap.parse_args()
     handler = {"lint": cmd_lint, "approve": cmd_approve, "check": cmd_check,
-               "reject": cmd_reject, "status": cmd_status}[args.cmd]
+               "reject": cmd_reject, "status": cmd_status, "show": cmd_show}[args.cmd]
     try:
         return handler(args)
     except Usage as e:

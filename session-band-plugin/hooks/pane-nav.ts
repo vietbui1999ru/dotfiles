@@ -1,7 +1,7 @@
 // The panes this mod draws. Switching cycles only among these, never another plugin's pane.
 // The engine does not let `$` cross an import, so each pane calls $.ui.panes() and $.ui.open() itself and
 // uses these pure pickers for the target and the moves.
-export const MOD_PANES = ['pi-handoff', 'pi-history', 'worktrees', 'draft-prs'] as const
+export const MOD_PANES = ['pi-handoff', 'pi-history', 'worktrees', 'draft-prs', 'gates'] as const
 
 // The open mod pane after (or before, step -1) `current`, wrapping. Undefined when none is open.
 export const nextPane = (open: readonly string[], current: string, step: 1 | -1): string | undefined => {
@@ -13,7 +13,7 @@ export const nextPane = (open: readonly string[], current: string, step: 1 | -1)
 }
 
 type ModPane = (typeof MOD_PANES)[number]
-export const PANE_TITLES: Record<ModPane, string> = { 'pi-handoff': 'Pi hand-off', 'pi-history': 'Pi history', worktrees: 'Worktrees', 'draft-prs': 'Draft PRs' }
+export const PANE_TITLES: Record<ModPane, string> = { 'pi-handoff': 'Pi hand-off', 'pi-history': 'Pi history', worktrees: 'Worktrees', 'draft-prs': 'Draft PRs', gates: 'Gates' }
 const titleOf = (id: string) => PANE_TITLES[id as ModPane] ?? id
 
 export type PaneStep = { close: string } | { open: string; title: string; focus?: true }
