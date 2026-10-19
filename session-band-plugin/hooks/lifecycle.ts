@@ -33,3 +33,44 @@ export const queueBadge = (daemon: Daemon, hasWork: boolean): string | undefined
 /** What runs before a dispatch so the task can start: the daemon if down, then the group. */
 export const ensureArgvs = (daemon: Daemon, group = 'default'): string[][] =>
   daemon.kind === 'down' ? [['pueued', '-d'], releaseArgv(group)] : daemon.group === 'running' ? [] : [releaseArgv(group)]
+
+export const IDLE_MS = 15 * 60_000
+/** The heartbeat (heartbeat.ts) rewrites every 15 s; one older than this belongs to a session that is gone. */
+export const OWNER_FRESH_MS = 60_000
+
+/** The owners file: sessions that dispatched Pi work, and when the queue was last seen empty. */
+export type Owners = { owners: string[]; emptySinceMs?: number }
+
+export const ownersPath = (stateHome: string | undefined, home: string): string =>
+  `${(stateHome || `${home}/.local/state`).replace(/\/$/, '')}/session-band/pueue-owners.json`
+
+export const parseOwners = (text: string): Owners => {
+  try {
+    const value = JSON.parse(text) as { owners?: unknown; emptySinceMs?: unknown } | null
+    const raw = value?.owners
+    const owners = Array.isArray(raw) ? raw.filter((id): id is string => typeof id === 'string') : []
+    const since = value?.emptySinceMs
+    return typeof since === 'number' ? { owners, emptySinceMs: since } : { owners }
+  } catch { return { owners: [] } }
+}
+
+/** A dispatch adds its session and restarts the idle window, so a stale emptySinceMs cannot stop a fresh queue. */
+export const addOwner = (state: Owners, id: string): Owners =>
+  ({ owners: state.owners.includes(id) ? state.owners : [...state.owners, id] })
+
+/** Session ids whose heartbeat file is fresh: the live sessions. */
+export const freshIds = (entries: readonly { name: string; mtimeMs: number }[], nowMs: number): string[] =>
+  entries.flatMap(entry => {
+    const id = /^session-band-(.+)\.alive$/.exec(entry.name)?.[1]
+    return id && nowMs - entry.mtimeMs < OWNER_FRESH_MS ? [id] : []
+  })
+
+export type Check = { state: Owners; shutdown: boolean }
+
+/** One check: drop dead owners, track when the queue emptied, stop only with no owner, no live task and 15 idle minutes. */
+export const idleCheck = (state: Owners, daemon: Daemon, alive: readonly string[], nowMs: number): Check => {
+  const owners = state.owners.filter(id => alive.includes(id))
+  if (daemon.kind === 'down' || liveCount(daemon.tasks) > 0) return { state: { owners }, shutdown: false }
+  const emptySinceMs = state.emptySinceMs ?? nowMs
+  return { state: { owners, emptySinceMs }, shutdown: owners.length === 0 && nowMs - emptySinceMs >= IDLE_MS }
+}
