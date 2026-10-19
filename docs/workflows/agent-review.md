@@ -117,6 +117,34 @@ Build as three separate commits, in this order.
     the tree, write `decisions/<id>.json` (all files `accepted`, never `skipped`, so no follow-up
     message), remove the claim, delete the `refs/agent-review/<id>/*` refs. Any failure puts the
     pending record back.
+  - Since 2026-10-19 it works from any worktree: it finds the worktree whose
+    `.pi/agent-review/pending/` holds the run (the **owner**) and does all of the above there.
+
+#### Cross-worktree commands — 2026-10-19
+
+Reviews are still stored per worktree, so a Pi run dispatched into `.claude/worktrees/x` keeps
+its review in that worktree. The CLI is the single place that looks across worktrees; Neovim
+asks it. Plan and spec: `docs/workflows/agent-review-cross-worktree-plan.md`.
+
+- `agent-review list [--all] [--json]` lists pending reviews in this checkout, or with `--all`
+  in every worktree of the repo plus **orphans** (`refs/agent-review/<id>/*` with no pending
+  record anywhere, for example after a worktree was removed). `--json` prints one array; each
+  entry has `runId`, `owner`, `branch`, `name`, `startedAt`, `landed`, `orphan`, `processing`
+  and `error`. Sorted oldest first, orphans last.
+- **landed** means the last-fetched `origin/<default>` already contains the run: its
+  `base..end` diff reverse-applies cleanly, checked in a throwaway index with no network.
+  Binary patches and any git error count as not landed. A landed review is safe to skip.
+- `agent-review approve <id>` from any worktree acts in the owner (see above).
+- `agent-review skip <id>` dismisses one review without approving it, from any worktree, in
+  one step. It claims the pending record before writing a `skipped` decision, so a live Pi
+  watcher in the owner finds nothing pending and sends no follow-up turn. It refuses while
+  `<id>.processing` exists. For an orphan it deletes the refs. Same one-line JSON output and
+  exit codes as `approve`.
+- `:AgentReview` asks `agent-review list --all --json`. One review that has not landed opens
+  directly, with the tab directory switched to its owner; otherwise a picker lists every
+  review, oldest first, tagged `[landed]`, `[processing]` or `[orphan: agent-review skip <id>]`.
+  Orphans and processing reviews cannot be opened. If the CLI fails, it warns and reviews
+  the current checkout only.
 
 ### 2. Pi extension — `pi/.pi/agent/extensions/agent-review.ts`
 
