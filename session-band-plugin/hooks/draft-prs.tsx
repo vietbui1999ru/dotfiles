@@ -1,7 +1,7 @@
 import { atom, read, update, type EngineInterface, type Register } from 'claude-code'
 
 import type { DraftPrsState } from '../types'
-import { GH_ARGV, prLine, readGh, summaryLine } from './draft-prs'
+import { CHECK_MARK, GH_ARGV, groups, prLine, readGh } from './draft-prs'
 import { nextPane } from './pane-nav'
 
 const view = atom({ plugin: 'session-band', key: 'draftPrs' } as const, { loading: false } as DraftPrsState)
@@ -50,14 +50,22 @@ export const register: Register = on => {
         <Button key="pr-key-down" plain dimColor hotkey="j" label="down" onPress={() => void move($, 1)} />
         <Button key="pr-key-up" plain dimColor hotkey="k" label="up" onPress={() => void move($, -1)} />
         <Button key="pr-key-reload" plain dimColor hotkey="r" label="reload" onPress={() => void refresh($)} />
-        <Button key="pr-key-copy" plain dimColor hotkey="y" label="copy url" onPress={press => { if (pick) void $.ui.copy({ text: pick.url, surface: press.surface }) }} />
-        <Button key="pr-key-prev" plain dimColor hotkey="b" label="prev pane" onPress={() => go(-1)} />
-        <Button key="pr-key-next" plain dimColor hotkey="f" label="next pane" onPress={() => go(1)} />
+        <Button key="pr-key-copy" plain dimColor hotkey="y" label="copy" onPress={press => { if (pick) void $.ui.copy({ text: pick.url, surface: press.surface }) }} />
+        <Button key="pr-key-prev" plain dimColor hotkey="b" label="prev" onPress={() => go(-1)} />
+        <Button key="pr-key-next" plain dimColor hotkey="f" label="next" onPress={() => go(1)} />
         <Button key="pr-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'draft-prs' })} />
       </Box>
-      <Text dimColor={note !== undefined}>{note ?? summaryLine(prs)}</Text>
-      {prs.map(pr => <Text key={`pr-line-${pr.number}`} mono weight={pr === pick ? 'bold' : undefined}>{prLine(pr, pr === pick, now)}</Text>)}
-      {pick && <Text mono dimColor><Link href={pick.url} label={pick.url} /></Text>}
+      {note !== undefined && <Text dimColor>{note}</Text>}
+      {/* A header per state separates drafts from the rest; the row keeps only what tells PRs apart. */}
+      {groups(prs).map(group => <Box key={`pr-group-${group.header}`} flexDirection="column" marginBottom={1}>
+        <Text weight="bold">{group.header}</Text>
+        {group.prs.map(pr => <Box key={`pr-row-${pr.number}`} flexDirection="row" columnGap={1}>
+          <Text mono>{pr === pick ? '›' : ' '}</Text>
+          <Text mono color={CHECK_MARK[pr.checks].color} dimColor={!CHECK_MARK[pr.checks].color}>{CHECK_MARK[pr.checks].glyph}</Text>
+          <Text mono weight={pr === pick ? 'bold' : undefined} dimColor={pr.state === 'merged' && pr !== pick}>{prLine(pr, now)}</Text>
+        </Box>)}
+      </Box>)}
+      {pick && <Text mono dimColor>{pick.branch} · <Link href={pick.url} label={pick.url} /></Text>}
     </Box>
   })
 }
