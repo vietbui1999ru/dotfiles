@@ -297,6 +297,10 @@ vim.keymap.set("n", "<leader>gd", "<cmd>DiffviewOpen<cr>", { desc = "Diffview: o
 vim.keymap.set("n", "<leader>gf", "<cmd>DiffviewFileHistory %<cr>", { desc = "Diffview: file history" })
 vim.keymap.set("n", "<leader>gq", "<cmd>DiffviewClose<cr>", { desc = "Diffview: close" })
 
+if require("custom.agent_workflow").enabled("diffviewer") then
+	require("custom.plugins.diffviewer-local")
+end
+
 vim.cmd.packadd("code-preview.nvim")
 require("code-preview").setup({
 	diff = {
@@ -395,13 +399,15 @@ vim.api.nvim_create_autocmd("VimEnter", {
 			end,
 		})
 		local function commandr_status()
-			if not commandr_ready() then
-				return ""
-			end
+			-- throttle first: commandr_ready() shells out to git on every call
 			if os.time() - _cmd.ts < 2 then
 				return _cmd.result
 			end
 			_cmd.ts = os.time()
+			if not commandr_ready() then
+				_cmd.result = ""
+				return ""
+			end
 			if not _cmd.root then
 				local r = vim.fn.system("git rev-parse --show-toplevel 2>/dev/null"):gsub("\n", "")
 				if vim.v.shell_error == 0 and r ~= "" then
@@ -532,9 +538,6 @@ vim.api.nvim_create_autocmd("VimEnter", {
 		vim.cmd.packadd("neovim-tips")
 		require("custom.plugins.tips")
 
-		vim.cmd.packadd("octo.nvim")
-		require("custom.plugins.octo")
-
 		require("custom.plugins.pi-status")
 		require("custom.plugins.pi-ai")
 		require("custom.agent_review")
@@ -584,7 +587,8 @@ vim.api.nvim_create_autocmd("BufReadPre", {
 		})
 
 		vim.cmd.packadd("fidget.nvim")
-		require("fidget").setup({})
+		-- avoid NvimTree explicitly: fidget's implicit nvim-tree integration is going away
+		require("fidget").setup({ notification = { window = { avoid = { "NvimTree" } } } })
 
 		vim.cmd.packadd("mason.nvim")
 		-- Ensure language toolchains are visible to Mason
@@ -822,4 +826,3 @@ vim.api.nvim_create_autocmd("BufReadPre", {
 		require("custom.plugins.lsp-ocaml")
 	end,
 })
-
