@@ -26,10 +26,15 @@ local M = {}
 -- ─── Constant tool paths ────────────────────────────────────────────────────
 
 -- Resolve CLI tools, respecting env var seams (same pattern as commandr-omp-runner)
-local OMP_BIN = vim.env.OMP_BIN or vim.fn.exepath("omp") or "omp"
-local PROGRESS_CMD = vim.env.PROGRESS_CMD or vim.fn.exepath("progress") or "progress"
-local COMPLETE_CMD = vim.env.COMPLETE_CMD or vim.fn.exepath("complete") or "complete"
-local RUNNER_CMD = vim.env.RUNNER_CMD or vim.fn.exepath("commandr-omp-runner") or "commandr-omp-runner"
+-- exepath() returns "" (truthy in Lua) when not found, so fall back explicitly
+local function exe(name)
+	local p = vim.fn.exepath(name)
+	return p ~= "" and p or name
+end
+local OMP_BIN = vim.env.OMP_BIN or exe("omp")
+local PROGRESS_CMD = vim.env.PROGRESS_CMD or exe("progress")
+local COMPLETE_CMD = vim.env.COMPLETE_CMD or exe("complete")
+local RUNNER_CMD = vim.env.RUNNER_CMD or exe("commandr-omp-runner")
 
 -- ─── Cache ──────────────────────────────────────────────────────────────────
 
@@ -43,7 +48,7 @@ local POLL_INTERVAL_MS = 5000
 -- worktree using the same shell pipeline as bin/progress and bin/claim.
 
 local function resolve_bus_dir()
-	if M._bus_path and vim.loop.now() - M._last_poll_ms < POLL_INTERVAL_MS then
+	if M._bus_path and vim.uv.now() - M._last_poll_ms < POLL_INTERVAL_MS then
 		return M._bus_path
 	end
 
@@ -153,7 +158,7 @@ function M.open_board()
 		vim.notify("No .agents/ bus found in repository", vim.log.levels.WARN)
 		return
 	end
-	M._last_poll_ms = vim.loop.now()
+	M._last_poll_ms = vim.uv.now()
 	local root = repo_root_from_bus(bus)
 
 	-- Collect data
@@ -458,10 +463,9 @@ read -n1
 				(model and model ~= "") and ("--model " .. vim.fn.shellescape(model)) or ""
 			) }
 			-- Open terminal in a horizontal split
-			vim.cmd("split | resize 12 | terminal " .. vim.fn.join(vim.fn.map(cmd_parts, function(v)
-				return vim.fn.shellescape(v)
-			end), " "))
-			-- Focus the terminal buffer (it already has focus after :terminal)
+			vim.cmd("split | resize 12 | enew")
+			vim.fn.jobstart(cmd_parts, { term = true })
+			-- Focus the terminal buffer (it already has focus after the split)
 			close_win()
 		end)
 	end, vim.tbl_extend("force", buf_opts, { desc = "Launch omp runner" }))
