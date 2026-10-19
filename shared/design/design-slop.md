@@ -38,7 +38,7 @@ not a property, so no regex can tell it apart from an ordinary gradient and only
 judgement catches it.
 
 ## Fade-slide-up on every section
-- pattern: fade[ -]?in|slide[ -]?up|translatey
+- pattern: [Ff]ade[ -]?[Ii]n|[Ss]lide[ -]?[Uu]p|translate[Yy]
 Scattered entrance animations on every section read as AI-generated.
 
 ## Default font families
