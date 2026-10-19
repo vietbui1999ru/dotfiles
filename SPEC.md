@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 branch: feat/agent-review-cross-worktree
 ---
 # SPEC: agent-review visible and actionable from any worktree (Phase 1)
