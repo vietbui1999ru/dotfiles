@@ -86,6 +86,10 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/lint-on-write.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/design-on-write.sh"
           }
         ]
       },
