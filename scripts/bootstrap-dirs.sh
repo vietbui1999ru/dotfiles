@@ -45,9 +45,29 @@ link_shared_skill() {
 	echo "✓ ~/.agents/skills/$name → shared/skills/$name"
 }
 
-for shared_skill in gh-stack approval-workflow delegate-pi kanban-status grill-me verify-spec; do
+for shared_skill in gh-stack approval-workflow delegate-pi kanban-status grill-me verify-spec pele; do
 	link_shared_skill "$shared_skill"
 done
+
+# pele skill owns a pinned npm dependency (package-lock.json); install it in
+# place and expose its wrapper as pele-render. Claude reads the skill through
+# ~/.agents/skills, the same chain as the firecrawl skill.
+PELE_DIR="$HOME/dotfiles/shared/skills/pele"
+if [ -f "$PELE_DIR/package-lock.json" ]; then
+	if ! command -v npm >/dev/null 2>&1; then
+		echo "⚠ npm missing — skipped pele install (run after mise installs node)"
+	elif [[ ! -d "$PELE_DIR/node_modules" || "$PELE_DIR/package-lock.json" -nt "$PELE_DIR/node_modules" ]]; then
+		npm ci --prefix "$PELE_DIR" --no-fund --no-audit --silent && touch "$PELE_DIR/node_modules"
+		echo "✓ pele npm dependencies installed in shared/skills/pele"
+	fi
+	mkdir -p "$HOME/.local/bin"
+	ln -sf "$PELE_DIR/render.mjs" "$HOME/.local/bin/pele-render"
+	echo "✓ ~/.local/bin/pele-render → shared/skills/pele/render.mjs"
+	if [[ -d "$HOME/.claude/skills" && ! -e "$HOME/.claude/skills/pele" ]]; then
+		ln -s ../../.agents/skills/pele "$HOME/.claude/skills/pele"
+		echo "✓ ~/.claude/skills/pele → ~/.agents/skills/pele"
+	fi
+fi
 
 if [ -x "$HOME/dotfiles/scripts/agent-workflow" ]; then
 	ln -sf "$HOME/dotfiles/scripts/agent-workflow" "$HOME/.local/bin/agent-workflow"
