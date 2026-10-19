@@ -62,7 +62,7 @@ Terms: **owner** = the worktree whose `.pi/agent-review/pending/` holds the reco
 - Any change to the Pi input gate or to `processDecision`
 - New dependencies; any network access in the landed check
 ### Never
-- Edit a `verify:` line, a `baseline:` line or an existing test to make a check pass
+- Edit a `verify:` line, a `baseline:` line or an existing test to make a check pass (one exception, granted by the person on 2026-10-19: `agent-review.approve.test.ts` "a linked worktree approves its own run; the main checkout does not see it" asserted the old per-worktree `approve`, which contradicts AC-5; it was rewritten to the new contract)
 - Run `ac-run approve` or approve an agent run on the person's behalf
 - Make one worktree's pending review block Pi in another worktree
 
