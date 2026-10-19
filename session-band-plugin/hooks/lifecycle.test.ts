@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { statusGroups, statusText } from './band-text'
-import { addOwner, daemonState, ensureArgvs, freshIds, idleCheck, IDLE_MS, isNotRunning, ownersPath, parseOwners, queueBadge } from './lifecycle'
+import { addOwner, daemonState, editRefusal, ensureArgvs, freshIds, idleCheck, IDLE_MS, isNotRunning, killNote, ownersPath, parseEdit, parseOwners, queueBadge, readdArgv } from './lifecycle'
 
 const AT = '2026-10-10T00:00:00Z'
 const task = (id: number, status: object) => ({ id, path: '/w', command: 'pi --model a/b -p x', created_at: AT, status })
@@ -54,4 +54,35 @@ test('idle window shuts the daemon down', () => {
   expect(ownersPath('/x/state/', '/Users/t')).toBe('/x/state/session-band/pueue-owners.json')
   expect(parseOwners('{"owners":["a",3],"emptySinceMs":5}')).toEqual({ owners: ['a'], emptySinceMs: 5 })
   expect(parseOwners('')).toEqual({ owners: [] })
+})
+
+const RUNNING = task(1, { Running: { enqueued_at: AT, start: AT } })
+const QUEUED = task(2, { Queued: { enqueued_at: AT } })
+
+test('running task keeps daemon up', () => {
+  const busy = daemonState(0, pueueJson('Running', 1, [RUNNING]))
+  expect(idleCheck({ owners: [], emptySinceMs: 0 }, busy, [], IDLE_MS * 4)).toEqual({ state: { owners: [] }, shutdown: false })
+})
+
+test('held queue counts as live', () => {
+  const held = daemonState(0, pueueJson('Paused', 1, [QUEUED]))
+  expect(queueBadge(held, false)).toBe('held 1')
+  expect(idleCheck({ owners: [], emptySinceMs: 0 }, held, [], IDLE_MS * 4).shutdown).toBe(false)
+  expect(statusText(statusGroups({ ...BAND, piQueue: 'held 1' }))).toContain('π held 1')
+})
+
+test('edit refused unless queued', () => {
+  expect(editRefusal('Queued')).toBeUndefined()
+  for (const state of ['Running', 'Paused', 'Done', 'Failed', 'Killed'] as const) expect(editRefusal(state)).toContain(state)
+  expect(editRefusal(undefined)).toContain('gone from pueue')
+})
+
+test('edit re-adds the same command with a new model and label', () => {
+  expect(parseEdit('  x/y:low  fix the band ')).toEqual({ model: 'x/y:low', label: 'fix the band' })
+  expect(parseEdit('   ')).toBeUndefined()
+  const command = `pi --model 'a/b:high' --session-id 'pueue-s' -p "$(cat '/tmp/p.md')" < /dev/null`
+  const argv = readdArgv({ id: 2, cwd: '/w', state: 'Queued', command, group: 'default' }, 'x/y:low', 'fix')
+  expect(argv.slice(0, 8)).toEqual(['pueue', 'add', '--print-task-id', '--label', 'fix', '--group', 'default', '--'])
+  expect(argv[8]).toBe(`pi --model 'x/y:low' --session-id 'pueue-s' -p "$(cat '/tmp/p.md')" < /dev/null`)
+  expect(killNote('/w', ' M a\n?? b\n')).toBe(' /w holds 2 uncommitted changes; nothing was reverted.')
 })

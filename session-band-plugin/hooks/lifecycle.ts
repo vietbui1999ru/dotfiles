@@ -1,7 +1,8 @@
 // Pure rules for the pueue daemon's life: when Pi work needs it, who owns it, and when it may stop.
 // No engine here; lifecycle.tsx does the I/O.
 import { releaseArgv } from './controls'
-import { parseStatus, type Task } from './pueue'
+import { parseStatus, type PueueState, type Task } from './pueue'
+import { countChanges } from './worktrees'
 
 export type Daemon = { kind: 'down' } | { kind: 'up'; group: 'running' | 'paused' | 'zero'; tasks: Task[] }
 
@@ -33,6 +34,31 @@ export const queueBadge = (daemon: Daemon, hasWork: boolean): string | undefined
 /** What runs before a dispatch so the task can start: the daemon if down, then the group. */
 export const ensureArgvs = (daemon: Daemon, group = 'default'): string[][] =>
   daemon.kind === 'down' ? [['pueued', '-d'], releaseArgv(group)] : daemon.group === 'running' ? [] : [releaseArgv(group)]
+
+/** Edit re-adds a task with a new model and label, so only a task pueue has not started may change. */
+export const editRefusal = (state: PueueState | undefined): string | undefined =>
+  state === 'Queued' ? undefined : `Edit refused: the task is ${state ?? 'gone from pueue'}; only a queued task can be edited.`
+
+/** `model[:effort] [label…]`, as typed in the pane's Edit input. */
+export const parseEdit = (text: string): { model: string; label?: string } | undefined => {
+  const [model, ...label] = text.trim().split(/\s+/).filter(Boolean)
+  return model ? { model, ...(label.length ? { label: label.join(' ') } : {}) } : undefined
+}
+
+const quote = (value: string) => `'${value.replace(/'/g, "'\\''")}'`
+
+/** The task's own command with only `--model` replaced; prompt, session id and redirects stay as dispatched. */
+export const withModel = (command: string, model: string): string =>
+  command.replace(/--model\s+(?:'[^']*'|"[^"]*"|\S+)/, () => `--model ${quote(model)}`)
+
+export const readdArgv = (task: Task, model: string, label: string): string[] =>
+  ['pueue', 'add', '--print-task-id', '--label', label, '--group', task.group ?? 'default', '--', withModel(task.command, model)]
+
+/** A kill never reverts the worktree, so the reply says how much it holds uncommitted. */
+export const killNote = (cwd: string, porcelain: string): string => {
+  const count = countChanges(porcelain)
+  return ` ${cwd} holds ${count} uncommitted change${count === 1 ? '' : 's'}; nothing was reverted.`
+}
 
 export const IDLE_MS = 15 * 60_000
 /** The heartbeat (heartbeat.ts) rewrites every 15 s; one older than this belongs to a session that is gone. */
