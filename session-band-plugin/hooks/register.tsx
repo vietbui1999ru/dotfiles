@@ -261,6 +261,7 @@ export const register: Register = on => {
       width: e.props.bodyColumns,
       onPi: () => { void $.ui.open({ id: 'pi-handoff', title: 'Pi hand-off', focus: true }) },
       onWorktrees: () => { void $.ui.open({ id: 'worktrees', title: 'Worktrees', focus: true }) },
+      onPiHistory: () => { void $.ui.open({ id: 'pi-history', title: 'Pi history', focus: true }) },
       openAlerts,
     })
   })
