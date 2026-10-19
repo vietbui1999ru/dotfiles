@@ -1,7 +1,7 @@
 import { atom, read, update, type EngineInterface, type Register } from 'claude-code'
 
 import type { WorktreeBranch, WorktreeRow, WorktreeState } from '../types'
-import { nextPane } from './pane-nav'
+import { nextPane, switchSteps } from './pane-nav'
 import { countChanges, liveByTree, paneLines, parseAheadBehind, parseHeartbeat, parseWorktrees, treeKeys, type Worktree } from './worktrees'
 
 const view = atom({ plugin: 'session-band', key: 'worktrees' } as const, { open: false, legend: true } as WorktreeState)
@@ -63,6 +63,12 @@ const move = async ($: EngineInterface, step: 1 | -1) => {
   await update($, view, value => ({ ...value, selected: keys[(at + step + keys.length) % keys.length] }))
 }
 
+// `$` cannot cross an import, so this pane runs pane-nav's switch itself.
+const goTo = async ($: EngineInterface, to: string | undefined) => {
+  for (const s of switchSteps('worktrees', to)) await ('close' in s ? $.ui.close({ id: s.close }) : $.ui.open({ id: s.open, title: s.title, focus: s.focus }))
+}
+const cycle = async ($: EngineInterface, step: 1 | -1) => goTo($, nextPane((await $.ui.panes()).map(pane => pane.id), 'worktrees', step))
+
 export const register: Register = on => {
   on('command.run', { command: 'worktrees' }, async ($, _e, _next) => {
     await $.ui.open({ id: 'worktrees', title: 'Worktrees', focus: true })
@@ -98,8 +104,8 @@ export const register: Register = on => {
         <Button key="wt-key-up" plain dimColor hotkey="k" label="up" onPress={() => void move($, -1)} />
         <Button key="wt-key-legend" plain dimColor hotkey="h" label="legend" onPress={() => void update($, view, value => ({ ...value, legend: !value.legend }))} />
         <Button key="wt-key-refresh" plain dimColor hotkey="r" label="refresh" onPress={() => void refresh($)} />
-        <Button key="wt-key-prev" plain dimColor hotkey="b" label="prev pane" onPress={() => void $.ui.panes().then(panes => { const to = nextPane(panes.map(pane => pane.id), 'worktrees', -1); if (to && to !== 'worktrees') void $.ui.open({ id: to, focus: true }) })} />
-        <Button key="wt-key-next" plain dimColor hotkey="f" label="next pane" onPress={() => void $.ui.panes().then(panes => { const to = nextPane(panes.map(pane => pane.id), 'worktrees', 1); if (to && to !== 'worktrees') void $.ui.open({ id: to, focus: true }) })} />
+        <Button key="wt-key-prev" plain dimColor hotkey="b" label="prev pane" onPress={() => void cycle($, -1)} />
+        <Button key="wt-key-next" plain dimColor hotkey="f" label="next pane" onPress={() => void cycle($, 1)} />
         <Button key="wt-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'worktrees' })} />
       </Box>
       {lines.map((line, index) => <Text key={`wt-line-${index}`} mono color={line.color} weight={line.strong ? 'bold' : undefined}>{line.text}</Text>)}

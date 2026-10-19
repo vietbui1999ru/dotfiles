@@ -5,7 +5,7 @@ import { controlArgv, eligible, holdArgv, parsePiArgs, PS_ARGV, releaseArgv, res
 import { monitorRows, selectStale, type MonitorRow, type StaleSelection, type TrackedTask } from './handoff'
 import type { HandoffState } from './handoff.tsx'
 import { focusRing, moveTo, type Motion } from './motion'
-import { nextPane } from './pane-nav'
+import { nextPane, switchSteps } from './pane-nav'
 import { PALETTE } from './palette'
 import type { PiProgress } from './pisession'
 import { parsePending, pendingRecordFor, type PendingReview } from './review'
@@ -340,6 +340,12 @@ async function cleanStale($: EngineInterface) {
   await $.ui.toast(`Clean stale dry run: ${current.tasks.length} tasks, ${current.sessions.length} sessions, ${current.bytes} B. Press again to remove.`)
 }
 
+// `$` cannot cross an import, so this pane runs pane-nav's switch itself.
+const goTo = async ($: EngineInterface, to: string | undefined) => {
+  for (const s of switchSteps('pi-handoff', to)) await ('close' in s ? $.ui.close({ id: s.close }) : $.ui.open({ id: s.open, title: s.title, focus: s.focus }))
+}
+const cycle = async ($: EngineInterface, step: 1 | -1) => goTo($, nextPane((await $.ui.panes()).map(pane => pane.id), 'pi-handoff', step))
+
 export const register: Register = on => {
   on('command.run', { command: 'pi' }, async ($, e, _next) => {
     const parsed = parsePiArgs(e.args)
@@ -382,9 +388,9 @@ export const register: Register = on => {
         {task && <Button key="pi-key-insert" plain dimColor hotkey="i" label="continue " onPress={() => void focusRing($, 'pi-handoff', 'pi-continue')} />}
         <Button key="pi-key-reload" plain dimColor hotkey="r" label="reload " onPress={() => void open($)} />
         <Button key="pi-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'pi-handoff' })} />
-        <Button key="pi-key-prev" plain dimColor hotkey="b" label="prev " onPress={() => void $.ui.panes().then(panes => { const to = nextPane(panes.map(pane => pane.id), 'pi-handoff', -1); if (to && to !== 'pi-handoff') void $.ui.open({ id: to, focus: true }) })} />
-        <Button key="pi-key-next" plain dimColor hotkey="f" label="next " onPress={() => void $.ui.panes().then(panes => { const to = nextPane(panes.map(pane => pane.id), 'pi-handoff', 1); if (to && to !== 'pi-handoff') void $.ui.open({ id: to, focus: true }) })} />
-        <Button key="pi-key-worktrees" plain dimColor hotkey="w" label="worktrees" onPress={() => void $.ui.open({ id: 'worktrees', title: 'Worktrees', focus: true })} />
+        <Button key="pi-key-prev" plain dimColor hotkey="b" label="prev " onPress={() => void cycle($, -1)} />
+        <Button key="pi-key-next" plain dimColor hotkey="f" label="next " onPress={() => void cycle($, 1)} />
+        <Button key="pi-key-worktrees" plain dimColor hotkey="w" label="worktrees" onPress={() => void goTo($, 'worktrees')} />
         {task && <Text dimColor> · x kill · h hold · p pause · y/n confirm</Text>}
       </Box>
       {confirm && <Box flexDirection="row">
