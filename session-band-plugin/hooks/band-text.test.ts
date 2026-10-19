@@ -34,11 +34,20 @@ test('a narrow band drops style, then local, then stash', () => {
 
 test('the Pi chip gets the room the status line leaves, and keeps its required fields', () => {
   const handoff = { kind: 'single' as const, text: '', id: 12, glyph: '!', state: 'Failed' as const, model: 'openai/gpt', effort: 'high', elapsed: '3m', tokens: '12k', cost: '$0.10', files: 2, label: 'fix', review: 'changes requested' as const, exit: 1 }
-  const wide = layoutBand({ ...full, handoff, width: 220, wt: true })
-  expect(wide.wt).toBe('wt')
+  const wide = layoutBand({ ...full, handoff, width: 220, wt: true, history: true })
+  expect(wide.wt).toBe('⎇')
+  expect(wide.history).toBe('π')
   expect(wide.pi).toBe('pi#12! openai/gpt:high 3m 12k tok $0.10 2 files fix changes requested exit 1')
-  const narrow = layoutBand({ ...full, handoff, width: 120, wt: true })
+  const narrow = layoutBand({ ...full, handoff, width: 120, wt: true, history: true })
   expect(narrow.pi).toBe('pi#12! openai/gpt:high changes requested exit 1')
+})
+
+test('each icon chip reserves six cells: the status line drops style once both chips show', () => {
+  const one = layoutBand({ ...full, width: 99, wt: true, history: false })
+  expect(statusText(one.status)).toBe('llm-wiki feat/x* local ↑2 ↓1 ≡1 · ━━━╸──────── 30% 5h:12% 7d:34% · ⚠2 · opus-5-5 explanatory')
+  expect(one.history).toBeUndefined()
+  const both = layoutBand({ ...full, width: 99, wt: true, history: true })
+  expect(statusText(both.status)).toBe('llm-wiki feat/x* local ↑2 ↓1 ≡1 · ━━━╸──────── 30% 5h:12% 7d:34% · ⚠2 · opus-5-5')
 })
 
 test('send-it run: red, after the alerts; no run when sendIt is false', () => {

@@ -66,17 +66,21 @@ export const handoffText = (handoff: HandoffSegment, width?: number): string => 
 // The terminal draws a Button as `[ label ]`: four cells of chrome, then one cell of gap to its neighbour.
 const CHIP = 5
 
-export type BandInput = StatusInput & { handoff?: HandoffSegment; width?: number; wt: boolean }
-export type BandLayout = { wt?: string; status: Seg[][]; pi?: string }
+/** The left icon chips: worktrees, then Pi history. Each glyph is one cell. */
+export const PI_HISTORY = 'π'
 
-/** The status line gets the room first, less the Pi chip's shortest form; the Pi chip gets what is left. */
+export type BandInput = StatusInput & { handoff?: HandoffSegment; width?: number; wt: boolean; history: boolean }
+export type BandLayout = { wt?: string; history?: string; status: Seg[][]; pi?: string }
+
+/** The icon chips take their cells first, then the status line less the Pi chip's shortest form; the Pi chip gets what is left. */
 export const layoutBand = (d: BandInput): BandLayout => {
-  const wt = d.wt ? 'wt' : undefined
+  const wt = d.wt ? SYMBOL.branch : undefined
+  const history = d.history ? PI_HISTORY : undefined
   const groups = statusGroups(d)
-  if (d.width === undefined) return { wt, status: groups, pi: d.handoff && handoffText(d.handoff) }
-  const wtCells = wt ? wt.length + CHIP : 0
+  if (d.width === undefined) return { wt, history, status: groups, pi: d.handoff && handoffText(d.handoff) }
+  const navCells = [wt, history].reduce((n, chip) => n + (chip ? chip.length + CHIP : 0), 0)
   const piFloor = d.handoff ? handoffText(d.handoff, 0).length + CHIP : 0
-  const status = fitStatus(groups, d.width - wtCells - piFloor)
-  const pi = d.handoff && handoffText(d.handoff, d.width - wtCells - statusText(status).length - CHIP)
-  return { wt, status, pi }
+  const status = fitStatus(groups, d.width - navCells - piFloor)
+  const pi = d.handoff && handoffText(d.handoff, d.width - navCells - statusText(status).length - CHIP)
+  return { wt, history, status, pi }
 }
