@@ -12,10 +12,11 @@ export const PRS = [
   { number: 109, title: 'a closed PR', headRefName: 'closed', url: url(109), isDraft: false, state: 'CLOSED', mergedAt: null, updatedAt: '2026-10-18T12:00:00Z', statusCheckRollup: null },
 ]
 
+// Each row as drawn after its mark and check glyph: prefix-free title padded to 44, then age.
 export const ROWS = [
-  '›#116  draft   passing  feat(session-band): icon-only chips, no brackets  band-icon-only  2h',
-  ' #117  ready   pending  fix(pi): reload keys  pi-reload  15m',
-  ' #115  merged  failing  feat(session-band): icon chips for worktrees and …  band-icon-chips  3d',
+  `#116 ${'icon-only chips, no brackets'.padEnd(44)}  2h`,
+  `#117 ${'reload keys'.padEnd(44)}  15m`,
+  `#115 ${'icon chips for worktrees and Pi history'.padEnd(44)}  3d`,
 ]
 
-export const SUMMARY = '1 draft · 1 ready · 1 merged (7d)'
+export const HEADERS = ['Draft · 1', 'Ready · 1', 'Merged 7d · 1']

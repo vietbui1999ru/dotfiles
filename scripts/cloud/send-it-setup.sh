@@ -1,46 +1,29 @@
 #!/usr/bin/env bash
-# Cloud environment setup script for Claude Code on the web: installs send-it into the VM.
-# Paste into the environment's "Setup script" field as:
-#   curl -fsSL https://raw.githubusercontent.com/vietbui1999ru/dotfiles/main/scripts/cloud/send-it-setup.sh | bash
-# The local /send-it mod (session-band-plugin) cannot load in the cloud, so this writes the same
-# settings block as sendItBlock() in session-band-plugin/hooks/send-it.ts, minus the sandbox:
-# the VM is the sandbox. API keys come from environment network secrets, never from here:
-#   FIRECRAWL_API_KEY -> api.firecrawl.dev, header "Authorization: Bearer <key>"
-#   CONTEXT7_API_KEY  -> mcp.context7.com,  header "Authorization: Bearer <key>"
-# The firecrawl CLI prompts for login when no key is set, so a placeholder goes in env below;
-# the proxy replaces the Authorization header with the real secret.
+# Cloud environment setup script for Claude Code on the web: installs the send-it rule into the VM.
+# Paste into the environment's "Setup script" field as (use the merged commit SHA, not main):
+#   curl -fsSL https://raw.githubusercontent.com/vietbui1999ru/dotfiles/<merged-sha>/scripts/cloud/send-it-setup.sh | bash
+# API keys come from environment network secrets, never from here.
+# Repos are pinned to commits so a later push to main does not change what runs in new VMs.
 set -euo pipefail
+
+DOTFILES_SHA=e677f298c2d65695a06bffdbb2ecdc3a647e9195
+LLMWIKI_SHA=e376ff3ba3104f5affbb3b88d769c9f9ff4ee2c2
 
 [ "${CLAUDE_CODE_REMOTE:-}" = "true" ] || { echo "send-it-setup: not a cloud VM, skipping"; exit 0; }
 
-clone() { [ -d "$2/.git" ] || git clone -q --depth 1 "https://github.com/vietbui1999ru/$1.git" "$2"; }
-clone dotfiles /opt/dotfiles
-clone llm-wiki /opt/llm-wiki
-
-mkdir -p "$HOME/.claude/rules" "$HOME/.claude/agents"
-cp /opt/llm-wiki/claude-setup/rules/send-it.md "$HOME/.claude/rules/send-it.md"
-cp /opt/dotfiles/claude/.claude/agents/worker.md "$HOME/.claude/agents/worker.md"
-ln -sf /opt/dotfiles/scripts/floor-guard /usr/local/bin/floor-guard
-ln -sf /opt/dotfiles/scripts/ac-run /usr/local/bin/ac-run
-
-command -v firecrawl >/dev/null || npm install -g --silent firecrawl-cli@1.26.5
-command -v gh >/dev/null || { apt-get update -qq && apt-get install -y -qq gh; } || echo "send-it-setup: gh install failed; PRs fall back to the built-in flow"
-
-cat > "$HOME/.claude/settings.json" <<'JSON'
-{
-  "model": "opus",
-  "env": { "SEND_IT": "1", "FIRECRAWL_API_KEY": "fc-placeholder-network-secret" },
-  "permissions": {
-    "defaultMode": "dontAsk",
-    "allow": ["Bash", "Edit", "Read", "Glob", "Grep", "WebFetch", "WebSearch", "Agent", "Skill", "mcp__context7", "mcp__firecrawl"],
-    "deny": [
-      "AskUserQuestion",
-      "Edit(./.claude/settings*.json)",
-      "Edit(./.claude/{hooks,agents,rules,commands,skills}/**)",
-      "Edit(./.mcp.json)",
-      "Edit(./.git/hooks/**)"
-    ]
-  }
+# clone NAME DIR SHA: clone once, then check out the pinned commit.
+clone() {
+  [ -d "$2/.git" ] || git clone -q "https://github.com/vietbui1999ru/$1.git" "$2"
+  git -C "$2" cat-file -e "$3^{commit}" 2>/dev/null || git -C "$2" fetch -q origin
+  git -C "$2" checkout -q --detach "$3"
 }
-JSON
-echo "send-it-setup: installed send-it rule, worker agent, floor-guard, ac-run"
+clone dotfiles /opt/dotfiles "$DOTFILES_SHA"
+clone llm-wiki /opt/llm-wiki "$LLMWIKI_SHA"
+
+mkdir -p "$HOME/.claude/rules"
+cp /opt/llm-wiki/claude-setup/rules/send-it.md "$HOME/.claude/rules/send-it.md"
+# CLAUDE.md imports the rule; a file in ~/.claude/rules alone is not loaded.
+grep -qxF '@~/.claude/rules/send-it.md' "$HOME/.claude/CLAUDE.md" 2>/dev/null \
+  || echo '@~/.claude/rules/send-it.md' >> "$HOME/.claude/CLAUDE.md"
+
+echo "send-it-setup: installed send-it rule (imported via CLAUDE.md)"

@@ -281,7 +281,14 @@ export default function agentReview(pi: ExtensionAPI) {
 	let fallbackTimer: NodeJS.Timeout | undefined;
 	let finishing = false;
 	let reviewFollowUp = false;
+	// Follow-ups held back at a print-mode session_start until the prompt's run starts.
+	const heldFollowUps: string[] = [];
 	const inflight = new Set<string>();
+
+	const sendFollowUp = (id: string) => {
+		reviewFollowUp = true;
+		pi.sendUserMessage(FOLLOW_UP_TEXT(id), { deliverAs: "followUp" });
+	};
 
 	const armFallback = (ctx: ExtensionContext) => {
 		if (fallbackTimer) clearTimeout(fallbackTimer);
@@ -376,7 +383,7 @@ export default function agentReview(pi: ExtensionAPI) {
 		await rename(processing, file).catch(() => undefined);
 	};
 
-	const processDecision = async (ctx: ExtensionContext, root: string, id: string) => {
+	const processDecision = async (ctx: ExtensionContext, root: string, id: string, atStartup = false) => {
 		if (!validRunId(id) || inflight.has(id)) return;
 		inflight.add(id);
 		const file = path(root, "pending", `${id}.json`);
@@ -400,8 +407,12 @@ export default function agentReview(pi: ExtensionAPI) {
 			await rm(processing, { force: true });
 			await deleteRefs(root, id);
 			if (needsFollowUp(rawDecision)) {
-				reviewFollowUp = true;
-				pi.sendUserMessage(FOLLOW_UP_TEXT(id), { deliverAs: "followUp" });
+				// In print mode (`pi -p`) the session's own prompt arrives right after
+				// session_start. A follow-up sent while idle would start a turn first and
+				// the prompt would be rejected ("Agent is already processing"), so hold it
+				// and queue it behind the prompt's run at agent_start.
+				if (atStartup && ctx.hasUI === false) heldFollowUps.push(id);
+				else sendFollowUp(id);
 			}
 			try {
 				ctx.ui.setStatus("agent-review", undefined);
@@ -486,6 +497,7 @@ export default function agentReview(pi: ExtensionAPI) {
 
 	pi.on("agent_start", () => {
 		disarmFallback();
+		for (const id of heldFollowUps.splice(0)) sendFollowUp(id);
 	});
 
 	pi.on("agent_settled", async (_event, ctx) => {
@@ -565,7 +577,7 @@ export default function agentReview(pi: ExtensionAPI) {
 		for (const name of names) {
 			if (!name.endsWith(".json")) continue;
 			const id = basename(name, ".json");
-			if (validRunId(id)) await processDecision(ctx, root, id);
+			if (validRunId(id)) await processDecision(ctx, root, id, true);
 		}
 		watcher?.close();
 		watcher = watch(decisionsDir, (_event, name) => {

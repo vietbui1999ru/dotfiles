@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
-import { age, GH_AUTH, GH_MISSING, GH_NOT_REPO, GH_UNREADABLE, pickPrs, prLine, readGh, rollup, summaryLine } from './draft-prs'
-import { NOW, PRS, ROWS, SUMMARY } from './draft-prs-fixture'
+import { age, CHECK_MARK, GH_AUTH, GH_MISSING, GH_NOT_REPO, GH_UNREADABLE, groups, pickPrs, prLine, readGh, rollup } from './draft-prs'
+import { HEADERS, NOW, PRS, ROWS } from './draft-prs-fixture'
 
 test('checks roll up: failing beats pending, pending beats passing, nothing is none', () => {
   expect([rollup(null), rollup(undefined), rollup([])]).toEqual(['none', 'none', 'none'])
@@ -27,9 +27,14 @@ test('a gh failure becomes a message, never a throw', () => {
   expect(readGh(gh(0, JSON.stringify(PRS)), NOW)).toEqual({ prs: pickPrs(PRS, NOW), error: undefined })
 })
 
-test('rows and summary: mark, state, checks, title cut at 50, branch, age', () => {
+test('rows and groups: number, prefix-free title cut at 44, age; one header per non-empty state', () => {
   const prs = pickPrs(PRS, NOW)
-  expect(prs.map((pr, index) => prLine(pr, index === 0, NOW))).toEqual(ROWS)
-  expect(summaryLine(prs)).toBe(SUMMARY)
+  expect(prs.map(pr => prLine(pr, NOW))).toEqual(ROWS)
+  expect(groups(prs).map(group => group.header)).toEqual(HEADERS)
+  expect(groups(prs.filter(pr => pr.state !== 'ready')).map(group => group.header)).toEqual(['Draft · 1', 'Merged 7d · 1'])
+  const long = { ...prs[0], title: 'refactor(x)!: ' + 'y'.repeat(60) }
+  expect(prLine(long, NOW)).toBe(`#116 ${'y'.repeat(43)}…  2h`)
+  expect(prLine({ ...prs[0], title: 'feat: ' }, NOW).startsWith('#116 feat: ')).toBe(true)
+  expect([CHECK_MARK.passing.glyph, CHECK_MARK.failing.glyph, CHECK_MARK.pending.glyph, CHECK_MARK.none.glyph]).toEqual(['✓', '✗', '•', '·'])
   expect([age(59_000), age(15 * 60_000), age(2 * 3_600_000), age(3 * 86_400_000)]).toEqual(['now', '15m', '2h', '3d'])
 })
