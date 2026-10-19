@@ -19,7 +19,10 @@ local M = {}
 
 -- ─── Tool paths ──────────────────────────────────────────────────────────────
 
-local ANNOTATE_CMD = vim.env.ANNOTATE_CMD or vim.fn.exepath("annotate-write") or "annotate-write"
+-- exepath() returns "" (truthy in Lua) when not found, so fall back explicitly
+local ANNOTATE_CMD = vim.env.ANNOTATE_CMD
+	or (vim.fn.exepath("annotate-write") ~= "" and vim.fn.exepath("annotate-write"))
+	or "annotate-write"
 
 -- ─── Bus resolution (same as commandr-board) ─────────────────────────────────
 
@@ -148,8 +151,9 @@ local function write_annotation(bus, task_id, turn, anchor, body, author)
 		"--author", author,
 		"--body", body,
 	}
-	local result = vim.fn.system(cmd)
-	if vim.v.shell_error == 0 then
+	-- system() raises E475 when the binary is missing; treat that as a failure too
+	local ok, result = pcall(vim.fn.system, cmd)
+	if ok and vim.v.shell_error == 0 then
 		local path = result:match("annotation:(.+)$") or "?"
 		vim.notify(string.format("✓ Annotation (%s) written: %s", anchor, path))
 		return true

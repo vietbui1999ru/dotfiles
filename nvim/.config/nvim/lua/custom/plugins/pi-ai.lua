@@ -323,7 +323,9 @@ end
 local function terminal(cmd, root)
 	vim.cmd("split")
 	vim.cmd("resize 16")
-	vim.cmd("terminal " .. cmd)
+	vim.cmd("enew")
+	-- jobstart, not :terminal, which would expand % and # inside the prompt
+	vim.fn.jobstart(cmd, { term = true })
 	vim.cmd("startinsert")
 end
 

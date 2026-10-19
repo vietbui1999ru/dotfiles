@@ -23,10 +23,10 @@ local omp_sessions_root = vim.fn.expand("~/.omp/agent/sessions")
 
 M._sessions = {} -- sessionId → { data = json, ts = msec }
 M._last_poll_ms = 0
-local POLL_INTERVAL_MS = 3000 -- vim.loop.now() msec resolution
+local POLL_INTERVAL_MS = 3000 -- vim.uv.now() msec resolution
 
 local function poll()
-	local now = vim.loop.now()
+	local now = vim.uv.now()
 	if now - M._last_poll_ms < POLL_INTERVAL_MS then
 		return
 	end
