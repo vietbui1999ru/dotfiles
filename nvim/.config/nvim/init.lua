@@ -395,13 +395,15 @@ vim.api.nvim_create_autocmd("VimEnter", {
 			end,
 		})
 		local function commandr_status()
-			if not commandr_ready() then
-				return ""
-			end
+			-- throttle first: commandr_ready() shells out to git on every call
 			if os.time() - _cmd.ts < 2 then
 				return _cmd.result
 			end
 			_cmd.ts = os.time()
+			if not commandr_ready() then
+				_cmd.result = ""
+				return ""
+			end
 			if not _cmd.root then
 				local r = vim.fn.system("git rev-parse --show-toplevel 2>/dev/null"):gsub("\n", "")
 				if vim.v.shell_error == 0 and r ~= "" then

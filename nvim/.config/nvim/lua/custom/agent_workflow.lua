@@ -59,7 +59,8 @@ function M.main_root()
 	if not vim.startswith(common, "/") then
 		common = vim.fn.getcwd() .. "/" .. common
 	end
-	return vim.fn.fnamemodify(common, ":p:h")
+	-- common is the shared .git dir; the main checkout is its parent
+	return vim.fs.dirname(vim.fs.normalize(common))
 end
 
 function M.bus_dir()
