@@ -264,6 +264,7 @@ export const register: Register = on => {
       git: currentGit,
       style,
       handoff: currentHandoff.available ? summarize(currentHandoff.tasks, currentProgress, currentReview, nowMs) ?? undefined : undefined,
+      piQueue: currentHandoff.queue,
       width: e.props.bodyColumns,
       onPi: () => { void $.ui.open({ id: 'pi-handoff', title: 'Pi hand-off', focus: true }) },
       onWorktrees: () => { void $.ui.open({ id: 'worktrees', title: 'Worktrees', focus: true }) },

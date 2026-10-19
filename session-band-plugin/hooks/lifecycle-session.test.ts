@@ -1,7 +1,7 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
-import { dispatch, fakePueue } from './fake-pueue'
+import { dispatch, fakePueue, text } from './fake-pueue'
 
 const START = { cwd: '/work', surface: 'terminal' as const, isInteractive: true }
 const OWNERS = '/state/session-band/pueue-owners.json'
@@ -41,4 +41,14 @@ test('the idle check shuts an empty daemon down after 15 minutes with no owner',
   await clock.advance(2 * 60_000)
   expect(pueue.order).toContain('pueue shutdown')
   expect(pueue.down).toBe(true)
+})
+
+const BAND = { component: 'AbovePrompt' as const, surface: 'terminal' as const, requestId: 'session-band', props: { hasSurvey: false, isWorking: false, maxRows: 1, bodyColumns: 160, scroll: { offset: 0, bodyRows: 1 }, view: {} } }
+
+test('the band shows one not running state while dispatched work waits', async ($, on) => {
+  const { clock, pueue } = world(on)
+  await $.tool.call({ tool: 'Bash', command: `pueue add -- ${dispatch}` })
+  pueue.down = true
+  await clock.advance(2_000)
+  expect(text(await $.ui.render(BAND))).toContain('π not running')
 })

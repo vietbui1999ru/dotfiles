@@ -3,8 +3,9 @@ import { atom, read, update, type EngineInterface, type Register } from 'claude-
 import { emptyProgress, fold, sessionDir, sessionFileName, type PiProgress } from './pisession'
 import { parsePiCommand, parseStatus, type Task } from './pueue'
 import { finishNotice, type TrackedTask } from './handoff'
+import { daemonState, queueBadge } from './lifecycle'
 
-export type HandoffState = { tasks: TrackedTask[]; available: boolean; selectedId?: number; confirm?: { action: 'kill' | 'hold'; ids: number[]; atMs: number } }
+export type HandoffState = { tasks: TrackedTask[]; available: boolean; selectedId?: number; confirm?: { action: 'kill' | 'hold'; ids: number[]; atMs: number }; queue?: string }
 
 const handoff = atom({ plugin: 'session-band', key: 'handoff' } as const, { tasks: [], available: true } satisfies HandoffState)
 const progress = atom({ plugin: 'session-band', key: 'progress' } as const, {} as Record<number, PiProgress>)
@@ -56,16 +57,20 @@ async function poll($: EngineInterface) {
   try {
     const snapshotMs = await $.clock.now()
     const result = await $.process.run(['pueue', 'status', '--json'])
+    const daemon = daemonState(result.exitCode, result.stdout)
     if (result.exitCode !== 0) {
       console.debug('session-band: pueue daemon unavailable')
-      await update($, handoff, state => ({ ...state, available: false }))
+      await update($, handoff, state => ({ ...state, available: false, queue: queueBadge(daemon, hasLiveTrackedTask(state.tasks)) }))
       return
     }
     const fresh = parseStatus(result.stdout)
     const nowMs = await $.clock.now()
     const before = new Map((await read($, handoff)).tasks.map(item => [item.id, item.task?.state]))
     // Merge inside the update so a task the tracker added meanwhile is not overwritten.
-    await update($, handoff, value => ({ ...value, tasks: mergeTasks(value.tasks, fresh, nowMs, snapshotMs), available: true }))
+    await update($, handoff, value => {
+      const tasks = mergeTasks(value.tasks, fresh, nowMs, snapshotMs)
+      return { ...value, tasks, available: true, queue: queueBadge(daemon, hasLiveTrackedTask(tasks)) }
+    })
     const { tasks } = await read($, handoff)
     const home = await $.env.get('HOME')
     const existing = await read($, progress)

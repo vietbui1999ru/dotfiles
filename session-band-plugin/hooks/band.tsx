@@ -6,7 +6,7 @@ import { layoutBand, SEP, type Seg } from './band-text'
 import { PALETTE, type Tone } from './palette'
 
 type Elements = ReturnType<EngineInterface['ui']['resolve']>
-export type BandData = { dir: string; model: string; usage: Usage; git: GitSnapshot | null; style: string | null; handoff?: HandoffSegment; width?: number; onPi?: () => void; onWorktrees?: () => void; onPiHistory?: () => void; onDraftPrs?: () => void; openAlerts?: number }
+export type BandData = { dir: string; model: string; usage: Usage; git: GitSnapshot | null; style: string | null; handoff?: HandoffSegment; width?: number; onPi?: () => void; onWorktrees?: () => void; onPiHistory?: () => void; onDraftPrs?: () => void; openAlerts?: number; piQueue?: string }
 
 const handoffTone = (state: HandoffSegment['state'] | undefined, review: HandoffSegment['review']): Tone => {
   if (review === 'pending' || review === 'decided, waiting for the next Pi run in this repo' || state === 'Queued' || state === 'Paused') return 'yellow'
