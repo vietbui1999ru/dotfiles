@@ -532,9 +532,6 @@ vim.api.nvim_create_autocmd("VimEnter", {
 		vim.cmd.packadd("neovim-tips")
 		require("custom.plugins.tips")
 
-		vim.cmd.packadd("octo.nvim")
-		require("custom.plugins.octo")
-
 		require("custom.plugins.pi-status")
 		require("custom.plugins.pi-ai")
 		require("custom.agent_review")
@@ -584,7 +581,8 @@ vim.api.nvim_create_autocmd("BufReadPre", {
 		})
 
 		vim.cmd.packadd("fidget.nvim")
-		require("fidget").setup({})
+		-- avoid NvimTree explicitly: fidget's implicit nvim-tree integration is going away
+		require("fidget").setup({ notification = { window = { avoid = { "NvimTree" } } } })
 
 		vim.cmd.packadd("mason.nvim")
 		-- Ensure language toolchains are visible to Mason
@@ -822,4 +820,3 @@ vim.api.nvim_create_autocmd("BufReadPre", {
 		require("custom.plugins.lsp-ocaml")
 	end,
 })
-
