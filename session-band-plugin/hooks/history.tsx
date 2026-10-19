@@ -3,7 +3,7 @@ import { atom, read, update, type EngineInterface, type Register } from 'claude-
 import type { HistoryState, PiProgress } from '../types'
 import { finalMessage, historyRowsPage, leftReview, type HistoryFilter, type HistoryUsage, truncateCommand } from './history'
 import { focusRing, moveTo, type Motion } from './motion'
-import { nextPane } from './pane-nav'
+import { nextPane, switchSteps } from './pane-nav'
 import { emptyProgress, fold, sessionDir, sessionFileName } from './pisession'
 import { isPiDispatch, parsePiCommand, parseStatus, type Task } from './pueue'
 import { PALETTE } from './palette'
@@ -184,6 +184,12 @@ async function move($: EngineInterface, ids: readonly number[], current: number 
   await focusRing($, 'pi-history', `pi-hist-${to}`)
 }
 
+// `$` cannot cross an import, so this pane runs pane-nav's switch itself.
+const goTo = async ($: EngineInterface, to: string | undefined) => {
+  for (const s of switchSteps('pi-history', to)) await ('close' in s ? $.ui.close({ id: s.close }) : $.ui.open({ id: s.open, title: s.title, focus: s.focus }))
+}
+const cycle = async ($: EngineInterface, step: 1 | -1) => goTo($, nextPane((await $.ui.panes()).map(pane => pane.id), 'pi-history', step))
+
 export const register: Register = on => {
   on('command.run', { command: 'pi-history' }, async ($, _e, _next) => {
     await $.ui.open({ id: 'pi-history', title: 'Pi history', focus: true })
@@ -225,18 +231,18 @@ export const register: Register = on => {
     return <Box flexDirection="column">
       <Text>Pi history</Text>
       {/* Hotkeys, not hints: a key the pane does not bind falls through to the composer. */}
-      <Box flexDirection="row">
-        {ids.length > 0 && <Button key="pi-history-key-down" plain dimColor hotkey="j" label="down " onPress={() => void move($, ids, task?.id, 'down')} />}
-        {ids.length > 0 && <Button key="pi-history-key-up" plain dimColor hotkey="k" label="up " onPress={() => void move($, ids, task?.id, 'up')} />}
-        {ids.length > 0 && <Button key="pi-history-key-top" plain dimColor hotkey="g" label="top " onPress={() => void move($, ids, task?.id, 'top')} />}
-        <Button key="pi-history-key-reload" plain dimColor hotkey="r" label="reload " onPress={() => void refresh($)} />}
+      <Box flexDirection="row" flexWrap="wrap" columnGap={2} marginBottom={1}>
+        {ids.length > 0 && <Button key="pi-history-key-down" plain dimColor hotkey="j" label="down" onPress={() => void move($, ids, task?.id, 'down')} />}
+        {ids.length > 0 && <Button key="pi-history-key-up" plain dimColor hotkey="k" label="up" onPress={() => void move($, ids, task?.id, 'up')} />}
+        {ids.length > 0 && <Button key="pi-history-key-top" plain dimColor hotkey="g" label="top" onPress={() => void move($, ids, task?.id, 'top')} />}
+        <Button key="pi-history-key-reload" plain dimColor hotkey="r" label="reload" onPress={() => void refresh($)} />
+        <Button key="pi-history-key-prev" plain dimColor hotkey="b" label="prev" onPress={() => void cycle($, -1)} />
+        <Button key="pi-history-key-next" plain dimColor hotkey="f" label="next" onPress={() => void cycle($, 1)} />
+        <Button key="pi-history-key-worktrees" plain dimColor hotkey="w" label="worktrees" onPress={() => void goTo($, 'worktrees')} />
         <Button key="pi-history-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'pi-history' })} />
-        <Button key="pi-history-key-prev" plain dimColor hotkey="b" label="prev " onPress={() => void $.ui.panes().then(panes => { const to = nextPane(panes.map(pane => pane.id), 'pi-history', -1); if (to && to !== 'pi-history') void $.ui.open({ id: to, focus: true }) })} />
-        <Button key="pi-history-key-next" plain dimColor hotkey="f" label="next " onPress={() => void $.ui.panes().then(panes => { const to = nextPane(panes.map(pane => pane.id), 'pi-history', 1); if (to && to !== 'pi-history') void $.ui.open({ id: to, focus: true }) })} />
-        <Button key="pi-history-key-worktrees" plain dimColor hotkey="w" label="worktrees" onPress={() => void $.ui.open({ id: 'worktrees', title: 'Worktrees', focus: true })} />
       </Box>
       <Box><Text color={PALETTE.green}>✓ success</Text><Text color={PALETTE.yellow}> · ✓ review</Text><Text color={PALETTE.red}> · ✗ exit</Text><Text color={PALETTE.mauve}> · ✗ killed</Text></Box>
-      <Box>{filters.map(filter => <Button key={`pi-history-${filter}`} plain label={filter === state.filter ? `[${filter}]` : filter} onPress={() => void update($, history, value => ({ ...value, filter, limit: pageSize }))} />)}</Box>
+      <Box flexDirection="row" columnGap={2} marginBottom={1}>{filters.map(filter => <Button key={`pi-history-${filter}`} plain label={filter === state.filter ? `[${filter}]` : filter} onPress={() => void update($, history, value => ({ ...value, filter, limit: pageSize }))} />)}</Box>
       {!state.available && <Text color={PALETTE.red}>pueue daemon unavailable</Text>}
       {rows.length === 0 && <Text>No completed Pi hand-offs in the last 7 days.</Text>}
       {rows.map(row => <Box key={`pi-history-row-${row.task.id}`} flexDirection="row">
