@@ -15,7 +15,7 @@ const handoffTone = (state: HandoffSegment['state'] | undefined, review: Handoff
   return 'teal'
 }
 
-// Left: the worktrees (⎇) and Pi history (π) chips, then where · budget · alerts · who. Right: the Pi chip. The strings come from band-text.ts.
+// Left: the worktrees (⎇) and Pi history (⟲) icon chips, then where · budget · alerts · who. Right: the Pi hand-off icon (π), coloured by state. The strings come from band-text.ts.
 export const drawBand = ({ Box, Text, Button }: Elements, d: BandData) => {
   const lay = layoutBand({ ...d, wt: !!d.onWorktrees, history: !!d.onPiHistory })
   const run = (seg: Seg, key: string) => <Text key={key} color={PALETTE[seg.tone]}>{seg.text}</Text>
@@ -29,12 +29,12 @@ export const drawBand = ({ Box, Text, Button }: Elements, d: BandData) => {
     <Box flexDirection="row" justifyContent="space-between" columnGap={1}>
       {/* Buttons sit beside the Text, never inside it: the engine refuses a Button inside an inline element. */}
       <Box flexDirection="row" columnGap={1} flexShrink={1}>
-        {lay.wt && <Button key="wt-open" dimColor onPress={() => d.onWorktrees?.()}>{lay.wt}</Button>}
-        {lay.history && <Button key="hist-open" dimColor onPress={() => d.onPiHistory?.()}>{lay.history}</Button>}
+        {lay.wt && <Button key="wt-open" plain dimColor label={lay.wt} onPress={() => d.onWorktrees?.()} />}
+        {lay.history && <Button key="hist-open" plain dimColor label={lay.history} onPress={() => d.onPiHistory?.()} />}
         <Text mono wrap="truncate-end">{status}</Text>
       </Box>
       {lay.pi && (d.onPi
-        ? <Button key="pi-open" onPress={() => d.onPi?.()}><Text mono color={piColor}>{lay.pi}</Text></Button>
+        ? <Button key="pi-open" plain onPress={() => d.onPi?.()}><Text mono color={piColor}>{lay.pi}</Text></Button>
         : <Text mono color={piColor}>{lay.pi}</Text>)}
     </Box>
   )

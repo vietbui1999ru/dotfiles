@@ -32,21 +32,24 @@ test('a narrow band drops style, then local, then stash', () => {
   expect(statusText(fitStatus(groups, 70))).toBe('llm-wiki feat/x* ↑2 ↓1 · ━━━╸──────── 30% 5h:12% 7d:34% · ⚠2 · opus-5-5')
 })
 
-test('the Pi chip gets the room the status line leaves, and keeps its required fields', () => {
+test('the Pi hand-off chip is one icon and reserves two cells', () => {
   const handoff = { kind: 'single' as const, text: '', id: 12, glyph: '!', state: 'Failed' as const, model: 'openai/gpt', effort: 'high', elapsed: '3m', tokens: '12k', cost: '$0.10', files: 2, label: 'fix', review: 'changes requested' as const, exit: 1 }
-  const wide = layoutBand({ ...full, handoff, width: 220, wt: true, history: true })
-  expect(wide.wt).toBe('⎇')
-  expect(wide.history).toBe('π')
-  expect(wide.pi).toBe('pi#12! openai/gpt:high 3m 12k tok $0.10 2 files fix changes requested exit 1')
-  const narrow = layoutBand({ ...full, handoff, width: 120, wt: true, history: true })
-  expect(narrow.pi).toBe('pi#12! openai/gpt:high changes requested exit 1')
+  const fits = layoutBand({ ...full, handoff, width: 98, wt: true, history: true })
+  expect(fits.wt).toBe('⎇')
+  expect(fits.history).toBe('⟲')
+  expect(fits.pi).toBe('π')
+  expect(statusText(fits.status)).toBe('llm-wiki feat/x* local ↑2 ↓1 ≡1 · ━━━╸──────── 30% 5h:12% 7d:34% · ⚠2 · opus-5-5 explanatory')
+  const tight = layoutBand({ ...full, handoff, width: 97, wt: true, history: true })
+  expect(tight.pi).toBe('π')
+  expect(statusText(tight.status)).toBe('llm-wiki feat/x* local ↑2 ↓1 ≡1 · ━━━╸──────── 30% 5h:12% 7d:34% · ⚠2 · opus-5-5')
+  expect(layoutBand({ ...full, width: 98, wt: true, history: true }).pi).toBeUndefined()
 })
 
-test('each icon chip reserves six cells: the status line drops style once both chips show', () => {
-  const one = layoutBand({ ...full, width: 99, wt: true, history: false })
+test('each icon chip reserves two cells: the status line drops style once both chips show', () => {
+  const one = layoutBand({ ...full, width: 95, wt: true, history: false })
   expect(statusText(one.status)).toBe('llm-wiki feat/x* local ↑2 ↓1 ≡1 · ━━━╸──────── 30% 5h:12% 7d:34% · ⚠2 · opus-5-5 explanatory')
   expect(one.history).toBeUndefined()
-  const both = layoutBand({ ...full, width: 99, wt: true, history: true })
+  const both = layoutBand({ ...full, width: 95, wt: true, history: true })
   expect(statusText(both.status)).toBe('llm-wiki feat/x* local ↑2 ↓1 ≡1 · ━━━╸──────── 30% 5h:12% 7d:34% · ⚠2 · opus-5-5')
 })
 
