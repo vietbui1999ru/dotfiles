@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Compare the pinned upstream.md against the marketplace frontend-design SKILL.md.
+#
+# Usage: sync-upstream [UPSTREAM_MD] [MARKETPLACE_SKILL_MD]
+#   UPSTREAM_MD           default: shared/skills/design-brief/upstream.md (next to this script)
+#   MARKETPLACE_SKILL_MD  default: the installed frontend-design SKILL.md
+#
+# Exit status:
+#   0  the pin matches the marketplace file
+#   1  the pin has drifted (a unified diff is printed)
+#   2  the upstream pin is missing
+
+set -u
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
+UPSTREAM="${1:-${SCRIPT_DIR}/upstream.md}"
+MARKETPLACE="${2:-${HOME}/.claude/plugins/marketplaces/claude-plugins-official/plugins/frontend-design/skills/frontend-design/SKILL.md}"
+
+if [[ ! -f "${UPSTREAM}" ]]; then
+  echo "upstream pin missing: ${UPSTREAM}" >&2
+  exit 2
+fi
+
+if [[ ! -f "${MARKETPLACE}" ]]; then
+  echo "marketplace SKILL.md missing: ${MARKETPLACE}" >&2
+  exit 1
+fi
+
+if cmp -s "${UPSTREAM}" "${MARKETPLACE}"; then
+  exit 0
+fi
+
+echo "upstream.md has drifted from the marketplace file" >&2
+echo "--- ${UPSTREAM}" >&2
+echo "+++ ${MARKETPLACE}" >&2
+diff -u "${UPSTREAM}" "${MARKETPLACE}" >&2 || true
+exit 1
