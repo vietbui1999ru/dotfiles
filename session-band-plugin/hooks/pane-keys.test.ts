@@ -39,6 +39,7 @@ test('j, k and g move the selection a row and stop at the ends', async ($, on) =
   expect((await ui.find({ key: 'pi-key-down' }))?.props.hotkey).toBe('j')
   expect((await ui.find({ key: 'pi-key-up' }))?.props.hotkey).toBe('k')
   expect((await ui.find({ key: 'pi-key-top' }))?.props.hotkey).toBe('g')
+  expect((await ui.find({ key: 'pi-key-reload' }))?.props.hotkey).toBe('r')
   for (let count = 0; count < 3; count += 1) await press('pi-key-down')
   expect(text(await ui.drawn())).toMatch(/› \S #3/)
   await press('pi-key-up')

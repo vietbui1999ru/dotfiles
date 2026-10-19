@@ -115,6 +115,12 @@ export const register: Register = on => {
     }
     return result
   })
+
+  on('ui.open', { id: 'pi-handoff' }, async ($, e, next) => {
+    const result = await next(e)
+    void poll($).catch(() => undefined)
+    return result
+  })
 }
 
 export const handoffAtom = handoff
