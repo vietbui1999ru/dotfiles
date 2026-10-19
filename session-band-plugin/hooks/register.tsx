@@ -10,6 +10,7 @@ import { register as registerPane } from './pane.tsx'
 import { refreshSendIt, register as registerSendIt } from './send-it.tsx'
 import { register as registerWorktrees } from './worktree-pane.tsx'
 import { register as registerDraftPrs } from './draft-prs.tsx'
+import { register as registerLifecycle } from './lifecycle.tsx'
 import { summarize, type TrackedTask } from './handoff'
 import type { PiProgress } from './pisession'
 import { parsePending, pendingRecordFor, reviewState, type ReviewState } from './review'
@@ -142,6 +143,7 @@ export const register: Register = on => {
   registerPane(on)
   registerWorktrees(on)
   registerDraftPrs(on)
+  registerLifecycle(on)
   registerSendIt(on)
 
   // The settings fallback only matters before the first prompt.compose names the style.
