@@ -1,6 +1,6 @@
 # Gates pane: approve specs and Pi reviews from one place
 
-Date: 2026-10-19. Status: approved 2026-10-19.
+Date: 2026-10-19. Status: approved 2026-10-19; the review section was consolidated with PR #127 the same day, at the person's request.
 
 ## Intent
 
@@ -57,9 +57,13 @@ It shows **draft**, **approved** or **stale** (the spec changed since approval),
 
 ### Pi reviews in the same list
 
-Review records are stored per worktree: `scripts/agent-review` uses the current checkout's top level, and `nvim/.config/nvim/lua/custom/agent_review.lua` scans every worktree for that reason. So the pane reads `<worktree>/.pi/agent-review/pending/*.json` for each worktree, via the existing `parsePending` in `session-band-plugin/hooks/review.ts`, and lists each record under the worktree it was found in.
+Consolidated with PR #127 (merged 2026-10-19), which made `scripts/agent-review` the single source of cross-worktree review discovery. The pane does not read pending record files itself.
 
-Approve, Open review and Reject all reuse the `/pi` pane's behaviour (`approve`, `openReview`, `rejectAll` in `pane.tsx`), with the worktree as the working directory. Approve runs `scripts/agent-review approve <runId>`, which shows its own dialog and refuses if the tree changed. The others send keys to the person's Neovim. Reject all keeps its confirm-on-second-press.
+- **Listing:** one call, `~/dotfiles/scripts/agent-review list --all --json`, run from the session's working directory. It prints one JSON array; each entry has `runId`, `owner` (the worktree path, or null), `branch`, `name`, `startedAt`, and the flags `processing`, `error`, `landed` and `orphan`. Each entry is listed under the worktree whose path equals `owner`. Orphans (refs with no pending record) go under a "(no worktree)" group. The flags show as tags on the row.
+- **Approve** runs `agent-review approve <runId>`, which since #127 acts in the owning worktree from anywhere. It shows its own dialog and refuses if the tree changed; a `tree-changed` reply opens the review, as the `/pi` pane does (`approvalAction` in `pane.tsx`). Approve does nothing on a `processing` or `orphan` row.
+- **Open review** sends `:AgentReview` to the person's Neovim, found by the socket lookup with the entry's owner as the repo. Since #127, `:AgentReview` opens a single fresh review directly in its owner, or a picker when there are several.
+- **Reject:** on a normal row, Reject all in Neovim (`:AgentReviewRejectAll <runId>`), as `/pi` does. On an orphan row, `agent-review skip <runId>` (my call). Skip is the only action #127 offers that clears orphan refs, and an orphan has no review to reject. Both need a second press.
+- If `agent-review list` fails or prints something other than a JSON array, the pane shows one line, "reviews unavailable", and still lists specs.
 
 ### Spec actions
 

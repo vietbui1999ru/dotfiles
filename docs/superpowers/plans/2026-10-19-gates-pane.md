@@ -12,7 +12,9 @@
 
 ## Preconditions
 
-- PR #128 (`fix/pi-pane-layout`) must be merged into `main` first. This plan uses its `switchSteps`, `PANE_TITLES` and per-pane `goTo`/`cycle` runner in `session-band-plugin/hooks/pane-nav.ts`. Branch `feat/gates-pane` from `origin/main` after that merge. Do not stack on `fix/pi-pane-layout`: merging a child PR after its base was squash-merged lands it on a dead branch.
+- Work on branch `feat/gates-pane`. It is cut from `origin/main` at 40630df and already holds this plan and the spec. Main already has:
+  - PR #128: `switchSteps`, `PANE_TITLES` and the per-pane `goTo`/`cycle` runner in `session-band-plugin/hooks/pane-nav.ts`.
+  - PR #127: `scripts/agent-review list --all --json`, `approve <id>` acting in the owning worktree, and `skip <id>`.
 
 ## Global Constraints
 
@@ -24,7 +26,7 @@
 - Spec discovery: worktree-root `SPEC.md` and `specs/*.md`, each only when its front-matter `branch:` equals the worktree's current branch. Detached worktrees list no specs.
 - Spec state from `ac-run status`: exit 0 → `approved`; exit 3 → `stale` if stdout starts with `stale`, else `draft`; any other exit → `invalid` with the first non-empty stderr line.
 - Every key the pane uses is a Button `hotkey` (unbound keys fall through to the composer). Key bar idiom: `flexDirection="row" flexWrap="wrap" columnGap={2} marginBottom={1}`.
-- Plugin tests: `cd session-band-plugin && claude plugin test .`. Python tests: `python3 -m unittest scripts/tests/test_spec_loop.py`.
+- Plugin tests: `cd session-band-plugin && claude plugin test .`. Python tests: `python3 scripts/tests/test_spec_loop.py`, run from the repo root (`-m unittest <path>` fails to import under `-I`). It needs the full checkout, because some tests read `shared/`.
 - Commit after each task; stage by path.
 
 ## Review Focus
@@ -33,7 +35,7 @@
 2. Two worktrees whose specs share a repo-relative path (both have `SPEC.md`). Expect two rows keyed by absolute path, so actions never hit the wrong worktree. Test in Task 2.
 3. Approve pressed twice quickly. Expect a single `ac-run approve` process. Test in Task 4.
 4. A main checkout whose `SPEC.md` names another branch (the real state of `main` today). Expect no row and no error. Test in Task 2.
-5. A pending review JSON that is malformed or half-written. Expect it skipped, not a crash; `parsePending` returns undefined. Test in Task 5.
+5. `agent-review list` exits non-zero or prints something other than a JSON array. Expect one "reviews unavailable" line, spec rows still drawn, and no throw. Test in Task 5.
 
 ---
 
@@ -52,14 +54,14 @@
   - `test_confirm_failure_is_refusal`: `module.subprocess.run` replaced by a function that raises `OSError`. Assert `module.confirm(spec, runnable)` is False.
   - `test_confirm_needs_approve_reply`: a fake `subprocess.run` returning `CompletedProcess(args, 0, stdout="Cancel\n")`, then `stdout="Approve\n"`. Assert False, then True. Also assert the argv starts with `/usr/bin/osascript`, the script contains `default button "Cancel"`, and the message contains the spec's relative path, the branch, and `runs these commands on this machine now`.
   - `test_show_prints_summary_runs_nothing`: with an AC `touch sentinel.txt`, `run_acrun("show", "SPEC.md")` returns 0, its stdout contains `runs: touch sentinel.txt`, and `sentinel.txt` does not exist.
-- [ ] **Step 3: Run them.** `python3 -m unittest scripts/tests/test_spec_loop.py -k ignores_stdin -k confirm -k show_prints` → FAIL (no `confirm`, no `show`).
+- [ ] **Step 3: Run them.** `python3 scripts/tests/test_spec_loop.py -k ignores_stdin -k confirm -k show_prints` → FAIL (no `confirm`, no `show`).
 - [ ] **Step 4: Implement.**
   - Factor the summary printing out of `cmd_approve` into `print_summary(spec, runnable)`.
   - Add `cmd_show`.
   - Replace the `sys.stdin.readline()` prompt with `confirm(spec, runnable)`, which builds the osascript command the way `agent-review` `confirm()` does: title `ac-run`, `giving up after 60`, `subprocess.run(..., timeout=75)`. The message lists the first 10 commands, then `+N more`.
   - Update `HUMAN` to `HUMAN ONLY (agents must not run this): approve in the session-band /gates pane, or ~/dotfiles/scripts/ac-run approve SPEC.md`, and the test's copy of the constant to match.
   - Register `show` in `main`.
-- [ ] **Step 5: Run the whole file.** `python3 -m unittest scripts/tests/test_spec_loop.py` → all pass. Then `rg -n 'stdin=' scripts/tests/test_spec_loop.py` must show no call that reaches a subprocess `approve`.
+- [ ] **Step 5: Run the whole file.** `python3 scripts/tests/test_spec_loop.py` → all pass. Then `rg -n 'stdin=' scripts/tests/test_spec_loop.py` must show no call that reaches a subprocess `approve`.
 - [ ] **Step 6: Commit.** `feat(ac-run): approve asks in a macOS dialog; add show`. The body explains that the approve test helper now runs in-process, because stdin no longer approves (a contract change from the approved design, not test gaming).
 
 ### Task 2: `gates.ts` discovery and status parsing
@@ -68,11 +70,12 @@
 - Create: `session-band-plugin/hooks/gates.ts`, `session-band-plugin/hooks/gates.test.ts`
 
 **Interfaces:**
-- Consumes: `Worktree`, `parseWorktrees` from `./worktrees`; `PendingReview` from `./review`.
+- Consumes: `Worktree`, `parseWorktrees` from `./worktrees`.
 - Produces:
   - `type SpecState = 'draft' | 'approved' | 'stale' | 'invalid'`
   - `type SpecRow = { kind: 'spec'; key: string; worktree: string; branch: string; path: string; rel: string; state?: SpecState; error?: string }`. `key` is the absolute `path`.
-  - `type ReviewRow = { kind: 'review'; key: string; worktree: string; branch?: string; review: PendingReview }`. `key` is `review:${runId}`.
+  - `type ReviewEntry = { runId: string; owner: string | null; branch: string; name: string; startedAt: string; processing: boolean; error: boolean; landed: boolean; orphan: boolean }`, the shape of one `agent-review list --all --json` element.
+  - `type ReviewRow = { kind: 'review'; key: string; worktree: string | null; entry: ReviewEntry }`. `key` is `review:${runId}`.
   - `type GateRow = SpecRow | ReviewRow`
   - `specBranch(text: string): string | undefined`: the `branch:` value from front matter between the opening and closing `---`.
   - `specRows(tree: Worktree, files: readonly { rel: string; text: string }[]): SpecRow[]`. `rel` is `SPEC.md` or `specs/<name>.md`. Keeps only files whose branch equals `tree.branch`, and returns none for detached trees.
@@ -142,20 +145,31 @@ Behaviour:
 - Modify: `session-band-plugin/hooks/gates.ts`, `gates.tsx`, `gates.test.ts`, `gates-pane.test.ts`
 
 **Interfaces:**
-- Produces: `reviewRows(tree: Worktree, records: readonly PendingReview[]): ReviewRow[]` in `gates.ts`.
+- Consumes: `ReviewEntry`, `ReviewRow` (Task 2); `approveArgv`, `approvalAction`, `reviewRemoteArgv`, `needsRejectConfirm` and `rejectToast` from `./pane.tsx`; the socket lookup copied in Task 4.
+- Produces, in `gates.ts`:
+  - `REVIEW_LIST_ARGV(home: string): string[]` → `[`${home}/dotfiles/scripts/agent-review`, 'list', '--all', '--json']`
+  - `parseReviewList(stdout: string): ReviewEntry[] | undefined`: undefined unless the stdout is a JSON array. Elements missing a string `runId` are dropped.
+  - `reviewRows(entries: readonly ReviewEntry[]): ReviewRow[]`, with `worktree = entry.owner`.
+  - `skipArgv(home: string, runId: string): string[]` → `[`${home}/dotfiles/scripts/agent-review`, 'skip', runId]`
+
+The pane reads no pending record files; `agent-review` (PR #127) is the only discovery.
 
 Behaviour:
-- **Refresh** reads `<tree.path>/.pi/agent-review/pending/*.json` for each tree, through `parsePending`, skipping undefined results.
-- **Review row text:** `› `, then `review ${runId.slice(0,8)}`, two spaces, `${files.length} file(s)`.
-- **`a` on a review row:** `approveArgv(home, runId)` with `cwd: tree.path` and `timeoutMs: 60_000`, then `approvalAction`, handled exactly as in `pane.tsx` `approve`. On `open-review`, open the review the way `o` does.
-- **`o`:** the socket lookup, then `reviewRemoteArgv(socket,'AgentReview')`.
-- **`x`:** second-press confirm, then `reviewRemoteArgv(socket,'AgentReviewRejectAll',runId)` and `rejectToast`.
+- **Refresh** runs `REVIEW_LIST_ARGV(home)` once, from the session cwd. On a non-zero exit or an undefined parse, it sets `reviewsUnavailable` in the atom and draws one line, `reviews unavailable`.
+- **Grouping:** review rows go under the worktree header whose path equals `owner`. Orphans (`owner` null) go under a `(no worktree)` header at the end.
+- **Review row text:** `› ` for the selected row, then `review ${runId.slice(0,8)}`, then `name` when non-empty, then the tags `[landed]`, `[processing]`, `[error]` and `[orphan]` for the true flags, with two spaces between parts.
+- **`a` on a review row:** do nothing if the row is `processing` or `orphan`. Otherwise run `approveArgv(home, runId)` with `cwd` set to the session cwd (since #127, approve finds the owner itself) and `timeoutMs: 60_000`, and handle the reply through `approvalAction` exactly as `pane.tsx` `approve` does. On `open-review`, open the review the way `o` does. Then refresh.
+- **`o`:** the socket lookup with `owner` as the repo, then `reviewRemoteArgv(socket,'AgentReview')`. Does nothing on orphans.
+- **`x`:** second-press confirm keyed by the row key. Then, on a normal row, `reviewRemoteArgv(socket,'AgentReviewRejectAll',runId)` and `rejectToast`; on an orphan row, `skipArgv(home, runId)`, a toast with its JSON `message` or `Skipped.`, and a refresh.
 - **`e`** does nothing on a review row.
 
 - [ ] **Step 1: Write the failing tests.**
-  - `reviewRows` maps two records to keys `review:<id>`.
-  - Malformed JSON is skipped: `fs.read` returns `{"runId":` and no row appears, with no throw (Review Focus 5).
-  - Pane: `a` on a review row runs `['/h/dotfiles/scripts/agent-review','approve',id]` with `cwd` set to that worktree.
+  - `parseReviewList` returns undefined for `'not json'` and for `'{"a":1}'`. For an array of two valid entries plus `{}`, it returns two entries.
+  - `reviewRows` gives keys `review:<id>` and keeps `worktree` null for an orphan.
+  - Pane: with `agent-review list` answering exit 1, the rows still contain the spec rows and `reviews unavailable` (Review Focus 5).
+  - Pane: an entry owned by `/r/w` appears under `/r/w`'s branch header with its `[landed]` tag.
+  - Pane: `a` on a review row runs `['/h/dotfiles/scripts/agent-review','approve',id]`. `a` on a processing row runs nothing.
+  - Pane: `x` pressed twice on an orphan row runs `['/h/dotfiles/scripts/agent-review','skip',id]`.
 - [ ] **Step 2: Run them** → FAIL. **Step 3: implement.** **Step 4: run them** → PASS, along with the whole suite.
 - [ ] **Step 5: Commit.** `feat(session-band): pending Pi reviews in /gates`
 
@@ -166,7 +180,7 @@ Behaviour:
 - Do not modify `shared/AGENTS.md`. Its spec-loop rule block is static.
 
 - [ ] **Step 1: Update the README** section in clear prose.
-- [ ] **Step 2: Run all checks.** `python3 -m unittest scripts/tests/test_spec_loop.py`, `cd session-band-plugin && claude plugin test .`, and `~/dotfiles/scripts/floor-guard`. All must be clean; paste the outputs.
+- [ ] **Step 2: Run all checks.** `python3 scripts/tests/test_spec_loop.py`, `cd session-band-plugin && claude plugin test .`, and `~/dotfiles/scripts/floor-guard`. All must be clean; paste the outputs.
 - [ ] **Step 3: Commit.** `docs: approve specs from /gates`
 - [ ] **Step 4: Push the branch and open a draft PR.** Its body lists the live checks a human must run, because an agent cannot click the dialog:
   1. `/gates` in a session with two worktrees holding draft specs lists both.
