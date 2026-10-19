@@ -9,7 +9,7 @@ import { nextPane } from './pane-nav'
 import { PALETTE } from './palette'
 import type { PiProgress } from './pisession'
 import { parsePending, pendingRecordFor, type PendingReview } from './review'
-import { killNote } from './lifecycle'
+import { editRefusal, killNote, parseEdit, readdArgv } from './lifecycle'
 
 const handoff = atom({ plugin: 'session-band', key: 'handoff' } as const, { tasks: [] as TrackedTask[], available: true } satisfies HandoffState)
 const progress = atom({ plugin: 'session-band', key: 'progress' } as const, {} as Record<number, PiProgress>)
@@ -146,6 +146,24 @@ async function uncommitted($: EngineInterface, tasks: readonly TrackedTask[], id
     if (status?.exitCode === 0) notes.push(killNote(cwd, status.stdout))
   }
   return notes.join('')
+}
+
+/** Edit = remove and re-add with a new model and label. Remove goes first: pueue refuses to remove a started task, so a race cannot run it twice. */
+async function editTask($: EngineInterface, task: TrackedTask, text: string) {
+  const edit = parseEdit(text)
+  if (!edit) return
+  const live = parseStatus((await $.process.run(['pueue', 'status', '--json'])).stdout).find(item => item.id === task.id)
+  const refused = editRefusal(live?.state)
+  if (refused || !live) { await $.ui.toast(refused ?? 'Edit refused.'); return }
+  const removed = await $.process.run(controlArgv('rm', [task.id]))
+  if (removed.exitCode !== 0) { await $.ui.toast(`Edit refused: pueue would not remove #${task.id}.`); return }
+  const label = edit.label ?? task.label ?? `edit-${task.id}`
+  const added = await $.process.run(readdArgv(live, edit.model, label), { cwd: live.cwd })
+  const id = parseAddResult(added.stdout)
+  await update($, handoff, state => ({ ...state, selectedId: id ?? state.selectedId, tasks: state.tasks.flatMap(item => item.id !== task.id ? [item] : id === undefined ? [] : [{ ...item, id, label, task: { ...live, id, label } }]) }))
+  await $.ui.toast(id === undefined
+    ? `Removed #${task.id}, but the re-add failed: ${(added.stderr || added.stdout).trim() || `exit ${added.exitCode}`}`
+    : `Edited #${task.id}: re-added as #${id} with ${edit.model}.`)
 }
 
 /** Re-read state, act only on ids still eligible; an expired or finished confirm does nothing. */
@@ -439,6 +457,7 @@ export const register: Register = on => {
         {pending && <Button key="pi-reject-all" onPress={() => { const confirmed = !needsRejectConfirm(rejecting, pending.runId); rejecting = confirmed ? undefined : pending.runId; void rejectAll($, task, pending.runId, confirmed) }}>Reject all</Button>}
       </Box>}
       {task && <Input key="pi-continue" label="Continue" placeholder="Follow-up for Pi" submitLabel="send" onSubmit={value => void continueTask($, task, pi, value)} />}
+      {task?.task?.state === 'Queued' && <Input key="pi-edit" label="Edit" placeholder="model[:effort] [label]" submitLabel="re-add" onSubmit={value => void editTask($, task, value).catch(error => $.ui.toast(`Edit failed: ${String(error)}`))} />}
       <Button key="pi-history" onPress={() => void $.ui.open({ id: 'pi-history', title: 'Pi history', focus: true })}>history</Button>
       <Button key="pi-clean-stale" onPress={() => void cleanStale($)}>Clean stale</Button>
     </Box>

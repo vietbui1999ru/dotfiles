@@ -68,8 +68,8 @@ export const fakePueue = (on: On, nowMs: () => number) => {
       fake.order.push(e.argv.join(' '))
       const ids = e.argv.slice(2).filter(word => /^\d+$/.test(word))
       // As real pueue: a failing subcommand, or `kill` on a Queued task, exits 1 and changes nothing.
-      const queued = ids.filter(id => 'Queued' in ((tasks[id]?.status ?? {}) as object))
-      if (failing.has(e.argv[1]!) || (e.argv[1] === 'kill' && queued.length > 0)) {
+      const queuedIds = ids.filter(id => 'Queued' in ((tasks[id]?.status ?? {}) as object))
+      if (failing.has(e.argv[1]!) || (e.argv[1] === 'kill' && queuedIds.length > 0)) {
         return { value: { exitCode: 1, stdout: '', stderr: `The command failed for tasks: ${ids.join(', ')}` } } as never
       }
       if (e.argv[1] === 'start' && e.argv[2] === '--group') fake.group = 'Running'
