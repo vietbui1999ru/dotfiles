@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Test design-on-write.sh: match (UI write reports), non_ui (silent),
-# once_per_session (reminder printed once). Uses temp fixtures via the
+# once_per_session (reminder printed once), no_false_positives (ordinary CSS
+# against the real register is silent). Uses temp fixtures via the
 # DESIGN_SLOP_FILE / DESIGN_TASTE_FILE overrides.
 
 HOOK="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/design-on-write.sh"
@@ -32,9 +33,10 @@ EOF
 
 run_hook() {
   local dir="$1" file="$2" session="$3"
+  local slop="${4:-$dir/slop.md}"
   local json
   json=$(printf '{"session_id":"%s","tool_input":{"file_path":"%s"}}' "$session" "$file")
-  printf '%s' "$json" | DESIGN_SLOP_FILE="$dir/slop.md" DESIGN_TASTE_FILE="$dir/taste.md" "$HOOK"
+  printf '%s' "$json" | DESIGN_SLOP_FILE="$slop" DESIGN_TASTE_FILE="$dir/taste.md" "$HOOK"
 }
 
 case "${1:-}" in
@@ -65,8 +67,20 @@ case "${1:-}" in
     rm -rf "$dir"
     printf 'once_per_session: ok\n'
     ;;
+  no_false_positives)
+    dir=$(setup)
+    reg="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)/shared/design/design-slop.md"
+    [[ -f "$reg" ]] || fail "no_false_positives: register not found at $reg"
+    printf 'a { color:#ff0505; letter-spacing:0.01em; background:linear-gradient(red,blue); cursor:pointer; }\n' > "$dir/quiet.css"
+    # Empty session id: suppress the once-per-session reminder so any output
+    # can only come from a pattern match.
+    out=$(run_hook "$dir" "$dir/quiet.css" "" "$reg")
+    [[ -z "$out" ]] || fail "no_false_positives: expected silent, got: ${out}"
+    rm -rf "$dir"
+    printf 'no_false_positives: ok\n'
+    ;;
   *)
-    printf 'usage: %s {match|non_ui|once_per_session}\n' "$0" >&2
+    printf 'usage: %s {match|non_ui|once_per_session|no_false_positives}\n' "$0" >&2
     exit 1
     ;;
 esac

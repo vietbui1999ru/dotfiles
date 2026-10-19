@@ -19,17 +19,23 @@ judgement call, not a regex.
 All-caps labels are a generated-page default.
 
 ## Eyebrow labels
-- pattern: letter-spacing[[:space:]]*:[[:space:]]*[0-9.]+(em|px|rem)
-A tracked-out eyebrow label above every heading is generic chrome.
+- pattern: letter-spacing[[:space:]]*:[[:space:]]*(([1-9][0-9]*(\.[0-9]+)?|0?\.[1-9][0-9]*)(em|rem)|([2-9](\.[0-9]+)?|[1-9][0-9]+(\.[0-9]+)?)px)
+A tracked-out eyebrow label above every heading is generic chrome. Only positive
+tracking of 0.1em or more (2px or more) counts: ordinary or tight letter-spacing
+is not an eyebrow.
 
 ## Numbered markers on non-sequences
-- pattern: (^|[^0-9])0[0-9]([^0-9]|$)
+- pattern: (>|["'])[[:space:]]*0[0-9]([[:space:]]*<|["'])
 01 / 02 / 03 markers belong on real sequences (steps, timelines), not on every
-section.
+section. This targets visible marker text in markup or CSS `content:` (`>01<`,
+`"01"`), so hex colours like `#ff0505`, times, and dimensions do not match.
 
 ## Big-number hero with gradient
-- pattern: linear-gradient
+- pattern: none
 A big number, small label, and gradient accent is the default hero treatment.
+This is a composition tell — it needs a huge numeral next to a gradient accent —
+not a property, so no regex can tell it apart from an ordinary gradient and only
+judgement catches it.
 
 ## Fade-slide-up on every section
 - pattern: fade[ -]?in|slide[ -]?up|translatey
