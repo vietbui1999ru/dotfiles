@@ -1,7 +1,14 @@
 import { expect, test } from 'claude-code/testing'
 
 import { parseWorktrees } from './worktrees'
-import { specBranch, specRows, parseSpecStatus } from './gates'
+import { specBranch, specRows, parseSpecStatus, acRunArgv, approveTimeoutMs, editRemoteArgv } from './gates'
+
+test('gates builds spec argv, baseline timeout and space-safe Neovim edit argv', () => {
+  expect(acRunArgv('/h', 'status', '/r/SPEC.md')).toEqual(['/h/dotfiles/scripts/ac-run', 'status', '/r/SPEC.md'])
+  expect(approveTimeoutMs(2)).toBe(345000)
+  expect(editRemoteArgv('/s', '/a b/SPEC.md')).toEqual(['nvim', '--server', '/s', '--remote-send', '<C-\\><C-N>:edit /a\\ b/SPEC.md<CR>'])
+  expect(editRemoteArgv('/s', '/a%#|"\\/SPEC.md')[4]).toBe('<C-\\><C-N>:edit /a\\%\\#\\|\\"\\\\/SPEC.md<CR>')
+})
 
 const trees = parseWorktrees('worktree /r\nHEAD abcdef123\nbranch refs/heads/feat/x\n\nworktree /r/.claude/worktrees/w\nHEAD abcdef123\nbranch refs/heads/feat/x\n')
 const files = [{ rel: 'SPEC.md', text: '---\nstatus: draft\nbranch: feat/x\n---\n' }, { rel: 'specs/a.md', text: '---\nbranch: feat/x\n---\n' }]

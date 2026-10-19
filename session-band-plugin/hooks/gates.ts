@@ -6,6 +6,10 @@ export type ReviewEntry = { runId: string; owner: string | null; branch: string;
 export type ReviewRow = { kind: 'review'; key: string; worktree: string | null; entry: ReviewEntry }
 export type GateRow = SpecRow | ReviewRow
 
+export const acRunArgv = (home: string, sub: 'status' | 'show' | 'approve' | 'reject', spec: string): string[] => [`${home}/dotfiles/scripts/ac-run`, sub, spec]
+export const approveTimeoutMs = (runnable: number): number => (75 + 120 * runnable + 30) * 1000
+export const editRemoteArgv = (socket: string, path: string): string[] => ['nvim', '--server', socket, '--remote-send', `<C-\\><C-N>:edit ${path.replace(/[ \\%#|"<>\r\n]/g, char => char === '<' ? '<LT>' : `\\${char}`)}<CR>`]
+
 export const specBranch = (text: string): string | undefined => {
   const lines = text.split(/\r?\n/)
   if (lines[0]?.trim() !== '---') return undefined
