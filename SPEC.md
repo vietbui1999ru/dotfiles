@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 branch: feat/nvim-review-dashboard
 ---
 # SPEC: Neovim start screen shows agent reviews waiting for approval (Track B)
