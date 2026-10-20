@@ -21,8 +21,6 @@ export WORKSPACE_ACTIVE_ICON=$DARK_TEAL
 export WORKSPACE_ACTIVE_BG=0x407daea3
 export WORKSPACE_INACTIVE_ICON=$MUTED_TEAL
 
-# ── Chevron ──────────────────────────────────────
-export CHEVRON_COLOR=$SAGE
 
 # ── Front App ────────────────────────────────────
 export APP_NAME_COLOR=$DARK_TEAL
