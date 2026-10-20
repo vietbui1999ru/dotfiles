@@ -85,8 +85,8 @@ persistent-workspaces = ['0', '1', '2', '3', 'B', 'C', 'M', 'N', 'O', 'P', 'R', 
     outer.left =       30
     outer.bottom =     30
     outer.top = [
-      { monitor."Built-in Retina Display" = 23 },
-      60  # 37 bar + 15 margin + 15 y_offset
+      { monitor."Built-in Retina Display" = 28 },
+      65  # 37 bar + 15 margin + 15 y_offset
     ]
     outer.right =      30
 
