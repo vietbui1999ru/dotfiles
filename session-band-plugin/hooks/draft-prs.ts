@@ -8,7 +8,7 @@ export const GH_AUTH = 'gh is not logged in: run gh auth login'
 export const GH_NOT_REPO = 'not a GitHub repo: no GitHub remote here'
 export const GH_UNREADABLE = 'gh printed something that is not a PR list'
 
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+export const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 const RUN_FAILED = ['FAILURE', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE']
 const RANK: Record<PrState, number> = { draft: 0, ready: 1, merged: 2 }
 
@@ -38,9 +38,11 @@ const toPr = (raw: unknown, now: number): DraftPr | undefined => {
   return { number: Number(p.number), title: text(p.title), branch: text(p.headRefName), url: text(p.url), state, checks: rollup(p.statusCheckRollup), at: Number.isNaN(at) ? now : at }
 }
 
-/** Draft, then ready, then merged; newest first inside each group. */
+/** Draft, then ready, then merged; newest first inside each group. Every forge's reader sorts with this. */
+export const byGroup = (a: DraftPr, b: DraftPr): number => RANK[a.state] - RANK[b.state] || b.at - a.at
+
 export const pickPrs = (list: readonly unknown[], now: number): DraftPr[] =>
-  list.flatMap(raw => toPr(raw, now) ?? []).sort((a, b) => RANK[a.state] - RANK[b.state] || b.at - a.at)
+  list.flatMap(raw => toPr(raw, now) ?? []).sort(byGroup)
 
 export type GhResult = { exitCode: number; stdout: string; stderr: string }
 
@@ -86,6 +88,7 @@ export const groups = (prs: readonly DraftPr[]): { header: string; prs: DraftPr[
 // `feat(session-band): x` reads as `x`: the group header and branch already carry the context.
 const bare = (title: string) => title.replace(/^[a-z]+(\([^)]*\))?!?:\s*/i, '') || title
 
-/** The row after its selection mark and check glyph: number, short title, age. State is the group's, branch the detail's. */
-export const prLine = (pr: DraftPr, now: number): string =>
-  `#${pr.number} ${cut(bare(pr.title), 44).padEnd(44)}  ${age(now - pr.at)}`
+/** The row after its selection mark and check glyph: number, short title, age. State is the group's, branch the detail's.
+ *  `sigil` is how the forge writes a number: `#117` on GitHub, `!117` on GitLab. */
+export const prLine = (pr: DraftPr, now: number, sigil = '#'): string =>
+  `${sigil}${pr.number} ${cut(bare(pr.title), 44).padEnd(44)}  ${age(now - pr.at)}`

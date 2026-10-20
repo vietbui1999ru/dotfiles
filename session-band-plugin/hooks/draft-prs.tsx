@@ -1,17 +1,28 @@
 import { atom, read, update, type EngineInterface, type Register } from 'claude-code'
 
 import type { DraftPrsState } from '../types'
-import { CHECK_MARK, GH_ARGV, groups, prLine, readGh } from './draft-prs'
+import { CHECK_MARK, groups, prLine } from './draft-prs'
+import { forgeById, forgeFor, hostOf, NO_REMOTE, noForge, REMOTE_ARGV } from './forge'
 import { FOCUS_ACTION, FOCUS_REFUSED, JUMP_KEYS, nextPane, PANE_TITLES, switchSteps } from './pane-nav'
 
 const view = atom({ plugin: 'session-band', key: 'draftPrs' } as const, { loading: false } as DraftPrsState)
 
-// Read-only: `gh pr list` is the only gh call. A spawn failure or timeout resolves undefined, which readGh names.
+// Read-only: the origin remote picks the forge, then that forge's list command is the only other call.
+// A spawn failure or timeout resolves undefined, which the forge's reader names.
 const refresh = async ($: EngineInterface) => {
   await update($, view, state => ({ ...state, loading: true }))
-  const r = await $.process.run(GH_ARGV, { cwd: await $.session.cwd(), timeoutMs: 15_000 }).catch(() => undefined)
+  const cwd = await $.session.cwd()
+  const remote = await $.process.run(REMOTE_ARGV, { cwd, timeoutMs: 15_000 }).catch(() => undefined)
+  const host = remote?.exitCode === 0 ? hostOf(remote.stdout) : undefined
+  const forge = host === undefined ? undefined : forgeFor(host)
+  if (!forge) {
+    const error = host === undefined ? NO_REMOTE : noForge(host)
+    await update($, view, state => ({ ...state, loading: false, prs: [], error, forge: undefined }))
+    return
+  }
+  const r = await $.process.run(forge.argv, { cwd, timeoutMs: 15_000 }).catch(() => undefined)
   const now = await $.clock.now()
-  await update($, view, state => ({ ...state, loading: false, ...readGh(r, now) }))
+  await update($, view, state => ({ ...state, loading: false, ...forge.read(r, now), forge: forge.id }))
 }
 
 // j/k move through the rows in display order; wraps at both ends, as the worktrees pane does.
@@ -57,7 +68,8 @@ export const register: Register = on => {
     const now = await $.clock.now()
     const prs = state.prs ?? []
     const pick = prs.find(pr => pr.number === state.selected) ?? prs[0]
-    const note = state.error ?? (state.loading ? 'Loading…' : prs.length === 0 ? 'No open or recently merged PRs.' : undefined)
+    const sigil = forgeById(state.forge)?.sigil
+    const note = state.error ?? (state.loading ? 'Loading…' : prs.length === 0 ? `No open or recently merged ${state.forge === 'gitlab' ? 'MRs' : 'PRs'}.` : undefined)
     return <Box flexDirection="column">
       <Text weight="bold">Draft PRs</Text>
       {/* Hotkeys, not hints: a key the pane does not bind falls through to the composer. */}
@@ -79,7 +91,7 @@ export const register: Register = on => {
         {group.prs.map(pr => <Box key={`pr-row-${pr.number}`} flexDirection="row" columnGap={1}>
           <Text mono>{pr === pick ? '›' : ' '}</Text>
           <Text mono color={CHECK_MARK[pr.checks].color} dimColor={!CHECK_MARK[pr.checks].color}>{CHECK_MARK[pr.checks].glyph}</Text>
-          <Text mono weight={pr === pick ? 'bold' : undefined} dimColor={pr.state === 'merged' && pr !== pick}>{prLine(pr, now)}</Text>
+          <Text mono weight={pr === pick ? 'bold' : undefined} dimColor={pr.state === 'merged' && pr !== pick}>{prLine(pr, now, sigil)}</Text>
         </Box>)}
       </Box>)}
       {pick && <Text mono dimColor>{pick.branch} · <Link href={pick.url} label={pick.url} /></Text>}
