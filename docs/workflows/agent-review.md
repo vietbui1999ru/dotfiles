@@ -110,6 +110,11 @@ Build as three separate commits, in this order.
   - It recomputes the working-tree snapshot the same way Pi does and refuses unless it equals the
     record's `endTree`. It never overwrites an existing decision (a Neovim decision with notes or
     a skip must survive).
+  - Since 2026-10-20, a quiet Neovim decision (every file `accepted`, no notes, empty patch, not
+    skipped, `endTree == finalTree ==` the record's `endTree`) that no Pi consumed — the usual
+    case for a `pi -p` run — is finished here: after the same dialog it removes the pending record
+    and refs and leaves the decision file as written. Any other existing decision still refuses
+    with `already-decided`, because Pi has to read it.
   - Before writing anything it shows a macOS confirmation dialog (`osascript`, default button
     Cancel, gives up after 25 s). There is no environment variable or flag that skips it; an
     agent cannot click it. Claude's settings also deny running `agent-review approve`.

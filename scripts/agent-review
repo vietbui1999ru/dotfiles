@@ -245,8 +245,25 @@ def load_pending(d: Path, run_id: str) -> dict[str, object]:
     return record
 
 
-def consume(root: Path, d: Path, run_id: str, record: dict[str, object], files: list[str]) -> None:
-    """Decision D1: no Pi process is left to consume the decision, so do it here."""
+def quiet_decision(decision: dict[str, object] | None, record: dict[str, object]) -> bool:
+    """An accept-all decision for this run that Pi would consume without a follow-up."""
+    if decision is None or decision.get("skipped") or decision.get("notes") != []:
+        return False
+    files = decision.get("files")
+    return (
+        decision.get("runId") == record["runId"]
+        and decision.get("endTree") == decision.get("finalTree") == record["endTree"]
+        and not str(decision.get("patch", "")).strip()
+        and isinstance(files, list)
+        and all(isinstance(f, dict) and f.get("status") == "accepted" for f in files)
+    )
+
+
+def consume(root: Path, d: Path, run_id: str, record: dict[str, object], files: list[str], decided: bool = False) -> None:
+    """Decision D1: no Pi process is left to consume the decision, so do it here.
+
+    With decided, a quiet Neovim decision already exists; keep it as written.
+    """
     pending = d / "pending" / f"{run_id}.json"
     claim = d / "pending" / f"{run_id}.processing"
     try:
@@ -258,11 +275,12 @@ def consume(root: Path, d: Path, run_id: str, record: dict[str, object], files: 
         if tree != record["endTree"]:
             os.rename(claim, pending)
             raise Refusal("tree-changed", "the working tree changed while confirming")
-        write_decision(d / "decisions" / f"{run_id}.json", {
-            "runId": run_id, "endTree": record["endTree"], "finalTree": tree,
-            "files": [{"file": f, "status": "accepted"} for f in files],
-            "notes": [], "patch": "", "via": "agent-review approve",
-        })
+        if not decided:
+            write_decision(d / "decisions" / f"{run_id}.json", {
+                "runId": run_id, "endTree": record["endTree"], "finalTree": tree,
+                "files": [{"file": f, "status": "accepted"} for f in files],
+                "notes": [], "patch": "", "via": "agent-review approve",
+            })
         os.remove(claim)
     except Refusal:
         raise
@@ -288,14 +306,17 @@ def approve(run_id: str) -> int:
     root = find_owner(here, run_id) or here  # act in the worktree that holds the review
     d = root / ".pi" / "agent-review"
     record = load_pending(d, run_id)
-    if (d / "decisions" / f"{run_id}.json").exists():
-        raise Refusal("already-decided", "a decision already exists; resolve it in Neovim")
+    decided = (d / "decisions" / f"{run_id}.json").exists()
+    # A pi -p run has exited, so a Neovim decision for it is never consumed. An accept-all
+    # one asks Pi for nothing, so finish it here; any other needs Pi to read it.
+    if decided and not quiet_decision(read_json(d / "decisions" / f"{run_id}.json"), record):
+        raise Refusal("already-decided", "a decision with notes, changes or a skip exists; open Pi in its worktree, or skip")
     if snapshot_tree(root) != record["endTree"]:
         raise Refusal("tree-changed", "the working tree changed since the run ended")
     files = [f["file"] for f in record["files"] if isinstance(f, dict) and isinstance(f.get("file"), str)]
     if not confirm(root, run_id, files):
         raise Refusal("not-confirmed", "approval needs the person to confirm the dialog")
-    consume(root, d, run_id, record, files)
+    consume(root, d, run_id, record, files, decided)
     return reply(True, runId=run_id)
 
 
