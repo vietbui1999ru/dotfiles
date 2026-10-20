@@ -286,6 +286,30 @@ if.app-id = 'com.apple.UserNotificationCenter'
 run = ['layout floating']
 
 [[on-window-detected]]
+if.app-id = 'com.gizmolabs.openwhispr'  
+run = ['layout floating' , 'move-node-to-workspace 0']
+
+[[on-window-detected]]
+if.app-id = 'com.bitwarden.desktop'  
+run = ['layout floating', 'move-node-to-workspace 0']
+
+[[on-window-detected]]
+if.app-id = 'com.apple.LocalAuthentication.UIAgent'  
+run = ['layout floating']
+
+[[on-window-detected]]
+if.app-id = 'com.logi.cp-dev-mgr'  
+run = ['layout floating' , 'move-node-to-workspace S']
+
+[[on-window-detected]]
+if.app-id = 'com.nextcloud.desktopclient'  
+run = ['layout floating' , 'move-node-to-workspace S']
+
+[[on-window-detected]]
+if.app-id = 'com.bitwarden.desktop'  
+run = ['layout floating']
+
+[[on-window-detected]]
 if.app-id = 'com.apple.notificationcenterui'  
 run = ['layout floating']
 
@@ -307,11 +331,11 @@ run = ['layout floating']
 
 [[on-window-detected]]
 if.app-id = 'com.apple.FaceTime'  
-run = ['layout floating']
+run = ['layout floating', 'move-node-to-workspace N']
 
 [[on-window-detected]]
 if.app-id = 'com.herotools.openwispr'  
-run = ['layout floating', 'move-node-to-workspace S']
+run = ['layout floating', 'move-node-to-workspace 0']
 
 [[on-window-detected]]
 if.app-id = 'com.apple.reminders'  
@@ -365,11 +389,6 @@ run = ['layout floating', 'move-node-to-workspace O']
     run = ['layout tiling', 'move-node-to-workspace T']  # The callback itself
 
 [[on-window-detected]]
-    if.app-id = 'com.brave.Browser'
-    check-further-callbacks = true
-    run = ['layout tiling', 'move-node-to-workspace B']  # The callback itself
-
-[[on-window-detected]]
     if.app-id = 'org.mozilla.firefox'
     check-further-callbacks = true
     run = ['layout tiling', 'move-node-to-workspace B']  # The callback itself
@@ -409,13 +428,10 @@ run = ['layout floating', 'move-node-to-workspace O']
     run = ['layout tiling', 'move-node-to-workspace P']  # The callback itself
 
 [[on-window-detected]]
-    if.app-id = 'com.postmanlabs.mac'
-    check-further-callbacks = true
-    run = ['layout tiling', 'move-node-to-workspace S']  # The callback itself
-[[on-window-detected]]
     if.app-id = 'com.electron.dockerdesktop'
     check-further-callbacks = true
     run = ['layout tiling', 'move-node-to-workspace S']  # The callback itself
+
 [[on-window-detected]]
     if.app-id = 'com.sunnysidesoft.virtualtablet.server'
     check-further-callbacks = true
@@ -425,6 +441,7 @@ run = ['layout floating', 'move-node-to-workspace O']
     if.app-id = 'com.openai.codex'
     check-further-callbacks = true
     run = ['layout tiling', 'move-node-to-workspace C']  # The callback itself
+
 [[on-window-detected]]
     if.app-id = 'com.anthropicfordesktop'
     check-further-callbacks = true
@@ -433,11 +450,8 @@ run = ['layout floating', 'move-node-to-workspace O']
     if.app-id = 'com.todesktop.230313mzl4w4u92'
     check-further-callbacks = true
     run = ['layout tiling', 'move-node-to-workspace P']  # The callback itself
-[[on-window-detected]]
-    if.app-id = 'com.monochrome-music.monochrome'
-    check-further-callbacks = true
-    run = ['layout tiling', 'move-node-to-workspace M']  # The callback itself
+
 [[on-window-detected]]
     if.app-id = 'com.microsoft.Word'
     check-further-callbacks = true
-    run = ['layout tiling', 'move-node-to-workspace 0']  # The callback itself
+    run = ['layout tiling', 'move-node-to-workspace 1']  # The callback itself

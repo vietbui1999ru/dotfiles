@@ -60,7 +60,9 @@
       "Bash(git push*--force-if-includes*)",
       "Bash(git push*+*)",
       "Bash(git push* :*)",
-      "Bash(git clean*-*f*)"
+      "Bash(git clean*-*f*)",
+      "Bash(jj:*)",
+      "Bash(jj *)"
     ],
     "defaultMode": "plan"
   },

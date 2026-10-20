@@ -10,6 +10,7 @@ import { register as registerPane } from './pane.tsx'
 import { refreshSendIt, register as registerSendIt } from './send-it.tsx'
 import { register as registerWorktrees } from './worktree-pane.tsx'
 import { register as registerDraftPrs } from './draft-prs.tsx'
+import { onSessionStart as lifecycleSessionStart, register as registerLifecycle } from './lifecycle.tsx'
 import { register as registerGates } from './gates.tsx'
 import { summarize, type TrackedTask } from './handoff'
 import type { PiProgress } from './pisession'
@@ -143,6 +144,7 @@ export const register: Register = on => {
   registerPane(on)
   registerWorktrees(on)
   registerDraftPrs(on)
+  registerLifecycle(on)
   registerGates(on)
   registerSendIt(on)
 
@@ -167,6 +169,7 @@ export const register: Register = on => {
       update($, usage, () => measuredUsage(current.context, current.rateLimits)),
       refreshGit($),
     ])
+    await lifecycleSessionStart($).catch(() => undefined)
 
     return next(e)
   })
@@ -264,6 +267,7 @@ export const register: Register = on => {
       git: currentGit,
       style,
       handoff: currentHandoff.available ? summarize(currentHandoff.tasks, currentProgress, currentReview, nowMs) ?? undefined : undefined,
+      piQueue: currentHandoff.queue,
       width: e.props.bodyColumns,
       onPi: () => { void $.ui.open({ id: 'pi-handoff', title: 'Pi hand-off', focus: true }) },
       onWorktrees: () => { void $.ui.open({ id: 'worktrees', title: 'Worktrees', focus: true }) },
