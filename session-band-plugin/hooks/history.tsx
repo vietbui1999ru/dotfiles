@@ -3,7 +3,7 @@ import { atom, read, update, type EngineInterface, type Register } from 'claude-
 import type { HistoryState, PiProgress } from '../types'
 import { finalMessage, historyRowsPage, leftReview, type HistoryFilter, type HistoryUsage, truncateCommand } from './history'
 import { focusRing, moveTo, type Motion } from './motion'
-import { nextPane, switchSteps } from './pane-nav'
+import { JUMP_KEYS, nextPane, switchSteps } from './pane-nav'
 import { emptyProgress, fold, sessionDir, sessionFileName } from './pisession'
 import { isPiDispatch, parsePiCommand, parseStatus, type Task } from './pueue'
 import { PALETTE } from './palette'
@@ -238,8 +238,8 @@ export const register: Register = on => {
         <Button key="pi-history-key-reload" plain dimColor hotkey="r" label="reload" onPress={() => void refresh($)} />
         <Button key="pi-history-key-prev" plain dimColor hotkey="b" label="prev" onPress={() => void cycle($, -1)} />
         <Button key="pi-history-key-next" plain dimColor hotkey="f" label="next" onPress={() => void cycle($, 1)} />
-        <Button key="pi-history-key-worktrees" plain dimColor hotkey="w" label="worktrees" onPress={() => void goTo($, 'worktrees')} />
         <Button key="pi-history-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'pi-history' })} />
+        {JUMP_KEYS.map(j => <Button key={`pi-history-key-jump-${j.key}`} plain dimColor hotkey={j.key} label={j.label} onPress={() => void (j.id === 'pi-history' ? undefined : goTo($, j.id))} />)}
       </Box>
       <Box><Text color={PALETTE.green}>✓ success</Text><Text color={PALETTE.yellow}> · ✓ review</Text><Text color={PALETTE.red}> · ✗ exit</Text><Text color={PALETTE.mauve}> · ✗ killed</Text></Box>
       <Box flexDirection="row" columnGap={2} marginBottom={1}>{filters.map(filter => <Button key={`pi-history-${filter}`} plain label={filter === state.filter ? `[${filter}]` : filter} onPress={() => void update($, history, value => ({ ...value, filter, limit: pageSize }))} />)}</Box>

@@ -5,7 +5,7 @@ import { controlArgv, eligible, holdArgv, parsePiArgs, PS_ARGV, releaseArgv, res
 import { monitorRows, selectStale, type MonitorRow, type StaleSelection, type TrackedTask } from './handoff'
 import type { HandoffState } from './handoff.tsx'
 import { focusRing, moveTo, type Motion } from './motion'
-import { nextPane, switchSteps } from './pane-nav'
+import { JUMP_KEYS, nextPane, switchSteps } from './pane-nav'
 import { PALETTE } from './palette'
 import type { PiProgress, TranscriptEntry } from './pisession'
 import { parsePending, pendingRecordFor, type PendingReview } from './review'
@@ -401,9 +401,9 @@ export const register: Register = on => {
         <Button key="pi-key-reload" plain dimColor hotkey="r" label="reload" onPress={() => void open($)} />
         <Button key="pi-key-prev" plain dimColor hotkey="b" label="prev" onPress={() => void cycle($, -1)} />
         <Button key="pi-key-next" plain dimColor hotkey="f" label="next" onPress={() => void cycle($, 1)} />
-        <Button key="pi-key-worktrees" plain dimColor hotkey="w" label="worktrees" onPress={() => void goTo($, 'worktrees')} />
         <Button key="pi-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'pi-handoff' })} />
         <Button key="pi-key-thinking" plain dimColor hotkey="t" label={state.showThinking ? 'hide thinking' : 'thinking'} onPress={() => void update($, handoff, value => ({ ...value, showThinking: !value.showThinking }))} />
+        {JUMP_KEYS.map(j => <Button key={`pi-key-jump-${j.key}`} plain dimColor hotkey={j.key} label={j.label} onPress={() => void (j.id === 'pi-handoff' ? undefined : goTo($, j.id))} />)}
         {task && <Text dimColor>x kill  h hold  p pause  y/n confirm</Text>}
       </Box>
       {confirm && <Box flexDirection="row" columnGap={1}>

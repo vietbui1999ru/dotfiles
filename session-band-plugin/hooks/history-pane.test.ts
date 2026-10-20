@@ -102,3 +102,29 @@ test('a Failed(1) run whose log shows it left a review is not drawn as a failure
   expect(body).not.toContain('✗')
   expect(logReads).toBe(1)
 })
+
+test('digits jump to another mod pane; the pane\'s own digit does nothing', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-10-10T12:00:00Z') })
+  const closed: string[] = []
+  const opened: { id: string; title: string; focus?: true }[] = []
+  on('ui.close', (_$, e) => { closed.push(e.id); return { value: undefined } as never })
+  on('ui.open', (_$, e) => {
+    const { id, title, focus } = e as { id: string; title: string; focus?: boolean }
+    opened.push(focus === true ? { id, title, focus: true } : { id, title })
+    return { value: { isPlaced: true } } as never
+  })
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  await ui.press({ key: 'pi-history-key-jump-3' })
+  await clock.settle()
+  expect(closed).toEqual(['pi-history'])
+  expect(opened).toEqual([
+    { id: 'worktrees', title: 'Worktrees', focus: true },
+    { id: 'pi-history', title: 'Pi history' },
+  ])
+  closed.length = 0
+  opened.length = 0
+  await ui.press({ key: 'pi-history-key-jump-2' })
+  await clock.settle()
+  expect(closed).toEqual([])
+  expect(opened).toEqual([])
+})

@@ -1,7 +1,7 @@
 import { atom, read, update, type EngineInterface, type Register } from 'claude-code'
 
 import type { WorktreeBranch, WorktreeRow, WorktreeState } from '../types'
-import { nextPane, switchSteps } from './pane-nav'
+import { JUMP_KEYS, nextPane, switchSteps } from './pane-nav'
 import { countChanges, liveByTree, paneLines, parseAheadBehind, parseHeartbeat, parseWorktrees, treeKeys, type Worktree } from './worktrees'
 
 const view = atom({ plugin: 'session-band', key: 'worktrees' } as const, { open: false, legend: true } as WorktreeState)
@@ -107,6 +107,7 @@ export const register: Register = on => {
         <Button key="wt-key-prev" plain dimColor hotkey="b" label="prev pane" onPress={() => void cycle($, -1)} />
         <Button key="wt-key-next" plain dimColor hotkey="f" label="next pane" onPress={() => void cycle($, 1)} />
         <Button key="wt-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'worktrees' })} />
+        {JUMP_KEYS.map(j => <Button key={`wt-key-jump-${j.key}`} plain dimColor hotkey={j.key} label={j.label} onPress={() => void (j.id === 'worktrees' ? undefined : goTo($, j.id))} />)}
       </Box>
       {lines.map((line, index) => <Text key={`wt-line-${index}`} mono color={line.color} weight={line.strong ? 'bold' : undefined}>{line.text}</Text>)}
     </Box>

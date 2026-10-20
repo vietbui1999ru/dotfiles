@@ -2,7 +2,7 @@ import { atom, read, update, type EngineInterface, type Register } from 'claude-
 
 import { acRunArgv, approveTimeoutMs, editRemoteArgv, parseSpecStatus, specRows, REVIEW_LIST_ARGV, parseReviewList, reviewRows, skipArgv, type GateRow, type SpecRow, type ReviewRow } from './gates'
 import { approveArgv, approvalAction, matchingSocket, needsRejectConfirm, rejectToast, reviewRemoteArgv, reviewPaneRunArgv, reviewSplitArgv } from './pane.tsx'
-import { nextPane, switchSteps } from './pane-nav'
+import { JUMP_KEYS, nextPane, switchSteps } from './pane-nav'
 import { PALETTE } from './palette'
 import { parseWorktrees } from './worktrees'
 
@@ -220,6 +220,7 @@ export const register: Register = on => {
         <Button key="gates-key-next" plain dimColor hotkey="f" label="next" onPress={() => void cycle($, 1)} />
         <Button key="gates-key-worktrees" plain dimColor hotkey="w" label="worktrees" onPress={() => void goTo($, 'worktrees')} />
         <Button key="gates-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'gates' })} />
+        {JUMP_KEYS.map(j => <Button key={`gates-key-jump-${j.key}`} plain dimColor hotkey={j.key} label={j.label} onPress={() => void (j.id === 'gates' ? undefined : goTo($, j.id))} />)}
       </Box>
       {state.reviewsUnavailable && <Text color={PALETTE.yellow}>reviews unavailable</Text>}
       {state.rows.length === 0 && <Text dimColor>No specs or pending reviews.</Text>}

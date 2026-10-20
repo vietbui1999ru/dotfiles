@@ -12,8 +12,18 @@ export const nextPane = (open: readonly string[], current: string, step: 1 | -1)
   return mine[(at + step + mine.length) % mine.length]
 }
 
-type ModPane = (typeof MOD_PANES)[number]
+export type ModPane = (typeof MOD_PANES)[number]
 export const PANE_TITLES: Record<ModPane, string> = { 'pi-handoff': 'Pi hand-off', 'pi-history': 'Pi history', worktrees: 'Worktrees', 'draft-prs': 'Draft PRs', gates: 'Gates' }
+
+// The jump digits, the same in every pane. A pane's own digit does nothing; each jump uses that
+// pane's existing goTo runner, which also opens a pane that is not yet open.
+export const JUMP_KEYS: readonly { key: '1' | '2' | '3' | '4' | '5'; id: ModPane; label: string }[] = [
+  { key: '1', id: 'pi-handoff', label: 'pi' },
+  { key: '2', id: 'pi-history', label: 'history' },
+  { key: '3', id: 'worktrees', label: 'worktrees' },
+  { key: '4', id: 'draft-prs', label: 'drafts' },
+  { key: '5', id: 'gates', label: 'gates' },
+]
 const titleOf = (id: string) => PANE_TITLES[id as ModPane] ?? id
 
 export type PaneStep = { close: string } | { open: string; title: string; focus?: true }

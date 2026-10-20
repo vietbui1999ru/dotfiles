@@ -63,3 +63,29 @@ test('gh exit 4 shows the login message instead of rows', async ($, on) => {
   await $.command.run(RUN)
   expect(lines(await $.ui.render(PANE))).toContain(GH_AUTH)
 })
+
+test('digits jump to another mod pane; the pane\'s own digit does nothing', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  const closed: string[] = []
+  const opened: { id: string; title: string; focus?: true }[] = []
+  on('ui.close', (_$, e) => { closed.push(e.id); return { value: undefined } as never })
+  on('ui.open', (_$, e) => {
+    const { id, title, focus } = e as { id: string; title: string; focus?: boolean }
+    opened.push(focus === true ? { id, title, focus: true } : { id, title })
+    return { value: { isPlaced: true } } as never
+  })
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  await ui.press({ key: 'pr-key-jump-3' })
+  await clock.settle()
+  expect(closed).toEqual(['draft-prs'])
+  expect(opened).toEqual([
+    { id: 'worktrees', title: 'Worktrees', focus: true },
+    { id: 'draft-prs', title: 'Draft PRs' },
+  ])
+  closed.length = 0
+  opened.length = 0
+  await ui.press({ key: 'pr-key-jump-4' })
+  await clock.settle()
+  expect(closed).toEqual([])
+  expect(opened).toEqual([])
+})

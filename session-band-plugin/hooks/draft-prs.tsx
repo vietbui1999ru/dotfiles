@@ -2,7 +2,7 @@ import { atom, read, update, type EngineInterface, type Register } from 'claude-
 
 import type { DraftPrsState } from '../types'
 import { CHECK_MARK, GH_ARGV, groups, prLine, readGh } from './draft-prs'
-import { nextPane, switchSteps } from './pane-nav'
+import { JUMP_KEYS, nextPane, switchSteps } from './pane-nav'
 
 const view = atom({ plugin: 'session-band', key: 'draftPrs' } as const, { loading: false } as DraftPrsState)
 
@@ -59,6 +59,7 @@ export const register: Register = on => {
         <Button key="pr-key-prev" plain dimColor hotkey="b" label="prev" onPress={() => void cycle($, -1)} />
         <Button key="pr-key-next" plain dimColor hotkey="f" label="next" onPress={() => void cycle($, 1)} />
         <Button key="pr-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'draft-prs' })} />
+        {JUMP_KEYS.map(j => <Button key={`pr-key-jump-${j.key}`} plain dimColor hotkey={j.key} label={j.label} onPress={() => void (j.id === 'draft-prs' ? undefined : goTo($, j.id))} />)}
       </Box>
       {note !== undefined && <Text dimColor>{note}</Text>}
       {/* A header per state separates drafts from the rest; the row keeps only what tells PRs apart. */}
