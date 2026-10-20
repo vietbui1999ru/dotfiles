@@ -41,16 +41,19 @@ git clone --recurse-submodules git@github.com:vietbui99/dotfiles.git ~/dotfiles
 # 2. Install Homebrew
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-# 3. Install packages
+# 3. Install Homebrew packages (dev CLIs & runtimes are managed by mise — step 6)
 cd ~/dotfiles && brew bundle
 
 # 4. Create expected directories (uses a standalone ~/repos/llm-wiki clone if present)
 ./scripts/bootstrap-dirs.sh
 
-# 5. Symlink configs
+# 5. Symlink configs (incl. mise/.config/mise/config.toml)
 ./scripts/restow.sh
 
-# 6. Sync AI tool rules (AGENTS.md + MCP servers)
+# 6. Install dev CLIs & runtimes via mise
+mise install
+
+# 7. Sync AI tool rules (AGENTS.md + MCP servers)
 ./scripts/sync-agent-rules.sh
 ```
 
@@ -101,7 +104,7 @@ git submodule update --init repos/llm-wiki
 | `pi` (pi-coding-agent) | `npm install -g @earendil-works/pi-coding-agent` |
 | GitHub stacked PRs | `gh extension install github/gh-stack` (skill synced by `bootstrap-dirs.sh`) |
 | `omp` (oh-my-pi) | `curl -fsSL https://omp.sh/install \| sh` |
-| `rtk` (Rust Token Killer) | `brew install rtk` (included in `Brewfile`) |
+| `rtk` (Rust Token Killer) | `mise install` (in `mise/.config/mise/config.toml`) |
 
 `omp` binaries land in `~/.bun/bin/` — already on PATH via `.zprofile`.
 

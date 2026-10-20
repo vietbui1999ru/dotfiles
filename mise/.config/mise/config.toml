@@ -1,0 +1,36 @@
+# Global mise config — dev CLIs & runtimes previously installed via Homebrew
+# (see Brewfile). Stowed from the `mise` package; install with `mise install`.
+
+[tools]
+# Runtimes
+go = "latest"
+node = "lts"
+uv = "latest"
+
+# GitHub
+gh = "latest"
+
+# Shell
+sheldon = "latest"
+starship = "latest"
+
+# Editor
+neovim = "latest"
+"npm:tree-sitter-cli" = "latest"          # nvim-treesitter main compiles parsers with it
+"npm:@mermaid-js/mermaid-cli" = "latest"  # snacks.image / diagram.nvim render mermaid via mmdc
+
+# Modern CLI (Rust tools)
+eza = "latest"
+bat = "latest"
+ripgrep = "latest"    # installs the `rg` binary
+fd = "latest"
+delta = "latest"      # Homebrew formula was `git-delta`
+lazygit = "latest"
+jj = "latest"
+fzf = "latest"
+zoxide = "latest"
+rtk = "latest"
+
+# Utilities
+jq = "latest"
+yq = "latest"

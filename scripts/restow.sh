@@ -10,6 +10,6 @@ cd "$(dirname "$0")/.."
 
 # codex carries only hooks.json: the rest of ~/.codex is machine state
 # (auth.json, sessions/) or holds credentials (config.toml), so it stays untracked.
-PACKAGES=(zsh starship nvim tmux tmuxinator kitty git jj claude opencode pi codex)
+PACKAGES=(zsh starship nvim tmux tmuxinator kitty git jj claude opencode pi codex mise)
 
 stow -R "${PACKAGES[@]}"

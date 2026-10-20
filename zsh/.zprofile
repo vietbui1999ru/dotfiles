@@ -10,6 +10,9 @@ if [[ $OSTYPE == darwin* ]]; then
   fi
 fi
 
+# ── mise shims (dev CLIs/runtimes; also for non-interactive shells) ───
+export PATH="$HOME/.local/share/mise/shims:$PATH"
+
 # ── Language toolchains (PATH only — inits in .zshrc) ────────────────
 [[ -f "$HOME/.elan/env" ]] && source "$HOME/.elan/env"
 [[ -f "$HOME/.ghcup/env" ]] && source "$HOME/.ghcup/env"

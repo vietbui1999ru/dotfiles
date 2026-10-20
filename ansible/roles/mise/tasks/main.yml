@@ -12,11 +12,11 @@
     creates: "{{ ansible_env.HOME }}/.local/bin/mise"
   when: ansible_os_family != "Darwin"
 
-# Install node@lts globally — prebuilt binary, fast, needed for Mason/LSPs.
-# Python and Ruby are compiled from source; set versions per-project with
-# `mise use python@X.Y` or globally with `mise use -g ruby@X.Y`.
-- name: Set node@lts as global default via mise
-  ansible.builtin.command: mise use -g node@lts
+# Install every tool pinned in ~/.config/mise/config.toml (stowed by the
+# dotfiles role). Prebuilt binaries where possible; Python/Ruby are compiled
+# from source when a project sets a version via `mise use`.
+- name: Install tools from mise global config
+  ansible.builtin.command: mise install
   environment:
     PATH: "{{ ansible_env.HOME }}/.local/bin:/opt/homebrew/bin:/usr/local/bin:{{ ansible_env.PATH }}"
   changed_when: false

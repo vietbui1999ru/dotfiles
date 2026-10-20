@@ -32,5 +32,6 @@
     - nvim
     - git
     - claude
+    - mise
   register: dotfiles_stow_result
   changed_when: dotfiles_stow_result.stdout != ""
