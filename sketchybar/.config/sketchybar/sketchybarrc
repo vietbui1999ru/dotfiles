@@ -30,7 +30,7 @@ sketchybar --bar \
   height=40 \
   color=$TRANSPARENT \
   margin=$BAR_MARGIN \
-  y_offset=5 \
+  y_offset=10 \
   notch_width=$BAR_NOTCH_W \
   sticky=on
 
