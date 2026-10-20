@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { confirmedStale, continueArgv, continueModel, continuePath, hasMonitorRows, monitorText, selectedProgress, selectedTask } from './pane.tsx'
+import { confirmedStale, continueArgv, continueModel, continuePath, hasMonitorRows, monitorText, selectedProgress, selectedTask, transcriptLines } from './pane.tsx'
 import { controlArgv } from './controls'
 import { selectStale, type MonitorRow, type TrackedTask } from './handoff'
 import { emptyProgress } from './pisession'
@@ -91,4 +91,28 @@ test('Continue reads a quoted --model from a previous Continue without the quote
   const quoted = { ...task, task: { ...task.task!, command: "pi --model 'anthropic/x:high' --session-id 'pueue-x' -p \"$(cat '/tmp/p.md')\" < /dev/null" } }
   expect(continueModel(quoted, undefined)).toBe('anthropic/x:high')
   expect(continueModel({ ...task, task: { ...task.task!, command: 'pi -p x' } }, undefined)).toBeUndefined()
+})
+
+test('transcriptLines drops thinking with the toggle off and draws summaries, empties, and output lines with it on', () => {
+  expect(transcriptLines([{ kind: 'thinking', text: '' }, { kind: 'thinking', text: '**Plan**' }], false)).toEqual([])
+  expect(transcriptLines([{ kind: 'thinking', text: '' }, { kind: 'thinking', text: '**Plan**' }], true)).toEqual([
+    { key: 'entry-0', text: '  · thinking…', dim: true },
+    { key: 'entry-1', text: '  · **Plan**', dim: true },
+  ])
+  expect(transcriptLines([{ kind: 'output', text: 'a\nb' }], false)).toEqual([
+    { key: 'entry-0-0', text: '  ↳ a', dim: true },
+    { key: 'entry-0-1', text: '  ↳ b', dim: true },
+  ])
+})
+
+test('transcriptLines renders text, tool, and error entries undimmed with their prefixes', () => {
+  expect(transcriptLines([
+    { kind: 'text', text: 'x'.repeat(300) },
+    { kind: 'tool', text: 'edit a.ts' },
+    { kind: 'error', text: 'boom' },
+  ], true)).toEqual([
+    { key: 'entry-0', text: 'x'.repeat(280), dim: false },
+    { key: 'entry-1', text: 'edit a.ts', dim: false },
+    { key: 'entry-2', text: 'ERROR boom', dim: false },
+  ])
 })

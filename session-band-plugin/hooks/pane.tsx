@@ -7,7 +7,7 @@ import type { HandoffState } from './handoff.tsx'
 import { focusRing, moveTo, type Motion } from './motion'
 import { nextPane, switchSteps } from './pane-nav'
 import { PALETTE } from './palette'
-import type { PiProgress } from './pisession'
+import type { PiProgress, TranscriptEntry } from './pisession'
 import { parsePending, pendingRecordFor, type PendingReview } from './review'
 
 const handoff = atom({ plugin: 'session-band', key: 'handoff' } as const, { tasks: [] as TrackedTask[], available: true } satisfies HandoffState)
@@ -348,6 +348,16 @@ const goTo = async ($: EngineInterface, to: string | undefined) => {
 }
 const cycle = async ($: EngineInterface, step: 1 | -1) => goTo($, nextPane((await $.ui.panes()).map(pane => pane.id), 'pi-handoff', step))
 
+export const transcriptLines = (entries: readonly TranscriptEntry[], showThinking: boolean): { key: string; text: string; dim: boolean }[] =>
+  entries.flatMap((entry, index) => {
+    if (entry.kind === 'thinking' && !showThinking) return []
+    if (entry.kind === 'thinking') return [{ key: `entry-${index}`, text: entry.text ? `  · ${entry.text}` : '  · thinking…', dim: true }]
+    if (entry.kind === 'text') return [{ key: `entry-${index}`, text: entry.text.slice(0, 280), dim: false }]
+    if (entry.kind === 'tool') return [{ key: `entry-${index}`, text: entry.text, dim: false }]
+    if (entry.kind === 'error') return [{ key: `entry-${index}`, text: `ERROR ${entry.text}`, dim: false }]
+    return entry.text.split('\n').map((line, lineIndex) => ({ key: `entry-${index}-${lineIndex}`, text: `  ↳ ${line}`, dim: true }))
+  })
+
 export const register: Register = on => {
   on('command.run', { command: 'pi' }, async ($, e, _next) => {
     const parsed = parsePiArgs(e.args)
@@ -393,6 +403,7 @@ export const register: Register = on => {
         <Button key="pi-key-next" plain dimColor hotkey="f" label="next" onPress={() => void cycle($, 1)} />
         <Button key="pi-key-worktrees" plain dimColor hotkey="w" label="worktrees" onPress={() => void goTo($, 'worktrees')} />
         <Button key="pi-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'pi-handoff' })} />
+        <Button key="pi-key-thinking" plain dimColor hotkey="t" label={state.showThinking ? 'hide thinking' : 'thinking'} onPress={() => void update($, handoff, value => ({ ...value, showThinking: !value.showThinking }))} />
         {task && <Text dimColor>x kill  h hold  p pause  y/n confirm</Text>}
       </Box>
       {confirm && <Box flexDirection="row" columnGap={1}>
@@ -414,7 +425,7 @@ export const register: Register = on => {
         })}
       </Box>}
       {task && <Text>{`\n${taskLabel(task)}${pi?.lastActivity ? ` · ${pi.lastActivity}` : ''}\n${pi ? `${pi.tokens} tokens · $${pi.cost.toFixed(3)}` : 'usage n/a'}`}</Text>}
-      {transcript.map((entry, index) => <Text key={`entry-${index}`}>{entry.kind === 'error' ? `ERROR ${entry.text}` : entry.text.slice(0, 280)}</Text>)}
+      {transcriptLines(transcript, state.showThinking ?? false).map(line => <Text key={line.key} dimColor={line.dim}>{line.text}</Text>)}
       {task && <Box flexDirection="row" flexWrap="wrap" columnGap={1} marginTop={1}>
         {!complete(task) && <Button key="pi-abort" hotkey="x" onPress={() => void askConfirm($, 'kill', [task.id])}>Abort</Button>}
         {task.task && eligible('kill', task.task.state) && <Button key="pi-hold" hotkey="h" onPress={() => void askConfirm($, 'hold', [task.id])}>Hold queue</Button>}
