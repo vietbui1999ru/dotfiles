@@ -232,6 +232,50 @@ test("an existing decision is already-decided and stays untouched", async () => 
   assert.equal(readFileSync(join(decisions, `${id}.json`), "utf8"), "mine\n");
 });
 
+// A Neovim decision for a `pi -p` run has no Pi left to consume it.
+const writeNvimDecision = (root: string, id: string, extra: Record<string, unknown> = {}) => {
+  const record = JSON.parse(readFileSync(join(dirOf(root), "pending", `${id}.json`), "utf8"));
+  const decision = {
+    runId: id, endTree: record.endTree, finalTree: record.endTree,
+    files: record.files.map((f: { file: string }) => ({ file: f.file, status: "accepted" })),
+    notes: [], patch: "", ...extra,
+  };
+  mkdirSync(join(dirOf(root), "decisions"), { recursive: true });
+  const path = join(dirOf(root), "decisions", `${id}.json`);
+  writeFileSync(path, JSON.stringify(decision));
+  return path;
+};
+
+test("an unconsumed accept-all decision is finalized and kept as written", async () => {
+  const root = makeRepo();
+  const id = await pendingRun(root);
+  const path = writeNvimDecision(root, id);
+  const before = readFileSync(path, "utf8");
+  const out = approveWith(root, id, true);
+  assert.deepEqual(out.json, { ok: true, runId: id });
+  assert.equal(readFileSync(path, "utf8"), before);
+  assert.deepEqual(list(join(dirOf(root), "pending")), []);
+  assert.equal(git(root, "for-each-ref", `refs/agent-review/${id}`).trim(), "");
+});
+
+test("an unconsumed decision with notes is already-decided and stays pending", async () => {
+  const root = makeRepo();
+  const id = await pendingRun(root);
+  const path = writeNvimDecision(root, id, { notes: [{ file: "tracked.txt", line: 1, text: "redo" }] });
+  const before = readFileSync(path, "utf8");
+  assert.equal(approveWith(root, id, true).json.reason, "already-decided");
+  assert.equal(readFileSync(path, "utf8"), before);
+  assert.deepEqual(list(join(dirOf(root), "pending")), [`${id}.json`]);
+});
+
+test("a declined dialog leaves an unconsumed decision pending", async () => {
+  const root = makeRepo();
+  const id = await pendingRun(root);
+  writeNvimDecision(root, id);
+  assert.equal(approveWith(root, id, false).json.reason, "not-confirmed");
+  assert.deepEqual(list(join(dirOf(root), "pending")), [`${id}.json`]);
+});
+
 test("an id that differs from the record is invalid-pending", async () => {
   const { root, id } = await withPending((file) => patch(file, { runId: "22222222-2222-4222-8222-222222222222" }));
   assert.equal(refuse(root, id).json.reason, "invalid-pending");
