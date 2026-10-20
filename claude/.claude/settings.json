@@ -37,7 +37,19 @@
       "Bash(jj git push:*)",
       "Bash(jj op log:*)",
       "Bash(jj undo:*)",
-      "Bash(jj op undo:*)"
+      "Bash(jj op undo:*)",
+      "Bash(mise ls:*)",
+      "Bash(mise outdated:*)",
+      "Bash(mise tasks:*)",
+      "Bash(mise which:*)",
+      "Bash(mise where:*)",
+      "Bash(mise doctor:*)",
+      "Bash(mise ls-remote:*)",
+      "Bash(mise latest:*)",
+      "Bash(mise install:*)",
+      "Bash(mise run:*)",
+      "Bash(mise x:*)",
+      "Bash(mise exec:*)"
     ],
     "deny": [
       "Bash(agent-review approve:*)",
@@ -92,7 +104,15 @@
       "Bash(jj *util *)",
       "Bash(jj *--config*)",
       "Bash(jj *config set*)",
-      "Bash(jj *config edit*)"
+      "Bash(jj *config edit*)",
+      "Bash(mise *trust*)",
+      "Bash(mise *use * -g*)",
+      "Bash(mise *use *--global*)",
+      "Bash(mise *settings*)",
+      "Bash(mise *self-update*)",
+      "Bash(mise *implode*)",
+      "Bash(mise *token*)",
+      "Bash(mise *ssh*)"
     ],
     "defaultMode": "plan"
   },

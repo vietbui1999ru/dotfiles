@@ -164,6 +164,30 @@ reads the current branch. Push with `jj git push -b <branch>`. Never move or pus
 `main`/`master`, never pass `--ignore-immutable`, and never rewrite a branch that
 another worktree has checked out. Plain git remains a valid fallback.
 
+## Repo tooling: mise
+
+mise is the default for a repo's tools, environment, tasks and pins. Before
+installing or running anything, look for `mise.toml` (or `.mise.toml`,
+`.tool-versions`) and work through it:
+
+- Tools and pinning: `mise use <tool>@<version>` installs a tool and writes the
+  pin to the repo's `mise.toml`; `mise install` installs what the config pins;
+  `mise ls` and `mise outdated` show what is active and what is behind. Do not
+  install a repo's tools with `brew`, `npm -g`, `pip install --user`, `nvm`,
+  `pyenv` or `rbenv`.
+- Running and testing: use `mise run <task>` when the repo defines mise tasks
+  (`mise tasks` lists them), otherwise the repo's own runner. `mise x -- <cmd>`
+  runs a command with the pinned tools when the shell has no mise activation.
+- Environment: repo variables go in `[env]` in `mise.toml` (`mise set KEY=value`).
+  Secrets never go in `mise.toml`; use a gitignored `mise.local.toml`.
+- Updating: `mise upgrade` stays inside the pinned range and `mise upgrade --bump`
+  moves the pins. Run either only when the task is an update; otherwise ask.
+
+Never run `mise trust` (trust lets a config run code), `mise use -g`/`--global`,
+`mise settings`, `mise self-update`, `mise implode`, `mise token` or `mise ssh`.
+They change the whole machine or expose credentials, so they are the human's
+call. Add a mise config to a repo that has none only when the task asks for it.
+
 <!-- spec-loop:start -->
 ## Spec loop
 
