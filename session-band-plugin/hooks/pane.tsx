@@ -5,7 +5,7 @@ import { controlArgv, eligible, holdArgv, parsePiArgs, PS_ARGV, releaseArgv, res
 import { monitorRows, selectStale, type MonitorRow, type StaleSelection, type TrackedTask } from './handoff'
 import type { HandoffState } from './handoff.tsx'
 import { focusRing, moveTo, type Motion } from './motion'
-import { JUMP_KEYS, nextPane, switchSteps } from './pane-nav'
+import { FOCUS_ACTION, FOCUS_REFUSED, JUMP_KEYS, nextPane, PANE_TITLES, switchSteps } from './pane-nav'
 import { PALETTE } from './palette'
 import type { PiProgress, TranscriptEntry } from './pisession'
 import { parsePending, pendingRecordFor, type PendingReview } from './review'
@@ -386,6 +386,16 @@ const goTo = async ($: EngineInterface, to: string | undefined) => {
 }
 const cycle = async ($: EngineInterface, step: 1 | -1) => goTo($, nextPane((await $.ui.panes()).map(pane => pane.id), 'pi-handoff', step))
 
+// Keep engine calls local: `$` cannot cross an import.
+async function focusSelf($: EngineInterface) {
+  if ((await $.prompt.read()).text.trim()) {
+    await $.ui.toast(FOCUS_REFUSED)
+    return
+  }
+  await $.ui.open({ id: 'pi-handoff', title: PANE_TITLES['pi-handoff'], focus: true })
+  if (!(await $.ui.panes()).some(pane => pane.id === 'pi-handoff' && pane.isFocused)) await $.ui.toast(FOCUS_REFUSED)
+}
+
 export const transcriptLines = (entries: readonly TranscriptEntry[], showThinking: boolean): { key: string; text: string; dim: boolean }[] =>
   entries.flatMap((entry, index) => {
     if (entry.kind === 'thinking' && !showThinking) return []
@@ -440,6 +450,7 @@ export const register: Register = on => {
         <Button key="pi-key-prev" plain dimColor hotkey="b" label="prev" onPress={() => void cycle($, -1)} />
         <Button key="pi-key-next" plain dimColor hotkey="f" label="next" onPress={() => void cycle($, 1)} />
         <Button key="pi-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'pi-handoff' })} />
+        <Button key="pi-key-focus" plain dimColor action={FOCUS_ACTION} label="ctrl+x b" onPress={() => void focusSelf($)} />
         <Button key="pi-key-thinking" plain dimColor hotkey="t" label={state.showThinking ? 'hide thinking' : 'thinking'} onPress={() => void update($, handoff, value => ({ ...value, showThinking: !value.showThinking }))} />
         {JUMP_KEYS.map(j => <Button key={`pi-key-jump-${j.key}`} plain dimColor hotkey={j.key} label={j.label} onPress={() => void (j.id === 'pi-handoff' ? undefined : goTo($, j.id))} />)}
         {task && <Text dimColor>x kill  s stop  h hold  p pause  y/n confirm</Text>}

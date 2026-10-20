@@ -3,6 +3,9 @@
 // uses these pure pickers for the target and the moves.
 export const MOD_PANES = ['pi-handoff', 'pi-history', 'worktrees', 'draft-prs', 'gates'] as const
 
+export const FOCUS_ACTION = 'app:cycleDiffBase'
+export const FOCUS_REFUSED = 'Clear the prompt first: ctrl+x b focuses the pane only from an empty prompt.'
+
 // The open mod pane after (or before, step -1) `current`, wrapping. Undefined when none is open.
 export const nextPane = (open: readonly string[], current: string, step: 1 | -1): string | undefined => {
   const mine = MOD_PANES.filter(id => open.includes(id))

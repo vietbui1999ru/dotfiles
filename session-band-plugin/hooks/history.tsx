@@ -3,7 +3,7 @@ import { atom, read, update, type EngineInterface, type Register } from 'claude-
 import type { HistoryState, PiProgress } from '../types'
 import { finalMessage, historyRowsPage, leftReview, type HistoryFilter, type HistoryUsage, truncateCommand } from './history'
 import { focusRing, moveTo, type Motion } from './motion'
-import { JUMP_KEYS, nextPane, switchSteps } from './pane-nav'
+import { FOCUS_ACTION, FOCUS_REFUSED, JUMP_KEYS, nextPane, PANE_TITLES, switchSteps } from './pane-nav'
 import { emptyProgress, fold, sessionDir, sessionFileName } from './pisession'
 import { isPiDispatch, parsePiCommand, parseStatus, type Task } from './pueue'
 import { PALETTE } from './palette'
@@ -190,6 +190,16 @@ const goTo = async ($: EngineInterface, to: string | undefined) => {
 }
 const cycle = async ($: EngineInterface, step: 1 | -1) => goTo($, nextPane((await $.ui.panes()).map(pane => pane.id), 'pi-history', step))
 
+// Keep engine calls local: `$` cannot cross an import.
+async function focusSelf($: EngineInterface) {
+  if ((await $.prompt.read()).text.trim()) {
+    await $.ui.toast(FOCUS_REFUSED)
+    return
+  }
+  await $.ui.open({ id: 'pi-history', title: PANE_TITLES['pi-history'], focus: true })
+  if (!(await $.ui.panes()).some(pane => pane.id === 'pi-history' && pane.isFocused)) await $.ui.toast(FOCUS_REFUSED)
+}
+
 export const register: Register = on => {
   on('command.run', { command: 'pi-history' }, async ($, _e, _next) => {
     await $.ui.open({ id: 'pi-history', title: 'Pi history', focus: true })
@@ -239,6 +249,7 @@ export const register: Register = on => {
         <Button key="pi-history-key-prev" plain dimColor hotkey="b" label="prev" onPress={() => void cycle($, -1)} />
         <Button key="pi-history-key-next" plain dimColor hotkey="f" label="next" onPress={() => void cycle($, 1)} />
         <Button key="pi-history-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'pi-history' })} />
+        <Button key="pi-history-key-focus" plain dimColor action={FOCUS_ACTION} label="ctrl+x b" onPress={() => void focusSelf($)} />
         {JUMP_KEYS.map(j => <Button key={`pi-history-key-jump-${j.key}`} plain dimColor hotkey={j.key} label={j.label} onPress={() => void (j.id === 'pi-history' ? undefined : goTo($, j.id))} />)}
       </Box>
       <Box><Text color={PALETTE.green}>✓ success</Text><Text color={PALETTE.yellow}> · ✓ review</Text><Text color={PALETTE.red}> · ✗ exit</Text><Text color={PALETTE.mauve}> · ✗ killed</Text></Box>

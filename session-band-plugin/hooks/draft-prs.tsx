@@ -2,7 +2,7 @@ import { atom, read, update, type EngineInterface, type Register } from 'claude-
 
 import type { DraftPrsState } from '../types'
 import { CHECK_MARK, GH_ARGV, groups, prLine, readGh } from './draft-prs'
-import { JUMP_KEYS, nextPane, switchSteps } from './pane-nav'
+import { FOCUS_ACTION, FOCUS_REFUSED, JUMP_KEYS, nextPane, PANE_TITLES, switchSteps } from './pane-nav'
 
 const view = atom({ plugin: 'session-band', key: 'draftPrs' } as const, { loading: false } as DraftPrsState)
 
@@ -28,6 +28,16 @@ const goTo = async ($: EngineInterface, to: string | undefined) => {
   for (const s of switchSteps('draft-prs', to)) await ('close' in s ? $.ui.close({ id: s.close }) : $.ui.open({ id: s.open, title: s.title, focus: s.focus }))
 }
 const cycle = async ($: EngineInterface, step: 1 | -1) => goTo($, nextPane((await $.ui.panes()).map(pane => pane.id), 'draft-prs', step))
+
+// Keep engine calls local: `$` cannot cross an import.
+async function focusSelf($: EngineInterface) {
+  if ((await $.prompt.read()).text.trim()) {
+    await $.ui.toast(FOCUS_REFUSED)
+    return
+  }
+  await $.ui.open({ id: 'draft-prs', title: PANE_TITLES['draft-prs'], focus: true })
+  if (!(await $.ui.panes()).some(pane => pane.id === 'draft-prs' && pane.isFocused)) await $.ui.toast(FOCUS_REFUSED)
+}
 
 export const register: Register = on => {
   on('command.run', { command: 'draft-prs' }, async ($, _e, _next) => {
@@ -59,6 +69,7 @@ export const register: Register = on => {
         <Button key="pr-key-prev" plain dimColor hotkey="b" label="prev" onPress={() => void cycle($, -1)} />
         <Button key="pr-key-next" plain dimColor hotkey="f" label="next" onPress={() => void cycle($, 1)} />
         <Button key="pr-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'draft-prs' })} />
+        <Button key="pr-key-focus" plain dimColor action={FOCUS_ACTION} label="ctrl+x b" onPress={() => void focusSelf($)} />
         {JUMP_KEYS.map(j => <Button key={`pr-key-jump-${j.key}`} plain dimColor hotkey={j.key} label={j.label} onPress={() => void (j.id === 'draft-prs' ? undefined : goTo($, j.id))} />)}
       </Box>
       {note !== undefined && <Text dimColor>{note}</Text>}
