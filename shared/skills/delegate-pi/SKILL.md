@@ -85,7 +85,7 @@ Every pueue dispatch carries `--label <slug>` (pueue flag, before `--`) and `--s
 | medium | `PI_DELEGATE_MEDIUM_MODEL` from `~/.pi/agent/routing.env` |
 | low | `PI_DELEGATE_LOW_MODEL` from `~/.pi/agent/routing.env` |
 
-Default routes: high=`opencode-go/claude-haiku-5-5:medium`, medium=`opencode-go/deepseek-v4.1-flash:medium`, low=`opencode-go/deepseek-v4.1-flash:off`. Delegated implementation is pure coding, so it uses the low tiers and low effort. The high tier (`openai-codex/gpt-6.1-sol:high`, `opencode-go/deepseek-v4-pro:high`) is reserved for council dimensions and second or third adversarial reviews. These match the tiers in `claude/.claude/rules/model-routing.md`; change both together. Check an ID with `pi --list-models <name>` before adding it. Note: `--fallback-models` requires a custom extension (not built-in). Without it, assign model per task at dispatch time.
+Default routes: high=`opencode-go/claude-haiku-5-5:off` (keep Claude's thinking off in Pi: pi-lens and context-mode add unsaved messages to each request, which breaks Claude's signed thinking from the second turn with a 400 "thinking block is bound to a different conversation"), medium=`opencode-go/deepseek-v4.1-flash:medium`, low=`opencode-go/deepseek-v4.1-flash:off`. Delegated implementation is pure coding, so it uses the low tiers and low effort. The high tier (`openai-codex/gpt-6.1-sol:high`, `opencode-go/deepseek-v4-pro:high`) is reserved for council dimensions and second or third adversarial reviews. These match the tiers in `claude/.claude/rules/model-routing.md`; change both together. Check an ID with `pi --list-models <name>` before adding it. Note: `--fallback-models` requires a custom extension (not built-in). Without it, assign model per task at dispatch time.
 
 ---
 
