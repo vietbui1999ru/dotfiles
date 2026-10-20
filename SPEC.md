@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 branch: feat/agent-review-global
 ---
 # SPEC: agent-review lists pending reviews across repos (Track A of the Neovim review dashboard)
