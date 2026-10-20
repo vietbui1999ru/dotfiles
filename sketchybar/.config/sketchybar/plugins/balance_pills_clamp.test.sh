@@ -28,7 +28,7 @@ run() {
   printf 'SCREEN_W=%s\nBAR_MARGIN=7\nNOTCH_W=%s\n' "$screen" "$notch" >"$TMP/cfg/profile.sh"
   : >"$MOCK_LOG"
   LW=$4 RW=$5 "$ROOT/balance_pills.sh"
-  # Drop the always-present "zero both spacers" call; what remains is the pad.
+  # A spacer --set line, if any, is the pad (balance_pills.sh only sets changes).
   local pad
   pad=$(grep -E -- '--set (left|right)_spacer width=[0-9]+$' "$MOCK_LOG" | grep -v 'width=0 --set' || true)
   if [[ "$expect" == none ]]; then

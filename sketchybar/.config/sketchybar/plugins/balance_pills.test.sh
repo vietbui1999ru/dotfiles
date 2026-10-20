@@ -35,11 +35,16 @@ sleep 0.2
 "$ROOT/balance_pills.sh" &
 second=$!
 wait "$first" "$second"
-# The holder's dirty rerun is backgrounded; give it time to finish.
-sleep 1
+# The holder's dirty rerun is backgrounded: poll (bounded, 10s) until it has
+# measured and released the lock, rather than guessing how long it takes.
+# One run issues 4 queries (2 spacers + 2 pills), so the rerun means >= 8.
+for _ in $(seq 100); do
+  queries=$(grep -c '^--query ' "$MOCK_LOG" || true)
+  (( queries >= 8 )) && [[ ! -e "$TMP/sketchybar_balance.lock" ]] && break
+  sleep 0.1
+done
 
-queries=$(grep -c '^--query ' "$MOCK_LOG" || true)
-[[ "$queries" -ge 4 ]]
+[[ "$queries" -ge 8 ]]
 [[ ! -e "$TMP/sketchybar_balance.lock" ]]
 [[ ! -e "$TMP/sketchybar_balance.dirty" ]]
 printf 'balance contention: %s query measurements, dirty rerun completed\n' "$queries"
