@@ -68,7 +68,7 @@ For long tasks that run in the background while you continue work.
 # Fire task to pueue (medium difficulty). The slug must be new for every task.
 SLUG="<task-name>-$(openssl rand -hex 4)"
 TASK_ID=$(pueue add -i --print-task-id --label "$SLUG" -- \
-  "pi --model opencode-go/deepseek-v4-pro:high --session-id pueue-$SLUG \
+  "pi --model opencode-go/deepseek-v4.1-flash:medium --session-id pueue-$SLUG \
       -p '<full task description>' < /dev/null")
 
 # Check when ready
@@ -85,7 +85,7 @@ Every pueue dispatch carries `--label <slug>` (pueue flag, before `--`) and `--s
 | medium | `PI_DELEGATE_MEDIUM_MODEL` from `~/.pi/agent/routing.env` |
 | low | `PI_DELEGATE_LOW_MODEL` from `~/.pi/agent/routing.env` |
 
-Default routes: high=`openai-codex/gpt-6.1-sol:high`, medium=`opencode-go/deepseek-v4-pro:high`, low=`opencode-go/deepseek-v4.1-flash:off`. These match the tiers in `claude/.claude/rules/model-routing.md`; change both together. Check an ID with `pi --list-models <name>` before adding it. Note: `--fallback-models` requires a custom extension (not built-in). Without it, assign model per task at dispatch time.
+Default routes: high=`opencode-go/claude-haiku-5-5:medium`, medium=`opencode-go/deepseek-v4.1-flash:medium`, low=`opencode-go/deepseek-v4.1-flash:off`. Delegated implementation is pure coding, so it uses the low tiers and low effort. The high tier (`openai-codex/gpt-6.1-sol:high`, `opencode-go/deepseek-v4-pro:high`) is reserved for council dimensions and second or third adversarial reviews. These match the tiers in `claude/.claude/rules/model-routing.md`; change both together. Check an ID with `pi --list-models <name>` before adding it. Note: `--fallback-models` requires a custom extension (not built-in). Without it, assign model per task at dispatch time.
 
 ---
 
@@ -141,7 +141,7 @@ T_REVIEW=$(pueue add -i --print-task-id --label "$S_REVIEW" -- \
       -p '<review task>' < /dev/null")
 
 T_IMPL=$(pueue add -i --print-task-id --label "$S_IMPL" -- \
-  "pi --model opencode-go/deepseek-v4-pro:high --session-id pueue-$S_IMPL \
+  "pi --model opencode-go/deepseek-v4.1-flash:medium --session-id pueue-$S_IMPL \
       -p '<implementation task>' < /dev/null")
 
 T_LOW=$(pueue add -i --print-task-id --label "$S_LOW" -- \
