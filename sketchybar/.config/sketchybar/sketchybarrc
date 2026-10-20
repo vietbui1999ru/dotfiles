@@ -79,6 +79,7 @@ source "$ITEM_DIR/front_app.sh"
 source "$ITEM_DIR/agents.sh"
 source "$ITEM_DIR/clock.sh"
 source "$ITEM_DIR/mic.sh"
+source "$ITEM_DIR/battery.sh"
 source "$ITEM_DIR/vpn.sh"
 # Pills last: brackets can only group items that already exist.
 source "$ITEM_DIR/brackets.sh"

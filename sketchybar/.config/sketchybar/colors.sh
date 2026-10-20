@@ -36,3 +36,7 @@ export VPN_OFF_COLOR=$MUTED_TEAL
 
 # ── Mic ─────────────────────────────────────────
 export MIC_MUTE_COLOR=0xffe78a4e
+
+# ── Battery ─────────────────────────────────────
+export BATTERY_NORMAL_COLOR=$DARK_TEAL
+export BATTERY_WARNING_COLOR=$MIC_MUTE_COLOR

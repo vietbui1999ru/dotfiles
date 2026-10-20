@@ -24,6 +24,7 @@ sketchybar --add bracket left_pill \
 sketchybar --add bracket right_pill \
              right_spacer \
              vpn.tailscale vpn.protonvpn sep.vpn \
+             battery sep.battery \
              mic sep.mic \
              calendar sep.cal \
              clock sep.agents agents \
