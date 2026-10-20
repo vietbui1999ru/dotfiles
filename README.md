@@ -237,6 +237,27 @@ Agent invocations must use named `init`/`add` branches, `submit --auto`, and
 `view --json`; see `docs/workflows/stacked-prs.md` for recovery and review
 rules.
 
+### jj (human-only)
+
+`jj` (Jujutsu) is the human's history-editing tool in the main `~/dotfiles`
+checkout, colocated with git (`jj git init --colocate`). Agents never run `jj`:
+every `jj` command writes to the repo, and in a colocated repo it detaches git
+HEAD. Agents use git only.
+
+Three workflows:
+
+- **Review Pi's commits by rewriting**, after its pueue task finishes:
+  `jj log -r 'main..feat/x'`, then `jj abandon` / `jj squash --from A --into B` /
+  `jj split -r C`, then `jj git push -b feat/x`. Undo with `jj op undo`.
+- **Sync a branch without merge commits:** `jj git fetch && jj rebase -b feat/x -d main@origin`.
+- **Quick tweak:** `jj new main`, edit, `jj file track <path>`,
+  `jj describe -m ...`, `jj bookmark create fix/x -r @`, `jj git push -b fix/x`,
+  `gh pr create`.
+
+After any jj operation git HEAD is detached, so run `git switch <branch>` before
+running agents or `ac-run`. Never rewrite a branch that a running Pi worktree has
+checked out.
+
 ### Pi-first workflow
 
 Pi is the only supported agent harness. Commandr is the task service,
