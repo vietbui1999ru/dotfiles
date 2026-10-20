@@ -1,0 +1,3 @@
+[test]
+# Every test file runs Pi in-process, and Pi registers repos with pending reviews.
+preload = ["./test-state.ts"]

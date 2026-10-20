@@ -170,6 +170,40 @@ def scan(root: Path, every: bool) -> list[dict[str, object]]:
     return sorted(found, key=lambda entry: (entry["orphan"], str(entry["startedAt"])))
 
 
+def registry_path() -> Path:
+    """Every repo that has had a pending review, one main-worktree path per line (Pi writes it)."""
+    state = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
+    return Path(state) / "agent-review" / "repos"
+
+
+def main_worktree(root: Path) -> Path:
+    common = Path(git(root, "rev-parse", "--path-format=absolute", "--git-common-dir"))
+    return common.parent if common.name == ".git" else common
+
+
+def global_scan() -> list[dict[str, object]]:
+    """Reviews in every registered repo plus the current one, each tagged with its repo."""
+    try:
+        roots = [Path(line) for line in registry_path().read_text().splitlines() if line.strip()]
+    except OSError:
+        roots = []
+    try:
+        roots.append(repo_root())
+    except SystemExit:
+        pass  # outside a repository: registered repos only
+    seen: set[Path] = set()
+    found: list[dict[str, object]] = []
+    for root in roots:
+        try:
+            main = main_worktree(root)
+        except (RuntimeError, OSError, subprocess.TimeoutExpired):
+            continue  # missing, or no longer a git repository
+        if main not in seen:
+            seen.add(main)
+            found += [{**entry, "repo": str(main)} for entry in scan(main, True)]
+    return sorted(found, key=lambda entry: (entry["orphan"], str(entry["startedAt"])))
+
+
 def find_owner(root: Path, run_id: str) -> Path | None:
     """The worktree whose pending directory holds run_id (as .json or .processing)."""
     for tree, _branch in worktrees(root):
@@ -376,16 +410,32 @@ def command_skip(args: argparse.Namespace) -> int:
 
 
 def command_list(args: argparse.Namespace) -> int:
-    entries = scan(repo_root(), args.all)
+    entries = global_scan() if args.glob else scan(repo_root(), args.all)
     if args.json:
         print(json.dumps(entries))
         return 0
     for e in entries:
         tags = [t for t in ("landed", "processing", "error", "orphan") if e[t]]
         where = "(no worktree)" if e["orphan"] else f"{e['owner']} [{e['branch'] or 'detached'}]"
-        print(f"{e['name'] or '-'}  {str(e['runId'])[:8]}  {where}  {e['startedAt']}  {' '.join(tags)}".rstrip())
+        repo = f"{Path(str(e['repo'])).name}  " if args.glob else ""
+        print(f"{repo}{e['name'] or '-'}  {str(e['runId'])[:8]}  {where}  {e['startedAt']}  {' '.join(tags)}".rstrip())
     if not entries:
         print("no pending reviews")
+    return 0
+
+
+def command_register(_args: argparse.Namespace) -> int:
+    main = main_worktree(repo_root())
+    path = registry_path()
+    try:
+        lines = path.read_text().splitlines()
+    except OSError:
+        lines = []
+    if str(main) not in lines:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a") as stream:
+            stream.write(f"{main}\n")
+    print(f"agent-review: registered {main}")
     return 0
 
 
@@ -435,8 +485,12 @@ def main() -> int:
     approve_parser.set_defaults(handler=command_approve)
     list_parser = subparsers.add_parser("list", help="list pending reviews (--all: every worktree)")
     list_parser.add_argument("--all", action="store_true", help="scan every worktree and orphan refs")
+    list_parser.add_argument("--global", dest="glob", action="store_true",
+                             help="every registered repo plus this one, each entry with its repo")
     list_parser.add_argument("--json", action="store_true", help="one JSON array on stdout")
     list_parser.set_defaults(handler=command_list)
+    register_parser = subparsers.add_parser("register", help="add this repo to the list --global registry")
+    register_parser.set_defaults(handler=command_register)
     skip_parser = subparsers.add_parser("skip", help="dismiss one review without approving it, from any worktree")
     skip_parser.add_argument("run_id")
     skip_parser.set_defaults(handler=command_skip)
