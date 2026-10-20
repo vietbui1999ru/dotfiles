@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 branch: feat/session-band-gitlab-mrs
 ---
 # SPEC: session-band Draft PRs pane lists GitLab MRs
