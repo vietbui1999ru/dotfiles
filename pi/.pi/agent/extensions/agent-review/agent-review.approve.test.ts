@@ -161,14 +161,19 @@ test("ignored files and Pi's own .pi state do not block approval", async () => {
   assert.equal(approveWith(root, id, true).json.ok, true);
 });
 
-test("a linked worktree approves its own run; the main checkout does not see it", async () => {
+// Changed 2026-10-19 with the person's approval (cross-worktree SPEC, AC-5): the main
+// checkout used to answer no-pending; approve now resolves the owning worktree.
+test("a linked worktree's run can be approved from the main checkout or from the worktree", async () => {
   const main = makeRepo();
   const linked = join(main, "..", `linked-${Date.now()}`);
   git(main, "worktree", "add", "-q", "-b", "wt", linked);
   dirs.push(linked);
-  const id = await pendingRun(realpathSync(linked));
-  assert.equal(refuse(main, id).json.reason, "no-pending");
-  assert.equal(approveWith(realpathSync(linked), id, true).json.ok, true);
+  const first = await pendingRun(realpathSync(linked));
+  assert.equal(approveWith(main, first, true).json.ok, true);
+  assert.ok(existsSync(join(dirOf(realpathSync(linked)), "decisions", `${first}.json`)), "decided in the owner");
+  writeFileSync(join(realpathSync(linked), "tracked.txt"), "base\n"); // back to HEAD so the next run has a change
+  const second = await pendingRun(realpathSync(linked));
+  assert.equal(approveWith(realpathSync(linked), second, true).json.ok, true);
 });
 
 test("running from a subdirectory works", async () => {

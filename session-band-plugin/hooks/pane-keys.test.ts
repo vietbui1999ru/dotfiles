@@ -61,3 +61,13 @@ test('i is bound to the Continue field and q closes the pane', async ($, on) => 
   await clock.settle()
   expect(closed).toContain('pi-handoff')
 })
+
+test('t toggles thinking with no task selected, without throwing', async ($, on) => {
+  const { clock } = await setup($, on, 0)
+  const ui = await mountPane($)
+  expect((await ui.find({ key: 'pi-key-thinking' }))?.props.hotkey).toBe('t')
+  expect((await ui.find({ key: 'pi-key-thinking' }))?.props.label).toBe('thinking')
+  await ui.press({ key: 'pi-key-thinking' })
+  await clock.settle()
+  expect((await ui.find({ key: 'pi-key-thinking' }))?.props.label).toBe('hide thinking')
+})

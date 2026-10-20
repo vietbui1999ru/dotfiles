@@ -107,6 +107,7 @@ declare module 'claude-code' {
       history: HistoryState
       worktrees: WorktreeState
       draftPrs: DraftPrsState
+      gates: import('../hooks/gates.tsx').GatesState
       sendIt: boolean
     }
   }

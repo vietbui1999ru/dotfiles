@@ -5,7 +5,7 @@ import { parsePiCommand, parseStatus, type Task } from './pueue'
 import { finishNotice, type TrackedTask } from './handoff'
 import { daemonState, queueBadge } from './lifecycle'
 
-export type HandoffState = { tasks: TrackedTask[]; available: boolean; selectedId?: number; confirm?: { action: 'kill' | 'hold'; ids: number[]; atMs: number }; queue?: string }
+export type HandoffState = { tasks: TrackedTask[]; available: boolean; selectedId?: number; showThinking?: boolean; confirm?: { action: 'kill' | 'hold'; ids: number[]; atMs: number }; queue?: string }
 
 const handoff = atom({ plugin: 'session-band', key: 'handoff' } as const, { tasks: [], available: true } satisfies HandoffState)
 const progress = atom({ plugin: 'session-band', key: 'progress' } as const, {} as Record<number, PiProgress>)
@@ -17,9 +17,15 @@ const isLive = (task: Task | undefined) => liveState(task?.state)
 export const hasLiveTrackedTask = (tasks: readonly TrackedTask[]) => tasks.some(item => isLive(item.task))
 const inside = (path: string, root: string) => path === root || path.startsWith(`${root}/`)
 
-export const trackedFrom = (tasks: readonly Task[], startedMs: number, cwd: string, root: string): TrackedTask[] =>
+// A dispatch into a sibling worktree sits outside this session's cwd and root, so a task whose
+// pueue label appears as a whole word in the dispatching command is this session's too.
+const labelledIn = (command: string, label: string | undefined) =>
+  !!label && command.split(/[\s"'=]+/).includes(label)
+
+export const trackedFrom = (tasks: readonly Task[], startedMs: number, cwd: string, root: string, command = ''): TrackedTask[] =>
   tasks.flatMap(task => {
-    if ((task.createdMs ?? -Infinity) < startedMs || (!inside(task.cwd, cwd) && !inside(task.cwd, root))) return []
+    const ours = inside(task.cwd, cwd) || inside(task.cwd, root) || labelledIn(command, task.label)
+    if ((task.createdMs ?? -Infinity) < startedMs || !ours) return []
     const parsed = parsePiCommand(task.command)
     if (!parsed.model) return []
     return [{ id: task.id, cwd: task.cwd, addedMs: task.createdMs ?? startedMs, task, ...(parsed.sessionId ? { sessionId: parsed.sessionId } : {}), ...(task.label ?? parsed.label ? { label: task.label ?? parsed.label } : {}) }]
@@ -112,7 +118,7 @@ export const register: Register = on => {
     const status = await $.process.run(['pueue', 'status', '--json']).catch(() => undefined)
     if (!status || status.exitCode !== 0) return result
     const [cwd, root, nowMs] = await Promise.all([$.session.cwd(), $.session.root(), $.clock.now()])
-    const candidates = trackedFrom(parseStatus(status.stdout), startedMs, cwd, root)
+    const candidates = trackedFrom(parseStatus(status.stdout), startedMs, cwd, root, e.command)
     if (candidates.length > 0) {
       // A simultaneous session can race here; v1 intentionally accepts that narrow attribution race.
       await update($, handoff, state => ({ ...state, available: true, tasks: [...state.tasks, ...candidates.filter(candidate => !state.tasks.some(item => item.id === candidate.id))].map(item => item.task ? { ...item, task: item.task, finishedMs: isLive(item.task) ? item.finishedMs : nowMs } : item) }))

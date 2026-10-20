@@ -3,6 +3,10 @@
 Each test builds a throwaway git repo in a temp dir and runs the scripts with
 sys.executable, a temp HOME and GIT_CONFIG_NOSYSTEM=1. Stdlib only.
 """
+import contextlib
+import importlib.machinery
+import importlib.util
+import io
 import os
 import re
 import shutil
@@ -13,12 +17,14 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 SCRIPTS = Path(__file__).resolve().parent.parent
 ROOT = SCRIPTS.parent
 ACRUN = SCRIPTS / "ac-run"
 FLOOR = SCRIPTS / "floor-guard"
-HUMAN = "HUMAN ONLY (agents must not run this): ~/dotfiles/scripts/ac-run approve SPEC.md"
+HUMAN = "HUMAN ONLY (agents must not run this): approve in the session-band /gates pane, or ~/dotfiles/scripts/ac-run approve SPEC.md"
 GITC = ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
 
 SPEC = """---
@@ -130,8 +136,34 @@ class Fixture(unittest.TestCase):
     def check(self, *opts, **kw):
         return self.run_acrun("check", *opts, "SPEC.md", **kw)
 
+    @contextlib.contextmanager
+    def acrun_module(self):
+        cwd, argv = os.getcwd(), sys.argv
+        with patch.dict(os.environ, self.env, clear=True):
+            try:
+                os.chdir(self.repo)
+                loader = importlib.machinery.SourceFileLoader("acrun_under_test", str(ACRUN))
+                module_spec = importlib.util.spec_from_loader(loader.name, loader)
+                assert module_spec is not None
+                module = importlib.util.module_from_spec(module_spec)
+                loader.exec_module(module)
+                yield module
+            finally:
+                os.chdir(cwd)
+                sys.argv = argv
+
+    def approve_inproc(self, answer: bool, *opts):
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with self.acrun_module() as module:
+            sys.argv = ["ac-run", "approve", *opts, "SPEC.md"]
+            with patch.object(module, "confirm", lambda spec, runnable: answer, create=True), \
+                    contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                code = module.main()
+        return SimpleNamespace(returncode=code, stdout=stdout.getvalue(), stderr=stderr.getvalue())
+
     def approve(self, answer="y\n", *opts, **kw):
-        return self.run_acrun("approve", *opts, "SPEC.md", stdin=answer, **kw)
+        with patch.dict(self.env, kw.get("extra_env") or {}):
+            return self.approve_inproc(answer.strip().lower() == "y", *opts)
 
     def approved(self, acs, dirty=False, opts=(), **kw):
         """Repo on feat/x with SPEC.md approved by `y`; dirty adds an untracked file first."""
@@ -360,6 +392,52 @@ class SpecLoopCases(Fixture):
                 self.assertRegex((self.repo / "SPEC.md").read_text(), r"(?m)^status: draft$")
                 self.assertFalse((self.repo / "sentinel.txt").exists())
 
+    def test_approve_ignores_stdin(self):
+        self.init_repo()
+        self.write_spec([(1, "touch sentinel.txt")])
+        with patch.object(sys, "stdin", io.StringIO("y\n")):
+            r = self.approve_inproc(False)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("not approved", r.stdout)
+        self.assertEqual(self.records(), [])
+        self.assertIn("status: draft", (self.repo / "SPEC.md").read_text())
+
+    def test_confirm_failure_is_refusal(self):
+        self.init_repo()
+        self.write_spec([(1, "true")])
+        with self.acrun_module() as module:
+            spec = module.load("SPEC.md")
+            for error in (OSError("no GUI"), subprocess.TimeoutExpired("osascript", 75)):
+                with self.subTest(error=error), patch.object(module.subprocess, "run", side_effect=error):
+                    self.assertFalse(module.confirm(spec, spec["acs"]))
+
+    def test_confirm_needs_approve_reply(self):
+        self.init_repo()
+        self.write_spec([(1, "true")])
+        with self.acrun_module() as module:
+            spec = module.load("SPEC.md")
+            for reply, expected in (("Cancel\n", False), ("Approve\n", True), ("\n", False)):
+                with patch.object(module.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout=reply)) as run:
+                    self.assertEqual(module.confirm(spec, spec["acs"]), expected)
+                argv = run.call_args.args[0]
+                self.assertEqual(argv[0], "/usr/bin/osascript")
+                self.assertIn('default button "Cancel"', " ".join(argv))
+                self.assertIn('cancel button "Cancel"', " ".join(argv))
+                self.assertIn("SPEC.md", argv[-1])
+                self.assertIn("feat/x", argv[-1])
+                self.assertIn("runs these commands on this machine now", argv[-1])
+
+    def test_show_prints_summary_runs_nothing(self):
+        self.init_repo()
+        self.write_spec([(1, "touch sentinel.txt")])
+        before = (self.repo / "SPEC.md").read_bytes()
+        r = self.run_acrun("show", "SPEC.md")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("runs: touch sentinel.txt", r.stdout)
+        self.assertFalse((self.repo / "sentinel.txt").exists())
+        self.assertEqual(self.records(), [])
+        self.assertEqual((self.repo / "SPEC.md").read_bytes(), before)
+
     # AC-6: branch check
     def test_branch_lint_mismatch(self):
         self.init_repo()
@@ -479,10 +557,8 @@ class SpecLoopCases(Fixture):
             self.assertFalse((self.repo / "LATE").exists(), "background child outlived check")
 
     def kill_pidfile(self, pidfile):
-        try:
+        with contextlib.suppress(OSError, ValueError):
             os.kill(int(pidfile.read_text().strip()), signal.SIGKILL)
-        except (OSError, ValueError):
-            pass
 
     # AC-9: env scrubbed, cwd is the repo root even when invoked from a subdir
     def test_env_scrub_cwd(self):
@@ -635,7 +711,7 @@ class SpecLoopCases(Fixture):
         path = ROOT / "shared" / "skills" / "grill-me" / "SKILL.md"
         self.assertTrue(path.is_file(), f"missing {path}")
         lines = path.read_text().splitlines()
-        starts = [i for i, l in enumerate(lines[:-1]) if l == "```markdown" and lines[i + 1] == "---"]
+        starts = [i for i, line in enumerate(lines[:-1]) if line == "```markdown" and lines[i + 1] == "---"]
         self.assertTrue(starts, f"{path}: no ```markdown block opening with ---")
         end = lines.index("```", starts[0] + 1)
         self.lint_file_example(path, "\n".join(lines[starts[0] + 1:end]) + "\n")
@@ -656,8 +732,9 @@ class SpecLoopCases(Fixture):
         self.assertEqual(self.records(), [])
         self.assertFalse((self.repo / "sentinel.txt").exists())
         for text in ("runs: touch sentinel.txt", "checked by a human: manual - wording",
-                     "must keep passing", "status: approved", "[y/N]"):
+                     "must keep passing", "status: approved"):
             self.assertIn(text, r.stdout)
+        self.assertNotIn("[y/N]", r.stdout)
         self.assertNotIn("\x1b", r.stdout)
 
     def test_reject(self):

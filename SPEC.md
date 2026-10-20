@@ -1,72 +1,74 @@
 ---
 status: approved
-branch: feat/design-brief
+branch: feat/agent-review-cross-worktree
 ---
-# SPEC: design-brief overlay skill for distinctive frontend work
+# SPEC: agent-review visible and actionable from any worktree (Phase 1)
 
 ## Objective
-Tailor Anthropic's `frontend-design` skill to this workflow. It should work across harnesses, catch generated-design tells with code rather than prompt text alone, and keep a memory of what has been tried per project. Success: a UI write anywhere triggers a slop-register check, and `/design-brief` runs plan → genericness check → build → screenshot critique in ship mode, or the guided loop in learn mode.
+A pending agent review in any worktree of a repo can be found, opened, approved and skipped from any other worktree, branch, or the root checkout. Success: with a review pending only in `.claude/worktrees/x`, `agent-review list --all` from the root shows it, `:AgentReview` in the root opens it in its owner, and `agent-review skip <id>` from the root clears it in one step with no agent turn.
 
-Decisions from the grill (2026-10-19):
-- Overlay skill in `shared/skills/design-brief/` with a pinned `upstream.md` copy and a drift check (Q1).
-- PostToolUse hook: once-per-session reminder plus a regex validator on every UI write (Q2).
-- Judges: opencode `deepseek-v4-pro` for the genericness baseline and text rubric; an Opus high-effort subagent for screenshot critique. No Gemini (Q3).
-- Mode: `design-mode: ship|learn` in `.claude/profile.md`, argument overrides per run (Q4).
-- Learn loop: user writes the token plan → critique → build → user critiques the screenshot → design-log. Drills on demand via `/design-brief drill` (Q5).
-- `shared/design/taste.md` written by the user; `shared/design/design-slop.md` seeded from upstream's avoid list, with regexes (Q6).
+Plan and rationale: `docs/workflows/agent-review-cross-worktree-plan.md`. Decisions from the grill (2026-10-19):
+- Q1: the CLI (`scripts/agent-review`, Python) is the single source of cross-worktree discovery. Neovim shells out to `agent-review list --all --json` and acts in the returned owner.
+- Q2: Phase 1 = CLI (`list --all`, landed and orphan flags, `approve <id>` and `skip <id>` resolving the owner) + Neovim on the CLI with a picker. Session-band, the Pi refusal message and delegate-pi are Phase 2 (separate spec).
+- Q3: `skip <id>` consumes directly, like `approve`: it writes the decision, deletes the pending record and `refs/agent-review/<id>/*`, and refuses while `<id>.processing` exists. A live Pi watcher then finds no pending record and sends nothing.
+- Q4: "landed" = the run's `base..end` diff reverse-applies cleanly (`git apply --reverse --check --cached`) to the last-fetched `origin/<default>` tree in a temporary index. No network; the worktree and real index are never touched. Binaries, renames and any error count as not landed.
+- Q5: `:AgentReview` opens a single pending review directly (tcd to the owner). With more than one it shows a `vim.ui.select` picker, oldest first, with name, branch, worktree, age and `[landed]`. Orphans are listed but not openable. If the CLI is missing or fails, it falls back to today's current-root scan with a warning.
+
+Terms: **owner** = the worktree whose `.pi/agent-review/pending/` holds the record. **Orphan** = `refs/agent-review/<id>/*` exist but no worktree holds a pending record for `<id>`.
 
 ## Acceptance Criteria
-- AC-1: Skill exists with the correct name
-  verify: `rg -q "^name: design-brief$" shared/skills/design-brief/SKILL.md`
-- AC-2: Pinned upstream copy is present and non-empty
-  verify: `test -s shared/skills/design-brief/upstream.md`
-- AC-3: sync-upstream exits 0 when the pin matches and non-zero when it drifts
-  verify: `bash shared/skills/design-brief/tests/sync-upstream.test.sh`
-- AC-4: SKILL.md documents mode resolution (profile default, argument override) and the drill sub-command
-  verify: `rg -q "design-mode:" shared/skills/design-brief/SKILL.md && rg -q "/design-brief drill" shared/skills/design-brief/SKILL.md`
-- AC-5: SKILL.md wires both judges (deepseek-v4-pro text/genericness, Opus screenshot critique)
-  verify: `rg -q "opencode-go/deepseek-v4-pro" shared/skills/design-brief/SKILL.md && rg -qi "opus" shared/skills/design-brief/SKILL.md`
-- AC-6: SKILL.md requires screenshots at 1440px and 375px and an axe accessibility pass
-  verify: `rg -q "1440" shared/skills/design-brief/SKILL.md && rg -q "375" shared/skills/design-brief/SKILL.md && rg -qi "axe" shared/skills/design-brief/SKILL.md`
-- AC-7: Human use-test runs only when the user asks
-  verify: `rg -qi "use-test" shared/skills/design-brief/SKILL.md`
-- AC-8: SKILL.md defines the `.claude/design-log.md` entry format (date, brief, token plan, verdict, notes)
-  verify: `rg -q "design-log.md" shared/skills/design-brief/SKILL.md`
-- AC-9: Design slop register is seeded with at least 5 entries, each carrying a `pattern:` line
-  verify: `test "$(rg -c '^\s*-?\s*pattern:' shared/design/design-slop.md)" -ge 5`
-- AC-10: Taste profile template exists and its content was written by the user
-  verify: manual - taste is the user's own judgement; Claude only creates headings
-- AC-11: Hook reports a slop-register match when a UI file is written
-  verify: `bash claude/.claude/hooks/tests/design-on-write.test.sh match`
-- AC-12: Hook stays silent for non-UI files
-  verify: `bash claude/.claude/hooks/tests/design-on-write.test.sh non_ui`
-- AC-13: Hook injects the taste/slop reminder once per session, not on every write
-  verify: `bash claude/.claude/hooks/tests/design-on-write.test.sh once_per_session`
-- AC-14: Hook is registered on the Write|Edit|MultiEdit PostToolUse matcher
-  verify: `jq -e '[.hooks.PostToolUse[] | select(.matcher=="Write|Edit|MultiEdit") | .hooks[].command] | any(test("design-on-write"))' claude/.claude/settings.json`
-- AC-15: Existing lint-on-write hook is untouched and still parses
-  verify: `bash -n claude/.claude/hooks/lint-on-write.sh`
+- AC-1: `list --all --json` from the root lists a review pending only in another worktree, with owner, branch, name, runId, startedAt, landed and orphan fields
+  verify: `cd pi/.pi/agent/extensions/agent-review && /Users/vietquocbui/.bun/bin/bun test agent-review.xwt.test.ts -t "list --all finds a review pending in another worktree"`
+- AC-2: A review whose changes are already on origin's default branch is flagged landed
+  verify: `cd pi/.pi/agent/extensions/agent-review && /Users/vietquocbui/.bun/bin/bun test agent-review.xwt.test.ts -t "landed when main contains the run"`
+- AC-3: A review whose changes are not on main is not flagged landed, and the landed check leaves the worktree and its index unchanged
+  verify: `cd pi/.pi/agent/extensions/agent-review && /Users/vietquocbui/.bun/bin/bun test agent-review.xwt.test.ts -t "not landed and touches nothing"`
+- AC-4: Leftover refs with no pending record anywhere are listed as an orphan
+  verify: `cd pi/.pi/agent/extensions/agent-review && /Users/vietquocbui/.bun/bin/bun test agent-review.xwt.test.ts -t "orphan refs are listed"`
+- AC-5: `approve <id>` run from the root acts in the owning worktree (decision written there, pending removed there, endTree check still enforced)
+  verify: `cd pi/.pi/agent/extensions/agent-review && /Users/vietquocbui/.bun/bin/bun test agent-review.xwt.test.ts -t "approve by id from the root acts in the owner"`
+- AC-6: `skip <id>` from the root or a sibling worktree removes the pending record and refs in one step, and a live Pi session in the owner sends no follow-up
+  verify: `cd pi/.pi/agent/extensions/agent-review && /Users/vietquocbui/.bun/bin/bun test agent-review.xwt.test.ts -t "skip by id consumes with no follow-up"`
+- AC-7: `skip <id>` refuses and changes nothing while `<id>.processing` exists
+  verify: `cd pi/.pi/agent/extensions/agent-review && /Users/vietquocbui/.bun/bin/bun test agent-review.xwt.test.ts -t "skip refuses during processing"`
+- AC-8: `skip <id>` on an orphan deletes its refs
+  verify: `cd pi/.pi/agent/extensions/agent-review && /Users/vietquocbui/.bun/bin/bun test agent-review.xwt.test.ts -t "skip clears orphan refs"`
+- AC-9: The Pi input gate in one worktree is not blocked by a review pending in another worktree
+  verify: `cd pi/.pi/agent/extensions/agent-review && /Users/vietquocbui/.bun/bin/bun test agent-review.xwt.test.ts -t "gate stays per worktree"`
+- AC-10: `:AgentReview` with one review pending in another worktree opens it and sets the tab directory to the owner, even when the root holds a stale record that the CLI reports as landed
+  verify: `nvim --clean --headless -l scripts/agent-review-nvim-xwt-test.lua single_opens_owner`
+- AC-11: `:AgentReview` with several pending reviews offers a picker ordered oldest first, with a `[landed]` tag, and orphans not openable
+  verify: `nvim --clean --headless -l scripts/agent-review-nvim-xwt-test.lua picker_order_and_tags`
+- AC-12: `:AgentReview` falls back to the current-root scan with a warning when the CLI fails
+  verify: `nvim --clean --headless -l scripts/agent-review-nvim-xwt-test.lua cli_failure_fallback`
+- AC-13: Existing extension and CLI tests still pass
+  verify: `cd pi/.pi/agent/extensions/agent-review && /Users/vietquocbui/.bun/bin/bun test`
   baseline: pass
-- AC-16: Hook script passes shellcheck
-  verify: `shellcheck claude/.claude/hooks/design-on-write.sh`
+- AC-14: Existing Neovim agent-review checks still pass
+  verify: `nvim --clean --headless -l scripts/agent-review-nvim-test.lua`
+  baseline: pass
+- AC-15: The workflow doc documents `list --all`, `approve <id>` and `skip <id>` from any worktree
+  verify: `rg -q "list --all" docs/workflows/agent-review.md && rg -q "skip <id>" docs/workflows/agent-review.md`
+- AC-16: Use-test: a pueue Pi run dispatched with `-w` into a worktree appears from the root via `agent-review list --all` and `:AgentReview`, and reject edits only that worktree
+  verify: manual - live use-test with real pueue, Pi and Neovim
 
 ## Boundaries
 ### Always
 - Run `~/dotfiles/scripts/ac-run check SPEC.md` and `~/dotfiles/scripts/floor-guard` before claiming done
-- Hook exits 0 always (advisory, like lint-on-write); the validator reports, it never blocks
-- Commit per coherent unit on `feat/design-brief`
+- Act on a run only in its owner worktree (`cwd=owner` or `tcd owner`)
+- Keep storage per worktree: pending, decisions and the Pi watcher stay together
+- Build in Claude, not Pi (review-gate code, `plan-handoff.md`)
 ### Ask first
-- New dependencies (axe-core runs in the page via Playwright MCP from a pinned CDN URL, not via an npm install)
-- Edits to `upstream.md` other than through sync-upstream
-- Any change to the existing hooks or the global slop register
+- Any change to the Pi input gate or to `processDecision`
+- New dependencies; any network access in the landed check
 ### Never
-- Edit a `verify:` line or a test to make a check pass
-- Write the content of `taste.md` on the user's behalf
-- Use Gemini as a judge
+- Edit a `verify:` line, a `baseline:` line or an existing test to make a check pass (one exception, granted by the person on 2026-10-19: `agent-review.approve.test.ts` "a linked worktree approves its own run; the main checkout does not see it" asserted the old per-worktree `approve`, which contradicts AC-5; it was rewritten to the new contract)
+- Run `ac-run approve` or approve an agent run on the person's behalf
+- Make one worktree's pending review block Pi in another worktree
 
 ## Open Questions
-- The llm-wiki `claude-setup/settings.json:67` enables the `frontend-design` plugin, but the live config doesn't load it. Default: leave the flag, since the overlay doesn't depend on the plugin; fix the drift in the wiki repo separately.
-- Wiki ingest comprehension quiz: the user chose ingest option B and didn't say skip. Default: ask 3–5 questions before the ingest runs.
-- Where does the portfolio pilot live? Default: ask when that pilot starts; it's out of scope for this spec.
-- Pi/Codex hook parity: this spec covers the Claude PostToolUse hook only. Default: Pi gets the skill but no hook until a Pi extension point is chosen.
-- Can deepseek-v4-pro read images? Default: no, so it gets text only (token plan plus code); Opus handles every image.
+- Default branch for the landed check: Default `git symbolic-ref refs/remotes/origin/HEAD`, falling back to `origin/main`; no fetch.
+- Cost of `list --all` per Neovim open (one subprocess plus one landed check per record): Default accept; revisit if it exceeds ~300 ms on this repo's ~30 worktrees.
+- Should `status` (without `--all`) change? Default no; `--all` is additive.
+- Phase 2 (session-band aggregation, Pi refusal message naming the owner, delegate-pi dispatch note): Default separate spec after Phase 1 merges.
+- `SPEC.md` on main is the stale design-brief spec carried in by #119: Default leave it; this branch replaces it on merge.

@@ -258,10 +258,83 @@ function M.unrejectable(repo, record)
 	return added
 end
 
+-- The CLI lives in the same dotfiles checkout as this module (stow links it in).
+local here = vim.uv.fs_realpath(debug.getinfo(1, "S").source:sub(2)) or ""
+M.cli = (here:gsub("nvim/%.config/nvim/lua/custom/agent_review%.lua$", "scripts/agent-review"))
+
+-- Every pending review in this repo's worktrees, from `agent-review list --all --json`
+-- (the single source of cross-worktree discovery), or nil when the CLI fails.
+local function list_all(repo)
+	local ok, r = pcall(function()
+		return vim.system({ M.cli, "list", "--all", "--json" }, { cwd = repo, text = true }):wait()
+	end)
+	if not ok or r.code ~= 0 then
+		return nil
+	end
+	local decoded, entries = pcall(vim.json.decode, r.stdout)
+	return decoded and type(entries) == "table" and entries or nil
+end
+
+local function label(e)
+	local name = (e.name ~= "" and e.name) or "-"
+	local where = e.orphan and "(no worktree)" or ("%s [%s]"):format(e.owner, e.branch ~= "" and e.branch or "detached")
+	local tags = (e.landed and "  [landed]" or "") .. (e.processing and "  [processing]" or "")
+		.. (e.orphan and ("  [orphan: agent-review skip %s]"):format(e.runId) or "")
+	return ("%s  %s  %s  %s%s"):format(name, e.runId:sub(1, 8), where, e.startedAt, tags)
+end
+
+-- Pick the review to open and call done(repo, runId). One review that has not
+-- landed opens directly; anything else goes through a picker, oldest first.
+-- Orphans and reviews Pi is processing are listed but cannot be opened.
+local function choose(repo, done)
+	local entries = list_all(repo)
+	if not entries then
+		vim.notify("agent-review CLI unavailable; checking this checkout only", vim.log.levels.WARN)
+		return done(locate(repo), nil)
+	end
+	local openable = vim.tbl_filter(function(e) return not e.orphan and not e.processing end, entries)
+	local fresh = vim.tbl_filter(function(e) return not e.landed end, openable)
+	local function go(e)
+		if e.owner ~= repo then
+			vim.cmd.tcd(vim.fn.fnameescape(e.owner))
+			vim.notify("Agent review is in worktree " .. e.owner .. "; switched this tab's directory there")
+		end
+		done(e.owner, e.runId)
+	end
+	if #openable == 0 then
+		return done(repo, nil)
+	elseif #fresh == 1 then
+		return go(fresh[1])
+	elseif #openable == 1 then
+		return go(openable[1])
+	end
+	vim.ui.select(entries, { prompt = "Agent review", format_item = label }, function(e)
+		if not e then
+			return
+		elseif e.orphan or e.processing then
+			return vim.notify("That review cannot be opened: " .. label(e), vim.log.levels.WARN)
+		end
+		go(e)
+	end)
+end
+
 function M.open()
+	local ok, err = pcall(choose, root(), function(repo, run_id)
+		M.open_in(repo, run_id)
+	end)
+	if not ok then
+		vim.notify("AgentReview failed: " .. tostring(err), vim.log.levels.ERROR)
+	end
+end
+
+function M.open_in(repo, run_id)
 	local ok, err = pcall(function()
-		local repo = locate(root())
 		local entry = pending(repo)[1]
+		for _, candidate in ipairs(pending(repo)) do
+			if candidate.record.runId == run_id then
+				entry = candidate
+			end
+		end
 		if not entry then
 			return vim.notify("No pending agent review", vim.log.levels.INFO)
 		end

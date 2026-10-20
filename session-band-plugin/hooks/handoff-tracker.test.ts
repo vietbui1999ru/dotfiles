@@ -28,3 +28,14 @@ test('does not track non-Pi, older, or out-of-repository pueue tasks', () => {
   ], 99, '/repo', '/repo')
   expect(result.map(item => item.id)).toEqual([4])
 })
+
+test('tracks a labelled dispatch into a sibling worktree when its label is in the dispatching command', () => {
+  const dispatched = 'pueue add --print-task-id --label pane-keys-9e4b27d1 -w /wt/pane-keys -- "pi --model m -p x"'
+  const result = trackedFrom([
+    task(1, { cwd: '/wt/pane-keys', label: 'pane-keys-9e4b27d1' }),
+    task(2, { cwd: '/wt/other', label: 'other-1234abcd' }),
+    task(3, { cwd: '/wt/pane-keys', label: 'pane-keys' }),
+    task(4, { cwd: '/wt/pane-keys' }),
+  ], 99, '/wt/session', '/wt/session', dispatched)
+  expect(result.map(item => item.id)).toEqual([1])
+})

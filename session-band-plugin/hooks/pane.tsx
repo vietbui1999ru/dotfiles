@@ -5,9 +5,9 @@ import { controlArgv, eligible, holdArgv, parsePiArgs, PS_ARGV, releaseArgv, res
 import { monitorRows, selectStale, type MonitorRow, type StaleSelection, type TrackedTask } from './handoff'
 import type { HandoffState } from './handoff.tsx'
 import { focusRing, moveTo, type Motion } from './motion'
-import { nextPane } from './pane-nav'
+import { nextPane, switchSteps } from './pane-nav'
 import { PALETTE } from './palette'
-import type { PiProgress } from './pisession'
+import type { PiProgress, TranscriptEntry } from './pisession'
 import { parsePending, pendingRecordFor, type PendingReview } from './review'
 import { editRefusal, killNote, parseEdit, readdArgv } from './lifecycle'
 
@@ -44,16 +44,18 @@ export const monitorText = (row: MonitorRow, columns: number): string => {
     { name: 'cost', text: row.cost },
     ...(row.label ? [{ text: row.label }] : []),
   ]
-  const joined = () => fields.map(field => field.text).join(' ')
-  for (const name of ['cost', 'tokens', 'modelEffort'] as const) {
+  const gap = '  '
+  const joined = () => fields.map(field => field.text).join(gap)
+  // The model always stays: it is how a row says which tier is working. Activity shrinks instead.
+  for (const name of ['cost', 'tokens'] as const) {
     if (joined().length <= columns) break
     const index = fields.findIndex(field => field.name === name)
     if (index >= 0) fields.splice(index, 1)
   }
   const activity = fields.find(field => field.name === 'activity')
   if (activity && joined().length > columns) {
-    const others = fields.filter(field => field !== activity).map(field => field.text).join(' ')
-    const available = Math.max(1, columns - others.length - (others ? 1 : 0))
+    const others = fields.filter(field => field !== activity).map(field => field.text).join(gap)
+    const available = Math.max(1, columns - others.length - (others ? gap.length : 0))
     activity.text = activity.text.length <= available ? activity.text : `${activity.text.slice(0, Math.max(0, available - 1))}…`
   }
   return joined()
@@ -378,6 +380,22 @@ async function cleanStale($: EngineInterface) {
   await $.ui.toast(`Clean stale dry run: ${current.tasks.length} tasks, ${current.sessions.length} sessions, ${current.bytes} B. Press again to remove.`)
 }
 
+// `$` cannot cross an import, so this pane runs pane-nav's switch itself.
+const goTo = async ($: EngineInterface, to: string | undefined) => {
+  for (const s of switchSteps('pi-handoff', to)) await ('close' in s ? $.ui.close({ id: s.close }) : $.ui.open({ id: s.open, title: s.title, focus: s.focus }))
+}
+const cycle = async ($: EngineInterface, step: 1 | -1) => goTo($, nextPane((await $.ui.panes()).map(pane => pane.id), 'pi-handoff', step))
+
+export const transcriptLines = (entries: readonly TranscriptEntry[], showThinking: boolean): { key: string; text: string; dim: boolean }[] =>
+  entries.flatMap((entry, index) => {
+    if (entry.kind === 'thinking' && !showThinking) return []
+    if (entry.kind === 'thinking') return [{ key: `entry-${index}`, text: entry.text ? `  · ${entry.text}` : '  · thinking…', dim: true }]
+    if (entry.kind === 'text') return [{ key: `entry-${index}`, text: entry.text.slice(0, 280), dim: false }]
+    if (entry.kind === 'tool') return [{ key: `entry-${index}`, text: entry.text, dim: false }]
+    if (entry.kind === 'error') return [{ key: `entry-${index}`, text: `ERROR ${entry.text}`, dim: false }]
+    return entry.text.split('\n').map((line, lineIndex) => ({ key: `entry-${index}-${lineIndex}`, text: `  ↳ ${line}`, dim: true }))
+  })
+
 export const register: Register = on => {
   on('command.run', { command: 'pi' }, async ($, e, _next) => {
     const parsed = parsePiArgs(e.args)
@@ -413,20 +431,21 @@ export const register: Register = on => {
     return <Box flexDirection="column">
       {state.tasks.length === 0 && <Text>No Pi hand-offs tracked in this session.</Text>}
       {/* Hotkeys, not hints: a key the pane does not bind falls through to the composer. */}
-      <Box flexDirection="row">
-        {rowIds.length > 0 && <Button key="pi-key-down" plain dimColor hotkey="j" label="down " onPress={() => void move($, rowIds, task?.id, 'down')} />}
-        {rowIds.length > 0 && <Button key="pi-key-up" plain dimColor hotkey="k" label="up " onPress={() => void move($, rowIds, task?.id, 'up')} />}
-        {rowIds.length > 0 && <Button key="pi-key-top" plain dimColor hotkey="g" label="top " onPress={() => void move($, rowIds, task?.id, 'top')} />}
-        {task && <Button key="pi-key-insert" plain dimColor hotkey="i" label="continue " onPress={() => void focusRing($, 'pi-handoff', 'pi-continue')} />}
-        <Button key="pi-key-reload" plain dimColor hotkey="r" label="reload " onPress={() => void open($)} />
+      <Box flexDirection="row" flexWrap="wrap" columnGap={2} marginBottom={1}>
+        {rowIds.length > 0 && <Button key="pi-key-down" plain dimColor hotkey="j" label="down" onPress={() => void move($, rowIds, task?.id, 'down')} />}
+        {rowIds.length > 0 && <Button key="pi-key-up" plain dimColor hotkey="k" label="up" onPress={() => void move($, rowIds, task?.id, 'up')} />}
+        {rowIds.length > 0 && <Button key="pi-key-top" plain dimColor hotkey="g" label="top" onPress={() => void move($, rowIds, task?.id, 'top')} />}
+        {task && <Button key="pi-key-insert" plain dimColor hotkey="i" label="continue" onPress={() => void focusRing($, 'pi-handoff', 'pi-continue')} />}
+        <Button key="pi-key-reload" plain dimColor hotkey="r" label="reload" onPress={() => void open($)} />
+        <Button key="pi-key-prev" plain dimColor hotkey="b" label="prev" onPress={() => void cycle($, -1)} />
+        <Button key="pi-key-next" plain dimColor hotkey="f" label="next" onPress={() => void cycle($, 1)} />
+        <Button key="pi-key-worktrees" plain dimColor hotkey="w" label="worktrees" onPress={() => void goTo($, 'worktrees')} />
         <Button key="pi-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'pi-handoff' })} />
-        <Button key="pi-key-prev" plain dimColor hotkey="b" label="prev " onPress={() => void $.ui.panes().then(panes => { const to = nextPane(panes.map(pane => pane.id), 'pi-handoff', -1); if (to && to !== 'pi-handoff') void $.ui.open({ id: to, focus: true }) })} />
-        <Button key="pi-key-next" plain dimColor hotkey="f" label="next " onPress={() => void $.ui.panes().then(panes => { const to = nextPane(panes.map(pane => pane.id), 'pi-handoff', 1); if (to && to !== 'pi-handoff') void $.ui.open({ id: to, focus: true }) })} />
-        <Button key="pi-key-worktrees" plain dimColor hotkey="w" label="worktrees" onPress={() => void $.ui.open({ id: 'worktrees', title: 'Worktrees', focus: true })} />
-        {task && <Text dimColor> · x kill · s stop · h hold · p pause · y/n confirm</Text>}
+        <Button key="pi-key-thinking" plain dimColor hotkey="t" label={state.showThinking ? 'hide thinking' : 'thinking'} onPress={() => void update($, handoff, value => ({ ...value, showThinking: !value.showThinking }))} />
+        {task && <Text dimColor>x kill  s stop  h hold  p pause  y/n confirm</Text>}
       </Box>
-      {confirm && <Box flexDirection="row">
-        <Text color={PALETTE.red}>{`${confirm.action === 'hold' ? 'Hold queue and kill' : 'Kill'} ${confirm.ids.map(id => `#${id}`).join(' ')}? `}</Text>
+      {confirm && <Box flexDirection="row" columnGap={1}>
+        <Text color={PALETTE.red}>{`${confirm.action === 'hold' ? 'Hold queue and kill' : 'Kill'} ${confirm.ids.map(id => `#${id}`).join(' ')}?`}</Text>
         <Button key="pi-confirm-ok" hotkey="y" onPress={() => void confirmNow($)}>{confirm.action === 'hold' ? 'Hold + kill' : 'Kill'}</Button>
         <Button key="pi-confirm-cancel" hotkey="n" onPress={() => void update($, handoff, value => ({ ...value, confirm: undefined }))}>Cancel</Button>
       </Box>}
@@ -444,8 +463,8 @@ export const register: Register = on => {
         })}
       </Box>}
       {task && <Text>{`\n${taskLabel(task)}${pi?.lastActivity ? ` · ${pi.lastActivity}` : ''}\n${pi ? `${pi.tokens} tokens · $${pi.cost.toFixed(3)}` : 'usage n/a'}`}</Text>}
-      {transcript.map((entry, index) => <Text key={`entry-${index}`}>{entry.kind === 'error' ? `ERROR ${entry.text}` : entry.text.slice(0, 280)}</Text>)}
-      {task && <Box>
+      {transcriptLines(transcript, state.showThinking ?? false).map(line => <Text key={line.key} dimColor={line.dim}>{line.text}</Text>)}
+      {task && <Box flexDirection="row" flexWrap="wrap" columnGap={1} marginTop={1}>
         {!complete(task) && <Button key="pi-abort" hotkey="x" onPress={() => void askConfirm($, 'kill', [task.id])}>Abort</Button>}
         {task.task && eligible('kill', task.task.state) && <Button key="pi-hold" hotkey="h" onPress={() => void askConfirm($, 'hold', [task.id])}>Hold queue</Button>}
         {task.task && eligible('pause', task.task.state) && <Button key="pi-stop" hotkey="s" onPress={() => void stopQueue($, task.task?.group ?? 'default')}>Stop queue</Button>}
@@ -458,8 +477,10 @@ export const register: Register = on => {
       </Box>}
       {task && <Input key="pi-continue" label="Continue" placeholder="Follow-up for Pi" submitLabel="send" onSubmit={value => void continueTask($, task, pi, value)} />}
       {task?.task?.state === 'Queued' && <Input key="pi-edit" label="Edit" placeholder="model[:effort] [label]" submitLabel="re-add" onSubmit={value => void editTask($, task, value).catch(error => $.ui.toast(`Edit failed: ${String(error)}`))} />}
-      <Button key="pi-history" onPress={() => void $.ui.open({ id: 'pi-history', title: 'Pi history', focus: true })}>history</Button>
-      <Button key="pi-clean-stale" onPress={() => void cleanStale($)}>Clean stale</Button>
+      <Box flexDirection="row" columnGap={1} marginTop={1}>
+        <Button key="pi-history" onPress={() => void goTo($, 'pi-history')}>history</Button>
+        <Button key="pi-clean-stale" onPress={() => void cleanStale($)}>Clean stale</Button>
+      </Box>
     </Box>
   })
 

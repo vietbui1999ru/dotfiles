@@ -1,4 +1,4 @@
-export type TranscriptEntry = { kind: 'text' | 'tool' | 'error'; text: string }
+export type TranscriptEntry = { kind: 'text' | 'tool' | 'error' | 'thinking' | 'output'; text: string }
 
 export type PiProgress = {
   offset: number
@@ -41,6 +41,13 @@ const toolPath = (arguments_: unknown): string | undefined => {
 
 const entry = (kind: TranscriptEntry['kind'], text: string): TranscriptEntry | undefined => text.trim() ? { kind, text: text.trim() } : undefined
 
+// The first 2 non-empty lines of a tool result, each stripped of `\r` and capped at 160 chars.
+const outputEntry = (blocks: readonly string[]): TranscriptEntry | undefined => {
+  const lines = blocks.join('\n').split('\n').map(line => line.replaceAll('\r', '')).filter(line => line.length > 0)
+  const capped = lines.slice(0, 2).map(line => line.length > 160 ? `${line.slice(0, 159)}…` : line)
+  return capped.length ? { kind: 'output', text: capped.join('\n') } : undefined
+}
+
 const append = (progress: PiProgress, entries: TranscriptEntry[]) => ({ ...progress, entries: [...progress.entries, ...entries].slice(-200) })
 
 const event = (progress: PiProgress, raw: unknown): PiProgress => {
@@ -74,15 +81,22 @@ const event = (progress: PiProgress, raw: unknown): PiProgress => {
     for (const block of content) {
       const item = object(block)
       if (item?.type === 'text' && typeof item.text === 'string') { const value = entry('text', item.text); if (value) entries.push(value) }
+      if (item?.type === 'thinking' && typeof item.thinking === 'string') {
+        const text = item.thinking.trim()
+        const previous = entries.at(-1) ?? next.entries.at(-1)
+        if (!(text === '' && previous?.kind === 'thinking' && previous.text === '')) entries.push({ kind: 'thinking', text })
+      }
       if (item?.type === 'toolCall') {
         const name = typeof item.name === 'string' ? item.name : 'tool'
         const path = toolPath(item.arguments)
         if (path) files.add(path)
         const args = object(item.arguments)
         const command = typeof args?.command === 'string' ? args.command : undefined
-        const text = name === 'bash' && command ? `bash ${command.replace(/\s+/g, ' ').trim().slice(0, 40)}` : `${name}${path ? ` ${path}` : ''}`
+        const collapsed = name === 'bash' && command ? command.replace(/\s+/g, ' ').trim() : undefined
+        const text = collapsed !== undefined ? `bash ${collapsed}`.slice(0, 200) : `${name}${path ? ` ${path}` : ''}`
+        const activity = collapsed !== undefined ? `bash ${collapsed.slice(0, 40)}` : text
         entries.push({ kind: 'tool', text })
-        next = { ...next, lastActivity: text }
+        next = { ...next, lastActivity: activity }
       }
     }
     next = { ...next, files: [...files] }
@@ -97,7 +111,13 @@ const event = (progress: PiProgress, raw: unknown): PiProgress => {
   }
   if (role === 'toolResult') {
     const text = strings(content.map(object).map(block => block?.text)).join(' ')
-    return message.isError === true ? append({ ...next, error: text || 'Tool failed' }, entry('error', text || 'Tool failed') ? [entry('error', text || 'Tool failed')!] : []) : next
+    if (message.isError === true) {
+      const error = text || 'Tool failed'
+      const errorEntry = entry('error', error)
+      return append({ ...next, error }, errorEntry ? [errorEntry] : [])
+    }
+    const output = outputEntry(strings(content.map(object).map(block => block?.text)))
+    return output ? append(next, [output]) : next
   }
   return next
 }

@@ -11,6 +11,7 @@ import { refreshSendIt, register as registerSendIt } from './send-it.tsx'
 import { register as registerWorktrees } from './worktree-pane.tsx'
 import { register as registerDraftPrs } from './draft-prs.tsx'
 import { onSessionStart as lifecycleSessionStart, register as registerLifecycle } from './lifecycle.tsx'
+import { register as registerGates } from './gates.tsx'
 import { summarize, type TrackedTask } from './handoff'
 import type { PiProgress } from './pisession'
 import { parsePending, pendingRecordFor, reviewState, type ReviewState } from './review'
@@ -144,6 +145,7 @@ export const register: Register = on => {
   registerWorktrees(on)
   registerDraftPrs(on)
   registerLifecycle(on)
+  registerGates(on)
   registerSendIt(on)
 
   // The settings fallback only matters before the first prompt.compose names the style.
@@ -160,6 +162,7 @@ export const register: Register = on => {
     await $.command.register({ name: 'pi-history', description: 'Open Pi hand-off history' })
     await $.command.register({ name: 'worktrees', description: 'Open the worktrees and branches pane' })
     await $.command.register({ name: 'draft-prs', description: 'Open the draft PRs pane: open drafts, ready PRs and merges from the last 7 days' })
+    await $.command.register({ name: 'gates', description: 'Open spec approvals and pending Pi reviews across worktrees' })
     await $.command.register({ name: 'send-it', description: 'Turn send-it mode on or off for this repo, or show its state', argumentHint: 'on|off|status' })
     const current = await $.session.usage()
     await Promise.all([

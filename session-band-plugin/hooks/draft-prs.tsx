@@ -2,7 +2,7 @@ import { atom, read, update, type EngineInterface, type Register } from 'claude-
 
 import type { DraftPrsState } from '../types'
 import { CHECK_MARK, GH_ARGV, groups, prLine, readGh } from './draft-prs'
-import { nextPane } from './pane-nav'
+import { nextPane, switchSteps } from './pane-nav'
 
 const view = atom({ plugin: 'session-band', key: 'draftPrs' } as const, { loading: false } as DraftPrsState)
 
@@ -23,6 +23,12 @@ const move = async ($: EngineInterface, step: 1 | -1) => {
   await update($, view, value => ({ ...value, selected: ids[(at + step + ids.length) % ids.length] }))
 }
 
+// `$` cannot cross an import, so this pane runs pane-nav's switch itself.
+const goTo = async ($: EngineInterface, to: string | undefined) => {
+  for (const s of switchSteps('draft-prs', to)) await ('close' in s ? $.ui.close({ id: s.close }) : $.ui.open({ id: s.open, title: s.title, focus: s.focus }))
+}
+const cycle = async ($: EngineInterface, step: 1 | -1) => goTo($, nextPane((await $.ui.panes()).map(pane => pane.id), 'draft-prs', step))
+
 export const register: Register = on => {
   on('command.run', { command: 'draft-prs' }, async ($, _e, _next) => {
     await $.ui.open({ id: 'draft-prs', title: 'Draft PRs', focus: true })
@@ -41,7 +47,6 @@ export const register: Register = on => {
     const now = await $.clock.now()
     const prs = state.prs ?? []
     const pick = prs.find(pr => pr.number === state.selected) ?? prs[0]
-    const go = (step: 1 | -1) => void $.ui.panes().then(panes => { const to = nextPane(panes.map(pane => pane.id), 'draft-prs', step); if (to && to !== 'draft-prs') void $.ui.open({ id: to, focus: true }) })
     const note = state.error ?? (state.loading ? 'Loading…' : prs.length === 0 ? 'No open or recently merged PRs.' : undefined)
     return <Box flexDirection="column">
       <Text weight="bold">Draft PRs</Text>
@@ -51,8 +56,8 @@ export const register: Register = on => {
         <Button key="pr-key-up" plain dimColor hotkey="k" label="up" onPress={() => void move($, -1)} />
         <Button key="pr-key-reload" plain dimColor hotkey="r" label="reload" onPress={() => void refresh($)} />
         <Button key="pr-key-copy" plain dimColor hotkey="y" label="copy" onPress={press => { if (pick) void $.ui.copy({ text: pick.url, surface: press.surface }) }} />
-        <Button key="pr-key-prev" plain dimColor hotkey="b" label="prev" onPress={() => go(-1)} />
-        <Button key="pr-key-next" plain dimColor hotkey="f" label="next" onPress={() => go(1)} />
+        <Button key="pr-key-prev" plain dimColor hotkey="b" label="prev" onPress={() => void cycle($, -1)} />
+        <Button key="pr-key-next" plain dimColor hotkey="f" label="next" onPress={() => void cycle($, 1)} />
         <Button key="pr-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'draft-prs' })} />
       </Box>
       {note !== undefined && <Text dimColor>{note}</Text>}

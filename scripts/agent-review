@@ -90,6 +90,95 @@ def snapshot_tree(root: Path) -> str:
         shutil.rmtree(scratch, ignore_errors=True)
 
 
+def worktrees(root: Path) -> list[tuple[Path, str]]:
+    """Every worktree of this repo as (path, branch); branch is "" when detached."""
+    out = git(root, "worktree", "list", "--porcelain")
+    trees: list[tuple[Path, str]] = []
+    for block in out.split("\n\n"):
+        lines = dict(line.split(" ", 1) for line in block.splitlines() if " " in line)
+        if "worktree" in lines:
+            branch = lines.get("branch", "").removeprefix("refs/heads/")
+            trees.append((Path(lines["worktree"]), branch))
+    return trees
+
+
+def default_ref(root: Path) -> str:
+    """origin's default branch as last fetched; no network."""
+    try:
+        return git(root, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
+    except RuntimeError:
+        return "origin/main"
+
+
+def landed(root: Path, base: str, end: str, ref: str) -> bool:
+    """True when ref already contains the run's base..end change (reverse-applies cleanly).
+
+    Checked in a throwaway index, so the worktree and its real index are untouched.
+    Binary patches and any git error count as not landed.
+    """
+    try:
+        patch = git(root, "diff", "--no-renames", "--binary", base, end)
+    except RuntimeError:
+        return False
+    if not patch:
+        return True
+    if "GIT binary patch" in patch or "Binary files" in patch:
+        return False
+    scratch = Path(tempfile.mkdtemp())
+    try:
+        env = {**os.environ, "GIT_INDEX_FILE": str(scratch / "index")}
+        git(root, "read-tree", ref, env=env)
+        result = subprocess.run(
+            ["git", "apply", "--reverse", "--check", "--cached"],
+            cwd=root, env=env, input=patch + "\n", capture_output=True, text=True, timeout=15,
+        )
+        return result.returncode == 0
+    except (RuntimeError, subprocess.TimeoutExpired):
+        return False
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
+def scan(root: Path, every: bool) -> list[dict[str, object]]:
+    """Pending reviews in this worktree, or in every worktree, plus orphan refs when every."""
+    trees = worktrees(root) if every else [(root, git(root, "branch", "--show-current"))]
+    ref = default_ref(root)
+    found: list[dict[str, object]] = []
+    for tree, branch in trees:
+        pending = tree / ".pi" / "agent-review" / "pending"
+        if not pending.is_dir():
+            continue
+        for path in sorted(pending.iterdir()):
+            run_id, kind = path.stem, path.suffix
+            if kind not in (".json", ".processing") or not RUN_ID.fullmatch(run_id):
+                continue
+            record = read_json(path) or {}
+            hashes = all(isinstance(record.get(k), str) and HASH.fullmatch(record[k]) for k in ("base", "end"))
+            found.append({
+                "runId": run_id, "owner": str(tree), "branch": branch,
+                "name": record.get("name") or "", "startedAt": record.get("startedAt") or "",
+                "processing": kind == ".processing", "error": "error" in record,
+                "landed": hashes and landed(tree, record["base"], record["end"], ref),
+                "orphan": False,
+            })
+    if every:
+        held = {entry["runId"] for entry in found}
+        refs = git(root, "for-each-ref", "--format=%(refname)", "refs/agent-review/").splitlines()
+        for run_id in sorted({r.split("/")[2] for r in refs if r.count("/") >= 3} - held):
+            found.append({"runId": run_id, "owner": None, "branch": "", "name": "", "startedAt": "",
+                          "processing": False, "error": False, "landed": False, "orphan": True})
+    return sorted(found, key=lambda entry: (entry["orphan"], str(entry["startedAt"])))
+
+
+def find_owner(root: Path, run_id: str) -> Path | None:
+    """The worktree whose pending directory holds run_id (as .json or .processing)."""
+    for tree, _branch in worktrees(root):
+        pending = tree / ".pi" / "agent-review" / "pending"
+        if (pending / f"{run_id}.json").exists() or (pending / f"{run_id}.processing").exists():
+            return tree
+    return None
+
+
 def confirm(root: Path, run_id: str, files: list[str]) -> bool:
     """Ask the person, in a dialog an agent cannot click. No bypass by design."""
     shown = ", ".join(files[:10])
@@ -181,6 +270,10 @@ def consume(root: Path, d: Path, run_id: str, record: dict[str, object], files: 
         if claim.exists():
             os.rename(claim, pending)
         raise
+    delete_refs(root, run_id)
+
+
+def delete_refs(root: Path, run_id: str) -> None:
     for ref in ("base", "end"):
         subprocess.run(["git", "update-ref", "-d", f"refs/agent-review/{run_id}/{ref}"], cwd=root, capture_output=True)
 
@@ -189,9 +282,10 @@ def approve(run_id: str) -> int:
     if not RUN_ID.fullmatch(run_id):
         raise Refusal("invalid-id", "not a run id")
     try:
-        root = repo_root()
+        here = repo_root()
     except SystemExit:
         raise Refusal("error", "not a git repository")
+    root = find_owner(here, run_id) or here  # act in the worktree that holds the review
     d = root / ".pi" / "agent-review"
     record = load_pending(d, run_id)
     if (d / "decisions" / f"{run_id}.json").exists():
@@ -203,6 +297,75 @@ def approve(run_id: str) -> int:
         raise Refusal("not-confirmed", "approval needs the person to confirm the dialog")
     consume(root, d, run_id, record, files)
     return reply(True, runId=run_id)
+
+
+def skip(run_id: str) -> int:
+    """Dismiss a review without approving it, in one step and with no agent turn.
+
+    The pending record is claimed (renamed) before the decision is written, so a live
+    Pi watcher in the owner finds no pending record and sends no follow-up.
+    """
+    if not RUN_ID.fullmatch(run_id):
+        raise Refusal("invalid-id", "not a run id")
+    try:
+        here = repo_root()
+    except SystemExit:
+        raise Refusal("error", "not a git repository")
+    owner = find_owner(here, run_id)
+    if owner is None:
+        if not git(here, "for-each-ref", "--format=%(refname)", f"refs/agent-review/{run_id}/"):
+            raise Refusal("no-pending", "no pending review or refs with that id in any worktree")
+        delete_refs(here, run_id)
+        return reply(True, runId=run_id, orphan=True)
+    d = owner / ".pi" / "agent-review"
+    pending, claim = d / "pending" / f"{run_id}.json", d / "pending" / f"{run_id}.processing"
+    if claim.exists():
+        raise Refusal("processing", "Pi is consuming it, or an interrupted claim")
+    record = read_json(pending) or {}
+    try:
+        os.rename(pending, claim)
+    except FileNotFoundError:
+        raise Refusal("processing", "another process claimed it first")
+    try:
+        try:
+            final = snapshot_tree(owner)
+        except (RuntimeError, OSError, subprocess.TimeoutExpired):
+            final = ""  # skip must work even when snapshots fail
+        write_decision(d / "decisions" / f"{run_id}.json", {
+            "runId": run_id, "endTree": record.get("endTree", ""), "finalTree": final,
+            "files": [], "notes": [], "patch": "", "skipped": True, "via": "agent-review skip",
+        })
+        os.remove(claim)
+    except BaseException:
+        if claim.exists():
+            os.rename(claim, pending)
+        raise
+    delete_refs(owner, run_id)
+    return reply(True, runId=run_id, owner=str(owner))
+
+
+def command_skip(args: argparse.Namespace) -> int:
+    """One JSON line on stdout; exit 0 only on success."""
+    try:
+        return skip(args.run_id)
+    except Refusal as refusal:
+        return reply(False, reason=refusal.reason, message=refusal.message)
+    except BaseException as error:
+        return reply(False, reason="error", message=type(error).__name__)
+
+
+def command_list(args: argparse.Namespace) -> int:
+    entries = scan(repo_root(), args.all)
+    if args.json:
+        print(json.dumps(entries))
+        return 0
+    for e in entries:
+        tags = [t for t in ("landed", "processing", "error", "orphan") if e[t]]
+        where = "(no worktree)" if e["orphan"] else f"{e['owner']} [{e['branch'] or 'detached'}]"
+        print(f"{e['name'] or '-'}  {str(e['runId'])[:8]}  {where}  {e['startedAt']}  {' '.join(tags)}".rstrip())
+    if not entries:
+        print("no pending reviews")
+    return 0
 
 
 def command_approve(args: argparse.Namespace) -> int:
@@ -249,6 +412,13 @@ def main() -> int:
     approve_parser = subparsers.add_parser("approve", help="approve one unchanged Pi run after a dialog")
     approve_parser.add_argument("run_id")
     approve_parser.set_defaults(handler=command_approve)
+    list_parser = subparsers.add_parser("list", help="list pending reviews (--all: every worktree)")
+    list_parser.add_argument("--all", action="store_true", help="scan every worktree and orphan refs")
+    list_parser.add_argument("--json", action="store_true", help="one JSON array on stdout")
+    list_parser.set_defaults(handler=command_list)
+    skip_parser = subparsers.add_parser("skip", help="dismiss one review without approving it, from any worktree")
+    skip_parser.add_argument("run_id")
+    skip_parser.set_defaults(handler=command_skip)
     args = parser.parse_args()
     return args.handler(args)
 
