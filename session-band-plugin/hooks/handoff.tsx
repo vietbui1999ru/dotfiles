@@ -4,7 +4,7 @@ import { emptyProgress, fold, sessionDir, sessionFileName, type PiProgress } fro
 import { parsePiCommand, parseStatus, type Task } from './pueue'
 import { finishNotice, type TrackedTask } from './handoff'
 
-export type HandoffState = { tasks: TrackedTask[]; available: boolean; selectedId?: number; confirm?: { action: 'kill' | 'hold'; ids: number[]; atMs: number } }
+export type HandoffState = { tasks: TrackedTask[]; available: boolean; selectedId?: number; showThinking?: boolean; confirm?: { action: 'kill' | 'hold'; ids: number[]; atMs: number } }
 
 const handoff = atom({ plugin: 'session-band', key: 'handoff' } as const, { tasks: [], available: true } satisfies HandoffState)
 const progress = atom({ plugin: 'session-band', key: 'progress' } as const, {} as Record<number, PiProgress>)
