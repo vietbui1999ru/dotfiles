@@ -15,12 +15,11 @@ sheldon = "latest"
 starship = "latest"
 
 # Editor
-neovim = "latest"
-"npm:tree-sitter-cli" = "latest"          # nvim-treesitter main compiles parsers with it
+"aqua:neovim/neovim" = "latest"
+"aqua:tree-sitter/tree-sitter" = "latest"  # nvim-treesitter main compiles parsers with it
 "npm:@mermaid-js/mermaid-cli" = "latest"  # snacks.image / diagram.nvim render mermaid via mmdc
 
-# Modern CLI (Rust tools)
-eza = "latest"
+# Modern CLI (Rust tools; eza stays in Brewfile: no macOS release binaries)
 bat = "latest"
 ripgrep = "latest"    # installs the `rg` binary
 fd = "latest"

@@ -26,6 +26,9 @@ brew "herdr"
 # Editor
 brew "imagemagick"      # snacks.image converts images with magick
 
+# Modern CLI (eza ships no macOS binaries, so mise would compile it)
+brew "eza"
+
 # Dev tools
 brew "mise"
 brew "direnv"
