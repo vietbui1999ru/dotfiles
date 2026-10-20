@@ -232,9 +232,9 @@ export const register: Register = on => {
       <Text>Pi history</Text>
       {/* Hotkeys, not hints: a key the pane does not bind falls through to the composer. */}
       <Box flexDirection="row" flexWrap="wrap" columnGap={2} marginBottom={1}>
-        {ids.length > 0 && <Button key="pi-history-key-down" plain dimColor hotkey="j" label="down" onPress={() => void move($, ids, task?.id, 'down')} />}
-        {ids.length > 0 && <Button key="pi-history-key-up" plain dimColor hotkey="k" label="up" onPress={() => void move($, ids, task?.id, 'up')} />}
-        {ids.length > 0 && <Button key="pi-history-key-top" plain dimColor hotkey="g" label="top" onPress={() => void move($, ids, task?.id, 'top')} />}
+        <Button key="pi-history-key-down" plain dimColor hotkey="j" label="down" onPress={() => void move($, ids, task?.id, 'down')} />
+        <Button key="pi-history-key-up" plain dimColor hotkey="k" label="up" onPress={() => void move($, ids, task?.id, 'up')} />
+        <Button key="pi-history-key-top" plain dimColor hotkey="g" label="top" onPress={() => void move($, ids, task?.id, 'top')} />
         <Button key="pi-history-key-reload" plain dimColor hotkey="r" label="reload" onPress={() => void refresh($)} />
         <Button key="pi-history-key-prev" plain dimColor hotkey="b" label="prev" onPress={() => void cycle($, -1)} />
         <Button key="pi-history-key-next" plain dimColor hotkey="f" label="next" onPress={() => void cycle($, 1)} />
