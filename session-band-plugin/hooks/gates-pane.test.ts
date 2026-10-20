@@ -201,3 +201,29 @@ test('gates edit uses the owner socket and all pane keys are bound', async ($, o
   await clock.settle()
   expect(calls.some(call => call.argv[4] === '<C-\\><C-N>:edit /r/w/SPEC.md<CR>')).toBe(true)
 })
+
+test('digits jump to another mod pane; the pane\'s own digit does nothing', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  const closed: string[] = []
+  const opened: { id: string; title: string; focus?: true }[] = []
+  on('ui.close', (_$, e) => { closed.push(e.id); return { value: undefined } as never })
+  on('ui.open', (_$, e) => {
+    const { id, title, focus } = e as { id: string; title: string; focus?: boolean }
+    opened.push(focus === true ? { id, title, focus: true } : { id, title })
+    return { value: { isPlaced: true } } as never
+  })
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  await ui.press({ key: 'gates-key-jump-3' })
+  await clock.settle()
+  expect(closed).toEqual(['gates'])
+  expect(opened).toEqual([
+    { id: 'worktrees', title: 'Worktrees', focus: true },
+    { id: 'gates', title: 'Gates' },
+  ])
+  closed.length = 0
+  opened.length = 0
+  await ui.press({ key: 'gates-key-jump-5' })
+  await clock.settle()
+  expect(closed).toEqual([])
+  expect(opened).toEqual([])
+})

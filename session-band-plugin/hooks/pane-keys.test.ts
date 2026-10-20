@@ -1,4 +1,4 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 
 import { PANE, setupTracked as setup, text } from './fake-pueue'
 
@@ -70,4 +70,30 @@ test('t toggles thinking with no task selected, without throwing', async ($, on)
   await ui.press({ key: 'pi-key-thinking' })
   await clock.settle()
   expect((await ui.find({ key: 'pi-key-thinking' }))?.props.label).toBe('hide thinking')
+})
+
+test('digits 1-5 jump between mod panes; the pane\'s own digit does nothing', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000_000 })
+  const closed: string[] = []
+  const opened: { id: string; title: string; focus?: true }[] = []
+  on('ui.close', (_$, e) => { closed.push(e.id); return { value: undefined } as never })
+  on('ui.open', (_$, e) => {
+    const { id, title, focus } = e as { id: string; title: string; focus?: boolean }
+    opened.push(focus === true ? { id, title, focus: true } : { id, title })
+    return { value: { isPlaced: true } } as never
+  })
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  await ui.press({ key: 'pi-key-jump-3' })
+  await clock.settle()
+  expect(closed).toEqual(['pi-handoff'])
+  expect(opened).toEqual([
+    { id: 'worktrees', title: 'Worktrees', focus: true },
+    { id: 'pi-handoff', title: 'Pi hand-off' },
+  ])
+  closed.length = 0
+  opened.length = 0
+  await ui.press({ key: 'pi-key-jump-1' })
+  await clock.settle()
+  expect(closed).toEqual([])
+  expect(opened).toEqual([])
 })

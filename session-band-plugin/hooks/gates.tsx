@@ -2,7 +2,7 @@ import { atom, read, update, type EngineInterface, type Register } from 'claude-
 
 import { acRunArgv, approveTimeoutMs, editRemoteArgv, parseSpecStatus, specRows, REVIEW_LIST_ARGV, parseReviewList, reviewRows, skipArgv, type GateRow, type SpecRow, type ReviewRow } from './gates'
 import { approveArgv, approvalAction, matchingSocket, needsRejectConfirm, rejectToast, reviewRemoteArgv, reviewPaneRunArgv, reviewSplitArgv } from './pane.tsx'
-import { nextPane, switchSteps } from './pane-nav'
+import { FOCUS_ACTION, FOCUS_REFUSED, JUMP_KEYS, nextPane, PANE_TITLES, switchSteps } from './pane-nav'
 import { PALETTE } from './palette'
 import { parseWorktrees } from './worktrees'
 
@@ -195,6 +195,16 @@ const goTo = async ($: EngineInterface, to: string | undefined) => {
 }
 const cycle = async ($: EngineInterface, step: 1 | -1) => goTo($, nextPane((await $.ui.panes()).map(pane => pane.id), 'gates', step))
 
+// Keep engine calls local: `$` cannot cross an import.
+async function focusSelf($: EngineInterface) {
+  if ((await $.prompt.read()).text.trim()) {
+    await $.ui.toast(FOCUS_REFUSED)
+    return
+  }
+  await $.ui.open({ id: 'gates', title: PANE_TITLES['gates'], focus: true })
+  if (!(await $.ui.panes()).some(pane => pane.id === 'gates' && pane.isFocused)) await $.ui.toast(FOCUS_REFUSED)
+}
+
 export const register: Register = on => {
   on('command.run', { command: 'gates' }, async ($, _e, _next) => {
     await $.ui.open({ id: 'gates', title: 'Gates', focus: true })
@@ -220,6 +230,8 @@ export const register: Register = on => {
         <Button key="gates-key-next" plain dimColor hotkey="f" label="next" onPress={() => void cycle($, 1)} />
         <Button key="gates-key-worktrees" plain dimColor hotkey="w" label="worktrees" onPress={() => void goTo($, 'worktrees')} />
         <Button key="gates-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'gates' })} />
+        <Button key="gates-key-focus" plain dimColor action={FOCUS_ACTION} label="ctrl+x b" onPress={() => void focusSelf($)} />
+        {JUMP_KEYS.map(j => <Button key={`gates-key-jump-${j.key}`} plain dimColor hotkey={j.key} label={j.label} onPress={() => void (j.id === 'gates' ? undefined : goTo($, j.id))} />)}
       </Box>
       {state.reviewsUnavailable && <Text color={PALETTE.yellow}>reviews unavailable</Text>}
       {state.rows.length === 0 && <Text dimColor>No specs or pending reviews.</Text>}

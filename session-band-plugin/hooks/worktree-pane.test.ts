@@ -33,3 +33,29 @@ test('the worktrees pane draws its title, then the tree, detail and legend as se
   expect(rows).toContain('main · HEAD 1234567')
   expect(rows).toContain('⊘ detached  ⊗ prunable  › selected')
 })
+
+test('digits jump to another mod pane; the pane\'s own digit does nothing', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_000_000 })
+  const closed: string[] = []
+  const opened: { id: string; title: string; focus?: true }[] = []
+  on('ui.close', (_$, e) => { closed.push(e.id); return { value: undefined } as never })
+  on('ui.open', (_$, e) => {
+    const { id, title, focus } = e as { id: string; title: string; focus?: boolean }
+    opened.push(focus === true ? { id, title, focus: true } : { id, title })
+    return { value: { isPlaced: true } } as never
+  })
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  await ui.press({ key: 'wt-key-jump-1' })
+  await clock.settle()
+  expect(closed).toEqual(['worktrees'])
+  expect(opened).toEqual([
+    { id: 'pi-handoff', title: 'Pi hand-off', focus: true },
+    { id: 'worktrees', title: 'Worktrees' },
+  ])
+  closed.length = 0
+  opened.length = 0
+  await ui.press({ key: 'wt-key-jump-3' })
+  await clock.settle()
+  expect(closed).toEqual([])
+  expect(opened).toEqual([])
+})

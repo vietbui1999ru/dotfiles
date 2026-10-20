@@ -1,7 +1,7 @@
 import { atom, read, update, type EngineInterface, type Register } from 'claude-code'
 
 import type { WorktreeBranch, WorktreeRow, WorktreeState } from '../types'
-import { nextPane, switchSteps } from './pane-nav'
+import { FOCUS_ACTION, FOCUS_REFUSED, JUMP_KEYS, nextPane, PANE_TITLES, switchSteps } from './pane-nav'
 import { countChanges, liveByTree, paneLines, parseAheadBehind, parseHeartbeat, parseWorktrees, treeKeys, type Worktree } from './worktrees'
 
 const view = atom({ plugin: 'session-band', key: 'worktrees' } as const, { open: false, legend: true } as WorktreeState)
@@ -69,6 +69,16 @@ const goTo = async ($: EngineInterface, to: string | undefined) => {
 }
 const cycle = async ($: EngineInterface, step: 1 | -1) => goTo($, nextPane((await $.ui.panes()).map(pane => pane.id), 'worktrees', step))
 
+// Keep engine calls local: `$` cannot cross an import.
+async function focusSelf($: EngineInterface) {
+  if ((await $.prompt.read()).text.trim()) {
+    await $.ui.toast(FOCUS_REFUSED)
+    return
+  }
+  await $.ui.open({ id: 'worktrees', title: PANE_TITLES['worktrees'], focus: true })
+  if (!(await $.ui.panes()).some(pane => pane.id === 'worktrees' && pane.isFocused)) await $.ui.toast(FOCUS_REFUSED)
+}
+
 export const register: Register = on => {
   on('command.run', { command: 'worktrees' }, async ($, _e, _next) => {
     await $.ui.open({ id: 'worktrees', title: 'Worktrees', focus: true })
@@ -107,6 +117,8 @@ export const register: Register = on => {
         <Button key="wt-key-prev" plain dimColor hotkey="b" label="prev pane" onPress={() => void cycle($, -1)} />
         <Button key="wt-key-next" plain dimColor hotkey="f" label="next pane" onPress={() => void cycle($, 1)} />
         <Button key="wt-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'worktrees' })} />
+        <Button key="wt-key-focus" plain dimColor action={FOCUS_ACTION} label="ctrl+x b" onPress={() => void focusSelf($)} />
+        {JUMP_KEYS.map(j => <Button key={`wt-key-jump-${j.key}`} plain dimColor hotkey={j.key} label={j.label} onPress={() => void (j.id === 'worktrees' ? undefined : goTo($, j.id))} />)}
       </Box>
       {lines.map((line, index) => <Text key={`wt-line-${index}`} mono color={line.color} weight={line.strong ? 'bold' : undefined}>{line.text}</Text>)}
     </Box>

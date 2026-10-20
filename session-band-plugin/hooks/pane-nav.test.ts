@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { MOD_PANES, nextPane, PANE_TITLES, switchSteps } from './pane-nav'
+import { JUMP_KEYS, MOD_PANES, nextPane, PANE_TITLES, switchSteps } from './pane-nav'
 
 test('cycles forward and backward through the open mod panes, wrapping at both ends', () => {
   const open = ['pi-handoff', 'worktrees', 'pi-history']
@@ -34,4 +34,10 @@ test('no switch when there is nowhere else to go', () => {
 
 test('every mod pane has a real title, so a switch never retitles a tab to its bare id', () => {
   for (const id of MOD_PANES) expect(PANE_TITLES[id]).not.toBe(id)
+})
+
+test('JUMP_KEYS has one entry per mod pane, digits 1-5 in MOD_PANES order', () => {
+  expect(JUMP_KEYS.map(j => j.id)).toEqual([...MOD_PANES])
+  expect(JUMP_KEYS.map(j => j.key)).toEqual(['1', '2', '3', '4', '5'])
+  expect(JUMP_KEYS.map(j => j.label)).toEqual(['pi', 'history', 'worktrees', 'drafts', 'gates'])
 })
