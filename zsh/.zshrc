@@ -22,14 +22,15 @@ export PATH="$HOME/.ghcup/bin:$PATH"
 [[ -d /usr/local/go/bin ]] && export PATH="/usr/local/go/bin:$PATH"
 export PATH="$HOME/go/bin:$PATH"
 
+# mise (replaces pyenv, rbenv, nvm — activates shims and shell completions).
+# Must come before sheldon/starship: both are installed by mise.
+command -v mise &>/dev/null && eval "$(mise activate zsh)"
+
 # ── Sheldon (plugins) ─────────────────────────────────────────────────
 eval "$(sheldon source)"
 
 # ── Starship (prompt) ─────────────────────────────────────────────────
 eval "$(starship init zsh)"
-
-# mise (replaces pyenv, rbenv, nvm — activates shims and shell completions)
-command -v mise &>/dev/null && eval "$(mise activate zsh)"
 
 # direnv (after mise so .envrc can reference mise-managed tools)
 command -v direnv &>/dev/null && eval "$(direnv hook zsh)"

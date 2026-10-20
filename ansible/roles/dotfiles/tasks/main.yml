@@ -27,6 +27,7 @@
   loop:
     - zsh
     - starship
+    - mise
     - tmux
     - kitty
     - nvim
