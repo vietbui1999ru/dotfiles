@@ -65,7 +65,8 @@ export type WorktreeState = { open: boolean; legend: boolean; selected?: string;
 export type PrState = 'draft' | 'ready' | 'merged'
 export type PrChecks = 'passing' | 'failing' | 'pending' | 'none'
 export type DraftPr = { number: number; title: string; branch: string; url: string; state: PrState; checks: PrChecks; at: number }
-export type DraftPrsState = { loading: boolean; selected?: number; prs?: DraftPr[]; error?: string }
+export type ForgeId = 'github' | 'gitlab'
+export type DraftPrsState = { loading: boolean; selected?: number; prs?: DraftPr[]; error?: string; forge?: ForgeId }
 
 export type HistoryState = {
   tasks: PueueTask[]

@@ -1,0 +1,35 @@
+// Which forge a repo lives on, picked from its `origin` remote, and how the draft PRs pane lists that forge's PRs.
+// One entry per forge: adding Forgejo or Codeberg is one more entry here and one reader beside gitlab.ts.
+import type { DraftPrsState, ForgeId } from '../types'
+import { GH_ARGV, readGh, type GhResult } from './draft-prs'
+import { GLAB_ARGV, readGlab } from './gitlab'
+
+export const REMOTE_ARGV = ['git', 'remote', 'get-url', 'origin'] as const
+export const NO_REMOTE = 'no origin remote here'
+export const noForge = (host: string) => `origin is on ${host}: no PR list for it`
+
+export type Forge = {
+  id: ForgeId
+  /** How the forge writes a PR number in a row: `#117`, `!117`. */
+  sigil: string
+  matches: (host: string) => boolean
+  argv: readonly string[]
+  read: (r: GhResult | undefined, now: number) => Pick<DraftPrsState, 'prs' | 'error'>
+}
+
+// First match wins. Self-hosted GitLab is matched by "gitlab" in its host name.
+export const FORGES: readonly Forge[] = [
+  { id: 'github', sigil: '#', matches: host => host === 'github.com', argv: GH_ARGV, read: readGh },
+  { id: 'gitlab', sigil: '!', matches: host => host.includes('gitlab'), argv: GLAB_ARGV, read: readGlab },
+]
+
+/** The host of `https://host/o/r`, `ssh://git@host:22/o/r` or `git@host:o/r`, lowercased; undefined if none. */
+export const hostOf = (remote: string): string | undefined => {
+  const url = remote.trim()
+  const host = /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/]+@)?([^:/]+)/i.exec(url)?.[1] ?? /^(?:[^@/]+@)?([^:/]+):(?!\/)/.exec(url)?.[1]
+  return host?.toLowerCase()
+}
+
+export const forgeFor = (host: string): Forge | undefined => FORGES.find(forge => forge.matches(host))
+
+export const forgeById = (id: ForgeId | undefined): Forge | undefined => FORGES.find(forge => forge.id === id)

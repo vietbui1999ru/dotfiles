@@ -2,6 +2,9 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import { GH_ARGV, GH_AUTH } from './draft-prs'
 import { HEADERS, NOW, PRS, ROWS } from './draft-prs-fixture'
+import { NO_REMOTE, noForge, REMOTE_ARGV } from './forge'
+import { GLAB_ARGV } from './gitlab'
+import { MRS } from './gitlab-fixture'
 
 const PANE = {
   component: 'Pane' as const,
@@ -19,13 +22,18 @@ const lines = (node: unknown): string[] => {
   return children.flatMap(lines)
 }
 
-// One fake gh: every process.run answers `result` and is recorded, so a test can see the pane ran only `gh pr list`.
-const setup = (on: Parameters<Parameters<typeof test>[1]>[1], result: { exitCode: number; stdout: string; stderr: string }) => {
+// One fake git and forge CLI: `git remote get-url origin` prints `origin`, any other process.run answers `result`,
+// and every call is recorded, so a test can see which forge command the pane ran.
+const setup = (on: Parameters<Parameters<typeof test>[1]>[1], result: { exitCode: number; stdout: string; stderr: string }, origin = 'git@github.com:vietbui99/dotfiles.git') => {
   const clock = mock.clock(on, { now: NOW })
   on('ui.open', () => ({ value: { isPlaced: true } } as never))
   on('session.cwd', () => ({ value: '/repo' }))
   const calls: string[][] = []
-  on('process.run', (_$, e) => { calls.push([...e.argv]); return { value: result } as never })
+  on('process.run', (_$, e) => {
+    calls.push([...e.argv])
+    const remote = e.argv[0] === 'git' ? { exitCode: origin ? 0 : 2, stdout: `${origin}\n`, stderr: origin ? '' : "error: No such remote 'origin'" } : result
+    return { value: remote } as never
+  })
   return { clock, calls }
 }
 
@@ -41,7 +49,31 @@ test('/draft-prs lists drafts, then ready, then merged in the last 7 days, from 
   expect(rows.indexOf(ROWS[0])).toBeLessThan(rows.indexOf('Ready · 1'))
   expect(rows).toContain('band-icon-only · ')
   expect(rows.some(row => row.includes('pi-reload'))).toBe(false)
-  expect(calls).toEqual([[...GH_ARGV]])
+  expect(calls).toEqual([[...REMOTE_ARGV], [...GH_ARGV]])
+})
+
+test('a GitLab origin lists MRs from glab, numbered with !', async ($, on) => {
+  const { calls } = setup(on, { exitCode: 0, stdout: JSON.stringify(MRS), stderr: '' }, 'https://gitlab.com/group/repo.git')
+  await $.command.run(RUN)
+  const rows = lines(await $.ui.render(PANE))
+  expect(rows).toContain('Draft · 2')
+  expect(rows).toContain(`!16 ${'wip parser'.padEnd(44)}  2h`)
+  expect(rows).toContain('wip-parser · ')
+  expect(calls).toEqual([[...REMOTE_ARGV], [...GLAB_ARGV]])
+})
+
+test('an origin on no known forge shows a message and runs no forge command', async ($, on) => {
+  const { calls } = setup(on, { exitCode: 0, stdout: '[]', stderr: '' }, 'https://codeberg.org/owner/repo.git')
+  await $.command.run(RUN)
+  expect(lines(await $.ui.render(PANE))).toContain(noForge('codeberg.org'))
+  expect(calls).toEqual([[...REMOTE_ARGV]])
+})
+
+test('no origin remote shows its own message', async ($, on) => {
+  const { calls } = setup(on, { exitCode: 0, stdout: '[]', stderr: '' }, '')
+  await $.command.run(RUN)
+  expect(lines(await $.ui.render(PANE))).toContain(NO_REMOTE)
+  expect(calls).toEqual([[...REMOTE_ARGV]])
 })
 
 test('j moves the selection and y copies its url', async ($, on) => {
