@@ -1,5 +1,7 @@
 # jj adoption + hunk.nvim diff-editor
 
+> As of 2026-10-20 this work is shipped: jj 0.46.0 is installed, `~/dotfiles` is colocated, and the "not installed" context below is historical.
+
 Sub-project 2 of 3 in the git-tooling overhaul (sub-project 1, neogit replacing fugit2.nvim, is done — PR #4, pending merge to main). Sub-project 3 (hunk CLI + DiffViewer integration) is separate and not started.
 
 ## Context

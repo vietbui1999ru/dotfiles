@@ -111,4 +111,6 @@ In a `gh stack`, commit each layer as you go, on that layer's branch.
 
 Still ask before push, force-push, merge, rebase, `reset --hard`, and deleting
 branches. The review gates (`agent-review`, `:AgentReview`) apply to what is
-pushed or merged, not to commits.
+pushed or merged, not to commits. Agents use git only and never run `jj` (every
+`jj` command writes to the repo, and in a colocated repo it detaches git HEAD);
+jj is the human's history-editing tool in the main checkout.

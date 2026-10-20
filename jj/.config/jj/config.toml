@@ -3,5 +3,15 @@ name = "vietbui99"
 email = "buiquocviet99@gmail.com"
 
 [ui]
+default-command = "log"
 diff-editor = ["nvim", "-c", "DiffEditor $left $right $output"]
 diff-instructions = false
+
+[snapshot]
+auto-track = "none()"   # explicit `jj file track`, same as the stage-by-path rule
+
+[revset-aliases]
+"open()" = "mine() & ~::trunk()"
+
+[aliases]
+tug = ["bookmark", "move", "--from", "heads(::@- & bookmarks())", "--to", "@-"]
