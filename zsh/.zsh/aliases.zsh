@@ -46,6 +46,9 @@ alias tpdf="termpdf.py"
 alias picp='pi -e "$HOME/.pi/agent/extensions-available/pi-control-plane.ts"'
 alias pi-cp='pi -e "$HOME/.pi/agent/extensions-available/pi-control-plane.ts"'
 
+# Spec loop (alias, not PATH: scripts/ also holds a firecrawl wrapper that would shadow the real CLI)
+alias ac-run="$HOME/dotfiles/scripts/ac-run"
+
 # macOS-specific
 if [[ $OSTYPE == darwin* ]]; then
   alias xcode="open -a Xcode"
