@@ -18,6 +18,12 @@ export const finished = (task: ReturnType<typeof running>, result: 'Success' | '
   return { ...task, status: { Done: { enqueued_at: at, start: task.created_at, end: at, result } } } as unknown as ReturnType<typeof running>
 }
 
+export const queued = (id: number, nowMs: number) => {
+  const at = new Date(nowMs).toISOString()
+  // SAFETY: as `finished`: pueue's raw Queued status differs from the running literal's type.
+  return { ...running(id, nowMs), status: { Queued: { enqueued_at: at } } } as unknown as ReturnType<typeof running>
+}
+
 export const dispatch = '"pi --model opencode-go/flash:high --session-id pueue-sim -p x < /dev/null"'
 
 // A fake pueue beneath the plugin. Setting `armed` freezes the next `pueue status` call with the
@@ -39,6 +45,19 @@ export const fakePueue = (on: On, nowMs: () => number) => {
   on('session.cwd', () => ({ value: '/work' }))
   on('session.root', () => ({ value: '/work' }))
   on('process.run', async (_$, e) => {
+    if (e.argv[0] === 'pueued') {
+      fake.order.push(e.argv.join(' '))
+      fake.down = false
+      return { value: { exitCode: 0, stdout: '', stderr: '' } } as never
+    }
+    // `git status` answers `porcelain` when set; every other git call fails as before. `git` records each argv.
+    if (e.argv[0] === 'git') {
+      fake.git.push(e.argv.slice(1))
+      const ok = e.argv.includes('status') && fake.porcelain !== undefined
+      return { value: { exitCode: ok ? 0 : 1, stdout: ok ? fake.porcelain ?? '' : '', stderr: '' } } as never
+    }
+    // As real pueue with no daemon: every client call fails to connect.
+    if (e.argv[0] === 'pueue' && fake.down) return { value: { exitCode: 1, stdout: '', stderr: 'Error: Failed to connect to the daemon.' } } as never
     if (e.argv[0] === 'ps') return { value: { exitCode: 0, stdout: fake.ps, stderr: '' } } as never
     if (e.argv[0] === '/bin/kill') {
       signals.push(e.argv.slice(1))
@@ -46,11 +65,20 @@ export const fakePueue = (on: On, nowMs: () => number) => {
     }
     if (e.argv[0] === 'pueue' && e.argv[1] !== 'status') {
       calls.push(e.argv.slice(1))
+      fake.order.push(e.argv.join(' '))
       const ids = e.argv.slice(2).filter(word => /^\d+$/.test(word))
       // As real pueue: a failing subcommand, or `kill` on a Queued task, exits 1 and changes nothing.
-      const queued = ids.filter(id => 'Queued' in ((tasks[id]?.status ?? {}) as object))
-      if (failing.has(e.argv[1]!) || (e.argv[1] === 'kill' && queued.length > 0)) {
+      const queuedIds = ids.filter(id => 'Queued' in ((tasks[id]?.status ?? {}) as object))
+      if (failing.has(e.argv[1]!) || (e.argv[1] === 'kill' && queuedIds.length > 0)) {
         return { value: { exitCode: 1, stdout: '', stderr: `The command failed for tasks: ${ids.join(', ')}` } } as never
+      }
+      if (e.argv[1] === 'start' && e.argv[2] === '--group') fake.group = 'Running'
+      if (e.argv[1] === 'pause' && e.argv[2] === '--group') fake.group = 'Paused'
+      if (e.argv[1] === 'shutdown') fake.down = true
+      if (e.argv[1] === 'add') {
+        const id = Math.max(0, ...Object.keys(tasks).map(Number)) + 1
+        tasks[id] = queued(id, nowMs())
+        return { value: { exitCode: 0, stdout: `${id}\n`, stderr: '' } } as never
       }
       for (const id of ids) {
         const task = tasks[id]
@@ -68,7 +96,7 @@ export const fakePueue = (on: On, nowMs: () => number) => {
       return { value: { exitCode: 0, stdout: '', stderr: '' } } as never
     }
     if (e.argv[0] !== 'pueue' || e.argv[1] !== 'status') return { value: { exitCode: 1, stdout: '', stderr: '' } } as never
-    const stdout = JSON.stringify({ tasks: { ...tasks } })
+    const stdout = JSON.stringify({ tasks: { ...tasks }, groups: { default: { status: fake.group, parallel_tasks: fake.parallel } } })
     if (gate.armed) {
       gate.armed = false
       reached()
@@ -78,11 +106,13 @@ export const fakePueue = (on: On, nowMs: () => number) => {
   })
   on('tool.call', (_$, e) => {
     if (e.tool !== 'Bash') return { result: {} } as never
+    fake.order.push('add')
     const id = Object.keys(tasks).length + 1
     tasks[id] = running(id, nowMs())
     return { result: 'ok', text: String(id) } as never
   })
-  const fake = Object.assign(gate, { tasks, calls, failing, signals, ps: '' })
+  // `down`/`group`/`parallel` are the daemon and default group; `order` logs pueued, pueue calls and tool-call adds in sequence.
+  const fake = Object.assign(gate, { tasks, calls, failing, signals, ps: '', down: false, group: 'Running' as string, parallel: 1, order: [] as string[], git: [] as string[][], porcelain: undefined as string | undefined })
   return fake
 }
 

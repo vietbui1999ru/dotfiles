@@ -9,6 +9,7 @@ import { nextPane, switchSteps } from './pane-nav'
 import { PALETTE } from './palette'
 import type { PiProgress, TranscriptEntry } from './pisession'
 import { parsePending, pendingRecordFor, type PendingReview } from './review'
+import { editRefusal, killNote, parseEdit, readdArgv } from './lifecycle'
 
 const handoff = atom({ plugin: 'session-band', key: 'handoff' } as const, { tasks: [] as TrackedTask[], available: true } satisfies HandoffState)
 const progress = atom({ plugin: 'session-band', key: 'progress' } as const, {} as Record<number, PiProgress>)
@@ -131,6 +132,42 @@ export async function askConfirm($: EngineInterface, action: 'kill' | 'hold', id
   await update($, handoff, state => ({ ...state, confirm: { action, ids, atMs } }))
 }
 
+/** Stop: the group starts nothing new; running tasks finish and queued ones wait. /pi release starts it again. */
+async function stopQueue($: EngineInterface, group: string) {
+  const result = await $.process.run(holdArgv(group))
+  await $.ui.toast(result.exitCode === 0
+    ? `Stopped queue ${group}; running tasks finish, queued tasks wait. Run /pi release to start it again.`
+    : `pueue pause failed: ${(result.stderr || result.stdout).trim().split('\n')[0] || `exit ${result.exitCode}`}`)
+}
+
+/** Read-only: how much each killed task's worktree holds uncommitted. The band never reverts a worktree. */
+async function uncommitted($: EngineInterface, tasks: readonly TrackedTask[], ids: readonly number[]): Promise<string> {
+  const notes = [] as string[]
+  for (const cwd of new Set(tasks.filter(task => ids.includes(task.id)).map(task => task.cwd))) {
+    const status = await $.process.run(['git', '-C', cwd, 'status', '--porcelain']).catch(() => undefined)
+    if (status?.exitCode === 0) notes.push(killNote(cwd, status.stdout))
+  }
+  return notes.join('')
+}
+
+/** Edit = remove and re-add with a new model and label. Remove goes first: pueue refuses to remove a started task, so a race cannot run it twice. */
+async function editTask($: EngineInterface, task: TrackedTask, text: string) {
+  const edit = parseEdit(text)
+  if (!edit) return
+  const live = parseStatus((await $.process.run(['pueue', 'status', '--json'])).stdout).find(item => item.id === task.id)
+  const refused = editRefusal(live?.state)
+  if (refused || !live) { await $.ui.toast(refused ?? 'Edit refused.'); return }
+  const removed = await $.process.run(controlArgv('rm', [task.id]))
+  if (removed.exitCode !== 0) { await $.ui.toast(`Edit refused: pueue would not remove #${task.id}.`); return }
+  const label = edit.label ?? task.label ?? `edit-${task.id}`
+  const added = await $.process.run(readdArgv(live, edit.model, label), { cwd: live.cwd })
+  const id = parseAddResult(added.stdout)
+  await update($, handoff, state => ({ ...state, selectedId: id ?? state.selectedId, tasks: state.tasks.flatMap(item => item.id !== task.id ? [item] : id === undefined ? [] : [{ ...item, id, label, task: { ...live, id, label } }]) }))
+  await $.ui.toast(id === undefined
+    ? `Removed #${task.id}, but the re-add failed: ${(added.stderr || added.stdout).trim() || `exit ${added.exitCode}`}`
+    : `Edited #${task.id}: re-added as #${id} with ${edit.model}.`)
+}
+
 /** Re-read state, act only on ids still eligible; an expired or finished confirm does nothing. */
 export async function confirmNow($: EngineInterface) {
   const state = await read($, handoff)
@@ -143,7 +180,8 @@ export async function confirmNow($: EngineInterface) {
   const { ids, refused } = resolveTargets(confirm.action, confirm.ids, state.tasks, pueue)
   if (ids.length === 0) { await $.ui.toast(`Nothing to ${confirm.action}.${describeRefused(refused)}`); return }
   const group = pueue.find(task => ids.includes(task.id))?.group ?? 'default'
-  await $.ui.toast(`${await runControl($, confirm.action, ids, group)}${describeRefused(refused)}`)
+  const reply = await runControl($, confirm.action, ids, group)
+  await $.ui.toast(`${reply}${await uncommitted($, state.tasks, ids)}${describeRefused(refused)}`)
 }
 
 /** j/k/g: select the row the motion lands on and put the focus ring on it, so the two agree. */
@@ -404,7 +442,7 @@ export const register: Register = on => {
         <Button key="pi-key-worktrees" plain dimColor hotkey="w" label="worktrees" onPress={() => void goTo($, 'worktrees')} />
         <Button key="pi-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'pi-handoff' })} />
         <Button key="pi-key-thinking" plain dimColor hotkey="t" label={state.showThinking ? 'hide thinking' : 'thinking'} onPress={() => void update($, handoff, value => ({ ...value, showThinking: !value.showThinking }))} />
-        {task && <Text dimColor>x kill  h hold  p pause  y/n confirm</Text>}
+        {task && <Text dimColor>x kill  s stop  h hold  p pause  y/n confirm</Text>}
       </Box>
       {confirm && <Box flexDirection="row" columnGap={1}>
         <Text color={PALETTE.red}>{`${confirm.action === 'hold' ? 'Hold queue and kill' : 'Kill'} ${confirm.ids.map(id => `#${id}`).join(' ')}?`}</Text>
@@ -429,6 +467,7 @@ export const register: Register = on => {
       {task && <Box flexDirection="row" flexWrap="wrap" columnGap={1} marginTop={1}>
         {!complete(task) && <Button key="pi-abort" hotkey="x" onPress={() => void askConfirm($, 'kill', [task.id])}>Abort</Button>}
         {task.task && eligible('kill', task.task.state) && <Button key="pi-hold" hotkey="h" onPress={() => void askConfirm($, 'hold', [task.id])}>Hold queue</Button>}
+        {task.task && eligible('pause', task.task.state) && <Button key="pi-stop" hotkey="s" onPress={() => void stopQueue($, task.task?.group ?? 'default')}>Stop queue</Button>}
         {!complete(task) && <Button key="pi-pause" hotkey="p" onPress={() => void runControl($, task.task?.state === 'Paused' ? 'resume' : 'pause', [task.id], task.task?.group ?? 'default')}>{task.task?.state === 'Paused' ? 'Resume' : 'Pause'}</Button>}
         {complete(task) && <Button key="pi-remove" onPress={() => void runControl($, 'rm', [task.id], task.task?.group ?? 'default')}>Remove</Button>}
         <Button key="pi-dismiss" onPress={() => void dismiss($, task)}>Dismiss</Button>
@@ -437,6 +476,7 @@ export const register: Register = on => {
         {pending && <Button key="pi-reject-all" onPress={() => { const confirmed = !needsRejectConfirm(rejecting, pending.runId); rejecting = confirmed ? undefined : pending.runId; void rejectAll($, task, pending.runId, confirmed) }}>Reject all</Button>}
       </Box>}
       {task && <Input key="pi-continue" label="Continue" placeholder="Follow-up for Pi" submitLabel="send" onSubmit={value => void continueTask($, task, pi, value)} />}
+      {task?.task?.state === 'Queued' && <Input key="pi-edit" label="Edit" placeholder="model[:effort] [label]" submitLabel="re-add" onSubmit={value => void editTask($, task, value).catch(error => $.ui.toast(`Edit failed: ${String(error)}`))} />}
       <Box flexDirection="row" columnGap={1} marginTop={1}>
         <Button key="pi-history" onPress={() => void goTo($, 'pi-history')}>history</Button>
         <Button key="pi-clean-stale" onPress={() => void cleanStale($)}>Clean stale</Button>
