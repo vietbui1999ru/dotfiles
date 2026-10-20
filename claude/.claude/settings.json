@@ -178,7 +178,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "rtk hook claude"
+            "command": "~/.claude/hooks/rtk-hook-unless-worktree.sh"
           }
         ]
       },
