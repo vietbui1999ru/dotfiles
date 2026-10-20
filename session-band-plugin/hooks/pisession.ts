@@ -92,7 +92,7 @@ const event = (progress: PiProgress, raw: unknown): PiProgress => {
         if (path) files.add(path)
         const args = object(item.arguments)
         const command = typeof args?.command === 'string' ? args.command : undefined
-        const collapsed = command ? command.replace(/\s+/g, ' ').trim() : undefined
+        const collapsed = name === 'bash' && command ? command.replace(/\s+/g, ' ').trim() : undefined
         const text = collapsed !== undefined ? `bash ${collapsed}`.slice(0, 200) : `${name}${path ? ` ${path}` : ''}`
         const activity = collapsed !== undefined ? `bash ${collapsed.slice(0, 40)}` : text
         entries.push({ kind: 'tool', text })

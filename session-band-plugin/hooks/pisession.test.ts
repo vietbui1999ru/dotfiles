@@ -50,3 +50,9 @@ test('a multi-line bash command collapses and the transcript line caps at 200 ch
   expect(wide.entries[0]?.text.length).toBe(200)
   expect(wide.lastActivity).toBe(`bash ${'x'.repeat(40)}`)
 })
+
+test('a non-bash tool with a command argument keeps its own name, not bash', () => {
+  const progress = fold(emptyProgress(), `${message([{ type: 'toolCall', name: 'process', arguments: { command: 'start', path: 'a.ts' } }])}\n`)
+  expect(progress.entries).toEqual([{ kind: 'tool', text: 'process a.ts' }])
+  expect(progress.lastActivity).toBe('process a.ts')
+})
