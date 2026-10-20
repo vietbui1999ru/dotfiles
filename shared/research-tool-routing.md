@@ -58,7 +58,10 @@ These are aliased in `zsh/.zsh/aliases.zsh`, but aliases apply only to interacti
 shells. A command run by an agent gets `/bin/ls` and `/usr/bin/grep`, so the modern
 name has to be typed explicitly — the alias will not do it for you.
 
-In a worktree-isolated session the Bash guard refuses `git` once the rtk hook rewrites it to `rtk git`; run it as `/usr/bin/git` instead.
+In a worktree-isolated session the Bash guard refuses git commands it cannot verify. Until the
+fixes in `docs/workflows/worktree-guard-bandaid.md` land: use `$HOME` or absolute paths, never `~`;
+call `/usr/bin/git` if anything rewrites git to `rtk git`; never aim git (`-C`, `cd &&`, `GIT_DIR`)
+outside your own worktree; never `source` or `eval`; pass message text with `-F`/`--body-file`.
 
 **The default that will mislead you:** `rg` and `fd` both skip hidden files and
 anything matched by `.gitignore`. When looking for generated or ignored state —
