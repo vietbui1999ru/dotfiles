@@ -19,7 +19,8 @@
       "Bash(git push:*)",
       "Bash(/usr/bin/git add:*)",
       "Bash(/usr/bin/git commit:*)",
-      "Bash(/usr/bin/git push:*)"
+      "Bash(/usr/bin/git push:*)",
+      "Bash(jj:*)"
     ],
     "deny": [
       "Bash(agent-review approve:*)",
@@ -61,8 +62,14 @@
       "Bash(git push*+*)",
       "Bash(git push* :*)",
       "Bash(git clean*-*f*)",
-      "Bash(jj:*)",
-      "Bash(jj *)"
+      "Bash(jj *git push*--deleted*)",
+      "Bash(jj *git push*--all*)",
+      "Bash(jj *git push* main*)",
+      "Bash(jj *git push* master*)",
+      "Bash(jj *bookmark * main*)",
+      "Bash(jj *bookmark * master*)",
+      "Bash(jj *--ignore-immutable*)",
+      "Bash(jj *op abandon*)"
     ],
     "defaultMode": "plan"
   },

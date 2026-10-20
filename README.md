@@ -237,12 +237,15 @@ Agent invocations must use named `init`/`add` branches, `submit --auto`, and
 `view --json`; see `docs/workflows/stacked-prs.md` for recovery and review
 rules.
 
-### jj (human-only)
+### jj (default VCS)
 
-`jj` (Jujutsu) is the human's history-editing tool in the main `~/dotfiles`
-checkout, colocated with git (`jj git init --colocate`). Agents never run `jj`:
-every `jj` command writes to the repo, and in a colocated repo it detaches git
-HEAD. Agents use git only.
+`jj` (Jujutsu) is the default VCS for both the human and agent sessions. Each
+checkout or worktree is colocated with git (`jj git init --colocate`), so
+agent-review, `ac-run`, `floor-guard` and session-band keep reading git state.
+The agent protocol (track by path, `jj commit`, `jj tug` to advance the branch,
+`git switch <branch>` before `ac-run`) is in the "Git history" section of
+`shared/research-tool-routing.md`. Claude's `settings.json` allows `jj` and denies
+pushing or moving `main`/`master`.
 
 Three workflows:
 
