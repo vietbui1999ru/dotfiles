@@ -1,74 +1,63 @@
 ---
-status: approved
-branch: feat/agent-review-cross-worktree
+status: draft
+branch: feat/nvim-review-dashboard
 ---
-# SPEC: agent-review visible and actionable from any worktree (Phase 1)
+# SPEC: Neovim start screen shows agent reviews waiting for approval (Track B)
 
 ## Objective
-A pending agent review in any worktree of a repo can be found, opened, approved and skipped from any other worktree, branch, or the root checkout. Success: with a review pending only in `.claude/worktrees/x`, `agent-review list --all` from the root shows it, `:AgentReview` in the root opens it in its owner, and `agent-review skip <id>` from the root clears it in one step with no agent turn.
+When Neovim opens on the snacks.nvim dashboard, an "Agent Reviews" area in pane 2 shows the pending agent reviews across repos and worktrees, and Enter on one opens it in `:AgentReview`. Success: with reviews pending in two repos, the dashboard lists both within a few seconds of opening, startup is never blocked waiting for the scan, and selecting a row opens that review with the tab's directory set to its worktree.
 
-Plan and rationale: `docs/workflows/agent-review-cross-worktree-plan.md`. Decisions from the grill (2026-10-19):
-- Q1: the CLI (`scripts/agent-review`, Python) is the single source of cross-worktree discovery. Neovim shells out to `agent-review list --all --json` and acts in the returned owner.
-- Q2: Phase 1 = CLI (`list --all`, landed and orphan flags, `approve <id>` and `skip <id>` resolving the owner) + Neovim on the CLI with a picker. Session-band, the Pi refusal message and delegate-pi are Phase 2 (separate spec).
-- Q3: `skip <id>` consumes directly, like `approve`: it writes the decision, deletes the pending record and `refs/agent-review/<id>/*`, and refuses while `<id>.processing` exists. A live Pi watcher then finds no pending record and sends nothing.
-- Q4: "landed" = the run's `base..end` diff reverse-applies cleanly (`git apply --reverse --check --cached`) to the last-fetched `origin/<default>` tree in a temporary index. No network; the worktree and real index are never touched. Binaries, renames and any error count as not landed.
-- Q5: `:AgentReview` opens a single pending review directly (tcd to the owner). With more than one it shows a `vim.ui.select` picker, oldest first, with name, branch, worktree, age and `[landed]`. Orphans are listed but not openable. If the CLI is missing or fails, it falls back to today's current-root scan with a warning.
+This is one of two specs meant to be built by parallel sessions. Track A (branch `feat/agent-review-global`, its own SPEC.md) adds `agent-review list --global --json`. This track depends only on that command's contract and tests against a stub CLI, so it does not wait for Track A. Until Track A is merged, the live dashboard shows the "agent-review unavailable" row.
 
-Terms: **owner** = the worktree whose `.pi/agent-review/pending/` holds the record. **Orphan** = `refs/agent-review/<id>/*` exist but no worktree holds a pending record for `<id>`.
+### Contract consumed from Track A
+`agent-review list --global --json` prints one JSON array and exits 0. Each element has `runId`, `owner` (worktree path, or null for an orphan), `branch`, `name`, `startedAt`, `processing`, `error`, `landed`, `orphan`, and `repo` (the repo's main-worktree path). The order is non-orphans first, then oldest first.
+
+### Decisions
+- D1: A new module `nvim/.config/nvim/lua/custom/agent_review_dashboard.lua` owns the area. Its `cli` field defaults to the same `scripts/agent-review` path that `custom.agent_review` derives, and tests override it.
+- D2: Scanning is asynchronous (`vim.system` with an exit callback, never `:wait()`). The section renders from the module's cache immediately, starts a refresh each time the dashboard opens (`User SnacksDashboardOpened`), and calls `Snacks.dashboard.update()` when the refresh finishes.
+- D3: Rows are non-orphan entries only, not yet landed first and then landed, capped at 5, with a final "+N more: :AgentReview" row when there are more. Each row shows the repo directory name, the review name (or the first 8 characters of the runId), the branch and the age, plus `[landed]`, `[processing]` or `[error]` tags. The title count is the number of non-orphan, non-landed entries.
+- D4: Enter on a row runs `tcd` to the entry's `owner` and then `require("custom.agent_review").open_in(owner, runId)`, the same thing `:AgentReview` does after its picker. A `[processing]` row only shows a warning. The "+N more" row runs `:AgentReview`.
+- D5: Fixed rows cover the other states: "Checking agent reviews..." before the first result, "No agent reviews waiting" when the list is empty, and "agent-review unavailable" when the CLI fails or prints something that is not a JSON array.
+- D6: `lua/custom/plugins/snacks.lua` adds the section to pane 2, above Recent Files. No other dashboard section changes.
 
 ## Acceptance Criteria
-- AC-1: `list --all --json` from the root lists a review pending only in another worktree, with owner, branch, name, runId, startedAt, landed and orphan fields
-  verify: `cd pi/.pi/agent/extensions/agent-review && /Users/vietquocbui/.bun/bin/bun test agent-review.xwt.test.ts -t "list --all finds a review pending in another worktree"`
-- AC-2: A review whose changes are already on origin's default branch is flagged landed
-  verify: `cd pi/.pi/agent/extensions/agent-review && /Users/vietquocbui/.bun/bin/bun test agent-review.xwt.test.ts -t "landed when main contains the run"`
-- AC-3: A review whose changes are not on main is not flagged landed, and the landed check leaves the worktree and its index unchanged
-  verify: `cd pi/.pi/agent/extensions/agent-review && /Users/vietquocbui/.bun/bin/bun test agent-review.xwt.test.ts -t "not landed and touches nothing"`
-- AC-4: Leftover refs with no pending record anywhere are listed as an orphan
-  verify: `cd pi/.pi/agent/extensions/agent-review && /Users/vietquocbui/.bun/bin/bun test agent-review.xwt.test.ts -t "orphan refs are listed"`
-- AC-5: `approve <id>` run from the root acts in the owning worktree (decision written there, pending removed there, endTree check still enforced)
-  verify: `cd pi/.pi/agent/extensions/agent-review && /Users/vietquocbui/.bun/bin/bun test agent-review.xwt.test.ts -t "approve by id from the root acts in the owner"`
-- AC-6: `skip <id>` from the root or a sibling worktree removes the pending record and refs in one step, and a live Pi session in the owner sends no follow-up
-  verify: `cd pi/.pi/agent/extensions/agent-review && /Users/vietquocbui/.bun/bin/bun test agent-review.xwt.test.ts -t "skip by id consumes with no follow-up"`
-- AC-7: `skip <id>` refuses and changes nothing while `<id>.processing` exists
-  verify: `cd pi/.pi/agent/extensions/agent-review && /Users/vietquocbui/.bun/bin/bun test agent-review.xwt.test.ts -t "skip refuses during processing"`
-- AC-8: `skip <id>` on an orphan deletes its refs
-  verify: `cd pi/.pi/agent/extensions/agent-review && /Users/vietquocbui/.bun/bin/bun test agent-review.xwt.test.ts -t "skip clears orphan refs"`
-- AC-9: The Pi input gate in one worktree is not blocked by a review pending in another worktree
-  verify: `cd pi/.pi/agent/extensions/agent-review && /Users/vietquocbui/.bun/bin/bun test agent-review.xwt.test.ts -t "gate stays per worktree"`
-- AC-10: `:AgentReview` with one review pending in another worktree opens it and sets the tab directory to the owner, even when the root holds a stale record that the CLI reports as landed
-  verify: `nvim --clean --headless -l scripts/agent-review-nvim-xwt-test.lua single_opens_owner`
-- AC-11: `:AgentReview` with several pending reviews offers a picker ordered oldest first, with a `[landed]` tag, and orphans not openable
-  verify: `nvim --clean --headless -l scripts/agent-review-nvim-xwt-test.lua picker_order_and_tags`
-- AC-12: `:AgentReview` falls back to the current-root scan with a warning when the CLI fails
-  verify: `nvim --clean --headless -l scripts/agent-review-nvim-xwt-test.lua cli_failure_fallback`
-- AC-13: Existing extension and CLI tests still pass
-  verify: `cd pi/.pi/agent/extensions/agent-review && /Users/vietquocbui/.bun/bin/bun test`
-  baseline: pass
-- AC-14: Existing Neovim agent-review checks still pass
+- AC-1: Contract entries become rows in the D3 order, with orphans left out, the repo name, review name, branch and tags in each label, and a title count that leaves out landed entries
+  verify: `nvim --clean --headless -l scripts/agent-review-dashboard-nvim-test.lua rows_from_contract`
+- AC-2: An empty list gives the single "No agent reviews waiting" row with no action
+  verify: `nvim --clean --headless -l scripts/agent-review-dashboard-nvim-test.lua empty_list`
+- AC-3: A CLI that is missing, exits non-zero or prints something other than a JSON array gives the "agent-review unavailable" row
+  verify: `nvim --clean --headless -l scripts/agent-review-dashboard-nvim-test.lua cli_failure`
+- AC-4: With a stub CLI that sleeps 2 s, building the section returns in under 100 ms with the "Checking agent reviews..." row, and when the CLI finishes the cache is filled and `Snacks.dashboard.update` is called once
+  verify: `nvim --clean --headless -l scripts/agent-review-dashboard-nvim-test.lua non_blocking`
+- AC-5: Enter on a row sets the tab directory to the entry's owner and calls `open_in(owner, runId)`; on a `[processing]` row it warns and does not call `open_in`
+  verify: `nvim --clean --headless -l scripts/agent-review-dashboard-nvim-test.lua open_action`
+- AC-6: Seven fresh entries give 5 rows plus a "+2 more" row whose action runs `:AgentReview`
+  verify: `nvim --clean --headless -l scripts/agent-review-dashboard-nvim-test.lua row_cap`
+- AC-7: The snacks dashboard config includes the section in pane 2
+  verify: `rg -q "agent_review_dashboard" nvim/.config/nvim/lua/custom/plugins/snacks.lua`
+- AC-8: Existing Neovim agent-review checks still pass
   verify: `nvim --clean --headless -l scripts/agent-review-nvim-test.lua`
   baseline: pass
-- AC-15: The workflow doc documents `list --all`, `approve <id>` and `skip <id>` from any worktree
-  verify: `rg -q "list --all" docs/workflows/agent-review.md && rg -q "skip <id>" docs/workflows/agent-review.md`
-- AC-16: Use-test: a pueue Pi run dispatched with `-w` into a worktree appears from the root via `agent-review list --all` and `:AgentReview`, and reject edits only that worktree
-  verify: manual - live use-test with real pueue, Pi and Neovim
+- AC-9: Existing cross-worktree Neovim checks still pass
+  verify: `nvim --clean --headless -l scripts/agent-review-nvim-xwt-test.lua single_opens_owner && nvim --clean --headless -l scripts/agent-review-nvim-xwt-test.lua picker_order_and_tags && nvim --clean --headless -l scripts/agent-review-nvim-xwt-test.lua cli_failure_fallback`
+  baseline: pass
+- AC-10: Use-test: once Track A is merged and repos are registered, opening `nvim` with no arguments shows the area filling in after the dashboard appears, lists reviews from dotfiles worktrees and another repo, and Enter on one opens it in diffview
+  verify: manual - visual check in a real terminal with the real dashboard
 
 ## Boundaries
 ### Always
+- Follow `scripts/agent-review-nvim-xwt-test.lua`: one case per process, stubbed `diffview`, `gitsigns` and `Snacks`, and a temporary stub CLI script instead of the real one
+- Keep startup non-blocking: no synchronous `vim.system(...):wait()` on the dashboard path
 - Run `~/dotfiles/scripts/ac-run check SPEC.md` and `~/dotfiles/scripts/floor-guard` before claiming done
-- Act on a run only in its owner worktree (`cwd=owner` or `tcd owner`)
-- Keep storage per worktree: pending, decisions and the Pi watcher stay together
-- Build in Claude, not Pi (review-gate code, `plan-handoff.md`)
 ### Ask first
-- Any change to the Pi input gate or to `processDecision`
-- New dependencies; any network access in the landed check
+- Adding a plugin or a lualine, statusline or notification indicator
+- Changing existing dashboard sections or the pane layout beyond adding this section
 ### Never
-- Edit a `verify:` line, a `baseline:` line or an existing test to make a check pass (one exception, granted by the person on 2026-10-19: `agent-review.approve.test.ts` "a linked worktree approves its own run; the main checkout does not see it" asserted the old per-worktree `approve`, which contradicts AC-5; it was rewritten to the new contract)
-- Run `ac-run approve` or approve an agent run on the person's behalf
-- Make one worktree's pending review block Pi in another worktree
+- Approve or skip from the dashboard; approval stays with the session-band gates pane and `agent-review approve` and its dialog
+- Edit `scripts/agent-review` or the Pi extension; they belong to Track A
+- Edit a `verify:` line or a test to make a check pass
 
 ## Open Questions
-- Default branch for the landed check: Default `git symbolic-ref refs/remotes/origin/HEAD`, falling back to `origin/main`; no fetch.
-- Cost of `list --all` per Neovim open (one subprocess plus one landed check per record): Default accept; revisit if it exceeds ~300 ms on this repo's ~30 worktrees.
-- Should `status` (without `--all`) change? Default no; `--all` is additive.
-- Phase 2 (session-band aggregation, Pi refusal message naming the owner, delegate-pi dispatch note): Default separate spec after Phase 1 merges.
-- `SPEC.md` on main is the stale design-brief spec carried in by #119: Default leave it; this branch replaces it on merge.
+- Should landed reviews appear at all? Default: yes, after the fresh ones and tagged `[landed]`, so they can be found and skipped; they don't count in the title.
+- Should the area refresh on a timer while the dashboard stays open? Default: no, only on dashboard open; the "+N more" row and `:AgentReview` are always live.
+- Should rows get number hotkeys? Default: no, so they can't collide with the keys section; use the cursor and Enter.
