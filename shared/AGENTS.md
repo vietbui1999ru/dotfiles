@@ -154,6 +154,16 @@ Still ask before push, force-push, merge, rebase, `reset --hard`, and deleting
 branches. The review gates (`agent-review`, `:AgentReview`) apply to what is
 pushed or merged, not to commits.
 
+jj is the default VCS for agent sessions, colocated with git so the git-based
+gates keep working. In a new worktree run `jj git init --colocate` once. Stage by
+path with `jj file track <path>` (auto-track is off), commit with
+`jj commit -m "<msg>"`, then run `jj tug` (or `jj bookmark move <branch> --to @-`)
+so the git branch advances; jj never moves it on its own. Every jj command
+detaches git HEAD, so run `git switch <branch>` before `ac-run` or any tool that
+reads the current branch. Push with `jj git push -b <branch>`. Never move or push
+`main`/`master`, never pass `--ignore-immutable`, and never rewrite a branch that
+another worktree has checked out. Plain git remains a valid fallback.
+
 <!-- spec-loop:start -->
 ## Spec loop
 
