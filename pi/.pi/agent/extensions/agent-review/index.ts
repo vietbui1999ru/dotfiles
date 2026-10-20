@@ -1,10 +1,10 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { execFile } from "node:child_process";
 import { copyFile, existsSync, watch } from "node:fs";
-import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { basename, join, resolve } from "node:path";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -153,6 +153,27 @@ async function command(cwd: string, args: string[], env?: NodeJS.ProcessEnv) {
 
 export async function repoRoot(cwd: string) {
 	return (await command(cwd, ["rev-parse", "--show-toplevel"])).stdout.trim();
+}
+
+// Every repo that has had a pending review, one main-worktree path per line, so
+// `agent-review list --global` can find reviews across repos.
+export function registryFile() {
+	return join(process.env.XDG_STATE_HOME || join(homedir(), ".local", "state"), "agent-review", "repos");
+}
+
+// Never throws: the pending record must not depend on the registry.
+async function registerRepo(root: string) {
+	try {
+		const common = (await command(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).stdout.trim();
+		const main = basename(common) === ".git" ? resolve(common, "..") : common;
+		const file = registryFile();
+		const lines = (await readFile(file, "utf8").catch(() => "")).split("\n");
+		if (lines.includes(main)) return;
+		await mkdir(resolve(file, ".."), { recursive: true });
+		await appendFile(file, `${main}\n`);
+	} catch {
+		// An unwritable registry only hides the review from `list --global`.
+	}
 }
 
 function path(root: string, ...parts: string[]) {
@@ -338,6 +359,7 @@ export default function agentReview(pi: ExtensionAPI) {
 			}
 			await setRef(run.root, run.runId, run.base, end.commit);
 			await atomic(path(run.root, "pending", `${run.runId}.json`), record);
+			await registerRepo(run.root);
 			active = undefined;
 			reportPrintFailure(
 				`agent-review: run ${record.name} (${run.runId}) changed ${files.length} file(s) and is awaiting review. ` +
@@ -363,6 +385,7 @@ export default function agentReview(pi: ExtensionAPI) {
 				error: String(error),
 			};
 			await atomic(path(run.root, "pending", `${run.runId}.json`), record);
+			await registerRepo(run.root);
 			active = undefined;
 			reportPrintFailure(`agent-review: run ${run.runId} could not be snapshotted: ${record.error}`);
 			try {

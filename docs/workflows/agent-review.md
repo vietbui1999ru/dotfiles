@@ -151,6 +151,26 @@ asks it. Plan and spec: `docs/workflows/agent-review-cross-worktree-plan.md`.
   Orphans and processing reviews cannot be opened. If the CLI fails, it warns and reviews
   the current checkout only.
 
+#### Cross-repo listing — 2026-10-20
+
+The Neovim start-screen dashboard needs reviews from every repo, not only this one.
+
+- **Registry:** `${XDG_STATE_HOME:-$HOME/.local/state}/agent-review/repos`, one absolute
+  main-worktree path per line. Pi's extension adds the repo whenever it writes a pending record
+  (normal or snapshot-failed), and a failure to write the registry never stops the pending
+  record. Readers ignore blank lines, duplicates and paths that are missing or no longer git
+  repositories. Nothing prunes it.
+- `agent-review register` adds the current repo (its main worktree, also when run in a linked
+  worktree) by hand. Use it once in each repo that had reviews before the registry existed.
+- `agent-review list --global [--json]` scans every registered repo plus the current one (when
+  run inside a repo) exactly as `list --all` does. **JSON contract:** one array on stdout, exit
+  0 even when empty; each entry is a `list --all` entry plus `repo`, the repo's main-worktree
+  path; ordered non-orphans first, then by `startedAt`, oldest first. Text output prefixes each
+  `list --all` line with the repo's directory name. It only reads; act on a review with
+  `approve <id>` or `skip <id>` from inside that repo.
+- Tests never touch the real registry: `bunfig.toml` preloads `test-state.ts`, which points
+  `XDG_STATE_HOME` at a temporary directory for every test file.
+
 ### 2. Pi extension — `pi/.pi/agent/extensions/agent-review.ts`
 
 **Revision 2026-09-17.** The first implementation (`edbcff8`) failed review; see "Review findings

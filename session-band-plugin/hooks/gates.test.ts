@@ -6,6 +6,8 @@ import { specBranch, specRows, parseSpecStatus, acRunArgv, approveTimeoutMs, edi
 test('gates builds spec argv, baseline timeout and space-safe Neovim edit argv', () => {
   expect(acRunArgv('/h', 'status', '/r/SPEC.md')).toEqual(['/h/dotfiles/scripts/ac-run', 'status', '/r/SPEC.md'])
   expect(approveTimeoutMs(2)).toBe(345000)
+  // $.process.run accepts ten minutes at most; more and the call rejects.
+  expect(approveTimeoutMs(9)).toBe(600000)
   expect(editRemoteArgv('/s', '/a b/SPEC.md')).toEqual(['nvim', '--server', '/s', '--remote-send', '<C-\\><C-N>:edit /a\\ b/SPEC.md<CR>'])
   expect(editRemoteArgv('/s', '/a%#|"\\/SPEC.md')[4]).toBe('<C-\\><C-N>:edit /a\\%\\#\\|\\"\\\\/SPEC.md<CR>')
 })
