@@ -10,8 +10,8 @@ SID="$1"
 
 # --- Helper: set active (focused) styling ---
 set_active() {
-  sketchybar --animate sin 10 --set "$NAME" \
-    y_offset=10 y_offset=0 \
+  # No --animate: the bar is static by design, state changes snap in place.
+  sketchybar --set "$NAME" \
     drawing=on \
     icon.color=$WORKSPACE_ACTIVE_ICON \
     label.color=$WORKSPACE_ACTIVE_ICON \
@@ -124,7 +124,7 @@ case "$SENDER" in
       # Empty unfocused workspace → hide
       set_hidden
     elif [[ "$SID" == "$FOCUSED" ]]; then
-      # Focused workspace → active styling + animation
+      # Focused workspace → active styling
       set_active
       sketchybar --set "$NAME" label="$icons"
     else
