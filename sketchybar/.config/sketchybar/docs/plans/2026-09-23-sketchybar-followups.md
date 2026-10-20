@@ -18,6 +18,16 @@ anything else about "main display" below.
 > (external-preferred)", not macOS's main-display flag. The **Decisions** and **State of the
 > world** sections below are already updated; item 1's checklist is rewritten for the new design.
 
+> **Update 2026-10-20 (branch `worktree-sketchybar-static`).** Done: item 2. `balance_pills.sh`
+> no longer zeroes the spacers, and it sets a spacer only on a real change. This is covered by
+> `balance_pills_noop.test.sh`. Item 3: the chevron was deleted, and `front_app` got
+> `padding_left=13` to keep the gap. Item 4: re-measured in Hack Nerd Font Mono 13. The new
+> status-only label is at most 138pt wide, so 210/420 stay. Item 9: the README is rewritten, and
+> `balance_pills.test.sh` polls instead of sleeping. Also done: workspace focus no longer
+> animates. **Battery is back** (this reverses "volume and battery are gone" below; volume stays
+> gone). `sketchybarrc` is split into `items/`. The agents item no longer uses plan/build roles:
+> it shows Claude pane counts plus running pueue tasks.
+
 This is the to-do for the next time sketchybar is worth revisiting. It records what a long
 debugging-and-redesign session (2026-09-16 to 2026-09-23) established, what is still open, and how
 to verify each thing. Read **Established facts** and **Decisions** first so nothing is re-derived

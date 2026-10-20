@@ -21,8 +21,6 @@ export WORKSPACE_ACTIVE_ICON=$DARK_TEAL
 export WORKSPACE_ACTIVE_BG=0x407daea3
 export WORKSPACE_INACTIVE_ICON=$MUTED_TEAL
 
-# ── Chevron ──────────────────────────────────────
-export CHEVRON_COLOR=$SAGE
 
 # ── Front App ────────────────────────────────────
 export APP_NAME_COLOR=$DARK_TEAL
@@ -38,3 +36,7 @@ export VPN_OFF_COLOR=$MUTED_TEAL
 
 # ── Mic ─────────────────────────────────────────
 export MIC_MUTE_COLOR=0xffe78a4e
+
+# ── Battery ─────────────────────────────────────
+export BATTERY_NORMAL_COLOR=$DARK_TEAL
+export BATTERY_WARNING_COLOR=$MIC_MUTE_COLOR

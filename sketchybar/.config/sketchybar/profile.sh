@@ -31,13 +31,13 @@ case "$PROFILE" in
     FRONT_APP_W=140                    # fits "Visual Studio Code" and friends
     TITLE_W=380;  TITLE_CHARS=60       # window/tab title, ~6.2pt per char
     AUDIO_W=200;  AUDIO_CHARS=32       # audio source app name
-    AGENTS_W=420                       # plan/build status + a NEXT step
+    AGENTS_W=420                       # status + most of a NEXT step (typical 459)
     ;;
   *)
     MAX_ICONS=4
     FRONT_APP_W=80
     TITLE_W=150;  TITLE_CHARS=24
     AUDIO_W=110;  AUDIO_CHARS=16
-    AGENTS_W=210
+    AGENTS_W=210                       # status-only worst case measured 138
     ;;
 esac

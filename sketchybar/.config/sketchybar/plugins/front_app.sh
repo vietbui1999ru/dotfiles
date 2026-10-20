@@ -24,9 +24,6 @@ if [ "$SENDER" = "front_app_switched" ]; then
   else
     sketchybar --set window_title label=""
   fi
-
-  # front_app/window_title are both fixed-width items — text length never
-  # changes left_pill's raw content width — but log the trigger anyway so
-  # an app switch shows up in the same trail as every other left_pill event.
-  CALLER=front_app "$CONFIG_DIR/plugins/balance_pills.sh"
+  # No balance_pills.sh call: front_app/window_title are fixed-width, so an
+  # app switch can never change left_pill's width.
 fi

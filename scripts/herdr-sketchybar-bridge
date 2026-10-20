@@ -2,9 +2,10 @@
 /**
  * Herdr → Sketchybar bridge.
  *
- * The bridge owns all plan/build status and NEXT state, then sends one complete
- * LABEL per event. Sketchybar never merges concurrent partial updates.
- * Subscriptions are per fixed plan/build pane and rebuild on topology changes.
+ * The bridge owns the status of every Claude pane in Herdr, the running Pi
+ * (pueue) task count and the latest NEXT line, then sends one complete LABEL
+ * per change. Sketchybar never merges concurrent partial updates.
+ * Subscriptions are per Claude pane and rebuild on topology changes.
  */
 
 import { execFile } from "node:child_process";
@@ -12,12 +13,13 @@ import net from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { renderLabel } from "./herdr-sketchybar-label.mjs";
 
 const execFileAsync = promisify(execFile);
 const SOCKET = process.env.HERDR_SOCKET_PATH ?? join(homedir(), ".config", "herdr", "herdr.sock");
 const SKETCHYBAR = process.env.SKETCHYBAR_BIN ?? "/opt/homebrew/bin/sketchybar";
-const ROLE_BY_AGENT = new Map([["claude", "plan"], ["pi", "build"]]);
-const ROLE_LABELS = new Set(["plan", "build"]);
+const PUEUE = process.env.PUEUE_BIN ?? "/opt/homebrew/bin/pueue";
+const PI_POLL_MS = 5_000;
 const TOPOLOGY_EVENTS = new Set([
 	"workspace.created",
 	"workspace.closed",
@@ -25,98 +27,69 @@ const TOPOLOGY_EVENTS = new Set([
 	"pane.closed",
 ]);
 
-let roleByWorkspace = new Map();
-let roleByPane = new Map(); // pane ID → plan|build
-let statusByRole = new Map();
-let nextByRole = new Map(); // role → { text, sequence }
-let sequence = 0;
+let statusByPane = new Map(); // Claude pane ID → herdr agent_status
+let latestNext; // { paneId, text } — latest NEXT line from any Claude pane
+let piRunning = 0;
+let lastLabel;
 let reconnectMs = 1_000;
 let socket;
 let buffer = "";
 let subscriptionRequestId;
 let topologyTimer;
-let hasSeeded = false;
 
 function logError(message, detail) {
 	console.error(`[herdr-sketchybar-bridge] ${message}${detail ? `: ${detail}` : ""}`);
 }
 
-// Nerd Font glyphs (Hack Nerd Font Mono, which sketchybar renders this label
-// in): fa-scroll for plan, md-hammer for build, fa-angles_right in place of
-// the literal "NEXT: " prefix.
-const ROLE_ICON = { plan: "\u{EF0D}", build: "\u{F08EA}" };
-const NEXT_ICON = "\u{F101}";
-
-function statusText(status) {
-	switch (status) {
-		case "working": return "● working";
-		case "blocked": return "! blocked";
-		case "done": return "✓";
-		case "idle": return "○";
-		default: return "? unknown";
-	}
-}
-
-function label() {
-	const plan = statusText(statusByRole.get("plan"));
-	const build = statusText(statusByRole.get("build"));
-	const base = `${ROLE_ICON.plan} ${plan} │ ${ROLE_ICON.build} ${build}`;
-	const latest = [...nextByRole.entries()]
-		.sort(([, left], [, right]) => right.sequence - left.sequence)[0];
-	if (!latest) return base;
-	const [role, { text }] = latest;
-	const job = text.replace(/^NEXT:\s*/, "");
-	return `${base} │ ${ROLE_ICON[role]} ${NEXT_ICON} ${job}`;
-}
-
-function trigger() {
-	void execFileAsync(SKETCHYBAR, ["--trigger", "agent_state", `LABEL=${label()}`])
+// Sends the label when it changed, so bursts of Herdr events don't each spawn
+// sketchybar. `force` re-sends an unchanged label: the periodic tick uses it
+// so a `sketchybar --reload` (which blanks the item) is refilled within one
+// tick; an identical label is a no-op for sketchybar, so nothing redraws.
+function trigger(force = false) {
+	const label = renderLabel(statusByPane.values(), piRunning, latestNext?.text);
+	if (label === lastLabel && !force) return;
+	lastLabel = label;
+	void execFileAsync(SKETCHYBAR, ["--trigger", "agent_state", `LABEL=${label}`])
 		.catch((error) => logError("Sketchybar trigger failed", String(error)));
 }
 
-function roleFor(agent, workspaceId, paneId) {
-	return roleByPane.get(paneId) ??
-		roleByWorkspace.get(workspaceId) ??
-		(roleByWorkspace.size === 0 ? ROLE_BY_AGENT.get(agent) : undefined);
-}
-
-function publishStatus(role, status, initial = false) {
-	statusByRole.set(role, status);
-	if (status === "working") {
-		nextByRole.delete(role);
-	} else if ((status === "done" || status === "idle") && !nextByRole.has(role) && !initial) {
-		nextByRole.set(role, { text: "done — no next step", sequence: ++sequence });
-	}
+function publishStatus(paneId, status) {
+	statusByPane.set(paneId, status);
+	// A pane that starts working again has moved past its NEXT step.
+	if (status === "working" && latestNext?.paneId === paneId) latestNext = undefined;
 	trigger();
 }
 
-async function refreshTopology(initial = false) {
-	const [{ stdout: workspaceJson }, { stdout: agentJson }] = await Promise.all([
-		execFileAsync("herdr", ["workspace", "list"], { timeout: 3_000 }),
-		execFileAsync("herdr", ["agent", "list"], { timeout: 3_000 }),
-	]);
-	const workspaces = JSON.parse(workspaceJson).result?.workspaces ?? [];
-	roleByWorkspace = new Map(
-		workspaces
-			.filter((workspace) => ROLE_LABELS.has(workspace.label))
-			.map((workspace) => [workspace.workspace_id, workspace.label]),
+async function refreshTopology() {
+	const { stdout } = await execFileAsync("herdr", ["agent", "list"], { timeout: 3_000 });
+	const agents = JSON.parse(stdout).result?.agents ?? [];
+	statusByPane = new Map(
+		agents
+			.filter((agent) => agent.agent === "claude" && agent.pane_id)
+			.map((agent) => [agent.pane_id, agent.agent_status]),
 	);
+	if (latestNext && !statusByPane.has(latestNext.paneId)) latestNext = undefined;
+	trigger();
+}
 
-	const agents = JSON.parse(agentJson).result?.agents ?? [];
-	roleByPane = new Map();
-	for (const agent of agents) {
-		const role = roleByWorkspace.get(agent.workspace_id) ??
-			(roleByWorkspace.size === 0 ? ROLE_BY_AGENT.get(agent.agent) : undefined);
-		if (role && agent.pane_id) roleByPane.set(agent.pane_id, role);
+// pueue has no event stream, so poll. A stopped daemon (it exits after idling)
+// makes the command fail; that just means nothing is running.
+async function pollPi() {
+	let running = 0;
+	try {
+		const { stdout } = await execFileAsync(PUEUE, ["status", "--json"], { timeout: 3_000 });
+		const tasks = Object.values(JSON.parse(stdout).tasks ?? {});
+		running = tasks.filter((task) => task.status?.Running !== undefined).length;
+	} catch {
+		running = 0;
 	}
-	for (const agent of agents) {
-		const role = roleFor(agent.agent, agent.workspace_id, agent.pane_id);
-		if (role && agent.agent_status) publishStatus(role, agent.agent_status, initial);
-	}
+	if (running === piRunning) return;
+	piRunning = running;
+	trigger();
 }
 
 function subscriptions() {
-	const paneSubscriptions = [...roleByPane.keys()].flatMap((paneId) => [
+	const paneSubscriptions = [...statusByPane.keys()].flatMap((paneId) => [
 		{ type: "pane.agent_status_changed", pane_id: paneId },
 		{
 			type: "pane.output_matched",
@@ -137,8 +110,7 @@ function subscriptions() {
 
 async function subscribe(next) {
 	try {
-		await refreshTopology(!hasSeeded);
-		hasSeeded = true;
+		await refreshTopology();
 		if (socket !== next || next.destroyed) return;
 		subscriptionRequestId = `herdr-sketchybar-${Date.now()}`;
 		next.write(`${JSON.stringify({
@@ -165,27 +137,45 @@ function handleEvent(message) {
 		scheduleTopologyRefresh(message.event);
 		return;
 	}
+	const event = message?.data;
+	const paneId = event?.pane_id;
 	if (message?.event === "pane.agent_status_changed") {
-		const event = message.data;
-		const role = roleFor(event?.agent, event?.workspace_id, event?.pane_id);
-		if (!role) {
-			scheduleTopologyRefresh(`unknown status pane ${event?.pane_id ?? "?"}`);
+		if (!statusByPane.has(paneId)) {
+			scheduleTopologyRefresh(`unknown status pane ${paneId ?? "?"}`);
 			return;
 		}
-		if (event?.agent_status) publishStatus(role, event.agent_status);
+		if (event.agent && event.agent !== "claude") {
+			// The pane's Claude exited and something else took over.
+			scheduleTopologyRefresh(`pane ${paneId} is now ${event.agent}`);
+			return;
+		}
+		if (event.agent_status) publishStatus(paneId, event.agent_status);
 		return;
 	}
 	if (message?.event === "pane.output_matched") {
-		const event = message.data;
-		const role = roleFor(undefined, event?.read?.workspace_id, event?.pane_id);
-		if (!role) {
-			scheduleTopologyRefresh(`unknown output pane ${event?.pane_id ?? "?"}`);
+		if (!statusByPane.has(paneId)) {
+			scheduleTopologyRefresh(`unknown output pane ${paneId ?? "?"}`);
 			return;
 		}
-		const next = typeof event?.matched_line === "string" ? event.matched_line.trim() : undefined;
-		if (!next?.startsWith("NEXT: ")) return;
-		nextByRole.set(role, { text: next, sequence: ++sequence });
+		const text = typeof event.matched_line === "string" ? event.matched_line.trim() : undefined;
+		if (!text?.startsWith("NEXT: ")) return;
+		latestNext = { paneId, text };
 		trigger();
+	}
+}
+
+// A Claude started inside an existing pane fires no pane.created, so compare
+// the Claude pane set on every tick and resubscribe when it differs.
+async function checkClaudePanes() {
+	try {
+		const { stdout } = await execFileAsync("herdr", ["agent", "list"], { timeout: 3_000 });
+		const panes = (JSON.parse(stdout).result?.agents ?? [])
+			.filter((agent) => agent.agent === "claude" && agent.pane_id)
+			.map((agent) => agent.pane_id);
+		const changed = panes.length !== statusByPane.size || panes.some((id) => !statusByPane.has(id));
+		if (changed) scheduleTopologyRefresh("Claude pane set changed");
+	} catch (error) {
+		logError("Claude pane check failed", String(error));
 	}
 }
 
@@ -234,3 +224,9 @@ function connect() {
 }
 
 connect();
+void pollPi();
+setInterval(() => {
+	void pollPi();
+	if (socket && !socket.destroyed) void checkClaudePanes();
+	if (lastLabel !== undefined) trigger(true);
+}, PI_POLL_MS);

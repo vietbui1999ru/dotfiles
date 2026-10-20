@@ -1,14 +1,25 @@
 #!/opt/homebrew/bin/bash
-# Render one complete Herdr-derived label. State lives in the bridge so parallel
-# Sketchybar triggers never share a state file or temporary filename.
+# Renders the label scripts/herdr-sketchybar-bridge pushes via agent_state
+# (Claude pane counts, running Pi tasks, latest NEXT step). All state lives
+# in the bridge, so parallel triggers never share a file. Fixed-width item:
+# no balance_pills.sh call.
 
 if [[ "$SENDER" == "mouse.clicked" ]]; then
-  build_workspace=$(herdr workspace list 2>/dev/null | jq -r '.result.workspaces[] | select(.label == "build") | .workspace_id' | head -1)
-  build_pane=$(herdr agent list 2>/dev/null | jq -r --arg workspace "$build_workspace" '.result.agents[] | select(.workspace_id == $workspace and .agent == "pi") | .pane_id' | head -1)
+  # Jump to the Claude pane most likely to need you: blocked, then working,
+  # then any.
+  pane=$(herdr agent list 2>/dev/null | jq -r '
+    [.result.agents[] | select(.agent == "claude")]
+    | (map(select(.agent_status == "blocked")) + map(select(.agent_status == "working")) + .)
+    | first | .pane_id // empty')
   aerospace workspace T
-  [[ -n "$build_pane" ]] && herdr agent focus "$build_pane"
+  [[ -n "$pane" ]] && herdr agent focus "$pane"
   exit 0
 fi
 
-sketchybar --set "$NAME" label="${LABEL:- ? unknown │ 󰣪 ? unknown}"
-CALLER=agents "$CONFIG_DIR/plugins/balance_pills.sh"
+if [[ -n "$LABEL" ]]; then
+  sketchybar --set "$NAME" label="$LABEL"
+elif [[ -z "$(sketchybar --query "$NAME" | jq -r '.label.value')" ]]; then
+  # Startup/forced run before the bridge has pushed anything; it re-sends
+  # within 5s. Never overwrite a real label with this placeholder.
+  sketchybar --set "$NAME" label="󱚡 …"
+fi

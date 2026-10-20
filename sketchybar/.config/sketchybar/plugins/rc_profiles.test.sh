@@ -54,11 +54,10 @@ EOF
   check "profile cache: MAIN_NSSCREEN_IDX=$nsidx"        "$(grep -qx "MAIN_NSSCREEN_IDX=$nsidx" "$cache"; echo $?)"
   check "bar is display=$bar_display"                    "$(has "^--bar display=$bar_display "; echo $?)"
   check "no item sets display="                          "$(grep -v '^--bar' "$MOCK_LOG" | grep -q -- ' display='; [[ $? -ne 0 ]]; echo $?)"
-  # KNOWN: ICON_CHEVRON has been "" since the first commit, so the chevron item
-  # has never drawn anything (see docs/plans/2026-09-23-sketchybar-followups.md).
-  # Tolerate exactly that one so any NEW empty value still fails.
-  check "no empty property values (bar chevron aside)"   "$(grep -v -- '--set chevron icon= ' "$MOCK_LOG" | grep -E -q -- ' [a-z_.]+=( |$)'; [[ $? -ne 0 ]]; echo $?)"
+  check "no empty property values"                       "$(grep -E -q -- ' [a-z_.]+=( |$)' "$MOCK_LOG"; [[ $? -ne 0 ]]; echo $?)"
   check "display_watch subscribed to display_change"     "$(has 'display_watch display_change system_woke'; echo $?)"
+  check "battery fixed width, power events"              "$(has 'battery.*label.width=36 .*battery power_source_change'; echo $?)"
+  check "battery in right_pill"                          "$(has 'bracket right_pill.* battery sep.battery '; echo $?)"
 
   local front title audio agents
   if [[ "$profile" == wide ]]; then front=140 title=380/60 audio=200/32 agents=420

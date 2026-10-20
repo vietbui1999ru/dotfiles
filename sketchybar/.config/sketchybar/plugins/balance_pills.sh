@@ -10,13 +10,15 @@
 #     pill. Each invocation stamps a generation token, waits, then bows
 #     out if a newer invocation has since taken over.
 #  2. Mutual exclusion — even the "last" invocation can still tie with
-#     another one. Without a lock, one instance's zero-spacers step can
-#     land between a sibling's zero and measure, producing a genuinely
+#     another one. Without a lock, one instance's spacer --set can land
+#     between a sibling's spacer query and pill query, producing a
 #     corrupted reading (reproduced live: left_pill briefly read 444
-#     against a steady 511). The lock makes zero+measure+set atomic.
+#     against a steady 511). The lock makes measure+set atomic.
+# The bar stays static: measuring never touches it, and a spacer is only
+# --set when its width actually changes (see balance_pills_noop.test.sh).
 # Every resize funnels through this script, so it's the single point that
-# logs who triggered it — set CALLER before invoking (aerospace/vpn/agents/
-# startup) to identify the source of unwanted resizing after the fact.
+# logs who triggered it — set CALLER before invoking (aerospace/vpn/
+# audio_source/startup) to identify the source of unwanted resizing.
 LOG_FILE="${XDG_CACHE_HOME:-$HOME/.cache}/sketchybar/balance.log"
 mkdir -p "$(dirname "$LOG_FILE")"
 
@@ -58,26 +60,31 @@ release_lock() {
 }
 trap release_lock EXIT
 
-pill_width() {
+# Reads one number from `sketchybar --query <item>`: a bracket's drawn width
+# ("rect", from bounding_rects) or an item's configured width ("width").
+query_num() {
   sketchybar --query "$1" | /usr/bin/python3 -c "
 import sys, json
 try:
-  d = json.load(sys.stdin)['bounding_rects']
-  print(int(list(d.values())[0]['size'][0]))
+  d = json.load(sys.stdin)
+  if sys.argv[1] == 'rect':
+    print(int(list(d['bounding_rects'].values())[0]['size'][0]))
+  else:
+    print(int(d['geometry']['width']))
 except Exception:
   print(0)
-" 2>/dev/null
+" "$2" 2>/dev/null
 }
 
-# Zero both spacers before measuring — otherwise a repeat run reads a
-# pill width that already includes a previous correction, and the fix
-# erodes/oscillates instead of converging.
-sketchybar --set left_spacer width=0 --set right_spacer width=0
-sleep 0.05
-
-lw=$(pill_width left_pill)
-rw=$(pill_width right_pill)
-[[ -z "$lw" || -z "$rw" ]] && exit 0
+# Measure without touching the bar: a pill's drawn width includes its
+# spacer, so subtract the spacer's current width to get the natural width.
+# (Zeroing both spacers first, as this used to, made a pill visibly shrink
+# and regrow on every call even when nothing needed fixing.)
+cur_l=$(query_num left_spacer width)
+cur_r=$(query_num right_spacer width)
+lw=$(( $(query_num left_pill rect) - cur_l ))
+rw=$(( $(query_num right_pill rect) - cur_r ))
+(( lw <= 0 || rw <= 0 )) && exit 0
 
 # Each pill may use at most half of the bar minus the notch. Past that,
 # padding the narrower pill to match the wider one would push the pair off
@@ -93,16 +100,21 @@ fi
 diff=$(( target - small ))
 clamped=$(( big > limit ? 1 : 0 ))
 
-action="noop"
-if (( diff > 0 )); then
-  if (( lw > rw )); then
-    sketchybar --set right_spacer width=$diff
-    action="right_spacer+=$diff"
-  else
-    sketchybar --set left_spacer width=$diff
-    action="left_spacer+=$diff"
-  fi
+want_l=0 want_r=0
+if (( lw > rw )); then want_r=$diff; else want_l=$diff; fi
+
+# Touch only a spacer whose width actually changes: a no-op run issues no
+# --set at all, so the bar never redraws for nothing.
+args=() changes=()
+if (( want_l != cur_l )); then
+  args+=(--set left_spacer width=$want_l); changes+=("left_spacer=$want_l")
 fi
+if (( want_r != cur_r )); then
+  args+=(--set right_spacer width=$want_r); changes+=("right_spacer=$want_r")
+fi
+(( ${#args[@]} )) && sketchybar "${args[@]}"
+action="${changes[*]:-noop}"
+action="${action// /,}"
 
 printf '%s caller=%s lw=%s rw=%s diff=%s limit=%s clamped=%s action=%s\n' \
   "$(date '+%Y-%m-%d %H:%M:%S')" "${CALLER:-unknown}" "$lw" "$rw" "$diff" \
