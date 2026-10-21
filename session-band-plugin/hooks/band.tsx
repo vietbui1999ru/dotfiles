@@ -6,7 +6,7 @@ import { layoutBand, SEP, type Seg } from './band-text'
 import { PALETTE, type Tone } from './palette'
 
 type Elements = ReturnType<EngineInterface['ui']['resolve']>
-export type BandData = { dir: string; model: string; usage: Usage; git: GitSnapshot | null; style: string | null; handoff?: HandoffSegment; width?: number; onPi?: () => void; onWorktrees?: () => void; onPiHistory?: () => void; onDraftPrs?: () => void; openAlerts?: number; piQueue?: string }
+export type BandData = { dir: string; model: string; usage: Usage; git: GitSnapshot | null; style: string | null; handoff?: HandoffSegment; width?: number; onPi?: () => void; onWorktrees?: () => void; onPiHistory?: () => void; onDraftPrs?: () => void; onBlocks?: () => void; openAlerts?: number; blocks?: number; piQueue?: string }
 
 const handoffTone = (state: HandoffSegment['state'] | undefined, review: HandoffSegment['review']): Tone => {
   if (review === 'pending' || review === 'decided, waiting for the next Pi run in this repo' || state === 'Queued' || state === 'Paused') return 'yellow'
@@ -15,9 +15,9 @@ const handoffTone = (state: HandoffSegment['state'] | undefined, review: Handoff
   return 'teal'
 }
 
-// Left: the worktrees (⎇), Pi history (⟲) and draft PRs (⑂) icon chips, then where · budget · alerts · who. Right: the Pi hand-off icon (π), coloured by state. The strings come from band-text.ts.
+// Left: the worktrees (⎇), Pi history (⟲), draft PRs (⑂) and blocks (⛔N) icon chips, then where · budget · alerts · who. Right: the Pi hand-off icon (π), coloured by state. The strings come from band-text.ts.
 export const drawBand = ({ Box, Text, Button }: Elements, d: BandData) => {
-  const lay = layoutBand({ ...d, wt: !!d.onWorktrees, history: !!d.onPiHistory, drafts: !!d.onDraftPrs, piChip: !!d.onPi })
+  const lay = layoutBand({ ...d, wt: !!d.onWorktrees, history: !!d.onPiHistory, drafts: !!d.onDraftPrs, blocks: d.blocks, piChip: !!d.onPi })
   const run = (seg: Seg, key: string) => <Text key={key} color={PALETTE[seg.tone]}>{seg.text}</Text>
   const status = lay.status.flatMap((group, gi) => [
     ...(gi > 0 ? [<Text key={`sep-${gi}`} color={PALETTE.muted}>{SEP}</Text>] : []),
@@ -32,6 +32,7 @@ export const drawBand = ({ Box, Text, Button }: Elements, d: BandData) => {
         {lay.wt && <Button key="wt-open" plain dimColor label={lay.wt} onPress={() => d.onWorktrees?.()} />}
         {lay.history && <Button key="hist-open" plain dimColor label={lay.history} onPress={() => d.onPiHistory?.()} />}
         {lay.drafts && <Button key="prs-open" plain dimColor label={lay.drafts} onPress={() => d.onDraftPrs?.()} />}
+        {lay.blocks && <Button key="blocks-open" plain dimColor label={lay.blocks} onPress={() => d.onBlocks?.()} />}
         <Text mono wrap="truncate-end">{status}</Text>
       </Box>
       {lay.pi && (d.onPi

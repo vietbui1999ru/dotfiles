@@ -7,7 +7,56 @@
 INPUT=$(cat)
 CMD=$(echo "$INPUT" | jq -r '.tool_input.command // ""' 2>/dev/null)
 CWD=$(echo "$INPUT" | jq -r '.cwd // ""' 2>/dev/null)
-exec 1>&2
+
+# ── block log (docs/workflows/bash-safety-log.md) ─────────────────────────────
+# Each block appends one redacted entry for humans to trace with scripts/safety-log.
+# Logging never weakens the guard: any failure here leaves the exit code and reason as they are.
+log_block() {
+  local dir="${SAFETY_LOG_DIR:-$HOME/.claude/state}" rule ts id
+  local log="$dir/bash-safety-blocks.jsonl"
+  case "$1" in
+    *"rm -rf targeting"*) rule=rm-rf-root-home ;;
+    *"force push to main"*) rule=force-push-main ;;
+    *"reset --hard"*) rule=reset-hard-remote ;;
+    *"git clean -f"*) rule=git-clean-force ;;
+    *"forced push"*) rule=force-push-lease ;;
+    *"+refspec"*) rule=push-plus-ref ;;
+    *":branch"*) rule=push-delete-ref ;;
+    *"git commit and jj commit"*) rule=worktree-commit ;;
+    *) rule=other ;;
+  esac
+  ts=$(date +%Y-%m-%dT%H:%M:%S%z | sed 's/\([0-9][0-9]\)$/:\1/')
+  id=$(head -c 6 /dev/urandom | od -An -tx1 | tr -d ' \n')
+  {
+    mkdir -p "$dir" &&
+      { [ ! -f "$log" ] || [ "$(wc -l <"$log")" -lt 2000 ] || mv -f "$log" "$log.1"; } &&
+      echo "$INPUT" | jq -c --arg id "$id" --arg ts "$ts" --arg rule "$rule" --arg reason "$1" '
+        def redact:
+          gsub("(?<n>[A-Za-z_][A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|PASSWD|KEY)[A-Za-z0-9_]*)=(\"[^\"]*\"|'"'"'[^'"'"']*'"'"'|[^[:space:]]+)"; "\(.n)=[REDACTED]"; "i")
+          | gsub("(?<f>--(token|password|passwd|secret|api-key|apikey))(?<s>=|[[:space:]]+)(\"[^\"]*\"|'"'"'[^'"'"']*'"'"'|[^[:space:]]+)"; "\(.f)\(.s)[REDACTED]"; "i")
+          | gsub("(gh[pos]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{16,}|AKIA[0-9A-Z]{16})"; "[REDACTED]")
+          | gsub("(?<b>Bearer)[[:space:]]+[^[:space:]\"'"'"']+"; "\(.b) [REDACTED]"; "i");
+        def cap: if length > 4000 then .[:4000] + "…[truncated]" else . end;
+        {id: $id, ts: $ts, session: (.session_id // ""), cwd: (.cwd // ""),
+         transcript: (.transcript_path // ""), rule: $rule,
+         command: (.tool_input.command // "" | redact | cap), reason: $reason}' >>"$log"
+  } 2>/dev/null
+}
+
+# Reasons are buffered and replayed to stderr on exit (Claude Code shows a blocking
+# hook's stderr as the reason); a block also gets a log entry. Without a buffer,
+# reasons go straight to stderr and nothing is logged.
+REASONS=$(mktemp 2>/dev/null) && exec 1>"$REASONS" || { REASONS=""; exec 1>&2; }
+finish() {
+  local rc=$1
+  if [ -n "$REASONS" ]; then
+    cat "$REASONS" >&2
+    [ "$rc" -eq 2 ] && log_block "$(head -n 1 "$REASONS")"
+    rm -f "$REASONS"
+  fi
+  exit "$rc"
+}
+trap 'finish $?' EXIT
 
 [ -z "$CMD" ] && exit 0
 

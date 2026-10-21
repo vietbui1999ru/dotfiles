@@ -68,6 +68,9 @@ export type DraftPr = { number: number; title: string; branch: string; url: stri
 export type ForgeId = 'github' | 'gitlab'
 export type DraftPrsState = { loading: boolean; selected?: number; prs?: DraftPr[]; error?: string; forge?: ForgeId }
 
+// The Blocks pane: this session's bash-safety blocks, newest first, with any human verdict.
+export type SafetyBlocksState = { loading: boolean; rows: import('../hooks/safety-blocks').SafetyBlockRow[]; selected?: string }
+
 export type HistoryState = {
   tasks: PueueTask[]
   reviews: Record<number, 'pending' | 'decided, waiting for the next Pi run in this repo' | 'approved' | 'changes requested' | undefined>
@@ -112,6 +115,7 @@ declare module 'claude-code' {
       draftPrs: DraftPrsState
       gates: import('../hooks/gates.tsx').GatesState
       sendIt: boolean
+      safetyBlocks: import('../hooks/safety-blocks.tsx').SafetyBlocksState
     }
   }
 }
