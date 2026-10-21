@@ -202,6 +202,7 @@ call. Add a mise config to a repo that has none only when the task asks for it.
 4. Never edit a `verify:` line or a test to make a check pass. Report the failure.
 5. When rule 1 applies, before saying "done", run `~/dotfiles/scripts/ac-run check SPEC.md` and `~/dotfiles/scripts/floor-guard`. Paste both outputs.
 6. When rule 1 applies, if a check fails, fix and rerun. Stop after 3 tries and report the failing output.
+7. When rule 1 applies, after the rule 5 checks pass and before the PR is marked ready or merged, archive the spec as the branch's last commit: `git mv SPEC.md docs/specs/<YYYY-MM-DD>-<slug>.md`. `<YYYY-MM-DD>` is the date SPEC.md was first committed; `<slug>` is the branch name without its type prefix (`feat/multi-provider-usage` becomes `2026-10-20-multi-provider-usage.md`). Commit message: `docs(specs): archive the <slug> spec under docs/specs`. Approval records live outside the repo and are unaffected.
 <!-- spec-loop:end -->
 
 ## Shell tools — modern CLI first
