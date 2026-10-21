@@ -40,7 +40,7 @@ export function formatCost(totals) {
 	const usd = totals?.cost_usd;
 	if (usd == null || !Number.isFinite(usd)) return "?";
 	let text;
-	if (usd < 0.01) text = `$${usd.toFixed(3)}`;
+	if (usd > 0 && usd < 0.01) text = `$${usd.toFixed(3)}`;
 	else if (usd < 10) text = `$${usd.toFixed(2)}`;
 	else text = `$${Math.round(usd)}`;
 	return totals.cost_source === "computed" ? `≈${text}` : text;

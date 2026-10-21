@@ -1,6 +1,6 @@
 #!/opt/homebrew/bin/bash
 # Renders the state scripts/herdr-sketchybar-bridge pushes via agent_state
-# (BLOCKED, TOTAL, TOTAL_STATUS, PI, NEXT) onto the agents.* items. All state
+# (BLOCKED, TOTAL, TOTAL_STATUS, PI, PI_STATUS, NEXT) onto the agents.* items. All state
 # lives in the bridge, so parallel triggers never share a file. Fixed-width
 # items: no balance_pills.sh call.
 
@@ -27,16 +27,21 @@ if [[ -z "$TOTAL" ]]; then
 fi
 
 (( BLOCKED > 0 )) && blocked=$HERDR_BLOCKED || blocked=$HERDR_UNKNOWN
-case "$TOTAL_STATUS" in
-  working) total=$HERDR_WORKING ;;
-  done)    total=$HERDR_DONE ;;
-  idle)    total=$HERDR_IDLE ;;
-  *)       total=$HERDR_UNKNOWN ;;
-esac
+status_color() {
+  case "$1" in
+    blocked) echo "$HERDR_BLOCKED" ;;
+    working) echo "$HERDR_WORKING" ;;
+    done)    echo "$HERDR_DONE" ;;
+    idle)    echo "$HERDR_IDLE" ;;
+    *)       echo "$HERDR_UNKNOWN" ;;
+  esac
+}
+total=$(status_color "$TOTAL_STATUS")
+pi_color=$(status_color "$PI_STATUS")
 (( PI > 0 )) && pi=on || pi=off
 [[ -n "$NEXT" ]] && next=on || next=off
 
 sketchybar --set agents.blocked label="$BLOCKED" icon.color="$blocked" label.color="$blocked" \
            --set agents.total label="$TOTAL" icon.color="$total" label.color="$total" \
-           --set agents.pi drawing=$pi label="$PI" \
+           --set agents.pi drawing=$pi label="$PI" icon.color="$pi_color" label.color="$pi_color" \
            --set agents.next drawing=$next label="$NEXT"
