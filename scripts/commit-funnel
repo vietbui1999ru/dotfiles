@@ -35,8 +35,8 @@ class Refusal(Exception):
         self.steps = steps
 
 
-def git(*args, check=True):
-    r = subprocess.run(["git", *args], capture_output=True, text=True)
+def git(*args, check=True, env=None):
+    r = subprocess.run(["git", *args], capture_output=True, text=True, env=env)
     if check and r.returncode != 0:
         raise Failure(r.stderr.strip() or r.stdout.strip() or f"git {' '.join(args)} failed")
     return r
@@ -160,7 +160,8 @@ def check_git_index(rels):
 def commit_git(rels, message_path):
     check_git_index(rels)
     git("add", "--", *rels)
-    git("commit", "-F", message_path)
+    # COMMIT_FUNNEL=1 lets the reference-transaction hook allow this one ref update.
+    git("commit", "-F", message_path, env={**os.environ, "COMMIT_FUNNEL": "1"})
     subject = git("log", "-1", "--format=%h %s").stdout.strip()
     print(subject)
 
