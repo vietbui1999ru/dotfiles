@@ -15,6 +15,7 @@ Provisioning uses three mechanisms — know which applies before editing a packa
 |---|---|---|
 | `zsh/` | `~/.zshrc`, `~/.zprofile`, `~/.zsh/` | stow |
 | `starship/` | `~/.config/starship.toml` | stow |
+| `mise/` | `~/.config/mise/config.toml` | stow — dev CLI + runtime pins; run `mise install` after restow |
 | `nvim/` | `~/.config/nvim/` | stow |
 | `tmux/` | `~/.tmux.conf`, `~/.local/bin/tmux-cht` | stow |
 | `tmuxinator/` | `~/.config/tmuxinator/dotfiles.yml` | stow |
@@ -50,7 +51,12 @@ cd ~/dotfiles && brew bundle
 # 5. Symlink configs
 ./scripts/restow.sh
 
-# 6. Sync AI tool rules (AGENTS.md + MCP servers)
+# 6. Install dev CLIs + runtimes (go, node, neovim, ripgrep, jq, ...) from mise.
+#    The list lives in mise/.config/mise/config.toml, stowed in step 5.
+#    Upgrade them with `mise up` — not `brew upgrade`.
+mise install
+
+# 7. Sync AI tool rules (AGENTS.md + MCP servers)
 ./scripts/sync-agent-rules.sh
 ```
 
@@ -101,7 +107,7 @@ git submodule update --init repos/llm-wiki
 | `pi` (pi-coding-agent) | `npm install -g @earendil-works/pi-coding-agent` |
 | GitHub stacked PRs | `gh extension install github/gh-stack` (skill synced by `bootstrap-dirs.sh`) |
 | `omp` (oh-my-pi) | `curl -fsSL https://omp.sh/install \| sh` |
-| `rtk` (Rust Token Killer) | `brew install rtk` (included in `Brewfile`) |
+| `rtk` (Rust Token Killer) | `mise install` (pinned in `mise/.config/mise/config.toml`) |
 
 `omp` binaries land in `~/.bun/bin/` — already on PATH via `.zprofile`.
 

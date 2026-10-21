@@ -10,6 +10,10 @@ if [[ $OSTYPE == darwin* ]]; then
   fi
 fi
 
+# mise shims for non-interactive shells (launchd, hooks, `nvim` outside a shell).
+# Interactive shells get this from `mise activate` in .zshrc instead.
+export PATH="$HOME/.local/share/mise/shims:$PATH"
+
 # ── Language toolchains (PATH only — inits in .zshrc) ────────────────
 [[ -f "$HOME/.elan/env" ]] && source "$HOME/.elan/env"
 [[ -f "$HOME/.ghcup/env" ]] && source "$HOME/.ghcup/env"

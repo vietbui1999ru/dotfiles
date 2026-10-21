@@ -1,0 +1,36 @@
+# Global mise config — dev CLIs and runtimes.
+# Installed with `mise install` after `./scripts/restow.sh` stows this file.
+# Upgrade with `mise up` (Homebrew no longer covers these).
+[tools]
+# Runtimes
+go = "latest"
+node = "lts"
+uv = "latest"
+
+# GitHub
+gh = "latest"
+
+# Shell
+sheldon = "latest"
+starship = "latest"
+
+# Editor
+# aqua backend: the default backends hit the GitHub API and fail with 403.
+"aqua:neovim/neovim" = "latest"
+"aqua:tree-sitter/tree-sitter" = "latest"  # nvim-treesitter main compiles parsers with it
+"npm:@mermaid-js/mermaid-cli" = "latest"   # snacks.image / diagram.nvim render via mmdc
+
+# Modern CLI
+bat = "latest"
+ripgrep = "latest"
+fd = "latest"
+delta = "latest"
+lazygit = "latest"
+jj = "latest"
+fzf = "latest"
+zoxide = "latest"
+rtk = "latest"
+
+# Utilities
+jq = "latest"
+yq = "latest"
