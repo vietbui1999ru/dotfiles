@@ -1,0 +1,252 @@
+#!/usr/bin/env python3
+"""commit-funnel: the one checked way for an agent to commit its work.
+
+Usage: commit-funnel [--worktree <path>] -F <message-file> <path>...
+
+Commits only the listed paths, with the message text from the file, in git mode
+(no `.jj` at the work-tree root) or in colocated jj mode (`.jj` present, where it
+moves the branch bookmark and reattaches git HEAD). Prints `<short-sha>
+<subject>` of the new commit. It never pushes, amends, adds unlisted paths or
+rewrites the message text.
+
+Exit codes: 0 committed, 2 refused (numbered steps on stderr), 1 git or jj failed.
+"""
+import argparse
+import os
+import subprocess
+import sys
+
+MESSAGE_LINE_LIMIT = 72
+PROTECTED = ("main", "master")
+# Where the funnel is and where it was told the session lives; shown on every refusal.
+WHERE = {"work-tree root": "", "branch": "", "--worktree": "", "paths": ""}
+
+
+class Failure(Exception):
+    """A git or jj command failed; exit 1."""
+
+
+class Refusal(Exception):
+    """Refuse to commit; exit 2 with a numbered block on stderr."""
+
+    def __init__(self, reason, steps):
+        super().__init__(reason)
+        self.reason = reason
+        self.steps = steps
+
+
+def git(*args, check=True):
+    r = subprocess.run(["git", *args], capture_output=True, text=True)
+    if check and r.returncode != 0:
+        raise Failure(r.stderr.strip() or r.stdout.strip() or f"git {' '.join(args)} failed")
+    return r
+
+
+def jj(*args, check=True):
+    # --no-pager on every call: nothing may wait on a pager or an editor.
+    r = subprocess.run(["jj", "--no-pager", *args], capture_output=True, text=True)
+    if check and r.returncode != 0:
+        raise Failure(r.stderr.strip() or f"jj {' '.join(args)} failed")
+    return r
+
+
+def refusals(reason, steps):
+    raise Refusal(reason, steps)
+
+
+def check_paths(raw_paths, cwd, root):
+    """Return the listed paths as work-tree-relative paths; refuse anything else."""
+    if not raw_paths:
+        refusals("no paths given", [
+            "List the changed paths explicitly, relative to the work-tree root.",
+            "Rerun: commit-funnel --worktree <session worktree> -F <message file> <path>...",
+        ])
+    rels = []
+    for raw in raw_paths:
+        if raw in (".", "-A", "--all") or raw.startswith("-"):
+            refusals(f"bad path {raw!r}", [
+                f"Name each changed file instead of {raw!r}; never stage the whole tree.",
+                "Rerun: commit-funnel --worktree <session worktree> -F <message file> <path>...",
+            ])
+        resolved = os.path.realpath(os.path.join(cwd, raw))
+        if resolved != root and not resolved.startswith(root + os.sep):
+            refusals(f"path {raw!r} resolves outside the work-tree root", [
+                f"Only files under {root} belong to this work tree.",
+                "Rerun with paths inside the work-tree root.",
+            ])
+        rels.append(os.path.relpath(resolved, root))
+    return rels
+
+
+def read_message(message_file, cwd):
+    if not message_file:
+        refusals("no message file (-F is required)", [
+            "Write the commit message to a file, first line at most "
+            f"{MESSAGE_LINE_LIMIT} characters.",
+            "Rerun: commit-funnel --worktree <session worktree> -F <message file> <path>...",
+        ])
+    path = os.path.join(cwd, message_file)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        refusals(f"message file {message_file!r} is missing", [
+            "Write the message to a file first, then pass that file with -F.",
+            "Rerun: commit-funnel --worktree <session worktree> -F <message file> <path>...",
+        ])
+    if not text.strip():
+        refusals(f"message file {message_file!r} is empty", [
+            "Put a subject line and, if useful, a body in the message file.",
+            "Rerun the funnel with that file.",
+        ])
+    first = text.splitlines()[0]
+    if len(first) > MESSAGE_LINE_LIMIT:
+        refusals(f"message subject is {len(first)} characters; the limit is "
+                 f"{MESSAGE_LINE_LIMIT}", [
+                     "Shorten the first line to a subject of at most "
+                     f"{MESSAGE_LINE_LIMIT} characters; move the rest to the body.",
+                     "Rerun the funnel with the rewritten file.",
+                 ])
+    return path, text
+
+
+def protected(branch):
+    return branch in PROTECTED
+
+
+def branch_git():
+    r = git("symbolic-ref", "--short", "HEAD", check=False)
+    if r.returncode != 0 or not r.stdout.strip():
+        refusals("git HEAD is detached; no branch to commit on", [
+            "Attach HEAD to a feature branch: git switch -c <branch>",
+            "Rerun the funnel on that branch.",
+        ])
+    return r.stdout.strip()
+
+
+def branch_jj():
+    r = git("symbolic-ref", "--short", "HEAD", check=False)
+    if r.returncode == 0 and r.stdout.strip():
+        return r.stdout.strip()
+    found = [n for n in jj("bookmark", "list", "-r", "@-", "-T",
+                           'name ++ "\\n"').stdout.splitlines() if n.strip()]
+    if len(found) != 1:
+        listing = ", ".join(found) if found else "(none)"
+        refusals(f"git HEAD is detached and @- has {len(found)} bookmarks: {listing}", [
+            "Attach HEAD to the branch you are working on: git switch <branch>",
+            f"Or leave exactly one bookmark on @- (found: {listing}).",
+            "Rerun the funnel once one branch is unambiguous.",
+        ])
+    return found[0]
+
+
+def check_git_index(rels):
+    staged = [p for p in git("diff", "--cached", "--name-only", "-z").stdout.split("\0") if p]
+    foreign = sorted(set(staged) - set(rels))
+    if foreign:
+        refusals("paths other than the listed ones are already staged: " +
+                 ", ".join(foreign), [
+                     "Leave only your listed paths staged; unstage the rest with "
+                     "git restore --staged <path>.",
+                     "Rerun the funnel with the same paths.",
+                 ])
+
+
+def commit_git(rels, message_path):
+    check_git_index(rels)
+    git("add", "--", *rels)
+    git("commit", "-F", message_path)
+    subject = git("log", "-1", "--format=%h %s").stdout.strip()
+    print(subject)
+
+
+def commit_jj(rels, text, branch):
+    jj("file", "track", *rels)
+    jj("commit", "-m", text, *rels)
+    jj("bookmark", "move", branch, "--to", "@-")
+    git("switch", branch)
+    subject = jj("log", "--no-graph", "-r", "@-", "-T",
+                 'commit_id.short() ++ " " ++ description.first_line() ++ "\\n"').stdout.strip()
+    print(subject)
+
+
+def show(field, value):
+    WHERE[field] = value
+
+
+def run(args):
+    cwd = os.getcwd()
+    if args.paths:
+        show("paths", " ".join(args.paths))
+    if args.worktree:
+        show("--worktree", os.path.realpath(os.path.join(cwd, args.worktree)))
+    r = git("rev-parse", "--show-toplevel", check=False)
+    if r.returncode != 0 or not r.stdout.strip():
+        refusals("not inside a git work tree", [
+            "Work inside your session worktree before committing.",
+            "Rerun: commit-funnel --worktree <session worktree> -F <message file> <path>...",
+        ])
+    root = os.path.realpath(r.stdout.strip())
+    show("work-tree root", root)
+    if args.worktree:
+        told = os.path.realpath(os.path.join(cwd, args.worktree))
+        if told != root:
+            listed = " ".join(args.paths) if args.paths else "(none)"
+            refusals("wrong checkout: you are not in your session worktree", [
+                f"Do not commit here. You are in {root}.",
+                f"Tell the user: you are in {root}, your session worktree is {told}, "
+                f"your changed paths are {listed}.",
+                f"Wait for the user to move the changes into {told}; touching {root} is "
+                "outside this session's isolation.",
+            ])
+    os.chdir(root)
+    jj_mode = os.path.isdir(os.path.join(root, ".jj"))
+    branch = branch_jj() if jj_mode else branch_git()
+    show("branch", branch)
+    if protected(branch):
+        refusals(f"branch {branch} is protected", [
+            "Do not commit on main or master.",
+            "Cut a feature branch (git switch -c <branch>) and rerun the funnel there.",
+        ])
+    rels = check_paths(args.paths, cwd, root)
+    message_path, text = read_message(args.message_file, cwd)
+    if jj_mode:
+        commit_jj(rels, text, branch)
+    else:
+        commit_git(rels, message_path)
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="commit-funnel", allow_abbrev=False)
+    ap.add_argument("--worktree", metavar="PATH",
+                    help="the session's worktree; a different work-tree root is a refusal")
+    ap.add_argument("-F", dest="message_file", metavar="FILE",
+                    help="file holding the commit message")
+    ap.add_argument("-A", dest="all_short", action="store_true", help=argparse.SUPPRESS)
+    ap.add_argument("--all", dest="all_long", action="store_true", help=argparse.SUPPRESS)
+    ap.add_argument("paths", nargs="*", metavar="PATH")
+    args = ap.parse_args()
+    try:
+        if args.all_short:
+            args.paths = ["-A", *args.paths]
+        if args.all_long:
+            args.paths = ["--all", *args.paths]
+        run(args)
+    except Refusal as e:
+        print("commit-funnel: refused", file=sys.stderr)
+        print(f"  reason: {e.reason}", file=sys.stderr)
+        for label, value in WHERE.items():
+            if value:
+                print(f"  {label}: {value}", file=sys.stderr)
+        print(file=sys.stderr)
+        for i, step in enumerate(e.steps, 1):
+            print(f"{i}. {step}", file=sys.stderr)
+        return 2
+    except Failure as e:
+        print(f"commit-funnel: {e}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
