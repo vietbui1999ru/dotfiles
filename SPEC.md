@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 branch: feat/safety-block-log
 ---
 # SPEC: A block log that humans trace and judge (bash-safety, part C)
