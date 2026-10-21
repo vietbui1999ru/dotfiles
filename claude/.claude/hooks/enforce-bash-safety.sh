@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # PreToolUse hook — block catastrophically dangerous bash commands.
 # Scope: only truly irreversible wide-blast patterns. Not a general linter.
-# Exit 0 = allow. Exit 2 = block (stdout shown as block reason).
+# Exit 0 = allow. Exit 2 = block. Claude Code shows the hook's stderr as the block reason,
+# so everything after the input is read goes to stderr.
 
 INPUT=$(cat)
 CMD=$(echo "$INPUT" | jq -r '.tool_input.command // ""' 2>/dev/null)
 CWD=$(echo "$INPUT" | jq -r '.cwd // ""' 2>/dev/null)
+exec 1>&2
 
 [ -z "$CMD" ] && exit 0
 
