@@ -82,3 +82,16 @@ if (( ${#expired[@]} > 0 )) || [[ "$over_budget" == true ]]; then
 		"$skills" "$agents" "$CORE_AGENT_BUDGET" \
 		"$rules" "$CORE_RULE_BUDGET" "$hooks" "$CORE_HOOK_BUDGET"
 fi
+
+# Unmanaged skills idle for 30+ days (see scripts/skill-prune). The check reads every transcript
+# (about a second), so refresh it at most once a day and otherwise print the cached notice.
+PRUNE="${SKILL_PRUNE_BIN:-$HOME/dotfiles/scripts/skill-prune}"
+PRUNE_DIR="$HOME/.local/state/skill-prune"
+if [[ -x "$PRUNE" ]]; then
+	mkdir -p "$PRUNE_DIR"
+	if [[ ! -f "$PRUNE_DIR/last-check" || -n "$(find "$PRUNE_DIR/last-check" -mtime +0 2>/dev/null)" ]]; then
+		"$PRUNE" --check >"$PRUNE_DIR/notice" 2>/dev/null || true
+		touch "$PRUNE_DIR/last-check"
+	fi
+	[[ -s "$PRUNE_DIR/notice" ]] && cat "$PRUNE_DIR/notice"
+fi

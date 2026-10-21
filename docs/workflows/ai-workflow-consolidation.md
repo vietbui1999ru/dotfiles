@@ -33,6 +33,15 @@ all of them. `trial-expiry.sh` still counts skills but only caps agents, rules a
 hooks. Listing cost grows with the count until retrieval exists: about 2,700 tokens
 per 34 skill descriptions, measured on the Firecrawl set.
 
+To keep the list lean as it grows, `scripts/skill-prune` finds *unmanaged* skills (real
+directories that are not links into the knowledge base, the curated Firecrawl list or the
+keep list `~/.config/skill-prune/keep`) that have gone 30 days without a Claude use or an
+edit, and moves them to `~/.agents/skills-disabled/pruned/` (reversible with
+`skill-prune --restore NAME`). It is a dry run unless given `--apply`; the session-start
+hook only prints a cached one-line notice, refreshed once a day. Use is read from Claude
+transcripts only, so a skill used only from Codex, OpenCode or Pi looks idle: put such
+skills on the keep list.
+
 ## Evidence this is safe
 
 Measured across 19 real Claude Code session transcripts (2026-07-10 → 2026-09-16):
