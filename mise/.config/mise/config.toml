@@ -7,8 +7,9 @@ go = "latest"
 node = "lts"
 uv = "latest"
 
-# GitHub
+# Git forges
 gh = "latest"
+glab = "latest"
 
 # Shell
 sheldon = "latest"
