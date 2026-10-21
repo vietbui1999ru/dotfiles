@@ -19,7 +19,13 @@ case "$top" in */.claude/worktrees/*) ;; *) exit 0 ;; esac
 # The old id on stdin is not enough: `git update-ref <ref> <sha>` and `git branch -f` pass the
 # all-zero old id even when the branch exists. In the prepared phase the ref still holds its old
 # value, so existence is the test: an existing branch is refused, a new one is allowed.
+#
+# An update whose new id equals its old, non-zero id moves nothing; `git worktree add` sends one
+# for the checked-out branch from inside the new worktree, so skip it. An all-zero pair is not
+# a no-op: `git branch -D` sends one, so it falls through to the existence test.
+zero=0000000000000000000000000000000000000000
 while read -r _old _new ref; do
+  [ "$_old" = "$_new" ] && [ "$_old" != "$zero" ] && continue
   case "$ref" in
     refs/heads/*)
       if git rev-parse --verify --quiet "$ref" >/dev/null; then

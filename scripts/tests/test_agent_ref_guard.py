@@ -152,6 +152,15 @@ class ReferenceTransactionCases(Fixture):
         r = self.git(self.repo, "branch", "-D", "other", capture=True)
         self.assertEqual(r.returncode, 0, r.stderr)
 
+    def test_worktree_add_allowed(self):
+        # The checkout in the new worktree rewrites its branch to the same id: a no-op update.
+        for args in (["-b", "fresh"], []):
+            wt = self.repo / ".claude" / "worktrees" / ("n" + str(len(args)))
+            r = self.git(self.repo, "worktree", "add", "-q", *args, str(wt),
+                         *([] if args else ["other"]), capture=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue((wt / "a.txt").exists())
+
     def test_human_override(self):
         env = {**self.env, "AGENT_REF_GUARD": "off"}
         before = self.head(self.wt)
