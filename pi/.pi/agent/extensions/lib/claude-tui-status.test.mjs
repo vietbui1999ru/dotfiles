@@ -53,4 +53,7 @@ describe("formatCost", () => {
 	test("sub-cent values keep three decimals", () => {
 		expect(formatCost({ cost_usd: 0.00514, cost_source: "reported" })).toBe("$0.005");
 	});
+	test("zero is a plain two-decimal amount, not a sub-cent one", () => {
+		expect(formatCost({ cost_usd: 0, cost_source: "reported" })).toBe("$0.00");
+	});
 });
