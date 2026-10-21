@@ -31,15 +31,20 @@ case "$PROFILE" in
     FRONT_APP_W=140                    # fits "Visual Studio Code" and friends
     TITLE_W=380;  TITLE_CHARS=60       # window/tab title, ~6.2pt per char
     AUDIO_W=200;  AUDIO_CHARS=32       # audio source app name
-    AGENTS_W=420                       # status + most of a NEXT step (typical 459)
-    CLAUDE_USAGE_W=340                 # full `claude-tui status --line` with limit tag
+    NEXT_CHARS=36                      # a five-word NEXT gist plus [tag] fits unscrolled
     ;;
   *)
     MAX_ICONS=4
     FRONT_APP_W=80
     TITLE_W=150;  TITLE_CHARS=24
     AUDIO_W=110;  AUDIO_CHARS=16
-    AGENTS_W=210                       # status-only worst case measured 138
-    CLAUDE_USAGE_W=200                 # compact line scrolls inside this width
+    NEXT_CHARS=18                      # longer gists scroll
     ;;
 esac
+
+# NEXT item: Hack Nerd Font Mono 13pt advances ~7.8pt per glyph, rounded to 8.
+# sketchybar scrolls a max_chars-clipped label at ~60 * W / scroll_duration
+# pt/s (scroll_duration in frames, 60 fps), so this gives a steady ~45 pt/s,
+# about 6 chars/s: well under the ~17 chars/s reading limit for moving text.
+NEXT_W=$(( NEXT_CHARS * 8 ))
+NEXT_SCROLL=$(( (60 * NEXT_W + 22) / 45 ))

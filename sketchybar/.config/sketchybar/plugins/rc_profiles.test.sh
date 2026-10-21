@@ -59,14 +59,17 @@ EOF
   check "battery fixed width, power events"              "$(has 'battery.*label.width=36 .*battery power_source_change'; echo $?)"
   check "battery in right_pill"                          "$(has 'bracket right_pill.* battery sep.battery '; echo $?)"
 
-  local front title audio agents
-  if [[ "$profile" == wide ]]; then front=140 title=380/60 audio=200/32 agents=420
-  else                              front=80  title=150/24 audio=110/16 agents=210
+  local front title audio next
+  if [[ "$profile" == wide ]]; then front=140 title=380/60 audio=200/32 next=36/288/384
+  else                              front=80  title=150/24 audio=110/16 next=18/144/192
   fi
   check "front_app width=$front"                         "$(has "front_app.*width=$front "; echo $?)"
   check "window_title width=${title%/*} chars=${title#*/}" "$(has "window_title.*label.max_chars=${title#*/} .*label.width=${title%/*} "; echo $?)"
   check "audio_source width=${audio%/*} chars=${audio#*/}" "$(has "audio_source.*label.width=${audio%/*} .*label.max_chars=${audio#*/} "; echo $?)"
-  check "agents label.width=$agents"                     "$(has "agents.*label.width=$agents "; echo $?)"
+  IFS=/ read -r chars nw scroll <<<"$next"
+  check "agents.next chars=$chars width=$nw scroll=$scroll" "$(has "agents.next.*label.max_chars=$chars label.width=$nw label.scroll_duration=$scroll "; echo $?)"
+  check "agents items in right_pill"                     "$(has 'bracket right_pill.* agents agents.blocked agents.total agents.pi agents.next '; echo $?)"
+  check "usage popup rows exist"                         "$(has 'claude_usage.opencode popup.claude_usage'; echo $?)"
 }
 
 # Docked, external wider than the built-in. Arrangement-ids match NSScreen

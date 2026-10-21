@@ -38,7 +38,7 @@ plugins/                one script per item: what it does at runtime
 plugins/*.test.sh       mock-sketchybar tests (no live bar needed)
 ```
 
-`scripts/herdr-sketchybar-bridge` (in the dotfiles root, run by launchd as `com.vietbui.herdr-sketchybar-bridge`) is the single writer of the agents label. It subscribes to Herdr's socket for Claude pane status and `NEXT:` output, and polls `pueue status` every 5s. It renders the label with `scripts/herdr-sketchybar-label.mjs` and pushes it with `sketchybar --trigger agent_state LABEL=...`.
+`scripts/herdr-sketchybar-bridge` (in the dotfiles root, run by launchd as `com.vietbui.herdr-sketchybar-bridge`) is the single writer of the `agents.*` items. It subscribes to Herdr's socket for Claude pane status and `NEXT:` output, and polls `pueue status` every 5s. It computes the state with `scripts/herdr-sketchybar-label.mjs` and pushes it with `sketchybar --trigger agent_state BLOCKED=... TOTAL=... TOTAL_STATUS=... PI=... NEXT=...`; `plugins/agents.sh` colors the counts with herdr's gruvbox status colors from `colors.sh`. The usage gauge (`claude_usage`) toggles its popup on click or `alt-u` (aerospace).
 
 ## Dock/undock
 
