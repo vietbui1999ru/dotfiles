@@ -8,5 +8,10 @@ const SAFE_ID = /^[A-Za-z0-9_-]+$/
 export const heartbeatPath = (tmp: string, sessionId: string): string | undefined =>
   SAFE_ID.test(sessionId) ? `${tmp}/session-band-${sessionId}.alive` : undefined
 
+// Written by each band draw (throttled), not by the timer: fresh only while the band is on screen.
+// claude/.claude/statusline-command.sh stays silent while this file is fresh.
+export const drawnPath = (tmp: string, sessionId: string): string | undefined =>
+  SAFE_ID.test(sessionId) ? `${tmp}/session-band-${sessionId}.drawn` : undefined
+
 // "<unix seconds>\t<session cwd>": the worktrees pane reads the cwd to show which worktrees have a live session.
 export const heartbeatBody = (nowMs: number, cwd: string): string => `${Math.floor(nowMs / 1000)}\t${cwd}\n`

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Backup status line, shown only when the session-band mod is dead. The mod draws the primary band above
-# the prompt and rewrites ${TMPDIR:-/tmp}/session-band-<session_id>.alive every 15s (session-band-plugin/hooks/heartbeat.ts).
-# Fresh heartbeat -> print nothing. Missing or stale (no mod loaded, /reload-plugins, crashed) -> draw this line.
+# Backup status line, shown whenever the session-band band is not on screen. Each band draw rewrites
+# ${TMPDIR:-/tmp}/session-band-<session_id>.drawn (at most every 5s; the band redraws every 15s while shown).
+# Fresh .drawn -> print nothing. Missing or stale (no mod, /reload-plugins, a view that does not draw the band,
+# crashed) -> draw this line. The timer's .alive file means "process alive" and is for the pueue lifecycle only.
 # Input: Claude Code status JSON on stdin. Docs: https://code.claude.com/docs/en/statusline
 # Segments: dir, worktree, branch, ctx headroom, 5h, 7d, output style, model.
 # The stdin JSON is also snapshotted for the claude-tui daemon, which reads rate_limits and the file mtime.
@@ -24,7 +25,7 @@ IFS=$'\x1f' read -r cwd wt used left five seven style model < <(
 )
 
 sid=$(jq -r '.session_id // empty' <<<"$input")
-hb="${TMPDIR:-/tmp}/session-band-${sid}.alive"
+hb="${TMPDIR:-/tmp}/session-band-${sid}.drawn"
 if [[ "$sid" =~ ^[A-Za-z0-9_-]+$ ]] && [ -f "$hb" ]; then
   mtime=$(stat -f %m "$hb" 2>/dev/null || stat -c %Y "$hb")
   [ $(( $(date +%s) - mtime )) -lt 60 ] && exit 0

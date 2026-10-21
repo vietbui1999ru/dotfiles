@@ -18,11 +18,12 @@ import { parsePending, pendingRecordFor, reviewState, type ReviewState } from '.
 import { shortDir, shortModel, whole } from './format'
 import { toSnapshot, type GitFacts } from './git'
 import { toRepoInfo, type RepoInfo } from './repo'
-import { heartbeatBody, heartbeatPath, HEARTBEAT_INTERVAL_MS } from './heartbeat'
+import { drawnPath, heartbeatBody, heartbeatPath, HEARTBEAT_INTERVAL_MS } from './heartbeat'
 import { openForSession, parseAlerts } from './mistake-alerts'
 import { guardAgent, softStop, type SoftStopCheck } from './threshold'
 
 const usage = atom({ plugin: 'session-band', key: 'usage' } as const, {})
+const tick = atom({ plugin: 'session-band', key: 'tick' } as const, 0)
 const git = atom({ plugin: 'session-band', key: 'git' } as const, null)
 const outputStyle = atom({ plugin: 'session-band', key: 'outputStyle' } as const, null)
 const isNotified = atom({ plugin: 'session-band', key: 'isNotified' } as const, false)
@@ -120,20 +121,37 @@ async function reviewStates($: EngineInterface, tasks: readonly TrackedTask[]): 
   return Object.fromEntries(values)
 }
 
-// Every HEARTBEAT_INTERVAL_MS: write the liveness file (the status line fallback goes silent while it is fresh),
-// and re-read usage and git so the band does not depend on Bash calls or turn ends to stay current.
+// Every HEARTBEAT_INTERVAL_MS: write the liveness file (.alive: this process is alive, read by the pueue lifecycle
+// and the worktrees pane), bump the tick so a band on screen redraws and refreshes its .drawn file, and re-read
+// usage and git so the band does not depend on Bash calls or turn ends to stay current.
 const startHeartbeat = async ($: EngineInterface) => {
   const tmp = await $.env.get('TMPDIR') ?? '/tmp'
   // A failed id lookup must not cost the session its start hooks: an empty id yields no heartbeat path.
   const path = heartbeatPath(tmp, await $.session.id().catch(() => ''))
   const beat = async () => {
     if (path) await $.fs.write(path, heartbeatBody(await $.clock.now(), await $.session.cwd()))
+    await update($, tick, n => n + 1)
     const current = await $.session.usage()
     await update($, usage, () => measuredUsage(current.context, current.rateLimits))
     await refreshGit($)
   }
   if (path) await $.fs.write(path, heartbeatBody(await $.clock.now(), await $.session.cwd()))
   $.clock.every(HEARTBEAT_INTERVAL_MS, () => { void beat().catch(() => undefined) })
+}
+
+// The .drawn file tells statusline-command.sh the band is on screen, so the fallback stays silent only while it is.
+// Written from the draw at most every DRAWN_MIN_GAP_MS (one small write per tick, not per keystroke); a failed
+// write never costs the draw its band.
+// The throttle reads the file's own time: a draw may not write $.state, and a module variable would not survive a
+// reload or keep sessions apart.
+const DRAWN_MIN_GAP_S = 5
+const markDrawn = async ($: EngineInterface, sessionId: string, nowMs: number) => {
+  const path = drawnPath(await $.env.get('TMPDIR') ?? '/tmp', sessionId)
+  if (!path) return
+  const nowS = Math.floor(nowMs / 1000)
+  const last = Number.parseInt(String(await $.fs.read(path).catch(() => '')), 10)
+  if (Number.isFinite(last) && nowS - last < DRAWN_MIN_GAP_S) return
+  await $.fs.write(path, `${nowS}\n`).catch(() => undefined)
 }
 
 export const register: Register = on => {
@@ -241,11 +259,13 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
 
-    const [cwd, home, model, currentUsage, currentGit, capturedStyle, currentHandoff, currentProgress, nowMs] = await Promise.all([
+    const [cwd, home, model, currentUsage, _tick, currentGit, capturedStyle, currentHandoff, currentProgress, nowMs] = await Promise.all([
       $.session.cwd(),
       $.env.get('HOME'),
       $.session.model(),
       read($, usage),
+      // Read only so each heartbeat tick redraws the band, and the draw below rewrites the liveness file.
+      read($, tick),
       read($, git),
       read($, outputStyle),
       read($, handoff),
@@ -255,6 +275,7 @@ export const register: Register = on => {
     const currentReview = await reviewStates($, currentHandoff.tasks)
     // Mistake alerts are written by the PostToolUseFailure hook; the band shows only this session's open ones.
     const sessionId = await $.session.id().catch(() => '')
+    await markDrawn($, sessionId, nowMs).catch(() => undefined)
     const alertsRaw = home ? await $.fs.read(`${home}/.claude/state/mistake-alerts.json`).catch(() => undefined) : undefined
     const openAlerts = openForSession(parseAlerts(typeof alertsRaw === 'string' ? alertsRaw : undefined), sessionId)
     if (!hasComposed) settingsStyle ??= settingStyle($).catch(() => null)
