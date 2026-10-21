@@ -34,6 +34,9 @@ export AUDIO_SOURCE_LABEL_COLOR=$SAGE
 export VPN_ON_COLOR=$SAGE
 export VPN_OFF_COLOR=$MUTED_TEAL
 
+# ── Claude usage ─────────────────────────────────
+export USAGE_WARN_COLOR=0xfff0b432
+
 # ── Mic ─────────────────────────────────────────
 export MIC_MUTE_COLOR=0xffe78a4e
 
