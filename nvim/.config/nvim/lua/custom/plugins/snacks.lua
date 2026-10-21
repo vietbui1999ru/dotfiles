@@ -1,6 +1,7 @@
 if vim.g.vscode then
 	return
 end
+require("custom.agent_review_dashboard").setup()
 require("snacks").setup({
 	bigfile = { enabled = true },
 	dashboard = {
@@ -15,6 +16,7 @@ require("snacks").setup({
 				padding = 1,
 			},
 			{ section = "keys", gap = 1, padding = 1 },
+			require("custom.agent_review_dashboard").section,
 			{
 				pane = 2,
 				icon = " ",
