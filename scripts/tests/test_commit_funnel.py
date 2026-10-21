@@ -208,6 +208,19 @@ class Fixture(unittest.TestCase):
         self.assertEqual(self.git("rev-parse", "HEAD").strip(), committed)
         self.assertIn("add a and b", r.stdout)
 
+    def test_jj_quotes_odd_path_names(self):
+        self.init_repo()
+        self.jj_colocated()
+        odd = ['c(1).txt', 'd "q".txt', 'e b.txt']
+        for rel in odd:
+            self.put(rel, "x\n")
+        self.put("left.txt", "l\n")
+        r = self.run_funnel("-F", str(self.msg), *odd)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        committed = self.jj("diff", "--name-only", "-r", "@-").stdout.splitlines()
+        self.assertEqual(sorted(committed), sorted(odd))
+        self.assertEqual(self.jj("diff", "--name-only", "-r", "@").stdout.split(), ["left.txt"])
+
     def test_jj_refuses_ambiguous_branch(self):
         for case in ("none", "two"):
             with self.subTest(case=case):

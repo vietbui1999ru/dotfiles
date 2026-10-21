@@ -160,9 +160,15 @@ def commit_git(rels, message_path):
     print(subject)
 
 
+def fileset(rel):
+    """Quote a root-relative path as a literal jj fileset; bare names like `c(1).txt` do not parse."""
+    return 'root:"' + rel.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 def commit_jj(rels, text, branch):
-    jj("file", "track", *rels)
-    jj("commit", "-m", text, *rels)
+    sets = [fileset(r) for r in rels]
+    jj("file", "track", *sets)
+    jj("commit", "-m", text, *sets)
     jj("bookmark", "move", branch, "--to", "@-")
     git("switch", branch)
     subject = jj("log", "--no-graph", "-r", "@-", "-T",
