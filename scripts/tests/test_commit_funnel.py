@@ -1,9 +1,10 @@
-"""Tests for scripts/commit-funnel.
+"""Tests for scripts/commit-funnel and its worktree hook block.
 
 Each test builds a throwaway git (and, where needed, colocated jj) repo in a temp
 dir and runs the script with sys.executable, a temp HOME and
 GIT_CONFIG_NOSYSTEM=1. Stdlib only.
 """
+import json
 import os
 import shutil
 import subprocess
@@ -15,7 +16,12 @@ from pathlib import Path
 SCRIPTS = Path(__file__).resolve().parent.parent
 ROOT = SCRIPTS.parent
 FUNNEL = SCRIPTS / "commit-funnel"
+HOOK = ROOT / "claude" / ".claude" / "hooks" / "enforce-bash-safety.sh"
 GITC = ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+# Fake hook cwd values: a worktree session and a checkout outside one.
+TMP_ROOT = os.path.join(os.path.sep, "tmp", "x")
+INSIDE = os.path.join(TMP_ROOT, ".claude", "worktrees", "w")
+OUTSIDE = TMP_ROOT
 
 
 class Fixture(unittest.TestCase):
@@ -79,6 +85,11 @@ class Fixture(unittest.TestCase):
         return subprocess.run([sys.executable, str(FUNNEL), *args],
                               cwd=cwd or self.repo, env=self.env,
                               capture_output=True, text=True, timeout=120)
+
+    def run_hook(self, cwd, command):
+        payload = json.dumps({"cwd": cwd, "tool_input": {"command": command}})
+        return subprocess.run(["bash", str(HOOK)], input=payload, env=self.env,
+                              capture_output=True, text=True, timeout=60)
 
     def head_count(self):
         return self.git("rev-list", "--count", "HEAD").strip()
@@ -220,6 +231,21 @@ class Fixture(unittest.TestCase):
                     self.assertIn("feat/x", r.stderr)
                 self.assertEqual(self.git("rev-parse", "HEAD").strip(), before)
 
+    def test_hook_blocks_worktree_commit(self):
+        commands = ["git commit -F x", "/usr/bin/git commit -F x",
+                    "cd a && git commit -F x", "jj commit -m x", "jj ci -m x"]
+        for command in commands:
+            with self.subTest(command=command, where="inside"):
+                r = self.run_hook(INSIDE, command)
+                self.assertEqual(r.returncode, 2, command)
+                self.assertIn("commit-funnel", r.stdout + r.stderr)
+            with self.subTest(command=command, where="outside"):
+                r = self.run_hook(OUTSIDE, command)
+                self.assertEqual(r.returncode, 0, command)
+        for command in ("git status", "git push origin feat", "jj st"):
+            with self.subTest(command=command, where="inside-allowed"):
+                r = self.run_hook(INSIDE, command)
+                self.assertEqual(r.returncode, 0, command)
 
 
 if __name__ == "__main__":
