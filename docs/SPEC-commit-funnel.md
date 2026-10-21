@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 branch: spec/commit-funnel
 ---
 # SPEC: commit-funnel, one checked entry point for agent commits
