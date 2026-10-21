@@ -13,7 +13,7 @@
  * the main Pi session, so the panel remains display-only.
  */
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { existsSync, watch } from "node:fs";
+import { existsSync, realpathSync, watch } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { dirname, join, basename, resolve } from "node:path";
@@ -605,5 +605,7 @@ async function main() {
 	await refresh();
 }
 
-const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+// Pi launches this through the stow symlink, while import.meta.url is the
+// resolved path, so compare real paths or main() silently never runs.
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
 if (isMain) await main();
