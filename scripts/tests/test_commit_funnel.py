@@ -68,7 +68,8 @@ class Fixture(unittest.TestCase):
         self.git("add", "-A")
         self.git("commit", "-q", "-m", msg)
 
-    def init_repo(self, base="main", feature="feat/x", files=None):
+    def init_repo(self, base: str = "main", feature: str | None = "feat/x",
+                  files: dict[str, str] | None = None):
         self.repo.mkdir()
         self.git("init", "-q", "-b", base)
         for rel, body in (files or {"README.md": "fixture\n"}).items():
@@ -188,6 +189,30 @@ class Fixture(unittest.TestCase):
         self.assertEqual(status, ["D", "a.txt"])
         self.assertNotIn("a.txt", self.git("ls-tree", "--name-only", "HEAD").split())
         self.assertEqual(self.head_count(), "2")
+
+    def test_git_commits_staged_deletion(self):
+        self.init_repo(files={"a.txt": "a\n", "keep.txt": "k\n"})
+        self.git("rm", "-q", "a.txt")
+        r = self.run_funnel("-F", str(self.msg), "a.txt")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        status = self.git("show", "--name-status", "--format=", "HEAD").split()
+        self.assertEqual(status, ["D", "a.txt"])
+        self.assertEqual(self.head_count(), "2")
+
+    def test_refuses_unknown_path(self):
+        self.init_repo()
+        r = self.run_funnel("-F", str(self.msg), "nope.txt")
+        self.assert_refused(r, "nope.txt")
+        self.assertEqual(self.head_count(), "1")
+
+    def test_jj_commits_deletion(self):
+        self.init_repo(files={"a.txt": "a\n", "keep.txt": "k\n"})
+        self.jj_colocated()
+        (self.repo / "a.txt").unlink()
+        r = self.run_funnel("-F", str(self.msg), "a.txt")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.jj("diff", "--name-only", "-r", "@-").stdout.split(), ["a.txt"])
+        self.assertTrue((self.repo / "keep.txt").exists())
 
     def test_refuses_wrong_checkout(self):
         self.init_repo()
