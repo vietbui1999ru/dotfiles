@@ -69,7 +69,12 @@ def check_paths(raw_paths, cwd, root):
                 "Rerun: commit-funnel --worktree <session worktree> -F <message file> <path>...",
             ])
         resolved = os.path.realpath(os.path.join(cwd, raw))
-        if resolved != root and not resolved.startswith(root + os.sep):
+        if resolved == root:
+            refusals(f"path {raw!r} is the work-tree root itself", [
+                "Name each changed file instead; never stage the whole tree.",
+                "Rerun: commit-funnel --worktree <session worktree> -F <message file> <path>...",
+            ])
+        if not resolved.startswith(root + os.sep):
             refusals(f"path {raw!r} resolves outside the work-tree root", [
                 f"Only files under {root} belong to this work tree.",
                 "Rerun with paths inside the work-tree root.",

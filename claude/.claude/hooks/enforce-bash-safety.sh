@@ -67,8 +67,17 @@ fi
 # A session cwd under */.claude/worktrees/* must commit through the funnel, so
 # only the listed paths land, the message comes from a file, main/master is
 # refused, and the jj bookmark plus git HEAD are moved for the git-based gates.
+# Pieces: segment start (also subshell and $( ) substitution), env assignments and
+# wrappers (command/exec/env/sudo/nohup/time), the binary, then global options
+# (-c k=v, -C dir, --no-pager, -R repo) before the subcommand.
+SEG='(^|[;&|(`]|\$\()[[:space:]]*'
+ASSIGN='([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*'
+WRAP="(${ASSIGN}(command|exec|env|sudo|nohup|time)[[:space:]]+)*${ASSIGN}"
+OPTS='([[:space:]]+-[^[:space:]]+([[:space:]]+[^-[:space:]][^[:space:]]*)?)*'
+END='([[:space:]]|$|[;&|)`])'
+COMMIT_RE="${SEG}${WRAP}([^[:space:];&|()]*/)?git${OPTS}[[:space:]]+commit${END}|${SEG}${WRAP}([^[:space:];&|()]*/)?jj${OPTS}[[:space:]]+(commit|ci)${END}"
 if echo "$CWD" | grep -qE '/\.claude/worktrees/'; then
-  if echo "$CMD" | grep -qE '(^|[;&|])[[:space:]]*(/usr/bin/git|git)[[:space:]]+commit([[:space:]]|$)|(^|[;&|])[[:space:]]*jj[[:space:]]+(commit|ci)([[:space:]]|$)'; then
+  if echo "$CMD" | grep -qE "$COMMIT_RE"; then
     echo "BLOCKED: git commit and jj commit are not allowed inside a worktree session."
     echo "Commit through the funnel instead, from anywhere in your session worktree:"
     echo "  \$HOME/dotfiles/scripts/commit-funnel --worktree <session worktree> -F <message file> <path>..."

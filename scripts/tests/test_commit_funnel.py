@@ -145,6 +145,16 @@ class Fixture(unittest.TestCase):
                 self.assertEqual(self.head_count(), "1")
         self.assertNotIn("a.txt", self.git("ls-tree", "--name-only", "HEAD"))
 
+    def test_refuses_root_aliases(self):
+        self.init_repo()
+        self.put("a.txt", "a\n")
+        self.put("sub/b.txt", "b\n")
+        for raw in ("./", "sub/..", str(self.repo)):
+            with self.subTest(raw=raw):
+                r = self.run_funnel("-F", str(self.msg), raw)
+                self.assert_refused(r, "work-tree root itself")
+                self.assertEqual(self.head_count(), "1")
+
     def test_refuses_bad_message(self):
         self.init_repo()
         self.put("a.txt", "a\n")
@@ -257,6 +267,23 @@ class Fixture(unittest.TestCase):
                 self.assertEqual(r.returncode, 0, command)
         for command in ("git status", "git push origin feat", "jj st"):
             with self.subTest(command=command, where="inside-allowed"):
+                r = self.run_hook(INSIDE, command)
+                self.assertEqual(r.returncode, 0, command)
+
+    def test_hook_blocks_commit_variants(self):
+        blocked = ["git -c user.name=x commit -F m", "git -C . commit -F m",
+                   "git --no-pager commit -F m", "command git commit -F m",
+                   "env GIT_X=1 git commit -F m", "exec git commit -F m",
+                   "echo $(git commit -F m)", "(git commit -F m)",
+                   "jj --no-pager commit -m x", "jj -R . ci -m x"]
+        for command in blocked:
+            with self.subTest(command=command):
+                r = self.run_hook(INSIDE, command)
+                self.assertEqual(r.returncode, 2, command)
+        allowed = ["git log --grep commit", "git -C sub log", "echo git commit is blocked",
+                   "git commit-tree HEAD^{tree}", "jj log -r commit"]
+        for command in allowed:
+            with self.subTest(command=command, where="allowed"):
                 r = self.run_hook(INSIDE, command)
                 self.assertEqual(r.returncode, 0, command)
 
