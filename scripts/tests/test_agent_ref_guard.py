@@ -223,6 +223,20 @@ class BashHookCases(unittest.TestCase):
             self.assertIn("commit-funnel", r.stderr)
             self.assertEqual(self.run_hook(cmd, outside).returncode, 0, cmd)
 
+    def test_bash_hook_blocks_hookspath_spellings(self):
+        # Config keys are case-insensitive, and env-based config never names core.hooksPath.
+        base = os.path.join(tempfile.gettempdir(), "refguard-cwd")
+        inside = os.path.join(base, ".claude", "worktrees", "w")
+        for cmd in ("git -c core.HOOKSPATH=/dev/null status",
+                    "GIT_CONFIG_PARAMETERS=\"'core.x=1'\" git status",
+                    "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=a GIT_CONFIG_VALUE_0=b git status",
+                    "git --config-env=core.x=V status"):
+            r = self.run_hook(cmd, inside)
+            self.assertEqual(r.returncode, 2, cmd)
+            self.assertEqual(self.run_hook(cmd, base).returncode, 0, cmd)
+        for cmd in ("git status", "git config --get user.name"):
+            self.assertEqual(self.run_hook(cmd, inside).returncode, 0, cmd)
+
 
 if __name__ == "__main__":
     unittest.main()

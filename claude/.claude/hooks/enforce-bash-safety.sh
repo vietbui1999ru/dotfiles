@@ -92,7 +92,10 @@ fi
 # COMMIT_FUNNEL=1 and AGENT_REF_GUARD=off switch off the reference-transaction hook; an agent
 # must not set them, and core.hooksPath would point git away from the hook. Those are the human's.
 if echo "$CWD" | grep -qE '/\.claude/worktrees/'; then
-  if echo "$CMD" | grep -qE 'COMMIT_FUNNEL=|AGENT_REF_GUARD=|core\.hooksPath'; then
+  # Config keys are case-insensitive, and GIT_CONFIG_* / --config-env set config without naming
+  # core.hooksPath on the command line, so block those forms too.
+  if echo "$CMD" | grep -qE 'COMMIT_FUNNEL=|AGENT_REF_GUARD=|GIT_CONFIG_(PARAMETERS|COUNT|KEY_)|--config-env' \
+    || echo "$CMD" | grep -qiE 'core\.hookspath'; then
     echo "BLOCKED: COMMIT_FUNNEL, AGENT_REF_GUARD and core.hooksPath are the human's override, not an agent's."
     echo "Commit through the funnel instead, from anywhere in your session worktree:"
     echo "  \$HOME/dotfiles/scripts/commit-funnel --worktree <session worktree> -F <message file> <path>..."
