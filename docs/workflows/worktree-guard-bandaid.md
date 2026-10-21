@@ -52,6 +52,29 @@ After merging and pulling main, run `scripts/restow.sh` so `~/.claude/hooks/` ge
 
 `&&`, pipes and redirects are fine on their own (#88550). Splitting a command does not help when the refused part is a `~` or a rewritten git call.
 
+### Commit through the funnel
+
+`scripts/commit-funnel` is the one checked way for an agent session to commit. From anywhere in the session worktree:
+
+```sh
+$HOME/dotfiles/scripts/commit-funnel --worktree /abs/path/of/session/worktree -F <message-file> <path>...
+```
+
+Spell the session worktree out literally, as the session announced it (for example `/Users/vietquocbui/dotfiles/.claude/worktrees/<name>`). Never pass `$PWD` or `.`: after a stray `cd` they name the wrong checkout and the check always passes.
+
+The message always comes from a file (`-F`, never `-m`), so prose never sits in a Bash argument, and its first line must be 72 characters or fewer. The funnel stages and commits only the listed paths, and it prints `<short-sha> <subject>`. It never pushes, amends or rewrites the message.
+
+It commits in one of two modes, chosen by the work-tree root:
+
+- git mode (no `.jj` at the root): `git add -- <paths>`, then `git commit -F <file>`. Add records deletions too.
+- jj mode (colocated, `.jj` present): `jj file track`, `jj commit -m '<message text>' <paths>`, `jj bookmark move <branch> --to @-`, then `git switch <branch>` so `ac-run`, `floor-guard` and `agent-review` read the branch again. Unlisted working-copy changes stay in the new `@`, and the funnel prints the sha and subject of `@-`.
+
+It refuses with exit 2 and numbered steps, and commits nothing, when: no path is given; a path is `.`, `-A`, `--all` or resolves outside the work-tree root; the message file is missing, empty, or has a first line over 72 characters; the branch is `main` or `master`; no branch is unambiguous (detached HEAD in git mode, or detached HEAD with zero or several bookmarks on `@-` in jj mode); or, in git mode, a path outside the list is already staged.
+
+`--worktree` is the check that you commit in your own checkout. When the work-tree root differs from it, the block says: you are in B, your session worktree is A, your changed paths are C. The steps are: do not commit here; tell the user those three facts; wait for the user to move the changes, because touching B is outside the session's isolation. Pass `--worktree` every time. It is optional, and without it only the `main`/`master` refusal and the hook stand between an agent and a commit in the wrong checkout.
+
+The Bash PreToolUse hook (`enforce-bash-safety.sh`) closes the other half. When the hook `cwd` is under `*/.claude/worktrees/*`, a command segment that is `git commit`, `/usr/bin/git commit`, `jj commit` or `jj ci` exits 2 with a message naming `commit-funnel` and showing its usage. `git status`, `git push origin <branch>` and `jj st` pass, and outside a worktree the block does not apply, so the human's own sessions commit as before.
+
 ## Removal criteria
 
 - A stable rtk release that contains PR #3879: delete `rtk-hook-unless-worktree.sh`, point `settings.json` back at `rtk hook claude`, and drop rule 2's first sentence.
