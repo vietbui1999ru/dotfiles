@@ -73,18 +73,20 @@ export const PI_HISTORY = '⟲'
 export const DRAFT_PRS = '⑂'
 export const PI_HANDOFF = 'π'
 
-export type BandInput = StatusInput & { handoff?: HandoffSegment; width?: number; wt: boolean; history: boolean; drafts?: boolean; piChip?: boolean }
-export type BandLayout = { wt?: string; history?: string; drafts?: string; status: Seg[][]; pi?: string }
+export type BandInput = StatusInput & { handoff?: HandoffSegment; width?: number; wt: boolean; history: boolean; drafts?: boolean; blocks?: number; piChip?: boolean }
+export type BandLayout = { wt?: string; history?: string; drafts?: string; blocks?: string; status: Seg[][]; pi?: string }
 
 /** Every chip is one glyph plus its gap; the status line gets the rest. The hand-off detail lives in the pi-handoff pane. */
 export const layoutBand = (d: BandInput): BandLayout => {
   const wt = d.wt ? SYMBOL.branch : undefined
   const history = d.history ? PI_HISTORY : undefined
   const drafts = d.drafts ? DRAFT_PRS : undefined
+  // Blocks is the one chip with a count: it shows only when this session has unjudged blocks.
+  const blocks = d.blocks ? `⛔${d.blocks}` : undefined
   const pi = d.handoff || d.piChip ? PI_HANDOFF : undefined
   const groups = statusGroups(d)
-  if (d.width === undefined) return { wt, history, drafts, status: groups, pi }
-  const navCells = [wt, history, drafts].reduce((n, chip) => n + (chip ? chip.length + GAP : 0), 0)
+  if (d.width === undefined) return { wt, history, drafts, blocks, status: groups, pi }
+  const navCells = [wt, history, drafts, blocks].reduce((n, chip) => n + (chip ? chip.length + GAP : 0), 0)
   const piFloor = pi ? pi.length + GAP : 0
-  return { wt, history, drafts, status: fitStatus(groups, d.width - navCells - piFloor), pi }
+  return { wt, history, drafts, blocks, status: fitStatus(groups, d.width - navCells - piFloor), pi }
 }
