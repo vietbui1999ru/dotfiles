@@ -46,7 +46,9 @@ Secrets are replaced with `[REDACTED]` before anything is written:
 - `Bearer <token>`
 - AWS access key ids (`AKIA…`)
 - the value of any `NAME=value` assignment whose name contains `TOKEN`, `SECRET`,
-  `PASSWORD`, `PASSWD` or `KEY`
+  `PASSWORD`, `PASSWD` or `KEY`, including a `"double"` or `'single'` quoted value
+- the value after `--token`, `--password`, `--passwd`, `--secret`, `--api-key` or
+  `--apikey`, written with `=` or a space
 
 Everything else is kept verbatim, because the command is what makes a block
 traceable. A command longer than 4000 characters is cut there and ends with
@@ -117,12 +119,29 @@ from a verdict, and log data never leaves the machine.
 
 ## Testing the log
 
-Point `SAFETY_LOG_DIR` at a temporary directory:
+Pipe a fake hook payload into the hook with `SAFETY_LOG_DIR` pointing at a temporary
+directory. Never test by running a blocked command in your shell: the hook only
+guards the agent's Bash tool, so the command really runs and nothing is logged.
 
 ```sh
-SAFETY_LOG_DIR=$(mktemp -d) git clean -fd   # one block, logged there
-SAFETY_LOG_DIR=<that dir> ~/dotfiles/scripts/safety-log
+dir=$(mktemp -d)
+echo '{"tool_input":{"command":"git clean -fd"},"session_id":"test","cwd":"/tmp"}' |
+  SAFETY_LOG_DIR=$dir bash ~/dotfiles/claude/.claude/hooks/enforce-bash-safety.sh
+echo "exit $?"                                   # 2, and one entry in $dir
+SAFETY_LOG_DIR=$dir ~/dotfiles/scripts/safety-log
 python3 -m unittest scripts.tests.test_safety_log
 ```
 
 Tests never read or write the real `~/.claude/state`.
+
+## Known limits
+
+Both were reviewed and accepted as low impact:
+
+- **The band re-reads the log on each draw.** The chip and pane read both block
+  files and the verdicts file every time the band draws. The files are capped at
+  2000 lines each, so this stays cheap; caching would add invalidation for little gain.
+- **Rotation can race.** Two blocks landing at the same moment when the log is at
+  2000 entries can both rotate, and the second move can replace the full `.1` with
+  the one-line new file, dropping the older entries. This needs two blocks within
+  milliseconds at the rotation point, and loses only history, never a decision.

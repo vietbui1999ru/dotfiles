@@ -76,6 +76,26 @@ class HookLog(unittest.TestCase):
         self.assertIn("git clean -fd", entry["command"])
         self.assertIn("curl -H", entry["command"])
 
+    def test_redaction_quoted_and_flags(self):
+        secrets = ["live part2", "two words", "flagsecret", "eqsecret"]
+        command = (f"API_KEY=\"sk {secrets[0]}\" DB_PASSWORD='{secrets[1]}' git clean -fd "
+                   f"--token {secrets[2]} --password={secrets[3]}")
+        self.assertEqual(self.run_hook(command).returncode, 2)
+        [entry] = self.entries()
+        for secret in secrets:
+            self.assertNotIn(secret, entry["command"])
+        self.assertIn("git clean -fd", entry["command"])
+
+    def test_every_block_reason_has_a_rule(self):
+        # Rule ids come from each reason's first line; a reworded message must not fall back to "other".
+        commands = ["rm -rf $HOME", "git push -f origin main", "git reset --hard origin/main", "git clean -fd",
+                    "git push --force-with-lease origin x", "git push origin +x", "git push origin :x"]
+        for command in commands:
+            self.assertEqual(self.run_hook(command).returncode, 2, command)
+        rules = [entry["rule"] for entry in self.entries()]
+        self.assertEqual(len(rules), len(commands))
+        self.assertNotIn("other", rules)
+
     def test_truncation(self):
         self.assertEqual(self.run_hook("git clean -fd " + "x" * 5000).returncode, 2)
         [entry] = self.entries()
@@ -145,7 +165,8 @@ class Cli(unittest.TestCase):
         lines = self.cli().stdout.splitlines()
         self.assertEqual(len(lines), 3)
         # Newest first across both files, one line each: time, session, rule, verdict, command.
-        self.assertIn(mine["id"], [mine["id"]])
+        self.assertIn(mine["session"][:8], lines[0])
+        self.assertIn(mine["rule"], lines[0])
         self.assertIn("git clean -fd", lines[0])
         self.assertIn("git reset --hard origin/main", lines[1])
         self.assertIn("git push -f origin main", lines[2])

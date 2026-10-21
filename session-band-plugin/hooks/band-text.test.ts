@@ -79,3 +79,12 @@ test('the draft PRs chip is one icon and reserves two cells', () => {
   expect(statusText(withPi.status)).toBe('llm-wiki feat/x* local ↑2 ↓1 ≡1 · ━━━╸──────── 30% 5h:12% 7d:34% · ⚠2 · opus-5-5')
   expect(layoutBand({ ...full, width: 98, wt: true, history: true }).drafts).toBeUndefined()
 })
+
+test('the blocks chip ⛔N reserves one cell more than its length: ⛔ is two columns wide', () => {
+  const kept = 'llm-wiki feat/x* local ↑2 ↓1 ≡1 · ━━━╸──────── 30% 5h:12% 7d:34% · ⚠2 · opus-5-5 explanatory'
+  const fits = layoutBand({ ...full, width: 96, wt: false, history: false, blocks: 3 })
+  expect(fits.blocks).toBe('⛔3')
+  expect(statusText(fits.status)).toBe(kept)
+  const tight = layoutBand({ ...full, width: 95, wt: false, history: false, blocks: 3 })
+  expect(statusText(tight.status)).toBe('llm-wiki feat/x* local ↑2 ↓1 ≡1 · ━━━╸──────── 30% 5h:12% 7d:34% · ⚠2 · opus-5-5')
+})

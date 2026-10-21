@@ -86,7 +86,8 @@ export const layoutBand = (d: BandInput): BandLayout => {
   const pi = d.handoff || d.piChip ? PI_HANDOFF : undefined
   const groups = statusGroups(d)
   if (d.width === undefined) return { wt, history, drafts, blocks, status: groups, pi }
-  const navCells = [wt, history, drafts, blocks].reduce((n, chip) => n + (chip ? chip.length + GAP : 0), 0)
+  // ⛔ draws two columns but .length counts one, so the blocks chip takes an extra cell.
+  const navCells = [wt, history, drafts, blocks].reduce((n, chip) => n + (chip ? chip.length + GAP : 0), 0) + (blocks ? 1 : 0)
   const piFloor = pi ? pi.length + GAP : 0
   return { wt, history, drafts, blocks, status: fitStatus(groups, d.width - navCells - piFloor), pi }
 }

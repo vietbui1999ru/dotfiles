@@ -9,6 +9,7 @@ import {
   safetyBlockLine,
   safetyLogArgv,
   sessionRows,
+  stateDir,
   type SafetyBlock,
   type SafetyBlockRow,
 } from './safety-blocks'
@@ -161,4 +162,9 @@ test('blocks pane marks the selected block', async ($, on) => {
   await clock.settle()
   expect(calls[1]).toEqual(safetyLogArgv('/h', 'bbb222ccc333', 'ok'))
   expect(lines(await $.ui.render(PANE)).some(row => row.includes('git push -f origin main') && row.includes('ok'))).toBe(true)
+})
+
+test('an empty SAFETY_LOG_DIR counts as unset, as it does for the hook', () => {
+  expect(stateDir('/h', '')).toBe(STATE)
+  expect(stateDir('/h', '/logs')).toBe('/logs')
 })

@@ -78,7 +78,7 @@ def rows(directory: Path) -> list[dict]:
         for block in blocks
         if isinstance(block.get("id"), str)
     ]
-    # Stable sort: equal timestamps keep log order, later lines (the current file) last.
+    # Newest first; equal timestamps put later log lines (the current file) first.
     epoch = datetime.fromtimestamp(0).astimezone()
     indexed = list(enumerate(entries))
     indexed.sort(key=lambda pair: (stamp(pair[1].get("ts")) or epoch, pair[0]), reverse=True)

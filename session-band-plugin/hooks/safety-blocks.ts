@@ -29,7 +29,7 @@ export const safetyLogArgv = (home: string, id: string, verdict: SafetyVerdict):
 
 // The hook honours SAFETY_LOG_DIR, so the band follows it and both read the same directory.
 export const stateDir = (home: string | undefined, override: string | undefined): string | undefined =>
-  override ?? (home ? `${home}/.claude/state` : undefined)
+  override || (home ? `${home}/.claude/state` : undefined)
 
 const objects = (text: string | undefined): Record<string, unknown>[] =>
   (text ?? '').split('\n').flatMap(line => {

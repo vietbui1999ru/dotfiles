@@ -32,7 +32,8 @@ log_block() {
       { [ ! -f "$log" ] || [ "$(wc -l <"$log")" -lt 2000 ] || mv -f "$log" "$log.1"; } &&
       echo "$INPUT" | jq -c --arg id "$id" --arg ts "$ts" --arg rule "$rule" --arg reason "$1" '
         def redact:
-          gsub("(?<n>[A-Za-z_][A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|PASSWD|KEY)[A-Za-z0-9_]*)=[^[:space:]]+"; "\(.n)=[REDACTED]"; "i")
+          gsub("(?<n>[A-Za-z_][A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|PASSWD|KEY)[A-Za-z0-9_]*)=(\"[^\"]*\"|'"'"'[^'"'"']*'"'"'|[^[:space:]]+)"; "\(.n)=[REDACTED]"; "i")
+          | gsub("(?<f>--(token|password|passwd|secret|api-key|apikey))(?<s>=|[[:space:]]+)(\"[^\"]*\"|'"'"'[^'"'"']*'"'"'|[^[:space:]]+)"; "\(.f)\(.s)[REDACTED]"; "i")
           | gsub("(gh[pos]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{16,}|AKIA[0-9A-Z]{16})"; "[REDACTED]")
           | gsub("(?<b>Bearer)[[:space:]]+[^[:space:]\"'"'"']+"; "\(.b) [REDACTED]"; "i");
         def cap: if length > 4000 then .[:4000] + "…[truncated]" else . end;
