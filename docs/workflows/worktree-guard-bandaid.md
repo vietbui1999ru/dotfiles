@@ -57,8 +57,10 @@ After merging and pulling main, run `scripts/restow.sh` so `~/.claude/hooks/` ge
 `scripts/commit-funnel` is the one checked way for an agent session to commit. From anywhere in the session worktree:
 
 ```sh
-$HOME/dotfiles/scripts/commit-funnel --worktree "$PWD" -F <message-file> <path>...
+$HOME/dotfiles/scripts/commit-funnel --worktree /abs/path/of/session/worktree -F <message-file> <path>...
 ```
+
+Spell the session worktree out literally, as the session announced it (for example `/Users/vietquocbui/dotfiles/.claude/worktrees/<name>`). Never pass `$PWD` or `.`: after a stray `cd` they name the wrong checkout and the check always passes.
 
 The message always comes from a file (`-F`, never `-m`), so prose never sits in a Bash argument, and its first line must be 72 characters or fewer. The funnel stages and commits only the listed paths, and it prints `<short-sha> <subject>`. It never pushes, amends or rewrites the message.
 
