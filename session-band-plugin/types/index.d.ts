@@ -98,6 +98,8 @@ declare module 'claude-code' {
   interface PluginState {
     'session-band': {
       usage: Usage
+      // Bumped by the heartbeat timer so a band on screen redraws, and so rewrites the heartbeat, on each beat.
+      tick: number
       git: GitSnapshot | null
       outputStyle: string | null
       isNotified: boolean
