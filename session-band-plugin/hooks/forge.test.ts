@@ -1,6 +1,16 @@
 import { expect, test } from 'claude-code/testing'
 
-import { forgeById, forgeFor, hostOf } from './forge'
+import { forgeById, forgeFor, hostOf, pickRemote } from './forge'
+
+const v = (...rows: [string, string][]) => rows.map(([name, url]) => `${name}\t${url} (fetch)\n${name}\t${url} (push)`).join('\n')
+
+test('pickRemote prefers origin on a known forge, else any remote on one, else names a host', () => {
+  expect(pickRemote(v(['gitlab', 'https://gitlab.weconex.vn/data/ai-gateway.git']))).toMatchObject({ host: 'gitlab.weconex.vn', forge: { id: 'gitlab' } })
+  expect(pickRemote(v(['upstream', 'git@gitlab.com:g/r.git'], ['origin', 'git@github.com:me/r.git'])).forge?.id).toBe('github')
+  expect(pickRemote(v(['origin', 'https://codeberg.org/me/r.git'], ['mirror', 'git@github.com:me/r.git'])).forge?.id).toBe('github')
+  expect(pickRemote(v(['origin', 'https://codeberg.org/me/r.git']))).toEqual({ host: 'codeberg.org', forge: undefined })
+  expect([pickRemote(''), pickRemote(v(['local', '/srv/repo.git']))]).toEqual([{}, {}])
+})
 
 test('hostOf reads https, ssh:// and scp-style remotes, and nothing else', () => {
   expect(hostOf('https://github.com/vietbui99/dotfiles.git\n')).toBe('github.com')

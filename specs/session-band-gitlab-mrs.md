@@ -6,8 +6,8 @@ branch: feat/session-band-gitlab-mrs
 
 ## Objective
 The session-band Draft PRs pane (`/draft-prs`, jump key 4) runs `gh pr list` in every repo, so a
-GitLab repo only shows "not a GitHub repo". The pane should pick the forge from the `origin`
-remote host: GitHub runs `gh pr list`, GitLab runs `glab mr list`, and any other host shows a
+GitLab repo only shows "not a GitHub repo". The pane should pick the forge from the repo's remotes (`origin` first, any name)
+by host: GitHub runs `gh pr list`, GitLab runs `glab mr list`, and any other host shows a
 message. Forges live in one ordered table so Forgejo or Codeberg can be added later as one entry
 plus one reader, without touching the pane.
 
@@ -21,7 +21,7 @@ plus one reader, without touching the pane.
 - AC-3: `readGlab` maps a spawn failure or timeout, a 401 / not-logged-in stderr, any other non-zero exit, and unparseable output to distinct messages, as `readGh` does.
   verify: `cd session-band-plugin && claude plugin test .`
   baseline: pass
-- AC-4: The pane runs `git remote get-url origin` first, then only the matching forge's command; a GitHub remote still renders exactly the rows it did before; a GitLab remote renders MR rows with a `!` sigil; an unknown host or no origin shows a message and runs no forge command; covered by `draft-prs-pane.test.ts`.
+- AC-4: The pane runs `git remote -v` first and uses `origin` if it is on a known forge, else the first remote that is (so a remote named `gitlab` works), then runs only that forge's command; a GitHub remote still renders exactly the rows it did before; a GitLab remote renders MR rows with a `!` sigil; an unknown host or no remote shows a message and runs no forge command; covered by `draft-prs-pane.test.ts`.
   verify: `cd session-band-plugin && claude plugin test .`
   baseline: pass
 - AC-5: The pane's refresh path names no forge directly: it goes through `forgeFor`.
