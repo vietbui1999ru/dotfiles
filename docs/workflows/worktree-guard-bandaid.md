@@ -75,6 +75,29 @@ It refuses with exit 2 and numbered steps, and commits nothing, when: no path is
 
 The Bash PreToolUse hook (`enforce-bash-safety.sh`) closes the other half. When the hook `cwd` is under `*/.claude/worktrees/*`, a command segment that is `git commit`, `/usr/bin/git commit`, `jj commit` or `jj ci` exits 2 with a message naming `commit-funnel` and showing its usage. `git status`, `git push origin <branch>` and `jj st` pass, and outside a worktree the block does not apply, so the human's own sessions commit as before.
 
+### Git-level guard: the reference-transaction hook
+
+The Bash hook matches command text, so `bash -c`, `eval`, a script file or an odd spelling gets past it, and Pi has no Bash hook at all. `scripts/hooks/reference-transaction` closes that gap inside git. Git runs it for every ref update, so `--no-verify` does not skip it, and it also covers rebase, reset, cherry-pick, merge, `update-ref` and `branch -D`.
+
+`scripts/link-git-hooks` (run by `scripts/bootstrap-dirs.sh`) links it into the common hooks directory next to `post-commit`. An existing non-link file is saved as `reference-transaction.bak`. Run it after merging, in the main `~/dotfiles` checkout:
+
+```sh
+$HOME/dotfiles/scripts/bootstrap-dirs.sh   # or: $HOME/dotfiles/scripts/link-git-hooks
+```
+
+What it does, inside a checkout whose top-level path contains `/.claude/worktrees/`:
+
+- Refuses (exit 1, message on stderr naming `commit-funnel`) any update that moves or deletes an existing `refs/heads/*` branch. The check is whether the branch exists, not the old id git passes, because `update-ref <ref> <sha>` and `branch -f` pass the all-zero old id for an existing branch.
+- Allows creating a new branch, and every non-branch ref: `HEAD`, tags, `refs/remotes/*`. `fetch`, `status` and `switch -c` work.
+- Allows everything in the main checkout, and in any repo outside `.claude/worktrees/`.
+- `scripts/commit-funnel` sets `COMMIT_FUNNEL=1` only for its own `git commit` subprocess (git mode), which lets that one ref update through.
+
+Threat model: this stops agents that commit by habit or by accident, through any spelling. It does not stop a same-user process that deliberately sets `COMMIT_FUNNEL=1`, deletes the hook, or sets `core.hooksPath`; nothing a same-user agent can reach can. The worktree-isolation guard and the agent-review gate remain the controls for that. The Bash hook blocks `COMMIT_FUNNEL=`, `AGENT_REF_GUARD=` and `core.hooksPath` in worktree commands so a Claude session does not learn to forge them.
+
+Human override: for the human's own work inside an agent worktree, run `AGENT_REF_GUARD=off git <command>`. It makes the hook exit 0 for that command. Agents must not use it.
+
+Known gap: jj bookmark moves do not run git hooks. jj writes refs through its own library, so `jj bookmark move` and jj's commit path are not covered. The Bash hook still blocks `jj commit`/`jj ci` for Claude, and Pi's rules say to use the funnel. A jj-native check needs jj's own hook support, which jj 0.46 does not offer.
+
 ## Removal criteria
 
 - A stable rtk release that contains PR #3879: delete `rtk-hook-unless-worktree.sh`, point `settings.json` back at `rtk hook claude`, and drop rule 2's first sentence.

@@ -1,0 +1,22 @@
+#!/bin/sh
+# link-git-hooks: link the dotfiles git hooks into the repo's common hooks folder.
+#
+# Links post-commit and reference-transaction from scripts/hooks/ into
+# <common git dir>/hooks/, so every clone has them and linked worktrees share them.
+# An existing non-link file is saved as <name>.bak first. Safe to re-run.
+# Reads DOTFILES (default $HOME/dotfiles). Called by scripts/bootstrap-dirs.sh.
+
+DOTFILES="${DOTFILES:-$HOME/dotfiles}"
+for name in post-commit reference-transaction; do
+  HOOK_SRC="$DOTFILES/scripts/hooks/$name"
+  if [ -x "$HOOK_SRC" ] && git -C "$DOTFILES" rev-parse --git-common-dir >/dev/null 2>&1; then
+    hook_dir="$(cd "$DOTFILES" && cd "$(git rev-parse --git-common-dir)" && pwd -P)/hooks"
+    mkdir -p "$hook_dir"
+    if [ -e "$hook_dir/$name" ] && [ ! -L "$hook_dir/$name" ]; then
+      mv "$hook_dir/$name" "$hook_dir/$name.bak"
+      echo "⚠ existing $name hook saved as $name.bak"
+    fi
+    ln -sfn "$HOOK_SRC" "$hook_dir/$name"
+    echo "✓ dotfiles $name hook → scripts/hooks/$name"
+  fi
+done

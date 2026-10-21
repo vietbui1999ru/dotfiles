@@ -1,0 +1,37 @@
+#!/bin/sh
+# reference-transaction: refuse an agent's move of an existing branch in a worktree session.
+#
+# Git runs this hook for every ref update (commit, reset, rebase, update-ref, branch -D, ...),
+# and --no-verify does not skip it. Inside a checkout under .claude/worktrees/ it refuses to
+# move or delete an existing refs/heads/* ref unless commit-funnel set COMMIT_FUNNEL=1 for its
+# own commit. Creating a new branch and every non-branch ref stay allowed. AGENT_REF_GUARD=off
+# is the human's override. Threat model: it stops habit and accident, not a deliberate
+# same-user process (see docs/workflows/worktree-guard-bandaid.md).
+#
+# Installed by scripts/link-git-hooks as a link at <common git dir>/hooks/reference-transaction.
+
+[ "${1:-}" = prepared ] || exit 0
+[ "${AGENT_REF_GUARD:-}" = off ] && exit 0
+top=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+case "$top" in */.claude/worktrees/*) ;; *) exit 0 ;; esac
+[ "${COMMIT_FUNNEL:-}" = 1 ] && exit 0
+
+# The old id on stdin is not enough: `git update-ref <ref> <sha>` and `git branch -f` pass the
+# all-zero old id even when the branch exists. In the prepared phase the ref still holds its old
+# value, so existence is the test: an existing branch is refused, a new one is allowed.
+while read -r _old _new ref; do
+  case "$ref" in
+    refs/heads/*)
+      if git rev-parse --verify --quiet "$ref" >/dev/null; then
+        {
+          echo "refused: $ref is an existing branch, and this worktree belongs to an agent session."
+          echo "Commit through the funnel instead, from anywhere in your session worktree:"
+          echo "  \$HOME/dotfiles/scripts/commit-funnel --worktree <session worktree> -F <message file> <path>..."
+          echo "Rebase, reset, merge, cherry-pick and branch deletion are the user's call: ask the user to run them."
+        } >&2
+        exit 1
+      fi
+      ;;
+  esac
+done
+exit 0

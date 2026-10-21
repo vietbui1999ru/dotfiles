@@ -15,19 +15,9 @@ echo "✓ ~/repos"
 # (Context7 vs Ketch vs Firecrawl) lives in shared/research-tool-routing.md, not in a skill copy.
 "${DOTFILES:-$HOME/dotfiles}/scripts/firecrawl-setup.sh"
 
-# The post-commit hook that syncs agent rules is tracked in scripts/hooks and linked into the
-# repo's common hooks folder, so every clone has it and it skips commits from linked worktrees.
-HOOK_SRC="${DOTFILES:-$HOME/dotfiles}/scripts/hooks/post-commit"
-if [ -x "$HOOK_SRC" ] && git -C "${DOTFILES:-$HOME/dotfiles}" rev-parse --git-common-dir >/dev/null 2>&1; then
-	hook_dir="$(cd "${DOTFILES:-$HOME/dotfiles}" && cd "$(git rev-parse --git-common-dir)" && pwd -P)/hooks"
-	mkdir -p "$hook_dir"
-	if [ -e "$hook_dir/post-commit" ] && [ ! -L "$hook_dir/post-commit" ]; then
-		mv "$hook_dir/post-commit" "$hook_dir/post-commit.bak"
-		echo "⚠ existing post-commit hook saved as post-commit.bak"
-	fi
-	ln -sfn "$HOOK_SRC" "$hook_dir/post-commit"
-	echo "✓ dotfiles post-commit hook → scripts/hooks/post-commit"
-fi
+# Git hooks (post-commit, reference-transaction) are tracked in scripts/hooks and linked into the
+# repo's common hooks folder by scripts/link-git-hooks.
+"${DOTFILES:-$HOME/dotfiles}/scripts/link-git-hooks"
 
 # Shared personal skills are symlinked so Claude and Pi cannot drift. Never
 # overwrite a real existing destination: it may be a user-managed fork.
