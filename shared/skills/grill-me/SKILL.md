@@ -62,7 +62,7 @@ Stop and wait for the user.
 
 Do not plan or write code until the user tells you the spec is approved. Only the human approves the spec.
 
-In an unattended or pueue run, end with a lint-clean SPEC.md at `status: draft` and stop; implementation is a separate dispatch after the human approves.
+In an unattended or pueue run, end with a lint-clean SPEC.md at `status: draft` and stop; implementation is a separate dispatch after the human approves. Commit and push the draft on its feature branch only; never merge a spec-only PR into `main` (spec-loop rule 3).
 
 ## Rationalizations
 
