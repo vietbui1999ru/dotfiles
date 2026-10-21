@@ -1,6 +1,6 @@
 ---
 name: verify-spec
-description: Verify implemented code against a spec's acceptance criteria. Runs the spec's verify commands first (ac-run check), then a diff scan for gamed tests and suppressions (floor-guard), with a bounded fix loop of at most 3 reruns. Reads code only for manual ACs. Invoke after implementation, before PR.
+description: Verify implemented code against a spec's acceptance criteria. Runs the spec's verify commands first (ac-run check), then a diff scan for gamed tests and suppressions (floor-guard), with a bounded fix loop of at most 3 reruns, then archives SPEC.md under docs/specs as the branch's last commit. Reads code only for manual ACs. Invoke after implementation, before PR.
 allowed-tools: "Bash,Read,Write,Edit,Agent"
 ---
 
@@ -88,6 +88,21 @@ MANUAL ACs: <id: PASS | FAIL | UNVERIFIABLE, evidence>
 Fix attempts used: <n> of 3
 Test stubs written: <n files>
 ```
+
+## Step 5: Archive the spec
+
+Only when the spec came from 0a, Step 1 exited 0, and the work is ready for the PR to be marked ready or merged (spec-loop rule 7). Both scripts expect `SPEC.md` at the root, so this runs after them, as the branch's last commit:
+
+```bash
+BRANCH=$(git branch --show-current)
+DATE=$(git log --diff-filter=A --format=%as -- SPEC.md | tail -1)
+SLUG=${BRANCH#*/}
+mkdir -p docs/specs
+git mv SPEC.md "docs/specs/${DATE}-${SLUG}.md"
+git commit -m "docs(specs): archive the ${SLUG} spec under docs/specs"
+```
+
+Commit only the rename. Approval records live outside the repo and are unaffected. If more changes are needed after archiving, `git mv` the file back to `SPEC.md` first, so Steps 1 and 2 can find it.
 
 ## Rationalizations
 
