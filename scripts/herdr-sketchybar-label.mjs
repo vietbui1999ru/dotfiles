@@ -1,48 +1,51 @@
 /**
- * Pure label rendering for scripts/herdr-sketchybar-bridge, split out so it
- * can be tested without a Herdr socket. Glyphs are Nerd Font codepoints
- * (Hack Nerd Font Mono, the font sketchybar renders the agents item in).
+ * Pure state rendering for scripts/herdr-sketchybar-bridge, split out so it
+ * can be tested without a Herdr socket. Glyphs and colors live on the
+ * sketchybar items (items/agents.sh, colors.sh); this only decides what they show.
  */
 
-export const CLAUDE_ICON = "\u{F16A1}"; // md-robot (also the C workspace icon)
-export const PI_ICON = "\u{F08EA}"; // md-hammer
-export const NEXT_ICON = "\u{F101}"; // fa-angles-right
-
-// Display order and glyph per status bucket. "done" counts as idle.
-const BUCKETS = [
-	["working", "●"],
-	["blocked", "!"],
-	["idle", "○"],
-	["unknown", "?"],
-];
-const KNOWN = new Set(BUCKETS.map(([status]) => status));
-
-function bucketOf(status) {
-	if (status === "done") return "idle";
-	return KNOWN.has(status) ? status : "unknown";
-}
+// Most urgent first: the total takes the color of the first status present
+// among non-blocked panes, so it reads like herdr's own status dot.
+const TOTAL_ORDER = ["working", "done", "idle", "unknown"];
+const KNOWN = new Set(["blocked", ...TOTAL_ORDER]);
 
 /**
  * @param {Iterable<string>} statuses  one herdr agent_status per Claude pane
  * @param {number} piRunning           running pueue (Pi) tasks
  * @param {string | undefined} next    latest "NEXT: ..." line, if any
- * @returns e.g. "󱚡 2● 1! 3○ │ 󰣪 1● │  build the thing"
+ * @returns {{ blocked: number, total: number, totalStatus: string, pi: number, next: string }}
+ *   totalStatus is "" when no non-blocked pane exists.
  */
-export function renderLabel(statuses, piRunning = 0, next = undefined) {
-	const counts = new Map();
-	for (const status of statuses) {
-		const bucket = bucketOf(status);
-		counts.set(bucket, (counts.get(bucket) ?? 0) + 1);
+export function renderState(statuses, piRunning = 0, next = undefined) {
+	const seen = new Set();
+	let blocked = 0;
+	let total = 0;
+	for (const raw of statuses) {
+		const status = KNOWN.has(raw) ? raw : "unknown";
+		total++;
+		if (status === "blocked") blocked++;
+		else seen.add(status);
 	}
-	const claude = BUCKETS
-		.filter(([bucket]) => counts.has(bucket))
-		.map(([bucket, glyph]) => `${counts.get(bucket)}${glyph}`)
-		.join(" ");
-	const parts = [`${CLAUDE_ICON} ${claude || "–"}`];
-	if (piRunning > 0) parts.push(`${PI_ICON} ${piRunning}●`);
-	const job = next && cleanNext(next);
-	if (job) parts.push(`${NEXT_ICON} ${job}`);
-	return parts.join(" │ ");
+	return {
+		blocked,
+		total,
+		totalStatus: TOTAL_ORDER.find((status) => seen.has(status)) ?? "",
+		pi: piRunning,
+		next: next ? shortNext(next) : "",
+	};
+}
+
+/**
+ * Bar-sized gist of a NEXT line: no TUI junk, no (parentheticals), at most
+ * five words, trailing [tag] kept.
+ */
+export function shortNext(line) {
+	const text = cleanNext(line).replace(/\s*\([^)]*\)/g, "");
+	const tag = /\s*(\[[^\]]+\])$/.exec(text);
+	const body = (tag ? text.slice(0, tag.index) : text).split(/\s+/).filter(Boolean);
+	const words = body.slice(0, 5).join(" ").replace(/[,;:]$/, "");
+	const gist = body.length > 5 ? `${words}…` : words;
+	return [gist, tag?.[1]].filter(Boolean).join(" ");
 }
 
 // A matched terminal line can carry whatever the TUI drew beside it (box

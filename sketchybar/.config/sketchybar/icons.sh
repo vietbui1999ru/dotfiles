@@ -34,5 +34,9 @@ export ICON_PROTONVPN_ON="󰕥"
 export ICON_PROTONVPN_OFF="󰦞"
 export ICON_MIC="󰍬"
 export ICON_MIC_MUTE="󰍭"
+export ICON_CLAUDE=$'\U000F16A1'   # md-robot (also the C workspace icon)
+export ICON_PI=$'\U000F08EA'       # md-hammer
+export ICON_NEXT=$''         # fa-angles-right
+export ICON_USAGE=$'\U000F029A'    # md-gauge
 
 export ICON_SEPARATOR="│"

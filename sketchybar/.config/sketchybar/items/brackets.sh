@@ -28,7 +28,7 @@ sketchybar --add bracket right_pill \
              battery sep.battery \
              mic sep.mic \
              calendar sep.cal \
-             clock sep.agents agents \
+             clock sep.agents agents agents.blocked agents.total agents.pi agents.next \
            --set right_pill \
              background.color=$ISLAND_BG \
              background.corner_radius=25 \

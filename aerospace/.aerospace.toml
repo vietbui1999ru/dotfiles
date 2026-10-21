@@ -126,6 +126,8 @@ persistent-workspaces = ['0', '1', '2', '3', 'B', 'C', 'M', 'N', 'O', 'P', 'R', 
     cmd-shift-f = 'fullscreen'
     cmd-h = [] # Disable "hide application"
     cmd-alt-h = [] # Disable "hide others"
+    # Toggle the claude-tui usage popup under the bar's gauge icon (u = usage).
+    alt-u = 'exec-and-forget sketchybar --set claude_usage popup.drawing=toggle'
     # See: https://nikitabobko.github.io/AeroSpace/commands#layout
     alt-slash = 'layout tiles horizontal vertical'
     alt-comma = 'layout accordion vertical horizontal'

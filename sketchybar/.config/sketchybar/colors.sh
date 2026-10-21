@@ -34,8 +34,20 @@ export AUDIO_SOURCE_LABEL_COLOR=$SAGE
 export VPN_ON_COLOR=$SAGE
 export VPN_OFF_COLOR=$MUTED_TEAL
 
+# ── Herdr agent status ───────────────────────────
+# herdr's own gruvbox status colors (src/client/shell.rs, v0.9.5), so the bar
+# reads like herdr's sidebar dots. unknown is herdr's overlay0 = MUTED_TEAL.
+export HERDR_BLOCKED=0xfffb4934
+export HERDR_WORKING=0xfffabd2f
+export HERDR_DONE=0xff8ec07c
+export HERDR_IDLE=0xffb8bb26
+export HERDR_UNKNOWN=$MUTED_TEAL
+
 # ── Claude usage ─────────────────────────────────
-export USAGE_WARN_COLOR=0xfff0b432
+# Quota thresholds reuse herdr's gruvbox: idle green, working yellow, blocked red.
+export USAGE_OK_COLOR=$HERDR_IDLE
+export USAGE_WARN_COLOR=$HERDR_WORKING
+export USAGE_CRIT_COLOR=$HERDR_BLOCKED
 
 # ── Mic ─────────────────────────────────────────
 export MIC_MUTE_COLOR=0xffe78a4e
