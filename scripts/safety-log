@@ -1,0 +1,220 @@
+#!/usr/bin/env python3
+"""Trace and judge the bash-safety blocks the PreToolUse hook records.
+
+The hook appends one redacted JSON object per block to
+${SAFETY_LOG_DIR:-$HOME/.claude/state}/bash-safety-blocks.jsonl, rotating the
+file to bash-safety-blocks.jsonl.1 at 2000 entries. Human verdicts live beside
+it in bash-safety-verdicts.jsonl, one {"id","verdict","ts"} per line, and the
+last verdict for an id wins. This script reads both logs and writes only the
+verdicts file. See docs/workflows/bash-safety-log.md.
+
+Standard library only.
+"""
+import argparse
+import json
+import os
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+
+BLOCKS = "bash-safety-blocks.jsonl"
+VERDICTS = "bash-safety-verdicts.jsonl"
+VERDICT_CHOICES = ("ok", "false-positive")
+# --since accepts a relative span in these units, or an ISO date.
+UNITS = {"m": "minutes", "h": "hours", "d": "days", "w": "weeks"}
+FIELDS = ("id", "ts", "session", "rule", "verdict", "command", "reason", "cwd", "transcript")
+
+
+def log_dir() -> Path:
+    override = os.environ.get("SAFETY_LOG_DIR")
+    if override:
+        return Path(override).expanduser()
+    return Path(os.environ.get("HOME") or Path.home()).expanduser() / ".claude" / "state"
+
+
+def read_jsonl(path: Path) -> list[dict]:
+    """A missing file or a malformed line is skipped, never fatal."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    rows = []
+    for line in text.splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict):
+            rows.append(row)
+    return rows
+
+
+def stamp(value: object) -> datetime | None:
+    """An aware datetime for an ISO 8601 string; None when it does not parse."""
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.astimezone()
+
+
+def verdicts(directory: Path) -> dict[str, str]:
+    """Verdicts by block id; the last line for an id wins."""
+    latest: dict[str, str] = {}
+    for row in read_jsonl(directory / VERDICTS):
+        if isinstance(row.get("id"), str) and row.get("verdict") in VERDICT_CHOICES:
+            latest[row["id"]] = row["verdict"]
+    return latest
+
+
+def rows(directory: Path) -> list[dict]:
+    """Every logged block from both files, newest first, with its verdict or None."""
+    judged = verdicts(directory)
+    blocks = read_jsonl(directory / f"{BLOCKS}.1") + read_jsonl(directory / BLOCKS)
+    entries = [
+        {**block, "verdict": judged.get(block["id"])}
+        for block in blocks
+        if isinstance(block.get("id"), str)
+    ]
+    # Stable sort: equal timestamps keep log order, later lines (the current file) last.
+    epoch = datetime.fromtimestamp(0).astimezone()
+    indexed = list(enumerate(entries))
+    indexed.sort(key=lambda pair: (stamp(pair[1].get("ts")) or epoch, pair[0]), reverse=True)
+    return [entry for _, entry in indexed]
+
+
+def since_moment(text: str) -> datetime:
+    now = datetime.now().astimezone()
+    if len(text) > 1 and text[-1] in UNITS and text[:-1].isdigit():
+        return now - timedelta(**{UNITS[text[-1]]: int(text[:-1])})
+    parsed = stamp(text)
+    if parsed is None:
+        raise ValueError(f"--since wants 1h, 2d or an ISO date, not {text!r}")
+    return parsed
+
+
+def select(entries: list[dict], args: argparse.Namespace) -> list[dict]:
+    since = since_moment(args.since) if args.since else None
+    kept = []
+    for entry in entries:
+        session = entry.get("session") if isinstance(entry.get("session"), str) else ""
+        if args.session and session != args.session and not session.startswith(args.session):
+            continue
+        if args.rule and entry.get("rule") != args.rule:
+            continue
+        if args.pending and entry["verdict"] is not None:
+            continue
+        if since is not None:
+            when = stamp(entry.get("ts"))
+            if when is None or when < since:
+                continue
+        kept.append(entry)
+    return kept
+
+
+def when_text(entry: dict) -> str:
+    when = stamp(entry.get("ts"))
+    return when.strftime("%Y-%m-%d %H:%M:%S") if when else str(entry.get("ts") or "?")
+
+
+def one_line(entry: dict) -> str:
+    """Time, session id shortened to 8, rule, verdict or pending, then the command on one line."""
+    session = entry["session"][:8] if isinstance(entry.get("session"), str) else ""
+    rule = entry.get("rule") if isinstance(entry.get("rule"), str) else "other"
+    command = " ".join(str(entry.get("command") or "").split())
+    return f"{when_text(entry)}  {session:<8}  {rule:<16}  {entry['verdict'] or 'pending':<13}  {command}"
+
+
+def detail(entry: dict) -> str:
+    """One block in full, including the fields the listing leaves out."""
+    return "\n".join(f"{field}: {entry.get(field) if entry.get(field) is not None else 'pending'}" for field in FIELDS)
+
+
+def false_positive_counts(entries: list[dict]) -> list[tuple[str, int]]:
+    counts: dict[str, int] = {}
+    for entry in entries:
+        if entry["verdict"] != "false-positive":
+            continue
+        rule = entry.get("rule") if isinstance(entry.get("rule"), str) else "other"
+        counts[rule] = counts.get(rule, 0) + 1
+    return sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))
+
+
+def mark(directory: Path, block_id: str, verdict: str) -> int:
+    """Append one verdict; an unknown id writes nothing."""
+    if block_id not in {entry["id"] for entry in rows(directory)}:
+        print(f"safety-log: no block with id {block_id}", file=sys.stderr)
+        return 2
+    path = directory / VERDICTS
+    record = {"id": block_id, "verdict": verdict, "ts": datetime.now().astimezone().isoformat(timespec="seconds")}
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record) + "\n")
+    except OSError as error:
+        print(f"safety-log: cannot write {path}: {error}", file=sys.stderr)
+        return 1
+    print(f"marked {block_id} {verdict}")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="safety-log",
+        description="List and judge the commands the bash-safety hook blocked.",
+        epilog="Nothing here can allow a blocked command: a verdict only feeds a human rule change.",
+    )
+    parser.add_argument("--session", metavar="ID", help="only this session (full id or its first 8 characters)")
+    parser.add_argument("--rule", metavar="RULE", help="only this block rule")
+    parser.add_argument("--since", metavar="WHEN", help="only blocks newer than 1h, 2d, 3w or an ISO date")
+    parser.add_argument("--pending", action="store_true", help="only blocks still waiting for a verdict")
+    parser.add_argument("--json", action="store_true", help="print the filtered blocks as one JSON array")
+    parser.add_argument("--false-positives", action="store_true", help="false-positive counts per rule, the input for a rule change")
+    commands = parser.add_subparsers(dest="command")
+    show = commands.add_parser("show", help="print one block in full")
+    show.add_argument("id")
+    mark_parser = commands.add_parser("mark", help="record a human verdict for one block")
+    mark_parser.add_argument("id")
+    mark_parser.add_argument("verdict", choices=VERDICT_CHOICES)
+    args = parser.parse_args(argv)
+    directory = log_dir()
+
+    try:
+        entries = rows(directory)
+    except OSError as error:
+        print(f"safety-log: cannot read {directory}: {error}", file=sys.stderr)
+        return 1
+
+    if args.command == "show":
+        found = next((entry for entry in entries if entry["id"] == args.id), None)
+        if found is None:
+            print(f"safety-log: no block with id {args.id}", file=sys.stderr)
+            return 1
+        print(detail(found))
+        return 0
+    if args.command == "mark":
+        return mark(directory, args.id, args.verdict)
+    if args.false_positives:
+        counts = false_positive_counts(entries)
+        if not counts:
+            print("no false positives.")
+        for rule, count in counts:
+            print(f"{count:>4}  {rule}")
+        return 0
+
+    try:
+        selected = select(entries, args)
+    except ValueError as error:
+        parser.error(str(error))
+    if args.json:
+        print(json.dumps(selected, indent=2))
+        return 0
+    for entry in selected:
+        print(one_line(entry))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
