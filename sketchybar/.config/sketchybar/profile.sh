@@ -32,6 +32,7 @@ case "$PROFILE" in
     TITLE_W=380;  TITLE_CHARS=60       # window/tab title, ~6.2pt per char
     AUDIO_W=200;  AUDIO_CHARS=32       # audio source app name
     AGENTS_W=420                       # status + most of a NEXT step (typical 459)
+    CLAUDE_USAGE_W=340                 # full `claude-tui status --line` with limit tag
     ;;
   *)
     MAX_ICONS=4
@@ -39,5 +40,6 @@ case "$PROFILE" in
     TITLE_W=150;  TITLE_CHARS=24
     AUDIO_W=110;  AUDIO_CHARS=16
     AGENTS_W=210                       # status-only worst case measured 138
+    CLAUDE_USAGE_W=200                 # compact line scrolls inside this width
     ;;
 esac

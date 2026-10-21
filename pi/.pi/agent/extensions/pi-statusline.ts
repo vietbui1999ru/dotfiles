@@ -5,7 +5,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { readOpenAIUsage, type OpenAIUsageConfig } from "./lib/openai-usage.ts";
+import { claudeTuiStatus, formatCost } from "./lib/claude-tui-status.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -85,9 +85,7 @@ async function readWorkflowConfig(cwd: string): Promise<{
 	piStatuslineIcons?: string;
 	piStatuslineSegments?: string[];
 	piStatuslinePanelOwned?: string[];
-	piStatuslineDailyCostLimit?: number;
-	piStatuslineWeeklyCostLimit?: number;
-	piOpenAIUsage?: OpenAIUsageConfig;
+	piOpenAIUsage?: { enabled?: boolean };
 }> {
 	const paths = [join(homedir(), ".config", "agent-workflow", "config.json")];
 	// Repo-local
@@ -324,13 +322,6 @@ async function ctxSegment(icons: Icons): Promise<string> {
 	}
 }
 
-function fmtCost(usd: number): string {
-	if (!Number.isFinite(usd) || usd <= 0) return "$0";
-	if (usd < 0.01) return `$${usd.toFixed(3)}`;
-	if (usd < 10) return `$${usd.toFixed(2)}`;
-	return `$${Math.round(usd)}`;
-}
-
 function limitColor(percent?: number): string {
 	if (typeof percent !== "number" || !Number.isFinite(percent)) return C.green;
 	if (percent >= 90) return C.red;
@@ -339,80 +330,29 @@ function limitColor(percent?: number): string {
 }
 
 async function usageLimitsSegment(
-	cwd: string,
 	icons: Icons,
-	cfg: {
-		piStatuslineDailyCostLimit?: number;
-		piStatuslineWeeklyCostLimit?: number;
-		piOpenAIUsage?: OpenAIUsageConfig;
-	},
+	cfg: { piOpenAIUsage?: { enabled?: boolean } },
 ): Promise<string> {
-	try {
-		const dirs = [join(cwd, ".pi", "status"), join(homedir(), ".pi", "status")];
-		const bySession = new Map<string, { ts: number; cost: number }>();
-		for (const dir of dirs) {
-			if (!existsSync(dir)) continue;
-			for (const file of await readdir(dir)) {
-				if (!file.endsWith(".json")) continue;
-				try {
-					const raw = await readFile(join(dir, file), "utf8");
-					const data = JSON.parse(raw);
-					const sessionId = String(data?.sessionId || file);
-					const ts = Date.parse(data?.updatedAt || data?.startedAt || "");
-					const cost = Number(data?.cost ?? 0);
-					if (!Number.isFinite(ts) || !Number.isFinite(cost)) continue;
-					const prev = bySession.get(sessionId);
-					if (!prev || ts > prev.ts) bySession.set(sessionId, { ts, cost });
-				} catch {
-					/* ignore malformed status files */
-				}
-			}
-		}
+	if (cfg.piOpenAIUsage?.enabled === false) return "";
+	const status = await claudeTuiStatus();
+	if (status.daemon === "down") return dim(icons.sep) + dim("usage: daemon down");
+	const chatgpt = status.subscriptions?.chatgpt;
+	if (!chatgpt) return "";
 
-		const now = Date.now();
-		let daily = 0;
-		let weekly = 0;
-		for (const entry of bySession.values()) {
-			const age = now - entry.ts;
-			if (age <= 24 * 60 * 60 * 1000) daily += entry.cost;
-			if (age <= 7 * 24 * 60 * 60 * 1000) weekly += entry.cost;
-		}
-
-		const segments: string[] = [];
-		if (daily > 0 || weekly > 0) {
-			const dailyLimit = cfg.piStatuslineDailyCostLimit;
-			const weeklyLimit = cfg.piStatuslineWeeklyCostLimit;
-			const dailyPct = dailyLimit ? (daily / dailyLimit) * 100 : undefined;
-			const weeklyPct = weeklyLimit ? (weekly / weeklyLimit) * 100 : undefined;
-			const dailyText = dailyLimit
-				? `24h:${Math.round(dailyPct ?? 0)}%`
-				: `24h:${fmtCost(daily)}`;
-			const weeklyText = weeklyLimit
-				? `7d:${Math.round(weeklyPct ?? 0)}%`
-				: `7d:${fmtCost(weekly)}`;
-			segments.push(
-				color(dailyText, limitColor(dailyPct)) +
-					" " +
-					color(weeklyText, limitColor(weeklyPct)),
-			);
-		}
-
-		const openAI = await readOpenAIUsage(cwd, cfg.piOpenAIUsage);
-		if (openAI) {
-			const windows = openAI.windows.map((window) => {
-				const text = window.limit
-					? `${window.label}:${Math.round(window.percent ?? 0)}%`
-					: `${window.label}:${fmtCost(window.cost)}`;
-				return color(text, limitColor(window.percent));
-			});
-			segments.push(color("OA", C.teal) + " " + windows.join(" "));
-		}
-
-		if (segments.length === 0) return "";
-		return dim(icons.sep) + dim(icons.limits) + segments.join(dim(" · "));
-	} catch {
-		return "";
+	const windows: string[] = [];
+	for (const q of chatgpt.quota ?? []) {
+		if (q.expired || q.used_pct == null) continue;
+		const label = q.window === "primary" ? "5h" : q.window === "secondary" ? "wk" : undefined;
+		if (!label) continue;
+		const pct = Math.round(q.used_pct);
+		const text = `${label}:${pct}%${q.stale ? "?" : ""}`;
+		windows.push(q.stale ? dim(text) : color(text, limitColor(q.used_pct)));
 	}
+	const parts = [color("OA", C.teal)];
+	if (windows.length) parts.push(windows.join(" "));
+	parts.push(color(`today:${formatCost(chatgpt.today)}`, C.teal));
+	parts.push(color(`7d:${formatCost(chatgpt.last_7d)}`, C.teal));
+	return dim(icons.sep) + dim(icons.limits) + parts.join(dim(" · "));
 }
 
 function modelSegment(modelName: string, icons: Icons): string {
@@ -453,7 +393,7 @@ async function composeStatusline(cwd: string, model: string): Promise<string> {
 		if (ctx) line += ctx;
 	}
 	if (segments.includes("limits")) {
-		const limits = await usageLimitsSegment(cwd, icons, cfg);
+		const limits = await usageLimitsSegment(icons, cfg);
 		if (limits) line += limits;
 	}
 	if (segments.includes("model") && model) {

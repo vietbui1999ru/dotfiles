@@ -81,6 +81,7 @@ source "$ITEM_DIR/clock.sh"
 source "$ITEM_DIR/mic.sh"
 source "$ITEM_DIR/battery.sh"
 source "$ITEM_DIR/vpn.sh"
+source "$ITEM_DIR/claude_usage.sh"
 # Pills last: brackets can only group items that already exist.
 source "$ITEM_DIR/brackets.sh"
 source "$ITEM_DIR/display_watch.sh"

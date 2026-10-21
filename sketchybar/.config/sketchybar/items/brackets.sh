@@ -23,6 +23,7 @@ sketchybar --add bracket left_pill \
 
 sketchybar --add bracket right_pill \
              right_spacer \
+             sep.claude_usage claude_usage \
              vpn.tailscale vpn.protonvpn sep.vpn \
              battery sep.battery \
              mic sep.mic \

@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 # Backup status line, shown only when the session-band mod is dead. The mod draws the primary band above
-# the prompt and rewrites ~/.claude/state/session-band-<session_id>.alive every 15s (session-band-plugin/hooks/heartbeat.ts).
+# the prompt and rewrites ${TMPDIR:-/tmp}/session-band-<session_id>.alive every 15s (session-band-plugin/hooks/heartbeat.ts).
 # Fresh heartbeat -> print nothing. Missing or stale (no mod loaded, /reload-plugins, crashed) -> draw this line.
 # Input: Claude Code status JSON on stdin. Docs: https://code.claude.com/docs/en/statusline
 # Segments: dir, worktree, branch, ctx headroom, 5h, 7d, output style, model.
-command -v jq >/dev/null || { echo "statusline: jq missing"; exit 0; }
-
+# The stdin JSON is also snapshotted for the claude-tui daemon, which reads rate_limits and the file mtime.
 input=$(cat)
+snap_dir="$HOME/.local/state/claude-tui"
+if mkdir -p "$snap_dir" 2>/dev/null && tmp=$(mktemp "$snap_dir/.claude-status.XXXXXX" 2>/dev/null); then
+  printf '%s' "$input" >"$tmp" && mv -f "$tmp" "$snap_dir/claude-status.json" || rm -f "$tmp"
+fi
+command -v jq >/dev/null || { echo "statusline: jq missing"; exit 0; }
 # Unit separator (0x1f), not tab: tab is IFS whitespace, so read would collapse empty fields.
 IFS=$'\x1f' read -r cwd wt used left five seven style model < <(
   jq -r '[.workspace.current_dir // .cwd // "",

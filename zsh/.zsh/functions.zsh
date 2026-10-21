@@ -33,10 +33,6 @@ council() {
   uv run ~/repos/llm-wiki/templates/council.py "$@"
 }
 
-claude-tui() {
-  cd ~/repos/RustProjects/claude-tui/ && cargo run -p claude-tui
-}
-
 resumed() {
   node "99 System/Agents/Gemini/skills/obsidian-notes-to-resume/scripts/generate_resume.js"
 }
