@@ -45,7 +45,7 @@ If `pele-render` is missing, run `~/dotfiles/scripts/bootstrap-dirs.sh` (needs n
 
 ## When not to use
 
-- Neovim inline previews already use mermaid-cli (`mmdc`, from the Brewfile).
+- Neovim inline mermaid previews are off: mermaid-cli (`mmdc`) was removed and nothing replaces it.
 - Freeform or hand-drawn layouts: use the Excalidraw MCP instead.
 
 ## Upgrading
