@@ -12,13 +12,14 @@
  * Interactive: single-key actions send slash commands back to the Pi pane via
  * the main Pi session, so the panel remains display-only.
  */
-import { mkdir, open, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync, watch } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { dirname, join, basename, resolve } from "node:path";
 import { homedir } from "node:os";
 import { pathToFileURL } from "node:url";
+import { claudeTuiStatus, formatCost } from "../lib/claude-tui-status.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -175,60 +176,29 @@ export async function nvimState(cwd) {
 	return ctx?.relative_file ? { file: ctx.relative_file, line: ctx.cursor?.line } : undefined;
 }
 
-/** Parse `opencode stats` box-table output into plain fields. */
-export function parseOpencodeStats(text) {
-	const totalCost = /Total Cost\s+\$([\d.,]+)/.exec(text)?.[1];
-	const avgCostPerDay = /Avg Cost\/Day\s+\$([\d.,]+)/.exec(text)?.[1];
-	const sessions = /Sessions\s+([\d,]+)/.exec(text)?.[1];
-	return totalCost ? { totalCost, avgCostPerDay, sessions } : undefined;
+/** Local MM-DD HH:MM for a timestamp. */
+function localStamp(iso) {
+	const d = new Date(iso);
+	if (Number.isNaN(d.getTime())) return "?";
+	const pad = (n) => String(n).padStart(2, "0");
+	return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-/** Pi cost windows from .pi/status/*.json, deduped by session (latest snapshot). */
-export async function piCostWindows(cwd, home = homedir()) {
-	const dirs = [join(cwd, ".pi", "status"), join(home, ".pi", "status")];
-	const bySession = new Map();
-	for (const dir of dirs) {
-		let files;
-		try {
-			files = await readdir(dir);
-		} catch {
-			continue;
-		}
-		for (const file of files) {
-			if (!file.endsWith(".json")) continue;
-			const data = await readJson(join(dir, file));
-			const id = String(data?.sessionId ?? file);
-			const ts = Date.parse(data?.updatedAt ?? data?.startedAt ?? "");
-			const cost = Number(data?.cost ?? 0);
-			if (!Number.isFinite(ts) || !Number.isFinite(cost)) continue;
-			const prev = bySession.get(id);
-			if (!prev || ts > prev.ts) bySession.set(id, { ts, cost });
-		}
+/** Plain-text rows for the OPENCODE section: [text, style] where style is "limit" | "reset" | "dim" | "usage". */
+export function opencodeRows(oc, now = Date.now()) {
+	if (oc.down) return [["usage: daemon down", "dim"]];
+	const go = oc.go;
+	if (!go) return [["go no data", "dim"]];
+	const rows = [[`go today ${formatCost(go.today)} · 7d ${formatCost(go.last_7d)}`, "usage"]];
+	const hit = go.last_quota_hit;
+	if (hit) {
+		const resetAt = hit.reset_at ? Date.parse(hit.reset_at) : NaN;
+		const future = Number.isFinite(resetAt) && resetAt > now;
+		rows.push([`GO ${hit.period ?? "?"} limit`, future ? "limit" : "dim"]);
+		if (future) rows.push([`reset ${formatDuration(resetAt - now)}`, "reset"]);
+		else rows.push([`seen ${localStamp(hit.observed_at)}`, "dim"]);
 	}
-	const now = Date.now();
-	let day = 0;
-	let week = 0;
-	let total = 0;
-	let sessions = 0;
-	for (const { ts, cost } of bySession.values()) {
-		total += cost;
-		sessions++;
-		if (now - ts < 24 * 3600_000) day += cost;
-		if (now - ts < 7 * 24 * 3600_000) week += cost;
-	}
-	return { day, week, total, sessions };
-}
-
-export function parseResetDuration(text) {
-	let ms = 0;
-	for (const match of String(text).matchAll(/(\d+)\s*(days?|hours?|hrs?|hr|minutes?|mins?|min)/gi)) {
-		const amount = Number(match[1]);
-		const unit = match[2].toLowerCase();
-		if (unit.startsWith("day")) ms += amount * 24 * 3600_000;
-		else if (unit.startsWith("h")) ms += amount * 3600_000;
-		else ms += amount * 60_000;
-	}
-	return ms || undefined;
+	return rows;
 }
 
 export function formatDuration(ms) {
@@ -239,106 +209,14 @@ export function formatDuration(ms) {
 	return [days ? `${days}d` : "", hours ? `${hours}h` : "", minutes ? `${minutes}m` : ""].filter(Boolean).join(" ") || "now";
 }
 
-async function tailFile(path, maxBytes = 64 * 1024) {
-	const handle = await open(path, "r");
-	try {
-		const stat = await handle.stat();
-		const length = Math.min(maxBytes, stat.size);
-		const buffer = Buffer.alloc(length);
-		await handle.read(buffer, 0, length, Math.max(0, stat.size - length));
-		return buffer.toString("utf8");
-	} finally {
-		await handle.close();
-	}
-}
-
-let goLimitCache = { at: 0, root: "", value: undefined };
-
 /**
- * Latest unexpired OpenCode Go rate/quota limit from Pi's session JSONL logs.
- * The hosted Go API exposes no usage endpoint, but provider errors contain the
- * authoritative period and reset duration (for example: "5-hour ... 4hr 20min").
+ * OpenCode Go usage from `claude-tui status --json`. `go` is null when the
+ * daemon has no data for opencode-go; `down` when the daemon is unreachable.
  */
-export async function goUsageLimitState(sessionRoot = join(homedir(), ".pi", "agent", "sessions"), now = Date.now(), ttlMs = 10_000) {
-	if (goLimitCache.root === sessionRoot && now - goLimitCache.at < ttlMs) return goLimitCache.value;
-	const candidates = [];
-	try {
-		const dirs = await readdir(sessionRoot, { withFileTypes: true });
-		for (const dir of dirs) {
-			if (!dir.isDirectory()) continue;
-			const child = join(sessionRoot, dir.name);
-			for (const file of await readdir(child, { withFileTypes: true })) {
-				if (!file.isFile() || !file.name.endsWith(".jsonl")) continue;
-				try {
-					const handle = await open(join(child, file.name), "r");
-					const stat = await handle.stat();
-					await handle.close();
-					candidates.push({ path: join(child, file.name), mtimeMs: stat.mtimeMs });
-				} catch { /* race/deleted file */ }
-			}
-		}
-	} catch { /* no sessions yet */ }
-	candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
-	let result;
-	for (const candidate of candidates.slice(0, 24)) {
-		let text;
-		try { text = await tailFile(candidate.path); } catch { continue; }
-		for (const line of text.split("\n").reverse()) {
-			try {
-				const entry = JSON.parse(line);
-				const message = entry?.message;
-				if (message?.provider !== "opencode-go" || typeof message?.errorMessage !== "string") continue;
-				const match = /(5-hour|weekly|monthly) usage limit reached\.\s*Resets in\s*([^.]*)/i.exec(message.errorMessage);
-				if (!match) continue;
-				const resetText = match[2].trim();
-				const timestamp = Number(message.timestamp ?? entry.timestamp ?? candidate.mtimeMs);
-				const duration = parseResetDuration(resetText);
-				const resetAt = duration ? timestamp + duration : undefined;
-				if (resetAt && resetAt <= now) continue; // historical, already reset
-				result = {
-					period: match[1].toLowerCase(),
-					resetText,
-					resetAt,
-					remainingMs: resetAt ? resetAt - now : undefined,
-				};
-				break;
-			} catch { /* malformed JSONL line */ }
-		}
-		if (result) break;
-	}
-	goLimitCache = { at: now, root: sessionRoot, value: result };
-	return result;
-}
-
-let ocCache = { at: 0, value: undefined };
-
-/**
- * OpenCode-account usage: `opencode stats` (TTL-cached CLI parse) + Pi-side
- * cost windows. The hosted dashboard total is not exposed by the zen API
- * (verified 404 across /usage, /billing/*, /dashboard/*), so this local
- * aggregation is the closest trackable approximation.
- */
-export async function opencodeUsageState(cwd, exec = execFileAsync, ttlMs = 300_000, home = homedir(), sessionRoot = join(homedir(), ".pi", "agent", "sessions")) {
-	const limit = await goUsageLimitState(sessionRoot);
-	if (ocCache.value && Date.now() - ocCache.at < ttlMs) return { ...ocCache.value, limit };
-	const value = { pi: await piCostWindows(cwd, home) };
-	try {
-		const { stdout } = await exec("opencode", ["stats"], { timeout: 8000 });
-		value.cli = parseOpencodeStats(stdout);
-		try {
-			const daily = await exec("opencode", ["stats", "--days", "1"], { timeout: 8000 });
-			value.cliDay = parseOpencodeStats(daily.stdout)?.totalCost;
-		} catch { /* daily window optional */ }
-	} catch {
-		value.cli = undefined;
-	}
-	ocCache = { at: Date.now(), value };
-	return { ...value, limit };
-}
-
-/** Test hook: reset the opencode stats TTL cache. */
-export function resetOpencodeCache() {
-	ocCache = { at: 0, value: undefined };
+export async function opencodeUsageState(exec = execFileAsync) {
+	const status = await claudeTuiStatus({ exec });
+	if (status.daemon === "down") return { down: true };
+	return { go: status.subscriptions?.["opencode-go"] ?? null };
 }
 
 export async function gitState(cwd, exec = execFileAsync) {
@@ -360,7 +238,7 @@ export async function collectPanelData(cwd, exec = execFileAsync) {
 		nvimState(cwd),
 		gitState(cwd, exec),
 		agentsState(cwd, exec),
-		opencodeUsageState(cwd, exec),
+		opencodeUsageState(exec),
 	]);
 	const hunks = review.active?.decision?.hunks ?? review.active?.review?.hunks;
 	return {
@@ -516,14 +394,8 @@ export function renderLines(data, width, actionHints = "") {
 		if (report.changedFiles?.length) lines.push(clip(`${report.changedFiles.length} changed file(s)`, w));
 	}
 	if (data.opencode) {
-		const oc = data.opencode;
 		lines.push("", "OPENCODE");
-		if (oc.limit) {
-			lines.push(clip(`GO ${oc.limit.period} limit`, w));
-			lines.push(clip(`reset ${oc.limit.remainingMs ? formatDuration(oc.limit.remainingMs) : oc.limit.resetText}`, w));
-		}
-		if (oc.cli) lines.push(clip(`oc $${oc.cli.totalCost} all${oc.cliDay ? ` · $${oc.cliDay} 24h` : ""}`, w));
-		if (oc.pi) lines.push(clip(`pi 24h $${oc.pi.day.toFixed(2)} · 7d $${oc.pi.week.toFixed(2)}`, w));
+		for (const [text] of opencodeRows(data.opencode)) lines.push(clip(text, w));
 	}
 	if (data.agents) {
 		const a = data.agents;
@@ -638,20 +510,15 @@ export function renderStyledLines(data, width, actionHints = "") {
 	}
 
 	if (data.opencode) {
-		const oc = data.opencode;
 		lines.push("");
 		section(ICONS.opencode, "OPENCODE", ANSI.peach);
-		if (oc.limit) {
-			parts([["GO ", ANSI.red, ANSI.bold], [`${oc.limit.period} limit`, ANSI.red, ANSI.bold]]);
-			parts([["reset ", ANSI.dim], [oc.limit.remainingMs ? formatDuration(oc.limit.remainingMs) : oc.limit.resetText, ANSI.yellow]]);
-		}
-		if (oc.cli) {
-			parts([["oc ", ANSI.dim], [`$${oc.cli.totalCost}`, ANSI.peach, ANSI.bold], [" all", ANSI.dim],
-				...(oc.cliDay ? [[" · ", ANSI.dim], [`$${oc.cliDay}`, ANSI.teal], [" 24h", ANSI.dim]] : [])]);
-		}
-		if (oc.pi) {
-			parts([["pi ", ANSI.dim], [`$${oc.pi.day.toFixed(2)}`, ANSI.teal], [" 24h · ", ANSI.dim], [`$${oc.pi.week.toFixed(2)}`, ANSI.teal], [" 7d", ANSI.dim]]);
-		}
+		const styles = {
+			usage: [ANSI.teal],
+			limit: [ANSI.red, ANSI.bold],
+			reset: [ANSI.yellow],
+			dim: [ANSI.dim],
+		};
+		for (const [text, style] of opencodeRows(data.opencode)) line(text, ...styles[style]);
 	}
 
 	if (data.agents) {
