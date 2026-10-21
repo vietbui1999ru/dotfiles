@@ -193,20 +193,20 @@
     ],
     "SessionStart": [
       {
-        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f='/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/claude-event-hook.sh'; [ -x \"$f\" ] && \"$f\" Idle || true # notchbar-agents-claude-hook"
+          }
+        ]
+      },
+      {
+        "matcher": "^(startup|resume|clear|compact|fork)$",
         "hooks": [
           {
             "type": "command",
             "command": "bash '/Users/vietquocbui/.claude/hooks/herdr-agent-state.sh' session",
             "timeout": 10
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "f='/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/claude-event-hook.sh'; [ -x \"$f\" ] && \"$f\" Idle || true # notchbar-agents-claude-hook"
           }
         ]
       }
