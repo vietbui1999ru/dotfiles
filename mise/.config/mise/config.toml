@@ -18,7 +18,6 @@ starship = "latest"
 # aqua backend: the default backends hit the GitHub API and fail with 403.
 "aqua:neovim/neovim" = "latest"
 "aqua:tree-sitter/tree-sitter" = "latest"  # nvim-treesitter main compiles parsers with it
-"npm:@mermaid-js/mermaid-cli" = "latest"   # snacks.image / diagram.nvim render via mmdc
 
 # Modern CLI
 bat = "latest"
