@@ -3,8 +3,8 @@
  * Herdr → Sketchybar bridge.
  *
  * The bridge owns the status of every Claude pane in Herdr, the running Pi
- * (pueue) task count and the latest NEXT line, then sends one complete LABEL
- * per change. Sketchybar never merges concurrent partial updates.
+ * (pueue) task count and the latest NEXT line, then sends one complete state
+ * (BLOCKED, TOTAL, TOTAL_STATUS, PI, NEXT) per change. Sketchybar never merges concurrent partial updates.
  * Subscriptions are per Claude pane and rebuild on topology changes.
  */
 
@@ -13,7 +13,7 @@ import net from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { renderLabel } from "./herdr-sketchybar-label.mjs";
+import { renderState } from "./herdr-sketchybar-label.mjs";
 
 const execFileAsync = promisify(execFile);
 const SOCKET = process.env.HERDR_SOCKET_PATH ?? join(homedir(), ".config", "herdr", "herdr.sock");
@@ -41,16 +41,20 @@ function logError(message, detail) {
 	console.error(`[herdr-sketchybar-bridge] ${message}${detail ? `: ${detail}` : ""}`);
 }
 
-// Sends the label when it changed, so bursts of Herdr events don't each spawn
-// sketchybar. `force` re-sends an unchanged label: the periodic tick uses it
-// so a `sketchybar --reload` (which blanks the item) is refilled within one
-// tick; an identical label is a no-op for sketchybar, so nothing redraws.
+// Sends the state when it changed, so bursts of Herdr events don't each spawn
+// sketchybar. `force` re-sends an unchanged state: the periodic tick uses it
+// so a `sketchybar --reload` (which blanks the items) is refilled within one
+// tick; identical values are a no-op for sketchybar, so nothing redraws.
 function trigger(force = false) {
-	const label = renderLabel(statusByPane.values(), piRunning, latestNext?.text);
+	const state = renderState(statusByPane.values(), piRunning, latestNext?.text);
+	const label = JSON.stringify(state);
 	if (label === lastLabel && !force) return;
 	lastLabel = label;
-	void execFileAsync(SKETCHYBAR, ["--trigger", "agent_state", `LABEL=${label}`])
-		.catch((error) => logError("Sketchybar trigger failed", String(error)));
+	void execFileAsync(SKETCHYBAR, [
+		"--trigger", "agent_state",
+		`BLOCKED=${state.blocked}`, `TOTAL=${state.total}`, `TOTAL_STATUS=${state.totalStatus}`,
+		`PI=${state.pi}`, `NEXT=${state.next}`,
+	]).catch((error) => logError("Sketchybar trigger failed", String(error)));
 }
 
 function publishStatus(paneId, status) {
