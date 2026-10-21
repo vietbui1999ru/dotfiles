@@ -2,19 +2,18 @@ import { atom, read, update, type EngineInterface, type Register } from 'claude-
 
 import type { DraftPrsState } from '../types'
 import { CHECK_MARK, groups, prLine } from './draft-prs'
-import { forgeById, forgeFor, hostOf, NO_REMOTE, noForge, REMOTE_ARGV } from './forge'
+import { forgeById, NO_REMOTE, noForge, pickRemote, REMOTE_ARGV } from './forge'
 import { FOCUS_ACTION, FOCUS_REFUSED, JUMP_KEYS, nextPane, PANE_TITLES, switchSteps } from './pane-nav'
 
 const view = atom({ plugin: 'session-band', key: 'draftPrs' } as const, { loading: false } as DraftPrsState)
 
-// Read-only: the origin remote picks the forge, then that forge's list command is the only other call.
+// Read-only: the repo's remotes pick the forge, then that forge's list command is the only other call.
 // A spawn failure or timeout resolves undefined, which the forge's reader names.
 const refresh = async ($: EngineInterface) => {
   await update($, view, state => ({ ...state, loading: true }))
   const cwd = await $.session.cwd()
   const remote = await $.process.run(REMOTE_ARGV, { cwd, timeoutMs: 15_000 }).catch(() => undefined)
-  const host = remote?.exitCode === 0 ? hostOf(remote.stdout) : undefined
-  const forge = host === undefined ? undefined : forgeFor(host)
+  const { host, forge } = remote?.exitCode === 0 ? pickRemote(remote.stdout) : {}
   if (!forge) {
     const error = host === undefined ? NO_REMOTE : noForge(host)
     await update($, view, state => ({ ...state, loading: false, prs: [], error, forge: undefined }))

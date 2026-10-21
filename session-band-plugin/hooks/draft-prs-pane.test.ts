@@ -22,16 +22,17 @@ const lines = (node: unknown): string[] => {
   return children.flatMap(lines)
 }
 
-// One fake git and forge CLI: `git remote get-url origin` prints `origin`, any other process.run answers `result`,
-// and every call is recorded, so a test can see which forge command the pane ran.
-const setup = (on: Parameters<Parameters<typeof test>[1]>[1], result: { exitCode: number; stdout: string; stderr: string }, origin = 'git@github.com:vietbui99/dotfiles.git') => {
+// One fake git and forge CLI: `git remote -v` lists `origin` as the only remote, any other process.run answers
+// `result`, and every call is recorded, so a test can see which forge command the pane ran.
+const remotes = (name: string, url: string) => `${name}\t${url} (fetch)\n${name}\t${url} (push)\n`
+const setup = (on: Parameters<Parameters<typeof test>[1]>[1], result: { exitCode: number; stdout: string; stderr: string }, origin = 'git@github.com:vietbui99/dotfiles.git', name = 'origin') => {
   const clock = mock.clock(on, { now: NOW })
   on('ui.open', () => ({ value: { isPlaced: true } } as never))
   on('session.cwd', () => ({ value: '/repo' }))
   const calls: string[][] = []
   on('process.run', (_$, e) => {
     calls.push([...e.argv])
-    const remote = e.argv[0] === 'git' ? { exitCode: origin ? 0 : 2, stdout: `${origin}\n`, stderr: origin ? '' : "error: No such remote 'origin'" } : result
+    const remote = e.argv[0] === 'git' ? { exitCode: 0, stdout: origin ? remotes(name, origin) : '', stderr: '' } : result
     return { value: remote } as never
   })
   return { clock, calls }
@@ -53,7 +54,8 @@ test('/draft-prs lists drafts, then ready, then merged in the last 7 days, from 
 })
 
 test('a GitLab origin lists MRs from glab, numbered with !', async ($, on) => {
-  const { calls } = setup(on, { exitCode: 0, stdout: JSON.stringify(MRS), stderr: '' }, 'https://gitlab.com/group/repo.git')
+  // A self-hosted GitLab under a remote not named origin, as `git clone -o gitlab` leaves it.
+  const { calls } = setup(on, { exitCode: 0, stdout: JSON.stringify(MRS), stderr: '' }, 'https://gitlab.example.vn/data/repo.git', 'gitlab')
   await $.command.run(RUN)
   const rows = lines(await $.ui.render(PANE))
   expect(rows).toContain('Draft · 2')
