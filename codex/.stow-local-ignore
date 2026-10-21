@@ -1,0 +1,13 @@
+# Codex lists a symlinked agent TOML but cannot spawn it, so
+# scripts/sync-agent-rules.sh copies codex/.codex/agents/*.toml into
+# ~/.codex/agents as regular files. Stow must not also try to link them:
+# the copies are real files, stow refuses to overwrite them, and because
+# restow.sh stows every package in one call, that conflict aborted all of them.
+^/\.codex/agents
+
+# This file replaces stow's built-in ignore list, so keep the defaults that matter.
+\.git
+\.gitignore
+\.DS_Store
+.+~
+\#.*\#
