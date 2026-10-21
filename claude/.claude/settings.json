@@ -91,6 +91,12 @@
       "Bash(git push*+*)",
       "Bash(git push* :*)",
       "Bash(git clean*-*f*)",
+      "Bash(git -C * clean*-*f*)",
+      "Bash(/usr/bin/git -C * clean*-*f*)",
+      "Bash(git -C * push*+*)",
+      "Bash(/usr/bin/git -C * push*+*)",
+      "Bash(git -C * push* :*)",
+      "Bash(/usr/bin/git -C * push* :*)",
       "Bash(jj *git push*--deleted*)",
       "Bash(jj *git push*--all*)",
       "Bash(jj *git push* main*)",
@@ -346,7 +352,7 @@
     "firecrawl": {
       "args": [
         "-lc",
-        "set -a; [ -f \"$HOME/secrets/.env\" ] && source \"$HOME/secrets/.env\"; exec npx -y firecrawl-mcp"
+        "set -a; if [ \"${SEND_IT:-}\" = 1 ]; then F=\"$HOME/.config/send-it/.env\"; else F=\"$HOME/secrets/.env\"; fi; [ -f \"$F\" ] && . \"$F\"; exec npx -y firecrawl-mcp"
       ],
       "command": "bash"
     },
