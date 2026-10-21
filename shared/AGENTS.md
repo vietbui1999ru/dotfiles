@@ -163,6 +163,11 @@ detaches git HEAD, so run `git switch <branch>` before `ac-run` or any tool that
 reads the current branch. Push with `jj git push -b <branch>`. Never move or push
 `main`/`master`, never pass `--ignore-immutable`, and never rewrite a branch that
 another worktree has checked out. Plain git remains a valid fallback.
+Agents in a worktree-isolated session commit through the funnel instead of
+`git commit` or `jj commit`: `$HOME/dotfiles/scripts/commit-funnel --worktree
+<session worktree> -F <message file> <path>...` stages only the listed paths,
+refuses `main`/`master` and a foreign checkout, and in jj mode moves the bookmark
+and reattaches git HEAD.
 
 ## Repo tooling: mise
 
