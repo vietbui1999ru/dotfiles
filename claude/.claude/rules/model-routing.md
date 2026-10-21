@@ -31,7 +31,7 @@ Models with no role in parentheses are available but unassigned. When the scoped
 - Break-even: a handoff that costs as much as the edit is not a saving. Keep small, fully known changes in the main session.
 - Precedence for a subagent's model: per-call `model`, then the agent's frontmatter `model`, then `CLAUDE_CODE_SUBAGENT_MODEL`, then the main model. The variable only fills gaps.
 - Subagent effort is not documented to follow a model's `modelSettings`. Set `effort` in the agent's frontmatter; `scout` and `worker` do.
-- Custom agents: `scout` (read-only) and `worker` (bounded edits), both Haiku 5.5 medium, are defined in `claude/.claude/agents/` but are only available where that folder is linked into `~/.claude/agents`; on a machine with a real `~/.claude/agents` folder (this one) they are not loaded, and the core agent budget is 0. `firecrawl` (web research) is linked by hand here. Otherwise use built-in `Explore`, `Plan`, or general-purpose with an explicit `model`.
+- Custom agents: `scout` (read-only) and `worker` (bounded edits), both Haiku 5.5 medium, are defined in `claude/.claude/agents/` and load wherever stow links them into `~/.claude/agents`. On this machine `~/.claude/agents` is a real folder holding per-file stow links, so `scout`, `worker` and `firecrawl` (web research) all load (restowed 2026-10-20). A hand-made absolute link there blocks `scripts/restow.sh`; replace it with the stow link. Otherwise use built-in `Explore`, `Plan`, or general-purpose with an explicit `model`.
 - Cost reasoning and price table: wiki `concepts/subagent-cost-model`.
 
 ## Missing model
