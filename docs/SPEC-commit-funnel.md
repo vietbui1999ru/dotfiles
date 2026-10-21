@@ -20,8 +20,8 @@ Success: an agent in a `.claude/worktrees/<name>` session commits with `$HOME/do
   - no paths given; a path is `.`, `-A`, `--all` or resolves outside the work-tree root;
   - the message file is missing or empty, or its first line is longer than 72 characters;
   - git only: something other than the listed paths is already staged.
-- D4: Git mode (no `.jj` directory at the work-tree root): `git add -- <paths>` (records deletions too), `git commit -F <message-file>`, print `<short-sha> <subject>`. HEAD must be on a branch.
-- D5: jj mode (`.jj` directory at the work-tree root, colocated): the branch is the attached git branch if HEAD is attached, otherwise the single bookmark on `@-`; zero or several is a refusal that lists them. Then `jj --no-pager file track <paths>`, `jj --no-pager commit -m <message text> <paths>` (unlisted changes stay in the new `@`), `jj --no-pager bookmark move <branch> --to @-`, `git switch <branch>` so git-based tools (`ac-run`, `floor-guard`, `agent-review`) see the branch again. Print `<short-sha> <subject>` of `@-`.
+- D4: Git mode (no `.jj` directory at the work-tree root): `git add -- <paths>`, `git commit -F <message-file>`, print `<short-sha> <subject>`. HEAD must be on a branch. A listed path that is missing from disk is staged with `git rm --cached` when it is still in the index, left alone when its removal is already staged (in neither work tree nor index but in HEAD), and refused when it is in neither the index nor HEAD. All paths are classified before anything is staged, so a refusal leaves the index untouched.
+- D5: jj mode (`.jj` directory at the work-tree root, colocated): the branch is the attached git branch if HEAD is attached, otherwise the single bookmark on `@-`; zero or several is a refusal that lists them. Then `jj --no-pager file track <paths>` for the listed paths that still exist on disk only (jj snapshots deletions of tracked files itself; the call is skipped when none do), `jj --no-pager commit -m <message text> <paths>` with every listed path in the fileset (unlisted changes stay in the new `@`), `jj --no-pager bookmark move <branch> --to @-`, `git switch <branch>` so git-based tools (`ac-run`, `floor-guard`, `agent-review`) see the branch again. Print `<short-sha> <subject>` of `@-`. A listed path that exists neither on disk nor in the parent commit is refused before `jj file track` runs.
 - D6: It commits only. Pushing stays `git push` or `jj git push -b <branch>`, already fenced by `settings.json` deny rules and the agent-review gate.
 - D7: Enforcement: `claude/.claude/hooks/enforce-bash-safety.sh` blocks (exit 2) a Bash command in which any command segment (start of line, or after `;`, `&&`, `||` or `|`) is `git commit`, `/usr/bin/git commit`, `jj commit` or `jj ci`, when the hook input `cwd` is under `*/.claude/worktrees/*`. The block message gives the funnel's exact usage. Outside worktrees nothing changes, so the human's own sessions are unaffected.
 - D8: No commit mutex. One agent per worktree, git's `index.lock` already serializes commits, and jj merges concurrent operations. Revisit only if several agents share a worktree.
@@ -54,6 +54,12 @@ Success: an agent in a `.claude/worktrees/<name>` session commits with `$HOME/do
   verify: `rg -q "commit-funnel" docs/workflows/worktree-guard-bandaid.md && rg -q "commit-funnel" shared/research-tool-routing.md && rg -q "commit-funnel" shared/AGENTS.md`
 - AC-13: Use-test: in a fresh worktree-isolated Claude Code session, plain `git commit` and `jj commit` are blocked with the funnel message, and `commit-funnel` then commits (in jj mode, with the branch advanced) without a guard refusal
   verify: manual - needs a live Claude Code session with the merged hook
+- AC-14: A listed path whose deletion is already staged (`git rm`) is committed as a deletion in git mode
+  verify: `cd scripts/tests && python3 -m unittest test_commit_funnel -k test_git_commits_staged_deletion`
+- AC-15: A listed path that never existed is refused with exit 2 in git mode and makes no commit
+  verify: `cd scripts/tests && python3 -m unittest test_commit_funnel -k test_refuses_unknown_path`
+- AC-16: A listed path deleted from the work tree is committed as a deletion in colocated jj mode, and an unlisted file survives
+  verify: `cd scripts/tests && python3 -m unittest test_commit_funnel -k test_jj_commits_deletion`
 
 ## Boundaries
 ### Always
