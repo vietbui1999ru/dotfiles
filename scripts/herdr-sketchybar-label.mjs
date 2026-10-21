@@ -10,27 +10,39 @@ const TOTAL_ORDER = ["working", "done", "idle", "unknown"];
 const KNOWN = new Set(["blocked", ...TOTAL_ORDER]);
 
 /**
- * @param {Iterable<string>} statuses  one herdr agent_status per Claude pane
+ * @param {Iterable<{agent: string, status: string} | string>} panes  one entry per
+ *   herdr agent pane; a bare status string means a Claude pane
  * @param {number} piRunning           running pueue (Pi) tasks
  * @param {string | undefined} next    latest "NEXT: ..." line, if any
- * @returns {{ blocked: number, total: number, totalStatus: string, pi: number, next: string }}
- *   totalStatus is "" when no non-blocked pane exists.
+ * @returns {{ blocked: number, total: number, totalStatus: string, pi: number, piStatus: string, next: string }}
+ *   Claude panes feed blocked/total; Pi panes plus pueue tasks feed pi.
+ *   totalStatus/piStatus are "" when nothing applies.
  */
-export function renderState(statuses, piRunning = 0, next = undefined) {
+export function renderState(panes, piRunning = 0, next = undefined) {
 	const seen = new Set();
+	const piSeen = new Set();
 	let blocked = 0;
 	let total = 0;
-	for (const raw of statuses) {
+	let piPanes = 0;
+	for (const pane of panes) {
+		const { agent, status: raw } = typeof pane === "string" ? { agent: "claude", status: pane } : pane;
 		const status = KNOWN.has(raw) ? raw : "unknown";
-		total++;
-		if (status === "blocked") blocked++;
-		else seen.add(status);
+		if (agent === "pi") {
+			piPanes++;
+			piSeen.add(status);
+		} else if (agent === "claude") {
+			total++;
+			if (status === "blocked") blocked++;
+			else seen.add(status);
+		}
 	}
+	if (piRunning > 0) piSeen.add("working");
 	return {
 		blocked,
 		total,
 		totalStatus: TOTAL_ORDER.find((status) => seen.has(status)) ?? "",
-		pi: piRunning,
+		pi: piPanes + piRunning,
+		piStatus: ["blocked", ...TOTAL_ORDER].find((status) => piSeen.has(status)) ?? "",
 		next: next ? shortNext(next) : "",
 	};
 }

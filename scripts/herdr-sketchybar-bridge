@@ -2,10 +2,11 @@
 /**
  * Herdr → Sketchybar bridge.
  *
- * The bridge owns the status of every Claude pane in Herdr, the running Pi
- * (pueue) task count and the latest NEXT line, then sends one complete state
- * (BLOCKED, TOTAL, TOTAL_STATUS, PI, NEXT) per change. Sketchybar never merges concurrent partial updates.
- * Subscriptions are per Claude pane and rebuild on topology changes.
+ * The bridge owns the status of every Claude and Pi pane in Herdr, the
+ * running Pi (pueue) task count and the latest NEXT line, then sends one
+ * complete state (BLOCKED, TOTAL, TOTAL_STATUS, PI, PI_STATUS, NEXT) per
+ * change. Sketchybar never merges concurrent partial updates.
+ * Subscriptions are per agent pane and rebuild on topology changes.
  */
 
 import { execFile } from "node:child_process";
@@ -27,7 +28,10 @@ const TOPOLOGY_EVENTS = new Set([
 	"pane.closed",
 ]);
 
-let statusByPane = new Map(); // Claude pane ID → herdr agent_status
+// herdr agents the pill shows: Claude panes as !/∑, Pi panes under the hammer.
+const TRACKED_AGENTS = new Set(["claude", "pi"]);
+
+let statusByPane = new Map(); // agent pane ID → { agent, status: herdr agent_status }
 let latestNext; // { paneId, text } — latest NEXT line from any Claude pane
 let piRunning = 0;
 let lastLabel;
@@ -53,12 +57,12 @@ function trigger(force = false) {
 	void execFileAsync(SKETCHYBAR, [
 		"--trigger", "agent_state",
 		`BLOCKED=${state.blocked}`, `TOTAL=${state.total}`, `TOTAL_STATUS=${state.totalStatus}`,
-		`PI=${state.pi}`, `NEXT=${state.next}`,
+		`PI=${state.pi}`, `PI_STATUS=${state.piStatus}`, `NEXT=${state.next}`,
 	]).catch((error) => logError("Sketchybar trigger failed", String(error)));
 }
 
 function publishStatus(paneId, status) {
-	statusByPane.set(paneId, status);
+	statusByPane.set(paneId, { agent: statusByPane.get(paneId).agent, status });
 	// A pane that starts working again has moved past its NEXT step.
 	if (status === "working" && latestNext?.paneId === paneId) latestNext = undefined;
 	trigger();
@@ -69,8 +73,8 @@ async function refreshTopology() {
 	const agents = JSON.parse(stdout).result?.agents ?? [];
 	statusByPane = new Map(
 		agents
-			.filter((agent) => agent.agent === "claude" && agent.pane_id)
-			.map((agent) => [agent.pane_id, agent.agent_status]),
+			.filter((agent) => TRACKED_AGENTS.has(agent.agent) && agent.pane_id)
+			.map((agent) => [agent.pane_id, { agent: agent.agent, status: agent.agent_status }]),
 	);
 	if (latestNext && !statusByPane.has(latestNext.paneId)) latestNext = undefined;
 	trigger();
@@ -148,8 +152,8 @@ function handleEvent(message) {
 			scheduleTopologyRefresh(`unknown status pane ${paneId ?? "?"}`);
 			return;
 		}
-		if (event.agent && event.agent !== "claude") {
-			// The pane's Claude exited and something else took over.
+		if (event.agent && event.agent !== statusByPane.get(paneId).agent) {
+			// The pane's agent exited and something else took over.
 			scheduleTopologyRefresh(`pane ${paneId} is now ${event.agent}`);
 			return;
 		}
@@ -168,18 +172,18 @@ function handleEvent(message) {
 	}
 }
 
-// A Claude started inside an existing pane fires no pane.created, so compare
-// the Claude pane set on every tick and resubscribe when it differs.
-async function checkClaudePanes() {
+// A Claude or Pi started inside an existing pane fires no pane.created, so
+// compare the tracked pane set on every tick and resubscribe when it differs.
+async function checkAgentPanes() {
 	try {
 		const { stdout } = await execFileAsync("herdr", ["agent", "list"], { timeout: 3_000 });
 		const panes = (JSON.parse(stdout).result?.agents ?? [])
-			.filter((agent) => agent.agent === "claude" && agent.pane_id)
+			.filter((agent) => TRACKED_AGENTS.has(agent.agent) && agent.pane_id)
 			.map((agent) => agent.pane_id);
 		const changed = panes.length !== statusByPane.size || panes.some((id) => !statusByPane.has(id));
-		if (changed) scheduleTopologyRefresh("Claude pane set changed");
+		if (changed) scheduleTopologyRefresh("agent pane set changed");
 	} catch (error) {
-		logError("Claude pane check failed", String(error));
+		logError("Agent pane check failed", String(error));
 	}
 }
 
@@ -231,6 +235,6 @@ connect();
 void pollPi();
 setInterval(() => {
 	void pollPi();
-	if (socket && !socket.destroyed) void checkClaudePanes();
+	if (socket && !socket.destroyed) void checkAgentPanes();
 	if (lastLabel !== undefined) trigger(true);
 }, PI_POLL_MS);

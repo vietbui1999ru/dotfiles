@@ -5,7 +5,7 @@ import { renderState, shortNext } from "./herdr-sketchybar-label.mjs";
 
 test("counts blocked panes and the total", () => {
 	const state = renderState(["idle", "working", "blocked", "idle", "blocked"], 2);
-	assert.deepEqual(state, { blocked: 2, total: 5, totalStatus: "working", pi: 2, next: "" });
+	assert.deepEqual(state, { blocked: 2, total: 5, totalStatus: "working", pi: 2, piStatus: "working", next: "" });
 });
 
 test("total color follows herdr urgency: working, done, idle, unknown", () => {
@@ -16,7 +16,7 @@ test("total color follows herdr urgency: working, done, idle, unknown", () => {
 });
 
 test("no Claude panes gives zeros", () => {
-	assert.deepEqual(renderState([]), { blocked: 0, total: 0, totalStatus: "", pi: 0, next: "" });
+	assert.deepEqual(renderState([]), { blocked: 0, total: 0, totalStatus: "", pi: 0, piStatus: "", next: "" });
 });
 
 test("short NEXT keeps the tag and caps at five words", () => {
@@ -30,6 +30,21 @@ test("short NEXT keeps the tag and caps at five words", () => {
 test("short NEXT drops TUI junk drawn beside the line", () => {
 	assert.equal(shortNext("NEXT: rebase PR 120, then recheck   │    widget      2d"), "rebase PR 120, then recheck");
 	assert.equal(shortNext("NEXT:    │ x"), "");
+});
+
+test("Pi panes count with pueue tasks under the hammer, never in Claude counts", () => {
+	const panes = [{ agent: "claude", status: "idle" }, { agent: "pi", status: "idle" }, { agent: "pi", status: "blocked" }];
+	const state = renderState(panes, 1);
+	assert.equal(state.total, 1);
+	assert.equal(state.blocked, 0);
+	assert.equal(state.pi, 3);
+	assert.equal(state.piStatus, "blocked");
+});
+
+test("Pi status: most urgent pane wins; pueue alone reads as working", () => {
+	assert.equal(renderState([{ agent: "pi", status: "done" }, { agent: "pi", status: "working" }]).piStatus, "working");
+	assert.equal(renderState([], 2).piStatus, "working");
+	assert.equal(renderState([]).piStatus, "");
 });
 
 test("renderState passes NEXT through shortNext", () => {
