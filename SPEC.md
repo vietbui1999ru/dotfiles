@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 branch: feat/agent-ref-guard
 ---
 # SPEC: agent-ref-guard, a git-level check behind commit-funnel
