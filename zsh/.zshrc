@@ -32,9 +32,16 @@ eval "$(sheldon source)"
 # ── Deja (autosuggestions, replaces zsh-autosuggestions) ──────────────
 # Never load alongside zsh-autosuggestions: deja stands down if it sees it.
 # DEJA_* variables are read once at load, so export them above the source line.
-# Tab opens deja's alternatives picker (DEJA_CYCLE_KEY='^I' default), which
-# shadows native compinit completion. To get native Tab back, set
-# DEJA_CYCLE_KEY to another key (e.g. '^N') or '' before the source line.
+# Tuned for accurate suggestions over many alternatives:
+# - Tab goes back to native completion (zoxide's `cd` completion included);
+#   deja's alternatives cycle on Ctrl-O instead of its Tab default (Ctrl-N is
+#   down-line-or-history in keybindings.zsh; Alt keys need macos_option_as_alt).
+# - tight fuzzy: only near-adjacent matches, so `cd llm-wiki` is not shadowed
+#   by a far-off history line such as `cd repos/llm-wiki`.
+# - no suggestions for lines over 120 characters.
+export DEJA_CYCLE_KEY='^O'
+export DEJA_FUZZY=tight
+export DEJA_BUFFER_MAX_SIZE=120
 if command -v deja &>/dev/null; then
   if [[ -r "$HOME/.local/share/deja/init.zsh" ]]; then
     source "$HOME/.local/share/deja/init.zsh"
