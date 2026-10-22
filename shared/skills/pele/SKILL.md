@@ -7,8 +7,8 @@ allowed-tools: "Bash,Read,Write"
 # pele — Mermaid to SVG
 
 pele (obsidianmd/pele, MIT) renders Mermaid 12.1.0 syntax to SVG in Node with no browser and no runtime
-dependencies. This skill folder pins it (`package.json` + `package-lock.json`); `scripts/bootstrap-dirs.sh`
-runs `npm ci` here and links `render.mjs` to `~/.local/bin/pele-render`.
+dependencies. This skill folder pins it (`package.json` + `bun.lock`); `scripts/bootstrap-dirs.sh`
+runs `bun ci` here and links `render.mjs` to `~/.local/bin/pele-render`.
 
 ## Render
 
@@ -50,5 +50,5 @@ If `pele-render` is missing, run `~/dotfiles/scripts/bootstrap-dirs.sh` (needs n
 
 ## Upgrading
 
-`npm --prefix ~/dotfiles/shared/skills/pele install pele@<version>` then commit `package.json` and
-`package-lock.json`. Wiki: `[[entities/pele]]` in ~/repos/llm-wiki.
+`bun add --cwd ~/dotfiles/shared/skills/pele pele@<version>` then commit `package.json` and
+`bun.lock`. Wiki: `[[entities/pele]]` in ~/repos/llm-wiki.

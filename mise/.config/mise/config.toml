@@ -5,6 +5,7 @@
 # Runtimes
 go = "latest"
 node = "lts"
+bun = "latest"  # package manager for node tools; node stays the runtime
 uv = "latest"
 
 # Git forges
