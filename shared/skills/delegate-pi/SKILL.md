@@ -66,8 +66,9 @@ For long tasks that run in the background while you continue work.
 
 ```bash
 # Fire task to pueue (medium difficulty). The slug must be new for every task.
+# WORKTREE is an existing worktree, absolute path; create it before dispatching.
 SLUG="<task-name>-$(openssl rand -hex 4)"
-TASK_ID=$(pueue add -i --print-task-id --label "$SLUG" -- \
+TASK_ID=$(pueue add -i --print-task-id --label "$SLUG" -w "$WORKTREE" -- \
   "pi --model opencode-go/deepseek-v4.1-flash:medium --session-id pueue-$SLUG \
       -p '<full task description>' < /dev/null")
 
@@ -75,7 +76,7 @@ TASK_ID=$(pueue add -i --print-task-id --label "$SLUG" -- \
 pueue wait "$TASK_ID" && pueue log "$TASK_ID"
 ```
 
-Every pueue dispatch carries `--label <slug>` (pueue flag, before `--`) and `--session-id pueue-<slug>` (pi flag). `<slug>` is a short task name in lowercase `[a-z0-9-]` plus a fresh 8-hex suffix. Never reuse a slug: `pi --session-id` resumes an existing session with that id. Council and subagent modes are synchronous, not pueue dispatches: keep `--no-session` there and never add `--session-id`.
+Every pueue dispatch carries `--label <slug>` and `-w <worktree>` (pueue flags, before `--`) and `--session-id pueue-<slug>` (pi flag). Create the worktree first and point `-w` at it: agent-review snapshots only the run's working directory, so a Pi run started in the main checkout that edits a worktree it made itself leaves no review. Never ask Pi to create its own worktree. Parallel tasks that edit code each get their own worktree. `<slug>` is a short task name in lowercase `[a-z0-9-]` plus a fresh 8-hex suffix. Never reuse a slug: `pi --session-id` resumes an existing session with that id. Council and subagent modes are synchronous, not pueue dispatches: keep `--no-session` there and never add `--session-id`.
 
 **Model routing for delegation:**
 
@@ -131,20 +132,21 @@ These are pi command lines; a pueue dispatch wraps them as in Delegate Mode, wit
 ### Dispatch + collect
 
 ```bash
-# 1. Dispatch all tasks, collect IDs. Each task gets its own fresh slug.
+# 1. Dispatch all tasks, collect IDs. Each task gets its own fresh slug and its own
+#    existing worktree (WT_REVIEW, WT_IMPL, WT_LOW: absolute paths, created beforehand).
 S_REVIEW="review-$(openssl rand -hex 4)"
 S_IMPL="impl-$(openssl rand -hex 4)"
 S_LOW="low-$(openssl rand -hex 4)"
 
-T_REVIEW=$(pueue add -i --print-task-id --label "$S_REVIEW" -- \
+T_REVIEW=$(pueue add -i --print-task-id --label "$S_REVIEW" -w "$WT_REVIEW" -- \
   "pi --model openai-codex/gpt-6.1-sol:high --session-id pueue-$S_REVIEW \
       -p '<review task>' < /dev/null")
 
-T_IMPL=$(pueue add -i --print-task-id --label "$S_IMPL" -- \
+T_IMPL=$(pueue add -i --print-task-id --label "$S_IMPL" -w "$WT_IMPL" -- \
   "pi --model opencode-go/deepseek-v4.1-flash:medium --session-id pueue-$S_IMPL \
       -p '<implementation task>' < /dev/null")
 
-T_LOW=$(pueue add -i --print-task-id --label "$S_LOW" -- \
+T_LOW=$(pueue add -i --print-task-id --label "$S_LOW" -w "$WT_LOW" -- \
   "pi --model opencode-go/deepseek-v4.1-flash:off --session-id pueue-$S_LOW \
       -p '<low-difficulty task>' < /dev/null")
 

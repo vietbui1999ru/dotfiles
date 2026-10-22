@@ -8,11 +8,11 @@ Dispatch approved file-backed plans through `pueue`, one task per plan:
 
 ```bash
 SLUG="<plan-name>-$(openssl rand -hex 4)"
-TASK_ID=$(pueue add -i --print-task-id --label "$SLUG" -- \
+TASK_ID=$(pueue add -i --print-task-id --label "$SLUG" -w <absolute-path-to-worktree> -- \
   "pi --model <explicit-model> --session-id pueue-$SLUG -p \"\$(cat <absolute-path-to-plan>.md)\" < /dev/null")
 ```
 
-`< /dev/null` is required. Set an explicit model tier per `model-routing.md`; never rely on defaults. `--label` (a pueue flag, before `--`) and `--session-id pueue-<slug>` (a pi flag) are required: the session-band mod finds the task's Pi session by that id. `<slug>` is the plan name in lowercase `[a-z0-9-]` plus a fresh 8-hex suffix, new for every dispatch. `pi --session-id` resumes an existing session with that id, so a reused slug silently continues an old conversation.
+`-w <worktree>` (a pueue flag, before `--`) is required: create the worktree first and run Pi inside it. agent-review snapshots only the run's working directory, so a Pi run started in the main checkout that edits a worktree it made itself leaves no review at all. Never ask Pi to create its own worktree. `< /dev/null` is required. Set an explicit model tier per `model-routing.md`; never rely on defaults. `--label` (a pueue flag, before `--`) and `--session-id pueue-<slug>` (a pi flag) are required: the session-band mod finds the task's Pi session by that id. `<slug>` is the plan name in lowercase `[a-z0-9-]` plus a fresh 8-hex suffix, new for every dispatch. `pi --session-id` resumes an existing session with that id, so a reused slug silently continues an old conversation.
 
 The `\"\$(cat)\"` escaping matters: unescaped, the plan text is pasted into the stored command when the task is added.
 
