@@ -21,7 +21,7 @@ Provisioning uses three mechanisms — know which applies before editing a packa
 | `tmuxinator/` | `~/.config/tmuxinator/dotfiles.yml` | stow |
 | `kitty/` | `~/.config/kitty/` | stow |
 | `git/` | `~/.gitconfig` | stow |
-| `jj/` | `~/.config/jj/config.toml` | stow — **not currently applied on this machine** |
+| `jj/` | `~/.config/jj/config.toml` | stow |
 | `aerospace/` | `~/.aerospace.toml` | stow (macOS tiling WM) — not in the `stow` line above; add when used |
 | `mouseless/` | `~/Library/Application Support/Mouseless/configs/config.yaml` | stow (macOS Mouseless app) — not in the `stow` line above; back up the live file before first `stow mouseless`, restart the app after |
 | `sketchybar/` | `~/.config/sketchybar/` | stow (macOS status bar) — not in the `stow` line above; add when used; `sketchybar --reload` after edits |
@@ -248,9 +248,11 @@ rules.
 `jj` (Jujutsu) is the default VCS for both the human and agent sessions. Each
 checkout or worktree is colocated with git (`jj git init --colocate`), so
 agent-review, `ac-run`, `floor-guard` and session-band keep reading git state.
-The agent protocol (track by path, `jj commit`, `jj tug` to advance the branch,
-`git switch <branch>` before `ac-run`) is in the "Git history" section of
-`shared/research-tool-routing.md`. Claude's `settings.json` allows `jj` and denies
+Agents commit only through `scripts/commit-funnel`, which in jj mode also tracks
+the paths, moves the bookmark and runs `git switch <branch>`; inside agent
+worktrees plain `git commit`/`jj commit` and other branch moves are blocked (see
+the "Git history" section of `shared/research-tool-routing.md` and
+`docs/workflows/worktree-guard-bandaid.md`). The workflows below are the human's. Claude's `settings.json` allows `jj` and denies
 pushing or moving `main`/`master`.
 
 Three workflows:

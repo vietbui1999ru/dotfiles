@@ -118,19 +118,20 @@ branches. The review gates (`agent-review`, `:AgentReview`) apply to what is
 pushed or merged, not to commits.
 
 jj is the default VCS for agent sessions, colocated with git so the git-based
-gates keep working. In a new worktree run `jj git init --colocate` once. Stage by
-path with `jj file track <path>` (auto-track is off), commit with
-`jj commit -m "<msg>"`, then run `jj tug` (or `jj bookmark move <branch> --to @-`)
-so the git branch advances; jj never moves it on its own. Every jj command
-detaches git HEAD, so run `git switch <branch>` before `ac-run` or any tool that
-reads the current branch. Push with `jj git push -b <branch>`. Never move or push
+gates keep working. In a new worktree run `jj git init --colocate` once.
+Agents commit only through the funnel, in git and jj mode alike:
+`$HOME/dotfiles/scripts/commit-funnel --worktree <session worktree> -F <message
+file> <path>...`, with the session worktree spelled out literally. It tracks and
+commits only the listed paths, refuses `main`/`master` and a foreign checkout,
+and in jj mode moves the branch bookmark and reattaches git HEAD (`git switch`)
+for `ac-run` and the other git-based tools. In a `.claude/worktrees/` checkout a
+plain `git commit` or `jj commit` is blocked, and git refuses any other move of
+an existing branch (reset, rebase, merge, `update-ref`, branch deletion); those
+are the user's call, so ask. Do not run `jj bookmark move`, `jj tug` or other
+jj history rewrites yourself: jj runs no git hooks, so the branch guard cannot
+see them. Push with `jj git push -b <branch>` or `git push`. Never move or push
 `main`/`master`, never pass `--ignore-immutable`, and never rewrite a branch that
-another worktree has checked out. Plain git remains a valid fallback.
-Agents in a worktree-isolated session commit through the funnel instead of
-`git commit` or `jj commit`: `$HOME/dotfiles/scripts/commit-funnel --worktree
-<session worktree> -F <message file> <path>...` stages only the listed paths,
-refuses `main`/`master` and a foreign checkout, and in jj mode moves the bookmark
-and reattaches git HEAD.
+another worktree has checked out.
 
 ## Repo tooling: mise
 
