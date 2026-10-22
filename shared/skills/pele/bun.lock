@@ -1,0 +1,15 @@
+{
+  "lockfileVersion": 2,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "pele-skill",
+      "dependencies": {
+        "pele": "1.6.0",
+      },
+    },
+  },
+  "packages": {
+    "pele": ["pele@1.6.0", "", {}, "sha512-VfAiVItsOGlGhvnBfphdT28VCG7mXMZxQNOwAGsCtxI2ztbUsT39MraEOYjsapLxVETkdUZscm0DdotYDQMLdw=="],
+  }
+}

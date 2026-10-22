@@ -40,11 +40,11 @@ real_cli() {
 
 if real_cli >/dev/null; then
 	echo "✓ firecrawl CLI ($(real_cli))"
-elif command -v npm >/dev/null 2>&1; then
-	npm install -g firecrawl-cli
-	echo "✓ firecrawl CLI installed with npm"
+elif command -v bun >/dev/null 2>&1; then
+	bun add -g firecrawl-cli
+	echo "✓ firecrawl CLI installed with bun"
 else
-	echo "⚠ firecrawl CLI missing and npm not found — install Node, then re-run this script"
+	echo "⚠ firecrawl CLI missing and bun not found — install bun, then re-run this script"
 	exit 0
 fi
 

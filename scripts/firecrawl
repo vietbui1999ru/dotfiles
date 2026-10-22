@@ -9,7 +9,7 @@
 # ONLY FIRECRAWL_API_KEY from the secrets file (never executes it, never exports the other
 # secrets) and overrides whatever the parent passed.
 #
-# The real binary is found on PATH (skipping this script), so it works wherever npm puts it.
+# The real binary is found on PATH (skipping this script), so it works wherever bun puts it.
 # Overrides: FIRECRAWL_ENV_FILE (secrets path), FIRECRAWL_REAL (real binary path).
 
 # A harness may launch with a sparse PATH; the key lookup below needs sed, tail and tr.
@@ -37,7 +37,7 @@ if [ -z "$real" ]; then
 fi
 
 if [ -z "$real" ] || [ ! -x "$real" ]; then
-	echo "firecrawl shim: real firecrawl CLI not found on PATH (npm install -g firecrawl-cli, or set FIRECRAWL_REAL)" >&2
+	echo "firecrawl shim: real firecrawl CLI not found on PATH (bun add -g firecrawl-cli, or set FIRECRAWL_REAL)" >&2
 	exit 127
 fi
 exec "$real" "$@"

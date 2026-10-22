@@ -13,7 +13,7 @@ Provisioning uses three mechanisms — know which applies before editing a packa
 
 | Package | Stow target | Provisioning |
 |---|---|---|
-| `zsh/` | `~/.zshrc`, `~/.zprofile`, `~/.zsh/` | stow |
+| `zsh/` | `~/.zshrc`, `~/.zprofile`, `~/.zsh/` | stow (autosuggestions via `deja` from Brewfile, replacing zsh-autosuggestions) |
 | `starship/` | `~/.config/starship.toml` | stow |
 | `mise/` | `~/.config/mise/config.toml` | stow — dev CLI + runtime pins; run `mise install` after restow |
 | `nvim/` | `~/.config/nvim/` | stow |
@@ -104,7 +104,7 @@ git submodule update --init repos/llm-wiki
 
 | Tool | Install |
 |---|---|
-| `pi` (pi-coding-agent) | `npm install -g @earendil-works/pi-coding-agent` |
+| `pi` (pi-coding-agent) | `bun add -g @earendil-works/pi-coding-agent` |
 | GitHub stacked PRs | `gh extension install github/gh-stack` (skill synced by `bootstrap-dirs.sh`) |
 | `omp` (oh-my-pi) | `curl -fsSL https://omp.sh/install \| sh` |
 | `rtk` (Rust Token Killer) | `mise install` (pinned in `mise/.config/mise/config.toml`) |
@@ -164,7 +164,7 @@ lives in `shared/research-tool-routing.md`.
 Firecrawl is CLI first, for every harness. `bootstrap-dirs.sh` calls
 `scripts/firecrawl-setup.sh`, which links two shims into `~/.local/bin`
 (`firecrawl` and `firecrawl-mcp`, both read `FIRECRAWL_API_KEY` from
-`~/secrets/.env` so a stale inherited key cannot win), installs the CLI with npm if
+`~/secrets/.env` so a stale inherited key cannot win), installs the CLI with bun if
 it is missing, runs `firecrawl init` for the CLI's own skills, and keeps only the
 ones listed in `shared/firecrawl-skills.txt`. The rest are moved to
 `~/.agents/skills-disabled/`, not deleted. Add a name to that file and re-run

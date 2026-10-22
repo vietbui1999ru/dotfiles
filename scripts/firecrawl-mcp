@@ -11,4 +11,4 @@ if [ -r "$env_file" ]; then
 	[ -n "$key" ] && export FIRECRAWL_API_KEY="$key"
 fi
 
-exec npx -y firecrawl-mcp "$@"
+exec bunx firecrawl-mcp "$@"

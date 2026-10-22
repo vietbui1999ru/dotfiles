@@ -10,6 +10,7 @@ brew "pkg-config"
 brew "llvm"
 
 # Shell
+brew "deja"
 brew "zsh"
 
 # Terminal
