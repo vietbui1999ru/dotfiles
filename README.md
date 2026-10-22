@@ -13,7 +13,7 @@ Provisioning uses three mechanisms — know which applies before editing a packa
 
 | Package | Stow target | Provisioning |
 |---|---|---|
-| `zsh/` | `~/.zshrc`, `~/.zprofile`, `~/.zsh/` | stow |
+| `zsh/` | `~/.zshrc`, `~/.zprofile`, `~/.zsh/` | stow (autosuggestions via `deja` from Brewfile, replacing zsh-autosuggestions) |
 | `starship/` | `~/.config/starship.toml` | stow |
 | `mise/` | `~/.config/mise/config.toml` | stow — dev CLI + runtime pins; run `mise install` after restow |
 | `nvim/` | `~/.config/nvim/` | stow |

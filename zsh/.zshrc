@@ -29,6 +29,20 @@ command -v mise &>/dev/null && eval "$(mise activate zsh)"
 # ── Sheldon (plugins) ─────────────────────────────────────────────────
 eval "$(sheldon source)"
 
+# ── Deja (autosuggestions, replaces zsh-autosuggestions) ──────────────
+# Never load alongside zsh-autosuggestions: deja stands down if it sees it.
+# DEJA_* variables are read once at load, so export them above the source line.
+# Tab opens deja's alternatives picker (DEJA_CYCLE_KEY='^I' default), which
+# shadows native compinit completion. To get native Tab back, set
+# DEJA_CYCLE_KEY to another key (e.g. '^N') or '' before the source line.
+if command -v deja &>/dev/null; then
+  if [[ -r "$HOME/.local/share/deja/init.zsh" ]]; then
+    source "$HOME/.local/share/deja/init.zsh"
+  else
+    eval "$(deja init zsh)"
+  fi
+fi
+
 # ── Starship (prompt) ─────────────────────────────────────────────────
 eval "$(starship init zsh)"
 
