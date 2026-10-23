@@ -35,7 +35,10 @@ vimacp() {
 alias zc="nvim ~/.zshrc"
 alias zf="cd ~/.zsh/ && nvim aliases.zsh"
 alias zp="nvim ~/.zprofile"
-alias sourced="source ~/.zshrc"
+# Restart rather than re-source: a second `source ~/.zshrc` makes
+# fast-syntax-highlighting re-wrap deja's zle-line-init, and deja then chains to
+# the wrapper as its "original", recursing until FUNCNEST on every prompt.
+alias sourced="exec zsh"
 
 # Misc
 alias python="python3"
