@@ -2,6 +2,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import { classify, type Classification, type CommandFact } from './classify'
 import { preview, type PreviewFacts, type PreviewTarget } from './preview'
+import { hideBlast, register as registerPane, showBlast } from './blast-pane.tsx'
 
 const hasGlob = (value: string) => /[*?[]/.test(value)
 const cannotExpandGlob = (value: string) => value.includes('**') || value.includes('{') || value.includes('}')
@@ -132,6 +133,7 @@ export const captureSession = (interactive: boolean) => {
 }
 
 export const register: Register = on => {
+  registerPane(on)
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const result = classify(e.command)
     if (result.tier === 'pass') return next(e)
@@ -142,13 +144,18 @@ export const register: Register = on => {
       command: e.command,
       reason: result.reason ?? 'this command may have a broad effect',
     }))
+    // The pane is a read-only view of the same facts; only the question decides.
+    await showBlast($, facts).catch(() => undefined)
+    let answer: string
     try {
-      const answer = await $.ui.ask(`${preview(facts)}\n\nAllow this Bash command?`, ['Allow', 'Deny'])
-      return answer === 'Allow'
-        ? next(e)
-        : { deny: refusal(e.command, 'the blast-radius prompt was not allowed') }
+      answer = await $.ui.ask(`${preview(facts)}\n\nAllow this Bash command?`, ['Allow', 'Deny'])
     } catch {
       return { deny: refusal(e.command, 'the blast-radius prompt was dismissed') }
+    } finally {
+      await hideBlast($).catch(() => undefined)
     }
+    return answer === 'Allow'
+      ? next(e)
+      : { deny: refusal(e.command, 'the blast-radius prompt was not allowed') }
   }).catch(($, e, next) => next.called ? next(e) : { deny: 'Bash command was refused by blast-radius: the guard failed closed.' })
 }

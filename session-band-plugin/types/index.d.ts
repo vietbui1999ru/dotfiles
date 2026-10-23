@@ -116,6 +116,7 @@ declare module 'claude-code' {
       gates: import('../hooks/gates.tsx').GatesState
       sendIt: boolean
       safetyBlocks: import('../hooks/safety-blocks.tsx').SafetyBlocksState
+      blastFacts: import('../hooks/preview').PreviewFacts | null
     }
   }
 }
