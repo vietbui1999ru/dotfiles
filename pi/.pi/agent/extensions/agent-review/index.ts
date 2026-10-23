@@ -39,6 +39,10 @@ type Pending = {
 	error?: string;
 	// The Pi session that wrote it; absent on records written before sessions were kept.
 	session?: string;
+	// The run that absorbed it. It stops blocking only while that run is this process's
+	// active run, and is deleted once that run's own record is written; after a crash
+	// the marker names a dead run and the record blocks again.
+	absorbedBy?: string;
 };
 type Decision = {
 	runId: string;
@@ -76,8 +80,26 @@ export const absorbable = (pending: readonly Pending[], sessionId: string, text:
 	const owned = pending.every(
 		(r) => r.session === sessionId && !r.tamper && !r.error && validHash(r.base) && validHash(r.baseTree),
 	);
-	return owned ? [...pending].sort((x, y) => x.startedAt.localeCompare(y.startedAt))[0] : undefined;
+	return owned ? [...pending].sort((x, y) => String(x.startedAt ?? "").localeCompare(String(y.startedAt ?? "")))[0] : undefined;
 };
+
+// Whether the review pane queued this batch: the latest line for `id` in the pane's
+// queue (`.pi/agent-review/threads/queue.jsonl`, plan C) says queued or delivered.
+// It keeps other extensions and casual self-sends from absorbing; it is not proof
+// against an agent that forges the file, which `agent-review skip` already allows.
+export async function queuedBatch(root: string, id: string): Promise<boolean> {
+	const text = await readFile(join(root, DIR, "threads", "queue.jsonl"), "utf8").catch(() => "");
+	let state: unknown;
+	for (const line of text.split("\n")) {
+		try {
+			const entry = JSON.parse(line) as { id?: unknown; state?: unknown };
+			if (entry.id === id) state = entry.state;
+		} catch {
+			// a torn or blank line says nothing about this batch
+		}
+	}
+	return state === "queued" || state === "delivered";
+}
 export const modeTampered = (before: number, after: number) => before !== after;
 
 // The branch's last segment (feat/pi-handoff -> pi-handoff), made unique among `taken`.
@@ -350,6 +372,8 @@ export default function agentReview(pi: ExtensionAPI) {
 			const end = await snapshot(run.root, "agent-review-end");
 			if (end.tree === run.baseTree) {
 				await deleteRefs(run.root, run.runId);
+				// Nothing changed since the absorbed reviews' base: nothing is left to review.
+				await retireAbsorbed(run.root, run.runId);
 				active = undefined;
 				return;
 			}
@@ -378,6 +402,7 @@ export default function agentReview(pi: ExtensionAPI) {
 			}
 			await setRef(run.root, run.runId, run.base, end.commit);
 			await atomic(path(run.root, "pending", `${run.runId}.json`), record);
+			await retireAbsorbed(run.root, run.runId);
 			await registerRepo(run.root);
 			active = undefined;
 			reportPrintFailure(
@@ -474,45 +499,51 @@ export default function agentReview(pi: ExtensionAPI) {
 		}
 	};
 
-	// Start a run from the oldest pending record's base and retire every pending
-	// record, when `absorbable` allows it and no record is mid-claim. Retiring comes
-	// after `active` is set, so an interrupted retire leaves records that still block.
-	const absorb = async (root: string, blocked: Pending[], text: string, ctx: ExtensionContext) => {
-		const from = absorbable(blocked, ctx.sessionManager?.getSessionId?.() ?? "", text);
-		if (!from || active) return false;
+	// Start a run from the oldest pending record's base when `absorbable` allows it,
+	// the input is no extension's, the pane queued the batch, and no record is
+	// mid-claim. The old records are only marked here; `finish` deletes them after
+	// the new record is written, so a crash in between leaves them blocking.
+	const absorb = async (root: string, blocked: Pending[], event: { text: string; source?: string }, ctx: ExtensionContext) => {
+		if (active || event.source === "extension") return false;
+		const from = absorbable(blocked, ctx.sessionManager?.getSessionId?.() ?? "", event.text);
+		const batch = reviewBatchId(event.text);
+		if (!from || !batch || !(await queuedBatch(root, batch))) return false;
 		if (blocked.some((r) => existsSync(path(root, "pending", `${r.runId}.processing`)))) return false;
+		const id = randomUUID();
 		try {
-			const id = randomUUID();
+			const modeMtimeMs = (await readMode(root)).mtimeMs;
 			await setRef(root, id, from.base);
-			active = {
-				runId: id,
-				root,
-				base: from.base,
-				baseTree: from.baseTree,
-				startedAt: new Date().toISOString(),
-				modeMtimeMs: (await readMode(root)).mtimeMs,
-				session: from.session ?? "",
-			};
+			for (const r of blocked) await atomic(path(root, "pending", `${r.runId}.json`), { ...r, absorbedBy: id });
+			active = { runId: id, root, base: from.base, baseTree: from.baseTree, startedAt: new Date().toISOString(), modeMtimeMs, session: from.session ?? "" };
 		} catch {
+			await deleteRefs(root, id);
 			return false;
 		}
 		reviewFollowUp = false;
 		verifierDone = false;
 		latestCtx = ctx;
 		disarmFallback();
-		for (const r of blocked) {
-			await rm(path(root, "pending", `${r.runId}.json`), { force: true });
-			await deleteRefs(root, r.runId);
-		}
 		return true;
+	};
+
+	// After the absorbing run's own record is safely written (or it changed nothing),
+	// drop the records it absorbed. Never throws: the new record already stands.
+	const retireAbsorbed = async (root: string, runId: string) => {
+		for (const r of await listPending(root).catch(() => [] as Pending[])) {
+			if (r.absorbedBy !== runId) continue;
+			// Refs first: if this stops between the two, the record survives and still blocks.
+			await deleteRefs(root, r.runId);
+			await rm(path(root, "pending", `${r.runId}.json`), { force: true }).catch(() => undefined);
+		}
 	};
 
 	pi.on("input", async (event, ctx) => {
 		const root = await repoRoot(ctx.cwd);
 		// This ctx is live; the one `finish` holds later may not be.
 		notePrintMode(ctx);
-		const blocked = await listPending(root);
-		if (blocked.length > 0 && (await absorb(root, blocked, event.text, ctx))) return { action: "continue" as const };
+		// Records the active run absorbed stop blocking only while that run lives here.
+		const blocked = (await listPending(root)).filter((r) => !(active && r.absorbedBy === active.runId));
+		if (blocked.length > 0 && (await absorb(root, blocked, event, ctx))) return { action: "continue" as const };
 		if (blocked.length > 0) {
 			ctx.ui.notify(
 				`Review pending (${blocked[0].runId}) — /review skip ${label(blocked[0])} to continue`,

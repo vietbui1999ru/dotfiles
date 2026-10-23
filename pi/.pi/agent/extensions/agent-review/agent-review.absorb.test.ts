@@ -3,7 +3,7 @@
 // Every other input is refused as before.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after } from "node:test";
@@ -35,9 +35,10 @@ function makeRepo(): string {
 function start(root: string, sessionId: string) {
 	const handlers = new Map<string, Array<(e: unknown, c: unknown) => unknown>>();
 	const channels = new Map<string, Array<(data: unknown) => void>>();
+	const statuses: string[] = [];
 	const ctx = {
 		cwd: root, hasUI: true, mode: "tui",
-		ui: { notify: () => {}, setStatus: () => {} },
+		ui: { notify: () => {}, setStatus: (_key: string, text: unknown) => { statuses.push(String(text)); } },
 		sessionManager: { getSessionId: () => sessionId },
 	};
 	const pi = {
@@ -63,7 +64,7 @@ function start(root: string, sessionId: string) {
 		await emit("agent_settled");
 		pi.events.emit("post-run-verifier:settled", {});
 	};
-	return { emit, settle };
+	return { emit, settle, statuses };
 }
 
 const pendingDir = (root: string) => join(root, ".pi", "agent-review", "pending");
@@ -106,6 +107,11 @@ test("a new pending record names the Pi session that wrote it", async () => {
 });
 
 const batch = (text: string) => `[review-batch ${ID}]\n${text}`;
+// What the review pane writes when it queues a batch (plan C's queue file).
+const queue = (root: string, state = "queued", id = ID) => {
+	mkdirSync(join(root, ".pi", "agent-review", "threads"), { recursive: true });
+	appendFileSync(join(root, ".pi", "agent-review", "threads", "queue.jsonl"), `${JSON.stringify({ id, state })}\n`);
+};
 const recordFile = (root: string, runId: string) => join(pendingDir(root), `${runId}.json`);
 const refsOf = (root: string, runId: string) => git(root, "for-each-ref", `refs/agent-review/${runId}/`).trim();
 const edit = (root: string, runId: string, change: (r: Record<string, unknown>) => void) => {
@@ -114,17 +120,20 @@ const edit = (root: string, runId: string, change: (r: Record<string, unknown>) 
 	writeFileSync(recordFile(root, runId), JSON.stringify(r));
 };
 
-// Run A in `sessionId`, then return it with its session handle.
+// Run A in `sessionId`, then return it with its session handle. `finish` sets the
+// "review pending" status only after its run is no longer active, so waiting for
+// it means every later input meets an idle session, not one still finishing A.
 async function firstRun(root: string, sessionId = "s1") {
 	const session = start(root, sessionId);
 	await run(root, session, "work", "a.txt");
-	await waitFor(() => records(root).length === 1);
+	await waitFor(() => session.statuses.some((s) => s.startsWith("review pending")));
 	return { session, a: records(root)[0] };
 }
 
 test("a review batch from the same session absorbs the pending run", async () => {
 	const root = makeRepo();
 	const { session, a } = await firstRun(root);
+	queue(root);
 	assert.deepEqual(await run(root, session, batch("fix it"), "b.txt"), { action: "continue" });
 	await waitFor(() => records(root).length === 1 && records(root)[0].runId !== a.runId);
 	const [b] = records(root);
@@ -146,6 +155,7 @@ test("a batch from another session is refused", async () => {
 	const root = makeRepo();
 	const { a } = await firstRun(root);
 	const other = start(root, "s2");
+	queue(root);
 	assert.deepEqual(await other.emit("input", { text: batch("fix"), source: "interactive" }), { action: "handled" });
 	assert.deepEqual(records(root), [a]);
 });
@@ -159,6 +169,7 @@ for (const [label, change] of [
 		const root = makeRepo();
 		const { session, a } = await firstRun(root);
 		edit(root, a.runId, change);
+	queue(root);
 		const before = readFileSync(recordFile(root, a.runId), "utf8");
 		assert.deepEqual(await session.emit("input", { text: batch("fix"), source: "interactive" }), { action: "handled" });
 		assert.equal(readFileSync(recordFile(root, a.runId), "utf8"), before);
@@ -170,6 +181,7 @@ test("a record mid-claim (being approved) is never absorbed", async () => {
 	const { session, a } = await firstRun(root);
 	const claim = join(pendingDir(root), `${a.runId}.processing`);
 	renameSync(recordFile(root, a.runId), claim);
+	queue(root);
 	assert.deepEqual(await session.emit("input", { text: batch("fix"), source: "interactive" }), { action: "handled" });
 	assert.ok(existsSync(claim));
 	assert.notEqual(refsOf(root, a.runId), "");
@@ -178,6 +190,7 @@ test("a record mid-claim (being approved) is never absorbed", async () => {
 test("no session id refuses", async () => {
 	const root = makeRepo();
 	const { session } = await firstRun(root, "");
+	queue(root);
 	assert.deepEqual(await session.emit("input", { text: batch("fix"), source: "interactive" }), { action: "handled" });
 });
 
@@ -186,17 +199,50 @@ test("two records from one session absorb from the oldest base", async () => {
 	const { session, a } = await firstRun(root);
 	const second = { ...a, runId: "1b4e28ba-2fa1-41d2-883f-0016d3cca427", base: a.end, baseTree: a.endTree, startedAt: "2999-01-01T00:00:00.000Z" };
 	writeFileSync(recordFile(root, second.runId), JSON.stringify(second));
+	queue(root);
 	await run(root, session, batch("fix"), "b.txt");
 	await waitFor(() => records(root).length === 1 && ![a.runId, second.runId].includes(records(root)[0].runId));
 	assert.equal(records(root)[0].base, a.base);
 });
 
-test("a leftover record after an interrupted absorb is refused for plain input", async () => {
+test("a crash during the absorbing run leaves the absorbed record blocking", async () => {
 	const root = makeRepo();
 	const { session, a } = await firstRun(root);
-	await run(root, session, batch("fix"), "b.txt");
-	await waitFor(() => records(root).length === 1 && records(root)[0].runId !== a.runId);
-	writeFileSync(recordFile(root, a.runId), JSON.stringify(a));
-	assert.deepEqual(await session.emit("input", { text: "hello", source: "interactive" }), { action: "handled" });
-	assert.deepEqual(JSON.parse(readFileSync(recordFile(root, a.runId), "utf8")), a);
+	queue(root);
+	assert.deepEqual(await session.emit("input", { text: batch("fix"), source: "interactive" }), { action: "continue" });
+	// The process dies before finish(): a fresh extension instance has no active run.
+	const restarted = start(root, "s1");
+	assert.deepEqual(await restarted.emit("input", { text: "hello", source: "interactive" }), { action: "handled" });
+	assert.equal(JSON.parse(readFileSync(recordFile(root, a.runId), "utf8")).runId, a.runId);
+	assert.notEqual(refsOf(root, a.runId), "");
 });
+
+test("the absorbing run's own follow-up input is not refused", async () => {
+	const root = makeRepo();
+	const { session } = await firstRun(root);
+	queue(root);
+	await session.emit("input", { text: batch("fix"), source: "interactive" });
+	assert.deepEqual(await session.emit("input", { text: "and also", source: "interactive" }), { action: "continue" });
+});
+
+test("a batch sent by an extension is refused", async () => {
+	const root = makeRepo();
+	const { session, a } = await firstRun(root);
+	queue(root);
+	assert.deepEqual(await session.emit("input", { text: batch("fix"), source: "extension" }), { action: "handled" });
+	assert.deepEqual(records(root), [a]);
+});
+
+for (const [label, prep] of [
+	["not queued by the pane", (_root: string) => {}],
+	["already answered", (root: string) => { queue(root); queue(root, "answered"); }],
+] as const) {
+	test(`a batch ${label} is refused`, async () => {
+		const root = makeRepo();
+		const { session, a } = await firstRun(root);
+		prep(root);
+		assert.deepEqual(await session.emit("input", { text: batch("fix"), source: "interactive" }), { action: "handled" });
+		assert.deepEqual(records(root), [a]);
+	});
+}
+
