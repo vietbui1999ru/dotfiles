@@ -6,8 +6,10 @@ import { FOCUS_ACTION, FOCUS_REFUSED, JUMP_KEYS, nextPane, PANE_TITLES, switchSt
 import { PALETTE } from './palette'
 import { parseWorktrees } from './worktrees'
 
-export type GatesState = { rows: GateRow[]; headers: Record<string, string>; selected?: string; detail?: string; busy: string[]; last: Record<string, string>; confirm?: string; reviewsUnavailable?: boolean }
+export type GatesState = { rows: GateRow[]; headers: Record<string, string>; selected?: string; detail?: string; busy: string[]; last: Record<string, string>; confirm?: string; reviewsUnavailable?: boolean; hideOrphans?: boolean }
 const view = atom({ plugin: 'session-band', key: 'gates' } as const, { rows: [], headers: {}, busy: [], last: {} } as GatesState)
+// Rows the pane shows and moves through; `h` hides the "(no worktree)" orphan group.
+const visible = (state: GatesState): GateRow[] => state.hideOrphans ? state.rows.filter(row => row.worktree !== null) : state.rows
 
 const show = async ($: EngineInterface, row: SpecRow): Promise<string | undefined> => {
   const home = await $.env.get('HOME')
@@ -18,7 +20,9 @@ const show = async ($: EngineInterface, row: SpecRow): Promise<string | undefine
   return detail
 }
 
-const refresh = async ($: EngineInterface) => {
+// manual: the `r` key. It drops notes left by earlier actions and reports the outcome,
+// so a refresh that changed nothing is distinguishable from one that failed.
+const refresh = async ($: EngineInterface, manual = false) => {
   const cwd = await $.session.cwd()
   const home = await $.env.get('HOME')
   const result = await $.process.run(['git', 'worktree', 'list', '--porcelain'], { cwd }).catch(() => undefined)
@@ -40,7 +44,11 @@ const refresh = async ($: EngineInterface) => {
   const owners = [...new Set([...trees.map(tree => tree.path), ...combined.flatMap(row => row.worktree === null ? [] : [row.worktree])]), null]
   const rows = owners.flatMap(owner => combined.filter(row => row.worktree === owner))
   const headers = Object.fromEntries(trees.map(tree => [tree.path, tree.branch ?? tree.path.split('/').filter(Boolean).pop() ?? tree.path]))
-  await update($, view, state => ({ ...state, rows, headers, reviewsUnavailable: entries === undefined, selected: rows.some(row => row.key === state.selected) ? state.selected : rows[0]?.key, detail: undefined, confirm: undefined }))
+  await update($, view, state => {
+    const shown = visible({ ...state, rows })
+    return { ...state, rows, headers, reviewsUnavailable: entries === undefined, selected: shown.some(row => row.key === state.selected) ? state.selected : shown[0]?.key, detail: undefined, confirm: undefined, last: manual ? {} : state.last }
+  })
+  if (manual) await $.ui.toast(result?.exitCode === 0 ? `Refreshed: ${rows.length} rows.` : 'Refresh failed: git worktree list did not run.')
   const state = await read($, view)
   const pick = state.rows.find(row => row.key === state.selected)
   if (pick?.kind === 'spec') await show($, pick)
@@ -48,12 +56,24 @@ const refresh = async ($: EngineInterface) => {
 
 const move = async ($: EngineInterface, step: 1 | -1) => {
   await update($, view, state => {
-    const at = Math.max(0, state.rows.findIndex(row => row.key === state.selected))
-    return { ...state, selected: state.rows[(at + step + state.rows.length) % state.rows.length]?.key, detail: undefined, confirm: undefined }
+    const shown = visible(state)
+    const at = Math.max(0, shown.findIndex(row => row.key === state.selected))
+    return { ...state, selected: shown[(at + step + shown.length) % shown.length]?.key, detail: undefined, confirm: undefined }
   })
   const state = await read($, view)
   const pick = state.rows.find(row => row.key === state.selected)
   if (pick?.kind === 'spec') await show($, pick)
+}
+
+const toggleOrphans = async ($: EngineInterface) => {
+  await update($, view, state => {
+    const next = { ...state, hideOrphans: !state.hideOrphans }
+    const shown = visible(next)
+    return shown.some(row => row.key === state.selected) ? next : { ...next, selected: shown[0]?.key, detail: undefined, confirm: undefined }
+  })
+  const state = await read($, view)
+  const pick = state.rows.find(row => row.key === state.selected)
+  if (pick?.kind === 'spec' && state.detail === undefined) await show($, pick)
 }
 
 // Kept local because the engine cannot pass `$` across an import.
@@ -125,7 +145,8 @@ const approveReview = async ($: EngineInterface, row: ReviewRow) => {
 const approve = async ($: EngineInterface, row: GateRow | undefined) => {
   if (!row) return
   if (row.kind === 'spec' && (row.state === 'invalid' || row.state === 'approved')) return
-  if (row.kind === 'review' && (row.entry.processing || row.entry.orphan)) return
+  // A decided review is refused by approve (already-decided); only Pi or a skip clears it.
+  if (row.kind === 'review' && (row.entry.processing || row.entry.orphan || row.entry.decided)) return
   // Claim before any process or detail read; a second press sees the busy row.
   let claimed = false
   await update($, view, state => {
@@ -167,7 +188,8 @@ const reject = async ($: EngineInterface, row: GateRow | undefined) => {
   await update($, view, value => ({ ...value, confirm: undefined }))
   if (row.kind === 'review') {
     try {
-      if (row.entry.orphan) {
+      // Skip directly: an orphan has no Neovim, and a decided review's Pi is gone.
+      if (row.entry.orphan || row.entry.decided) {
         const home = await $.env.get('HOME')
         if (!home) throw new Error('review gate unavailable')
         const result = await $.process.run(skipArgv(home, row.entry.runId), { cwd: await $.session.cwd() })
@@ -179,7 +201,7 @@ const reject = async ($: EngineInterface, row: GateRow | undefined) => {
         const result = await $.process.run(reviewRemoteArgv(socket, 'AgentReviewRejectAll', row.entry.runId))
         await $.ui.toast(rejectToast(result.exitCode))
       }
-    } catch { await $.ui.toast(row.entry.orphan ? 'Could not skip review.' : rejectToast(1)) }
+    } catch { await $.ui.toast(row.entry.orphan || row.entry.decided ? 'Could not skip review.' : rejectToast(1)) }
   } else {
     const home = await $.env.get('HOME')
     if (!home) { await $.ui.toast('ac-run unavailable'); return }
@@ -215,17 +237,20 @@ export const register: Register = on => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const state = await read($, view)
     const pick = state.rows.find(row => row.key === state.selected)
-    const owners = [...new Set(state.rows.map(row => row.worktree))]
+    const shown = visible(state)
+    const owners = [...new Set(shown.map(row => row.worktree))]
+    const orphans = state.rows.filter(row => row.worktree === null).length
     return <Box flexDirection="column">
       <Text weight="bold">Gates</Text>
       <Box flexDirection="row" flexWrap="wrap" columnGap={2} marginBottom={1}>
         <Button key="gates-key-down" plain dimColor hotkey="j" label="down" onPress={() => void move($, 1)} />
         <Button key="gates-key-up" plain dimColor hotkey="k" label="up" onPress={() => void move($, -1)} />
-        <Button key="gates-approve" plain dimColor={!pick || (pick.kind === 'spec' ? pick.state === 'invalid' || pick.state === 'approved' : pick.entry.processing || pick.entry.orphan) || state.busy.includes(pick.key)} hotkey="a" label="Approve" onPress={() => void approve($, pick)} />
+        <Button key="gates-approve" plain dimColor={!pick || (pick.kind === 'spec' ? pick.state === 'invalid' || pick.state === 'approved' : pick.entry.processing || pick.entry.orphan || pick.entry.decided) || state.busy.includes(pick.key)} hotkey="a" label="Approve" onPress={() => void approve($, pick)} />
         <Button key="gates-reject" plain hotkey="x" label={state.confirm === pick?.key && pick ? 'Reject again?' : pick?.kind === 'review' ? 'Reject all' : 'Reject'} onPress={() => void reject($, pick)} />
         <Button key="gates-edit" plain hotkey="e" label="Edit" onPress={() => void edit($, pick)} />
         <Button key="gates-open" plain hotkey="o" label="Open review" onPress={() => void openReview($, pick)} />
-        <Button key="gates-key-reload" plain dimColor hotkey="r" label="refresh" onPress={() => void refresh($)} />
+        <Button key="gates-key-reload" plain dimColor hotkey="r" label="refresh" onPress={() => void refresh($, true)} />
+        <Button key="gates-key-orphans" plain dimColor hotkey="h" label={state.hideOrphans ? 'show orphans' : 'hide orphans'} onPress={() => void toggleOrphans($)} />
         <Button key="gates-key-prev" plain dimColor hotkey="b" label="prev" onPress={() => void cycle($, -1)} />
         <Button key="gates-key-next" plain dimColor hotkey="f" label="next" onPress={() => void cycle($, 1)} />
         <Button key="gates-key-worktrees" plain dimColor hotkey="w" label="worktrees" onPress={() => void goTo($, 'worktrees')} />
@@ -235,12 +260,13 @@ export const register: Register = on => {
       </Box>
       {state.reviewsUnavailable && <Text color={PALETTE.yellow}>reviews unavailable</Text>}
       {state.rows.length === 0 && <Text dimColor>No specs or pending reviews.</Text>}
+      {state.hideOrphans && orphans > 0 && <Text dimColor>{`${orphans} orphan${orphans === 1 ? '' : 's'} hidden (h to show)`}</Text>}
       {owners.map(owner => <Box key={`gates-group-${owner}`} flexDirection="column" marginBottom={1}>
         <Text weight="bold">{owner === null ? '(no worktree)' : state.headers[owner] ?? owner.split('/').filter(Boolean).pop() ?? owner}</Text>
-        {state.rows.filter(row => row.worktree === owner).map(row => {
+        {shown.filter(row => row.worktree === owner).map(row => {
           if (row.kind === 'review') {
             const entry = row.entry
-            const parts = [`review ${entry.runId.slice(0, 8)}`, entry.name, ...(['landed', 'processing', 'error', 'orphan'] as const).filter(tag => entry[tag]).map(tag => `[${tag}]`)]
+            const parts = [`review ${entry.runId.slice(0, 8)}`, entry.name, ...(['landed', 'decided', 'processing', 'error', 'orphan'] as const).filter(tag => entry[tag]).map(tag => `[${tag}]`)]
             if (state.busy.includes(row.key)) parts.push('approving…')
             return <Text key={row.key} mono weight={row.key === state.selected ? 'bold' : undefined}>{`${row.key === state.selected ? '›' : ' '} ${parts.filter(Boolean).join('  ')}`}</Text>
           }

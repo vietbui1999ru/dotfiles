@@ -16,8 +16,8 @@ test('gates parses only review arrays, drops missing ids and keys orphan rows', 
   expect(parseReviewList('not json')).toBeUndefined()
   expect(parseReviewList('{"a":1}')).toBeUndefined()
   const entries = [
-    { runId: 'run-1', owner: '/r', branch: 'main', name: 'one', startedAt: '', processing: false, error: false, landed: true, orphan: false },
-    { runId: 'run-2', owner: null, branch: '', name: '', startedAt: '', processing: false, error: false, landed: false, orphan: true },
+    { runId: 'run-1', owner: '/r', branch: 'main', name: 'one', startedAt: '', processing: false, error: false, landed: true, decided: false, orphan: false },
+    { runId: 'run-2', owner: null, branch: '', name: '', startedAt: '', processing: false, error: false, landed: false, decided: false, orphan: true },
   ]
   const parsed = parseReviewList(JSON.stringify([...entries, {}, null]))
   expect(parsed).toEqual(entries)

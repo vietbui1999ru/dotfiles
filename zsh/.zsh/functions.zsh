@@ -41,3 +41,20 @@ sshr() {
   local host="${1:-vietbui1999ru@rtx2060}"
   kitten ssh "$host"
 }
+
+# Tab completion for agent-review: subcommands, then run ids for approve and skip.
+# Type a prefix (edaf) and Tab completes it; Tab again cycles the other matches.
+# Ids come from every registered repo; --offline keeps gh off the keypress path.
+_agent_review() {
+  if (( CURRENT == 2 )); then
+    local -a subs=(mode status approve list register skip)
+    _describe 'subcommand' subs
+    return
+  fi
+  [[ $words[2] == (approve|skip) ]] || return 1
+  local -a ids
+  ids=(${(f)"$("$HOME/dotfiles/scripts/agent-review" list --global --offline --json 2>/dev/null \
+    | jq -r '.[] | "\(.runId):\(if .orphan then "[orphan]" else "\(.name) \(.branch)\(if .decided then " [decided]" else "" end)" end)"' 2>/dev/null)"})
+  _describe 'run id' ids
+}
+compdef _agent_review agent-review "$HOME/dotfiles/scripts/agent-review"
