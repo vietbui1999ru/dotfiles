@@ -67,12 +67,17 @@ export const parseThread = (text: string): ThreadEntry[] => {
 /**
  * Appends one entry and resolves once the whole file is written. A file whose last line was cut
  * short keeps that line (it is skipped when read) and gets the new entry on a line of its own.
+ * `$.fs.write` is not atomic, so the new content goes to a temporary file in the same directory
+ * that is then renamed over the thread: a crash leaves the old file or the new one, never half.
  */
 export async function appendEntry($: EngineInterface, worktree: string, entry: ThreadEntry): Promise<void> {
   const path = threadFile(worktree, entry.agent, entry.file)
   const existing = await $.fs.read(path).catch(() => '')
   const separator = existing === '' || existing.endsWith('\n') ? '' : '\n'
-  await $.fs.write(path, `${existing}${separator}${JSON.stringify(entry)}\n`)
+  const tmp = `${path}.tmp`
+  await $.fs.write(tmp, `${existing}${separator}${JSON.stringify(entry)}\n`)
+  const moved = await $.process.run(['mv', '-f', tmp, path])
+  if (moved.exitCode !== 0) throw new Error(`review thread not saved: ${moved.stderr.trim() || 'mv failed'}`)
 }
 
 export async function readThread($: EngineInterface, worktree: string, agent: AgentKey, file: string): Promise<ThreadEntry[]> {

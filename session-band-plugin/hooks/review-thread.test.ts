@@ -14,9 +14,9 @@ const entry = (over: Partial<ThreadEntry> = {}): ThreadEntry => ({
   ...over,
 })
 
-// The data layer only touches the engine's file system; a fake with the same contract keeps the
-// thread tests on the module rather than on the plugin chain.
-const memoryFs = () => {
+// The data layer touches the engine's file system and renames with `mv`; a fake with the same
+// contract keeps the thread tests on the module rather than on the plugin chain.
+const memoryFs = (mvFails = false) => {
   const files: Record<string, string> = {}
   const $ = {
     fs: {
@@ -25,6 +25,15 @@ const memoryFs = () => {
         return files[path] as string
       },
       write: async (path: string, text: string) => { files[path] = text },
+    },
+    process: {
+      run: async (argv: string[]) => {
+        const [cmd, flag, from, to] = argv
+        if (cmd !== 'mv' || flag !== '-f' || !from || !to || mvFails || !(from in files)) return { exitCode: 1, stdout: '', stderr: 'mv failed' }
+        files[to] = files[from] as string
+        delete files[from]
+        return { exitCode: 0, stdout: '', stderr: '' }
+      },
     },
   } as unknown as EngineInterface
   return { $, files }
@@ -74,6 +83,24 @@ test('appendEntry starts a new line after a truncated one so the write is not lo
   await appendEntry($, '/w', entry({ id: 'e2' }))
 
   expect((await readThread($, '/w', 'pi:abc', 'src/a.ts')).map(item => item.id)).toEqual(['e1', 'e2'])
+})
+
+test('appendEntry replaces the thread by renaming a temporary file, leaving none behind', async () => {
+  const { $, files } = memoryFs()
+
+  await appendEntry($, '/w', entry({ id: 'e1' }))
+
+  expect(Object.keys(files)).toEqual([threadFile('/w', 'pi:abc', 'src/a.ts')])
+})
+
+test('a failed rename throws and leaves the existing thread intact', async () => {
+  const { $, files } = memoryFs(true)
+  const path = threadFile('/w', 'pi:abc', 'src/a.ts')
+  files[path] = `${JSON.stringify(entry({ id: 'e1' }))}\n`
+
+  await expect(appendEntry($, '/w', entry({ id: 'e2' }))).rejects.toThrow('review thread not saved')
+
+  expect((await readThread($, '/w', 'pi:abc', 'src/a.ts')).map(item => item.id)).toEqual(['e1'])
 })
 
 test('readThread is empty for a thread that was never written', async () => {
