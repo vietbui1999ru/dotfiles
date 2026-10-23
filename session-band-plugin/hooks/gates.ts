@@ -2,7 +2,7 @@ import type { Worktree } from './worktrees'
 
 export type SpecState = 'draft' | 'approved' | 'stale' | 'invalid'
 export type SpecRow = { kind: 'spec'; key: string; worktree: string; branch: string; path: string; rel: string; state?: SpecState; error?: string }
-export type ReviewEntry = { runId: string; owner: string | null; branch: string; name: string; startedAt: string; processing: boolean; error: boolean; landed: boolean; orphan: boolean }
+export type ReviewEntry = { runId: string; owner: string | null; branch: string; name: string; startedAt: string; processing: boolean; error: boolean; landed: boolean; decided: boolean; orphan: boolean }
 export type ReviewRow = { kind: 'review'; key: string; worktree: string | null; entry: ReviewEntry }
 export type GateRow = SpecRow | ReviewRow
 
@@ -26,7 +26,7 @@ export const parseReviewList = (stdout: string): ReviewEntry[] | undefined => {
         name: typeof entry.name === 'string' ? entry.name : '',
         startedAt: typeof entry.startedAt === 'string' ? entry.startedAt : '',
         processing: entry.processing === true, error: entry.error === true,
-        landed: entry.landed === true, orphan: entry.orphan === true,
+        landed: entry.landed === true, decided: entry.decided === true, orphan: entry.orphan === true,
       }]
     })
   } catch { return undefined }
