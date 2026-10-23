@@ -18,6 +18,7 @@ type World = {
   changed: string[]
   envs: (string | undefined)[]
   snapshots: number
+  writes: number
 }
 
 const runGit = (world: World, argv: readonly string[], env?: Record<string, string>) => {
@@ -36,7 +37,7 @@ const runGit = (world: World, argv: readonly string[], env?: Record<string, stri
 }
 
 const setup = (on: On, over: Partial<World> = {}): World => {
-  const world: World = { files: {}, changed: [], envs: [], snapshots: 0, ...over }
+  const world: World = { files: {}, changed: [], envs: [], snapshots: 0, writes: 0, ...over }
   mock.clock(on, { now: 1_000_000 })
   mock.env(on, { HOME, TMPDIR: '/tmp' })
   on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200_000, percent: 0 }, rateLimits: [] } }))
@@ -52,6 +53,7 @@ const setup = (on: On, over: Partial<World> = {}): World => {
     return { value: world.files[e.path] as never }
   })
   on('fs.write', ($, e) => {
+    world.writes += 1
     world.files[e.path] = e.text
     return { value: undefined }
   })
@@ -74,7 +76,10 @@ const engine = (world: World): EngineInterface => ({
       if (!(path in world.files)) throw new Error('ENOENT')
       return world.files[path] as string
     },
-    write: async (path: string, text: string) => { world.files[path] = text },
+    write: async (path: string, text: string) => {
+      world.writes += 1
+      world.files[path] = text
+    },
   },
   process: {
     run: async (argv: readonly string[], init?: { env?: Record<string, string> }) => runGit(world, argv, init?.env),
@@ -125,6 +130,7 @@ test('a Bash call that changes nothing records nothing', async ($, on) => {
 
   expect(touched(world)).toEqual([])
   expect(world.files[STATE]).toBeDefined()
+  expect(world.writes).toBe(0)
 })
 
 test('a Bash call that deletes b.ts records b.ts', async ($, on) => {

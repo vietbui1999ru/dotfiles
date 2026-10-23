@@ -119,11 +119,15 @@ export async function recordTouch($: EngineInterface, sessionId: string, worktre
     touched.add(rel)
   }
   if (existing === undefined && touched.size === 0) return
+  const sorted = [...touched].sort()
+  // Most Bash calls change nothing: an unchanged set costs no write.
+  if (existing !== undefined && existing.touched.length === sorted.length
+    && sorted.every((path, index) => path === existing.touched[index])) return
   await save($, {
     sessionId,
     worktree: root,
     baseTree: existing?.baseTree ?? await snapshotTree($, root),
-    touched: [...touched].sort(),
+    touched: sorted,
     ...(existing?.approvedAt === undefined ? {} : { approvedAt: existing.approvedAt }),
   })
 }
