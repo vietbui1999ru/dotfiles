@@ -36,6 +36,7 @@ test('a thread file names its agent and file in one stable, reversible path', ()
   expect(path).toBe('/w/.pi/agent-review/threads/pi%3Aabc/src%2Fa%20b.ts.jsonl')
   expect(threadDir('/w')).toBe('/w/.pi/agent-review/threads')
   expect(decodeURIComponent(path.split('/threads/')[1]!.replace(/\.jsonl$/, ''))).toBe('pi:abc/src/a b.ts')
+  expect(decodeURIComponent(threadFile('/w', 'claude:s1', 'src/naïve—ok.ts').split('/threads/')[1]!.replace(/\.jsonl$/, ''))).toBe('claude:s1/src/naïve—ok.ts')
 })
 
 test('parseThread keeps the entries before a truncated last line', () => {
