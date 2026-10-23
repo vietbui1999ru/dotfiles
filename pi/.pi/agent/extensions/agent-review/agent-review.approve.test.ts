@@ -297,3 +297,23 @@ test("a declined dialog is not-confirmed and leaves the pending record intact", 
   assert.deepEqual(list(join(dirOf(root), "decisions")), []);
   assert.deepEqual(list(join(dirOf(root), "pending")), [`${id}.json`]);
 });
+
+// Repro (2026-10-23, run edaf6b3a): the worktree moved on after a `pi -p` run, so
+// :AgentReview recorded later commits as "changed" with a patch. approve refuses
+// that decision and no Pi is left to read it, so the review is pending for good.
+// /gates refresh then shows the same row with nothing explaining why.
+test("a stuck, already-decided review is flagged in list --all --json", async () => {
+  const root = makeRepo();
+  const id = await pendingRun(root);
+  const record = JSON.parse(readFileSync(join(dirOf(root), "pending", `${id}.json`), "utf8"));
+  writeNvimDecision(root, id, {
+    finalTree: "0".repeat(40),
+    files: record.files.map((f: { file: string }) => ({ file: f.file, status: "changed" })),
+    patch: "diff --git a/tracked.txt b/tracked.txt\n",
+  });
+  assert.equal(approveWith(root, id, true).json.reason, "already-decided");
+  const entries = JSON.parse(spawnSync(cli, ["list", "--all", "--json"], { cwd: root, encoding: "utf8" }).stdout);
+  const entry = entries.find((e: { runId: string }) => e.runId === id);
+  assert.ok(entry, "the stuck review is still listed");
+  assert.equal(entry.decided, true, "list must say a decision exists, so /gates can offer skip");
+});
