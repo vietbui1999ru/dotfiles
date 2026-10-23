@@ -1,0 +1,213 @@
+#!/usr/bin/env python3
+"""Answer one file of a review batch from the diff review pane, for a Pi agent.
+
+The pane's batch text (plan C's `buildBatchText`) ends with the command to run for each file:
+
+    $HOME/dotfiles/scripts/review-reply --worktree <worktree> --batch <id> \
+        --file <file> --verdict agree|clapback --text "<your reply>" [--patch-file <path>]
+
+It writes the same `reply`/`clapback` entry, and the same queue update, that the mod's
+`review_reply` tool writes for a Claude session: both sides share plan B's thread format.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import quote
+
+# Plan B names a thread `<worktree>/.pi/agent-review/threads/<agent>/<file>.jsonl`; plan C's queue sits beside them.
+THREADS = Path(".pi") / "agent-review" / "threads"
+REPLY_KINDS = ("reply", "clapback")
+
+
+class Refused(Exception):
+    """A reply that writes nothing: the caller gets the reason on stderr and exit 2."""
+
+
+def encode(part: str) -> str:
+    """The thread file's name for a part, exactly as the mod's encodeURIComponent writes it."""
+    return quote(part, safe="!~*'()")
+
+
+def thread_dir(worktree: Path) -> Path:
+    return worktree / THREADS
+
+
+def queue_file(worktree: Path) -> Path:
+    return thread_dir(worktree) / "queue.jsonl"
+
+
+def thread_file(worktree: Path, agent: str, file: str) -> Path:
+    return thread_dir(worktree) / encode(agent) / f"{encode(file)}.jsonl"
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def read_rows(path: Path) -> list[dict]:
+    """Every row of a JSONL file that parses; a torn line (a crash mid-append) is skipped."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    rows = []
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            rows.append(value)
+    return rows
+
+
+def append_row(path: Path, row: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as stream:
+        stream.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
+def worktree_root(given: str) -> Path:
+    """The repository root, so a thread written from a subdirectory is the one the pane reads."""
+    path = Path(given).expanduser().resolve()
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return path
+    top = result.stdout.strip()
+    return Path(top) if result.returncode == 0 and top else path
+
+
+def latest_batch(worktree: Path, batch_id: str) -> dict | None:
+    """The latest queue line for a batch id: the queue is append-only, and the last word wins."""
+    found = None
+    for row in read_rows(queue_file(worktree)):
+        if row.get("id") == batch_id:
+            found = row
+    return found
+
+
+def agent_entries(worktree: Path, agent: str) -> dict[str, dict]:
+    """Every entry the agent's threads hold, by entry id."""
+    directory = thread_dir(worktree) / encode(agent)
+    held: dict[str, dict] = {}
+    if not directory.is_dir():
+        return held
+    for path in sorted(directory.glob("*.jsonl")):
+        for row in read_rows(path):
+            entry_id = row.get("id")
+            if isinstance(entry_id, str) and entry_id not in held:
+                held[entry_id] = row
+    return held
+
+
+def batch_files(worktree: Path, batch: dict) -> list[str]:
+    """The files the batch's entries belong to, first mention first: a reply answers every one."""
+    held = agent_entries(worktree, str(batch.get("agent", "")))
+    files: list[str] = []
+    for entry_id in batch.get("entryIds") or []:
+        row = held.get(entry_id) if isinstance(entry_id, str) else None
+        name = row.get("file") if row else None
+        if isinstance(name, str) and name not in files:
+            files.append(name)
+    return files
+
+
+def answered(rows: list[dict], batch_id: str, file: str) -> bool:
+    return any(
+        row.get("batch") == batch_id and row.get("file") == file and row.get("kind") in REPLY_KINDS
+        for row in rows
+    )
+
+
+def patch_text(path: str) -> str:
+    try:
+        return Path(path).expanduser().read_text(encoding="utf-8")
+    except OSError:
+        raise Refused(f"cannot read patch file {path}") from None
+
+
+def run(args: argparse.Namespace) -> int:
+    worktree = worktree_root(args.worktree)
+    batch = latest_batch(worktree, args.batch)
+    if batch is None or batch.get("state") not in ("delivered", "answered") or not isinstance(batch.get("agent"), str):
+        raise Refused(f"unknown or undelivered review batch {args.batch}")
+
+    path = thread_file(worktree, batch["agent"], args.file)
+    rows = read_rows(path)
+    if answered(rows, args.batch, args.file):
+        print(f"already answered {args.file} in batch {args.batch}; this reply was ignored")
+        return 0
+
+    entry = {
+        "id": str(uuid.uuid4()),
+        "at": now_iso(),
+        "agent": batch["agent"],
+        "file": args.file,
+        "kind": "clapback" if args.verdict == "clapback" else "reply",
+        "author": "agent",
+        "text": args.text,
+        "batch": args.batch,
+        "verdict": args.verdict,
+    }
+    if args.entry:
+        entry["replyTo"] = args.entry[0]
+    if args.patch_file:
+        entry["patch"] = patch_text(args.patch_file)
+    # The batch's model is what the pane dispatched this Pi session to; the reply came from it.
+    for key in ("model", "effort"):
+        if isinstance(batch.get(key), str):
+            entry[key] = batch[key]
+    append_row(path, entry)
+
+    complete = True
+    for name in batch_files(worktree, batch):
+        held = [*rows, entry] if name == args.file else read_rows(thread_file(worktree, batch["agent"], name))
+        if not answered(held, args.batch, name):
+            complete = False
+    if complete:
+        append_row(queue_file(worktree), {**batch, "state": "answered", "answeredAt": now_iso()})
+        print(f"reply recorded for {args.file}; batch {args.batch} is answered")
+    else:
+        print(f"reply recorded for {args.file}")
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Answer one file of a review batch from the review pane")
+    parser.add_argument("--worktree", required=True, help="the worktree whose threads hold the batch")
+    parser.add_argument("--batch", required=True, help="the batch id from the message's first line")
+    parser.add_argument("--file", required=True, help="the file this reply answers")
+    parser.add_argument("--verdict", required=True, choices=("agree", "clapback"),
+                        help="agree, or clapback with a reason when you disagree")
+    parser.add_argument("--text", required=True, help="your reply")
+    parser.add_argument("--entry", action="append", default=[],
+                        help="the proposed patch entry this verdict answers (repeatable)")
+    parser.add_argument("--patch-file", help="a file holding an alternative unified diff")
+    args = parser.parse_args()
+    try:
+        return run(args)
+    except Refused as error:
+        print(str(error), file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
