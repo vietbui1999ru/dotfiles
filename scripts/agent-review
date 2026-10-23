@@ -154,19 +154,22 @@ def scan(root: Path, every: bool) -> list[dict[str, object]]:
                 continue
             record = read_json(path) or {}
             hashes = all(isinstance(record.get(k), str) and HASH.fullmatch(record[k]) for k in ("base", "end"))
+            # Same test as approve's already-decided refusal: only Pi or a skip can clear it.
+            decision = read_json(tree / ".pi" / "agent-review" / "decisions" / f"{run_id}.json")
+            decided = decision is not None and not quiet_decision(decision, {"runId": run_id, "endTree": record.get("endTree")})
             found.append({
                 "runId": run_id, "owner": str(tree), "branch": branch,
                 "name": record.get("name") or "", "startedAt": record.get("startedAt") or "",
                 "processing": kind == ".processing", "error": "error" in record,
                 "landed": hashes and landed(tree, record["base"], record["end"], ref),
-                "orphan": False,
+                "decided": decided, "orphan": False,
             })
     if every:
         held = {entry["runId"] for entry in found}
         refs = git(root, "for-each-ref", "--format=%(refname)", "refs/agent-review/").splitlines()
         for run_id in sorted({r.split("/")[2] for r in refs if r.count("/") >= 3} - held):
             found.append({"runId": run_id, "owner": None, "branch": "", "name": "", "startedAt": "",
-                          "processing": False, "error": False, "landed": False, "orphan": True})
+                          "processing": False, "error": False, "landed": False, "decided": False, "orphan": True})
     return sorted(found, key=lambda entry: (entry["orphan"], str(entry["startedAt"])))
 
 
@@ -415,7 +418,7 @@ def command_list(args: argparse.Namespace) -> int:
         print(json.dumps(entries))
         return 0
     for e in entries:
-        tags = [t for t in ("landed", "processing", "error", "orphan") if e[t]]
+        tags = [t for t in ("landed", "decided", "processing", "error", "orphan") if e[t]]
         where = "(no worktree)" if e["orphan"] else f"{e['owner']} [{e['branch'] or 'detached'}]"
         repo = f"{Path(str(e['repo'])).name}  " if args.glob else ""
         print(f"{repo}{e['name'] or '-'}  {str(e['runId'])[:8]}  {where}  {e['startedAt']}  {' '.join(tags)}".rstrip())
