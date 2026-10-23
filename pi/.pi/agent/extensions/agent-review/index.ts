@@ -37,6 +37,12 @@ type Pending = {
 	name?: string;
 	tamper?: true;
 	error?: string;
+	// The Pi session that wrote it; absent on records written before sessions were kept.
+	session?: string;
+	// The run that absorbed it. It stops blocking only while that run is this process's
+	// active run, and is deleted once that run's own record is written; after a crash
+	// the marker names a dead run and the record blocks again.
+	absorbedBy?: string;
 };
 type Decision = {
 	runId: string;
@@ -54,12 +60,46 @@ type Active = {
 	baseTree: string;
 	startedAt: string;
 	modeMtimeMs: number;
+	session: string;
 };
 
 export const validRunId = (value: unknown): value is string =>
 	typeof value === "string" && RUN_ID.test(value);
 export const validHash = (value: unknown): value is string =>
 	typeof value === "string" && HASH.test(value);
+
+// The review pane's batch marker: the first line of its feedback message.
+export const REVIEW_BATCH = /^\[review-batch ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]$/;
+export const reviewBatchId = (text: string): string | undefined => REVIEW_BATCH.exec(text.split("\n", 1)[0] ?? "")?.[1];
+
+// A review batch for the session that wrote every pending record continues that
+// review instead of being refused: the oldest record, whose base the new run takes.
+// Any doubt is a refusal (undefined), so the gate fails closed.
+export const absorbable = (pending: readonly Pending[], sessionId: string, text: string): Pending | undefined => {
+	if (!reviewBatchId(text) || !sessionId || pending.length === 0) return undefined;
+	const owned = pending.every(
+		(r) => r.session === sessionId && !r.tamper && !r.error && validHash(r.base) && validHash(r.baseTree),
+	);
+	return owned ? [...pending].sort((x, y) => String(x.startedAt ?? "").localeCompare(String(y.startedAt ?? "")))[0] : undefined;
+};
+
+// Whether the review pane queued this batch: the latest line for `id` in the pane's
+// queue (`.pi/agent-review/threads/queue.jsonl`, plan C) says queued or delivered.
+// It keeps other extensions and casual self-sends from absorbing; it is not proof
+// against an agent that forges the file, which `agent-review skip` already allows.
+export async function queuedBatch(root: string, id: string): Promise<boolean> {
+	const text = await readFile(join(root, DIR, "threads", "queue.jsonl"), "utf8").catch(() => "");
+	let state: unknown;
+	for (const line of text.split("\n")) {
+		try {
+			const entry = JSON.parse(line) as { id?: unknown; state?: unknown };
+			if (entry.id === id) state = entry.state;
+		} catch {
+			// a torn or blank line says nothing about this batch
+		}
+	}
+	return state === "queued" || state === "delivered";
+}
 export const modeTampered = (before: number, after: number) => before !== after;
 
 // The branch's last segment (feat/pi-handoff -> pi-handoff), made unique among `taken`.
@@ -332,6 +372,8 @@ export default function agentReview(pi: ExtensionAPI) {
 			const end = await snapshot(run.root, "agent-review-end");
 			if (end.tree === run.baseTree) {
 				await deleteRefs(run.root, run.runId);
+				// Nothing changed since the absorbed reviews' base: nothing is left to review.
+				await retireAbsorbed(run.root, run.runId);
 				active = undefined;
 				return;
 			}
@@ -352,6 +394,7 @@ export default function agentReview(pi: ExtensionAPI) {
 				endedAt: new Date().toISOString(),
 				modeMtimeMs: run.modeMtimeMs,
 				name: await nameFor(run.root),
+				...(run.session ? { session: run.session } : {}),
 			};
 			if (modeTampered(run.modeMtimeMs, currentMode.mtimeMs)) {
 				record.tamper = true;
@@ -359,6 +402,7 @@ export default function agentReview(pi: ExtensionAPI) {
 			}
 			await setRef(run.root, run.runId, run.base, end.commit);
 			await atomic(path(run.root, "pending", `${run.runId}.json`), record);
+			await retireAbsorbed(run.root, run.runId);
 			await registerRepo(run.root);
 			active = undefined;
 			reportPrintFailure(
@@ -383,6 +427,7 @@ export default function agentReview(pi: ExtensionAPI) {
 				modeMtimeMs: run.modeMtimeMs,
 				name: await nameFor(run.root),
 				error: String(error),
+				...(run.session ? { session: run.session } : {}),
 			};
 			await atomic(path(run.root, "pending", `${run.runId}.json`), record);
 			await registerRepo(run.root);
@@ -454,11 +499,51 @@ export default function agentReview(pi: ExtensionAPI) {
 		}
 	};
 
+	// Start a run from the oldest pending record's base when `absorbable` allows it,
+	// the input is no extension's, the pane queued the batch, and no record is
+	// mid-claim. The old records are only marked here; `finish` deletes them after
+	// the new record is written, so a crash in between leaves them blocking.
+	const absorb = async (root: string, blocked: Pending[], event: { text: string; source?: string }, ctx: ExtensionContext) => {
+		if (active || event.source === "extension") return false;
+		const from = absorbable(blocked, ctx.sessionManager?.getSessionId?.() ?? "", event.text);
+		const batch = reviewBatchId(event.text);
+		if (!from || !batch || !(await queuedBatch(root, batch))) return false;
+		if (blocked.some((r) => existsSync(path(root, "pending", `${r.runId}.processing`)))) return false;
+		const id = randomUUID();
+		try {
+			const modeMtimeMs = (await readMode(root)).mtimeMs;
+			await setRef(root, id, from.base);
+			for (const r of blocked) await atomic(path(root, "pending", `${r.runId}.json`), { ...r, absorbedBy: id });
+			active = { runId: id, root, base: from.base, baseTree: from.baseTree, startedAt: new Date().toISOString(), modeMtimeMs, session: from.session ?? "" };
+		} catch {
+			await deleteRefs(root, id);
+			return false;
+		}
+		reviewFollowUp = false;
+		verifierDone = false;
+		latestCtx = ctx;
+		disarmFallback();
+		return true;
+	};
+
+	// After the absorbing run's own record is safely written (or it changed nothing),
+	// drop the records it absorbed. Never throws: the new record already stands.
+	const retireAbsorbed = async (root: string, runId: string) => {
+		for (const r of await listPending(root).catch(() => [] as Pending[])) {
+			if (r.absorbedBy !== runId) continue;
+			// Refs first: if this stops between the two, the record survives and still blocks.
+			await deleteRefs(root, r.runId);
+			await rm(path(root, "pending", `${r.runId}.json`), { force: true }).catch(() => undefined);
+		}
+	};
+
 	pi.on("input", async (event, ctx) => {
 		const root = await repoRoot(ctx.cwd);
 		// This ctx is live; the one `finish` holds later may not be.
 		notePrintMode(ctx);
-		const blocked = await listPending(root);
+		// Records the active run absorbed stop blocking only while that run lives here.
+		const blocked = (await listPending(root)).filter((r) => !(active && r.absorbedBy === active.runId));
+		if (blocked.length > 0 && (await absorb(root, blocked, event, ctx))) return { action: "continue" as const };
 		if (blocked.length > 0) {
 			ctx.ui.notify(
 				`Review pending (${blocked[0].runId}) — /review skip ${label(blocked[0])} to continue`,
@@ -488,6 +573,7 @@ export default function agentReview(pi: ExtensionAPI) {
 				baseTree: base.tree,
 				startedAt: new Date().toISOString(),
 				modeMtimeMs: selected.mtimeMs,
+				session: ctx.sessionManager?.getSessionId?.() ?? "",
 			};
 			verifierDone = false;
 			latestCtx = ctx;
