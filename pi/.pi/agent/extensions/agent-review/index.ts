@@ -37,6 +37,8 @@ type Pending = {
 	name?: string;
 	tamper?: true;
 	error?: string;
+	// The Pi session that wrote it; absent on records written before sessions were kept.
+	session?: string;
 };
 type Decision = {
 	runId: string;
@@ -54,12 +56,17 @@ type Active = {
 	baseTree: string;
 	startedAt: string;
 	modeMtimeMs: number;
+	session: string;
 };
 
 export const validRunId = (value: unknown): value is string =>
 	typeof value === "string" && RUN_ID.test(value);
 export const validHash = (value: unknown): value is string =>
 	typeof value === "string" && HASH.test(value);
+
+// The review pane's batch marker: the first line of its feedback message.
+export const REVIEW_BATCH = /^\[review-batch ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]$/;
+export const reviewBatchId = (text: string): string | undefined => REVIEW_BATCH.exec(text.split("\n", 1)[0] ?? "")?.[1];
 export const modeTampered = (before: number, after: number) => before !== after;
 
 // The branch's last segment (feat/pi-handoff -> pi-handoff), made unique among `taken`.
@@ -352,6 +359,7 @@ export default function agentReview(pi: ExtensionAPI) {
 				endedAt: new Date().toISOString(),
 				modeMtimeMs: run.modeMtimeMs,
 				name: await nameFor(run.root),
+				...(run.session ? { session: run.session } : {}),
 			};
 			if (modeTampered(run.modeMtimeMs, currentMode.mtimeMs)) {
 				record.tamper = true;
@@ -383,6 +391,7 @@ export default function agentReview(pi: ExtensionAPI) {
 				modeMtimeMs: run.modeMtimeMs,
 				name: await nameFor(run.root),
 				error: String(error),
+				...(run.session ? { session: run.session } : {}),
 			};
 			await atomic(path(run.root, "pending", `${run.runId}.json`), record);
 			await registerRepo(run.root);
@@ -488,6 +497,7 @@ export default function agentReview(pi: ExtensionAPI) {
 				baseTree: base.tree,
 				startedAt: new Date().toISOString(),
 				modeMtimeMs: selected.mtimeMs,
+				session: ctx.sessionManager?.getSessionId?.() ?? "",
 			};
 			verifierDone = false;
 			latestCtx = ctx;
