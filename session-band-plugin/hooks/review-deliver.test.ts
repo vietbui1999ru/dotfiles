@@ -35,6 +35,7 @@ type World = {
   pueue: string[][]
   tasks: unknown
   addFails: boolean
+  cwd: string
   clock: ReturnType<typeof mock.clock>
 }
 
@@ -44,13 +45,13 @@ const failed = { exitCode: 1, stdout: '', stderr: '', isStdoutTruncated: false, 
 // The engine's file system with a rename, as the queue writes it; the plugin's own hooks stay real.
 const setup = (on: On, over: Partial<World> = {}): World => {
   const world = {
-    files: {}, submitted: [], spawns: [], sends: [], pueue: [], tasks: { tasks: {} }, addFails: false, clock: mock.clock(on, { now: 1_000_000 }), ...over,
+    files: {}, submitted: [], spawns: [], sends: [], pueue: [], tasks: { tasks: {} }, addFails: false, cwd: '/work', clock: mock.clock(on, { now: 1_000_000 }), ...over,
   } as World
   const clock = world.clock
   mock.env(on, { HOME: '/Users/test', TMPDIR: '/tmp' })
   on('session.start', ($, e) => ({ cwd: e.cwd } as never))
   on('session.id', () => ({ value: 's1' }))
-  on('session.cwd', () => ({ value: '/work' }))
+  on('session.cwd', () => ({ value: world.cwd }))
   on('session.model', () => ({ value: 'claude-sonnet-5-5' }))
   on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200_000, percent: 1 }, rateLimits: [] } }))
   on('session.send', ($, e) => {
@@ -379,4 +380,14 @@ test('the 60-second tick retries a queued Pi batch and expires an old delivery',
 
   expect(world.pueue).toHaveLength(1)
   expect(states(world).map(item => [item.id, item.state])).toEqual([['b1', 'delivered'], ['b2', 'no-reply']])
+})
+
+test('a session in a subdirectory delivers the batches queued at the worktree root', async ($, on) => {
+  const world = setup(on, { cwd: '/work/src' })
+  seed(world, [batch()], [entry()])
+
+  await $.turn.complete(STARTED)
+
+  expect(world.submitted).toHaveLength(1)
+  expect(states(world)[0]?.state).toBe('delivered')
 })

@@ -74,7 +74,9 @@ async function spawnAnswerer($: EngineInterface, worktree: string, batch: Batch,
  * model as one message, oldest first, each of the others to a fresh answerer on the model the person chose.
  */
 export async function deliverOwn($: EngineInterface, worktree: string, sessionId: string): Promise<void> {
-  const queue = await readQueue($, worktree)
+  // The queue lives at the worktree's root, so a session started in a subdirectory still finds its batches.
+  const root = await worktreeRoot($, worktree)
+  const queue = await readQueue($, root)
   const mine = oldestFirst(queue.filter(batch => batch.state === 'queued' && batch.agent === claudeAgent(sessionId)))
   if (mine.length === 0) return
   const model = await $.session.model().catch(() => '')
@@ -83,15 +85,15 @@ export async function deliverOwn($: EngineInterface, worktree: string, sessionId
 
   if (here.length > 0) {
     const parts: string[] = []
-    for (const batch of here) parts.push(await batchText($, worktree, batch))
+    for (const batch of here) parts.push(await batchText($, root, batch))
     const submitted = await $.prompt.submit({ text: parts.join('\n') })
     if ('drop' in submitted) {
-      for (const batch of here) await markBatch($, worktree, batch.id, 'queued', { reason: submitted.drop })
+      for (const batch of here) await markBatch($, root, batch.id, 'queued', { reason: submitted.drop })
     } else {
-      for (const batch of here) await delivered($, worktree, batch)
+      for (const batch of here) await delivered($, root, batch)
     }
   }
-  for (const batch of elsewhere) await spawnAnswerer($, worktree, batch, sessionId)
+  for (const batch of elsewhere) await spawnAnswerer($, root, batch, sessionId)
 }
 
 /**
