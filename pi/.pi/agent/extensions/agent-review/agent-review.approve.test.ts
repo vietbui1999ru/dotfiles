@@ -317,3 +317,30 @@ test("a stuck, already-decided review is flagged in list --all --json", async ()
   assert.ok(entry, "the stuck review is still listed");
   assert.equal(entry.decided, true, "list must say a decision exists, so /gates can offer skip");
 });
+
+// A squash merge leaves no ancestry; a stub gh stands in for GitHub, so no network.
+const stubGh = (mergedAt: string) => {
+  const bin = realpathSync(mkdtempSync(join(tmpdir(), "agent-review-gh-")));
+  dirs.push(bin);
+  writeFileSync(join(bin, "gh"), `#!/bin/sh\necho '[{"mergedAt":"${mergedAt}"}]'\n`, { mode: 0o755 });
+  return { ...process.env, PATH: `${bin}:${process.env.PATH}` };
+};
+const landedOf = async (mergedAt: string, ...flags: string[]) => {
+  const root = makeRepo();
+  git(root, "checkout", "-qb", "feat/squashed");
+  const id = await pendingRun(root);
+  const out = spawnSync(cli, ["list", "--all", "--json", ...flags], { cwd: root, encoding: "utf8", env: stubGh(mergedAt) });
+  return JSON.parse(out.stdout).find((e: { runId: string }) => e.runId === id).landed;
+};
+
+test("a PR from the run's branch merged after the run counts as landed", async () => {
+  assert.equal(await landedOf("2999-01-01T00:00:00Z"), true);
+});
+
+test("a PR merged before the run started (reused branch name) does not", async () => {
+  assert.equal(await landedOf("2000-01-01T00:00:00Z"), false);
+});
+
+test("--offline skips the gh check", async () => {
+  assert.equal(await landedOf("2999-01-01T00:00:00Z", "--offline"), false);
+});

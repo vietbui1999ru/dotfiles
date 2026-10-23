@@ -139,7 +139,26 @@ def landed(root: Path, base: str, end: str, ref: str) -> bool:
         shutil.rmtree(scratch, ignore_errors=True)
 
 
-def scan(root: Path, every: bool) -> list[dict[str, object]]:
+def merged_after(root: Path, branch: str, started: str) -> bool:
+    """True when GitHub has a PR from branch merged after the run started.
+
+    A squash merge leaves no ancestry, and later edits on the default branch defeat
+    the reverse-apply check in landed(). Requiring the merge to postdate the run
+    keeps an older PR from a reused branch name from counting. Any failure is False.
+    """
+    gh = shutil.which("gh")
+    if not gh or not branch or not started or branch in ("main", "master"):
+        return False
+    try:
+        out = subprocess.run([gh, "pr", "list", "--head", branch, "--state", "merged", "--json", "mergedAt"],
+                             cwd=root, capture_output=True, text=True, timeout=5)
+        prs = json.loads(out.stdout) if out.returncode == 0 else []
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
+        return False
+    return any(isinstance(pr, dict) and str(pr.get("mergedAt") or "") > started for pr in prs)
+
+
+def scan(root: Path, every: bool, online: bool = True) -> list[dict[str, object]]:
     """Pending reviews in this worktree, or in every worktree, plus orphan refs when every."""
     trees = worktrees(root) if every else [(root, git(root, "branch", "--show-current"))]
     ref = default_ref(root)
@@ -161,7 +180,8 @@ def scan(root: Path, every: bool) -> list[dict[str, object]]:
                 "runId": run_id, "owner": str(tree), "branch": branch,
                 "name": record.get("name") or "", "startedAt": record.get("startedAt") or "",
                 "processing": kind == ".processing", "error": "error" in record,
-                "landed": hashes and landed(tree, record["base"], record["end"], ref),
+                "landed": (hashes and landed(tree, record["base"], record["end"], ref))
+                          or (online and merged_after(tree, branch, str(record.get("startedAt") or ""))),
                 "decided": decided, "orphan": False,
             })
     if every:
@@ -184,7 +204,7 @@ def main_worktree(root: Path) -> Path:
     return common.parent if common.name == ".git" else common
 
 
-def global_scan() -> list[dict[str, object]]:
+def global_scan(online: bool = True) -> list[dict[str, object]]:
     """Reviews in every registered repo plus the current one, each tagged with its repo."""
     try:
         roots = [Path(line) for line in registry_path().read_text().splitlines() if line.strip()]
@@ -203,7 +223,7 @@ def global_scan() -> list[dict[str, object]]:
             continue  # missing, or no longer a git repository
         if main not in seen:
             seen.add(main)
-            found += [{**entry, "repo": str(main)} for entry in scan(main, True)]
+            found += [{**entry, "repo": str(main)} for entry in scan(main, True, online)]
     return sorted(found, key=lambda entry: (entry["orphan"], str(entry["startedAt"])))
 
 
@@ -413,7 +433,7 @@ def command_skip(args: argparse.Namespace) -> int:
 
 
 def command_list(args: argparse.Namespace) -> int:
-    entries = global_scan() if args.glob else scan(repo_root(), args.all)
+    entries = global_scan(not args.offline) if args.glob else scan(repo_root(), args.all, not args.offline)
     if args.json:
         print(json.dumps(entries))
         return 0
@@ -491,6 +511,7 @@ def main() -> int:
     list_parser.add_argument("--global", dest="glob", action="store_true",
                              help="every registered repo plus this one, each entry with its repo")
     list_parser.add_argument("--json", action="store_true", help="one JSON array on stdout")
+    list_parser.add_argument("--offline", action="store_true", help="skip the gh merged-PR check for landed")
     list_parser.set_defaults(handler=command_list)
     register_parser = subparsers.add_parser("register", help="add this repo to the list --global registry")
     register_parser.set_defaults(handler=command_register)
