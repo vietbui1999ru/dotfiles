@@ -149,18 +149,27 @@ export async function deliverToPi($: EngineInterface, worktree: string, batch: B
   await delivered($, root, batch, { model, effort: batch.effort })
 }
 
+let sweeping = false
+
 /**
  * The housekeeping tick, once a minute: a delivered batch nobody answered becomes `no-reply`, and
  * queued batches for a Pi session are retried. Register.tsx starts the tick at session start, and the
- * pane calls it right after `enqueue` so a send does not wait for the next minute.
+ * pane calls it right after `enqueue` so a send does not wait for the next minute. One sweep at a
+ * time: a tick and a send that overlap must not dispatch the same batch twice.
  */
 export async function sweep($: EngineInterface, worktree: string, nowMs: number): Promise<void> {
-  const root = await worktreeRoot($, worktree)
-  const queue = await readQueue($, root)
-  for (const batch of expireDelivered(queue, nowMs)) await markBatch($, root, batch.id, 'no-reply')
-  for (const batch of queue) {
-    if (batch.state !== 'queued' || !batch.agent.startsWith('pi:')) continue
-    await deliverToPi($, root, batch, batch.agent.slice('pi:'.length))
+  if (sweeping) return
+  sweeping = true
+  try {
+    const root = await worktreeRoot($, worktree)
+    const queue = await readQueue($, root)
+    for (const batch of expireDelivered(queue, nowMs)) await markBatch($, root, batch.id, 'no-reply')
+    for (const batch of queue) {
+      if (batch.state !== 'queued' || !batch.agent.startsWith('pi:')) continue
+      await deliverToPi($, root, batch, batch.agent.slice('pi:'.length))
+    }
+  } finally {
+    sweeping = false
   }
 }
 

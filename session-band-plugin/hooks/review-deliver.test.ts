@@ -2,7 +2,7 @@ import type { AgentSpawnArgs, EngineInterface, On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
 import { batchDir, parseQueue, queueFile, type Batch } from './review-batch'
-import { deliverToPi, deliverToSession, piModelFrom } from './review-deliver'
+import { deliverToPi, deliverToSession, piModelFrom, sweep } from './review-deliver'
 import { threadDir, threadFile, type ThreadEntry } from './review-thread'
 
 const STARTED = { answer: 'done', durationMs: 10, isAborted: false, turnId: 't1', reason: 'answer' as const }
@@ -389,5 +389,27 @@ test('a session in a subdirectory delivers the batches queued at the worktree ro
   await $.turn.complete(STARTED)
 
   expect(world.submitted).toHaveLength(1)
+  expect(states(world)[0]?.state).toBe('delivered')
+})
+
+test('a tick and a send that overlap dispatch a Pi batch once, not twice', async () => {
+  const world = piWorld()
+  seed(world, [batch({ agent: 'pi:pueue-s1' })], [entry({ agent: 'pi:pueue-s1' })])
+  world.tasks = pueueTask("pi --model 'openai/gpt:high' --session-id 'pueue-s1' -p x", 'Queued')
+  const engine = piEngine(world)
+  let release = (): void => undefined
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const run = engine.process.run
+  engine.process.run = async (argv: string[]) => {
+    if (argv[0] === 'pueue' && argv[1] === 'status') await gate
+    return run(argv)
+  }
+
+  const tick = sweep(engine, '/work', 1_000_000)
+  const send = sweep(engine, '/work', 1_000_000)
+  release()
+  await Promise.all([tick, send])
+
+  expect(world.pueue).toHaveLength(1)
   expect(states(world)[0]?.state).toBe('delivered')
 })
