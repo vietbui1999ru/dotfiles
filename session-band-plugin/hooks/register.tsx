@@ -14,6 +14,8 @@ import { PANE as BLOCKS_PANE, register as registerSafetyBlocks } from './safety-
 import { loadSessionBlocks, pendingCount } from './safety-blocks'
 import { onSessionStart as lifecycleSessionStart, register as registerLifecycle } from './lifecycle.tsx'
 import { register as registerGates } from './gates.tsx'
+import { register as registerReviewTouch } from './review-touch'
+import { ensureSessionBase } from './review-touch'
 import { summarize, type TrackedTask } from './handoff'
 import type { PiProgress } from './pisession'
 import { parsePending, pendingRecordFor, reviewState, type ReviewState } from './review'
@@ -168,6 +170,8 @@ export const register: Register = on => {
   registerLifecycle(on)
   registerGates(on)
   registerSendIt(on)
+  // Last, so its Bash snapshot runs only for a call the guards above let through.
+  registerReviewTouch(on)
 
   // The settings fallback only matters before the first prompt.compose names the style.
   let hasComposed = false
@@ -192,6 +196,8 @@ export const register: Register = on => {
       refreshGit($),
     ])
     await lifecycleSessionStart($).catch(() => undefined)
+    // The review base is the snapshot at the session's start, so a failure here never costs the start.
+    await ensureSessionBase($, await $.session.id().catch(() => ''), await $.session.cwd().catch(() => '')).catch(() => undefined)
 
     return next(e)
   })
