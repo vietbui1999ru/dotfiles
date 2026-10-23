@@ -67,6 +67,17 @@ export const validHash = (value: unknown): value is string =>
 // The review pane's batch marker: the first line of its feedback message.
 export const REVIEW_BATCH = /^\[review-batch ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]$/;
 export const reviewBatchId = (text: string): string | undefined => REVIEW_BATCH.exec(text.split("\n", 1)[0] ?? "")?.[1];
+
+// A review batch for the session that wrote every pending record continues that
+// review instead of being refused: the oldest record, whose base the new run takes.
+// Any doubt is a refusal (undefined), so the gate fails closed.
+export const absorbable = (pending: readonly Pending[], sessionId: string, text: string): Pending | undefined => {
+	if (!reviewBatchId(text) || !sessionId || pending.length === 0) return undefined;
+	const owned = pending.every(
+		(r) => r.session === sessionId && !r.tamper && !r.error && validHash(r.base) && validHash(r.baseTree),
+	);
+	return owned ? [...pending].sort((x, y) => x.startedAt.localeCompare(y.startedAt))[0] : undefined;
+};
 export const modeTampered = (before: number, after: number) => before !== after;
 
 // The branch's last segment (feat/pi-handoff -> pi-handoff), made unique among `taken`.
@@ -463,11 +474,45 @@ export default function agentReview(pi: ExtensionAPI) {
 		}
 	};
 
+	// Start a run from the oldest pending record's base and retire every pending
+	// record, when `absorbable` allows it and no record is mid-claim. Retiring comes
+	// after `active` is set, so an interrupted retire leaves records that still block.
+	const absorb = async (root: string, blocked: Pending[], text: string, ctx: ExtensionContext) => {
+		const from = absorbable(blocked, ctx.sessionManager?.getSessionId?.() ?? "", text);
+		if (!from || active) return false;
+		if (blocked.some((r) => existsSync(path(root, "pending", `${r.runId}.processing`)))) return false;
+		try {
+			const id = randomUUID();
+			await setRef(root, id, from.base);
+			active = {
+				runId: id,
+				root,
+				base: from.base,
+				baseTree: from.baseTree,
+				startedAt: new Date().toISOString(),
+				modeMtimeMs: (await readMode(root)).mtimeMs,
+				session: from.session ?? "",
+			};
+		} catch {
+			return false;
+		}
+		reviewFollowUp = false;
+		verifierDone = false;
+		latestCtx = ctx;
+		disarmFallback();
+		for (const r of blocked) {
+			await rm(path(root, "pending", `${r.runId}.json`), { force: true });
+			await deleteRefs(root, r.runId);
+		}
+		return true;
+	};
+
 	pi.on("input", async (event, ctx) => {
 		const root = await repoRoot(ctx.cwd);
 		// This ctx is live; the one `finish` holds later may not be.
 		notePrintMode(ctx);
 		const blocked = await listPending(root);
+		if (blocked.length > 0 && (await absorb(root, blocked, event.text, ctx))) return { action: "continue" as const };
 		if (blocked.length > 0) {
 			ctx.ui.notify(
 				`Review pending (${blocked[0].runId}) — /review skip ${label(blocked[0])} to continue`,
