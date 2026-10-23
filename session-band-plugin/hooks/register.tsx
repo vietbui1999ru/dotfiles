@@ -15,6 +15,7 @@ import { loadSessionBlocks, pendingCount } from './safety-blocks'
 import { onSessionStart as lifecycleSessionStart, register as registerLifecycle } from './lifecycle.tsx'
 import { register as registerGates } from './gates.tsx'
 import { register as registerReviewTouch } from './review-touch'
+import { deliverOwn, startDelivery } from './review-deliver'
 import { ensureSessionBase } from './review-touch'
 import { summarize, type TrackedTask } from './handoff'
 import type { PiProgress } from './pisession'
@@ -198,6 +199,8 @@ export const register: Register = on => {
     await lifecycleSessionStart($).catch(() => undefined)
     // The review base is the snapshot at the session's start, so a failure here never costs the start.
     await ensureSessionBase($, await $.session.id().catch(() => ''), await $.session.cwd().catch(() => '')).catch(() => undefined)
+    // One 60-second tick for the review queue: no-reply timeouts, and a retry for a queued Pi batch.
+    startDelivery($)
 
     return next(e)
   })
@@ -210,6 +213,11 @@ export const register: Register = on => {
 
   on('turn.complete', async ($, e, next) => {
     await refreshGit($)
+    // Notes never interrupt a running turn: the main loop's end is when this session's batches go in.
+    if (e.agentId === undefined) {
+      const [worktree, sessionId] = await Promise.all([$.session.cwd().catch(() => ''), $.session.id().catch(() => '')])
+      if (worktree !== '' && sessionId !== '') await deliverOwn($, worktree, sessionId).catch(() => undefined)
+    }
 
     return next(e)
   })
