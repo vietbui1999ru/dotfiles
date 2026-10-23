@@ -41,6 +41,8 @@ type World = {
   clock: ReturnType<typeof mock.clock>
   approval: { exitCode: number; stdout: string; stderr: string; isStdoutTruncated: boolean; isStderrTruncated: boolean }
   applyCheck: number
+  floor: string
+  check: string
 }
 
 const review = (over: Record<string, unknown> = {}) => ({
@@ -50,7 +52,7 @@ const review = (over: Record<string, unknown> = {}) => ({
 
 const setup = (on: On, over: Partial<World> = {}): World => {
   const clock = mock.clock(on, { now: 1_000_000 })
-  const world: World = { files: {}, list: JSON.stringify([review()]), diffs: {}, status: 3, calls: [], toasts: [], clock, approval: OK, applyCheck: 0, ...over }
+  const world: World = { files: {}, list: JSON.stringify([review()]), diffs: {}, status: 3, calls: [], toasts: [], clock, approval: OK, applyCheck: 0, floor: '', check: '| AC-1 | PASS | 0 | 1.0 |\n', ...over }
   mock.env(on, { HOME: '/h', TMPDIR: '/tmp' })
   on('ui.open', () => ({ value: { isPlaced: true } } as never))
   on('ui.toast', (_$, e) => { world.toasts.push(String((e as { text?: unknown }).text ?? '')); return { value: undefined } as never })
@@ -87,13 +89,14 @@ const setup = (on: On, over: Partial<World> = {}): World => {
     if (argv[0] === 'pueue' && argv[1] === 'status') return { value: { ...OK, stdout: '{"tasks":{}}' } } as never
     if (argv[0]?.endsWith('/ac-run') && argv[1] === 'status') return { value: { ...OK, exitCode: world.status, stdout: world.status === 0 ? 'approved' : 'draft' } } as never
     if (argv[0]?.endsWith('/ac-run') && argv[1] === 'show') return { value: { ...OK, stdout: 'AC-1: draw the pane\n    runs: true\n' } } as never
+    if (argv[0]?.endsWith('/ac-run') && argv[1] === 'check') return { value: { ...OK, stdout: world.check } } as never
     if (argv.includes('rev-parse') && argv.includes('--show-toplevel')) return { value: { ...OK, stdout: '/work\n' } } as never
     if (argv.includes('rev-parse') && argv.includes('--abbrev-ref')) return { value: { ...OK, stdout: 'feat/x\n' } } as never
     if (argv[0] === 'git' && argv.includes('diff')) {
       const file = argv[argv.length - 1] ?? ''
       return { value: { ...OK, stdout: world.diffs[file] ?? '' } } as never
     }
-    if (argv[0]?.endsWith('/floor-guard')) return { value: { ...OK, exitCode: 1, stdout: '' } } as never
+    if (argv[0]?.endsWith('/floor-guard')) return { value: { ...OK, exitCode: 1, stdout: world.floor } } as never
     const [cmd, flag, from, to] = argv
     if (cmd === 'mv' && flag === '-f' && from && to && from in world.files) {
       world.files[to] = world.files[from] as string
@@ -428,4 +431,50 @@ test('returning a Claude file keeps it unapproved and queues a note', async ($, 
   expect(queue).toHaveLength(1)
   expect(queue[0]?.entryIds).toEqual([note?.id])
   expect(lines(await $.ui.render(PANE)).some(line => line.includes('src/a.ts'))).toBe(true)
+})
+
+
+test('floor-guard findings for the file appear in its tab', async ($, on) => {
+  const world = setup(on, { floor: 'src/a.ts:3: [rule2] added suppression\nsrc/other.ts:1: [rule4] stub\n' })
+  seedAgents(world)
+  world.files['/work/.pi-lens/diagnostics.json'] = JSON.stringify([{ file: 'src/a.ts', line: 2, severity: 'warning', message: 'unused variable' }])
+  await $.command.run(RUN)
+  const drawn = lines(await $.ui.render(PANE))
+  expect(drawn).toContain('src/a.ts:3: [rule2] added suppression')
+  expect(drawn).not.toContain('src/other.ts:1: [rule4] stub')
+  expect(drawn).toContain('warning:2: unused variable')
+  const guard = world.calls.find(call => call.argv[0] === '/h/dotfiles/scripts/floor-guard')
+  expect(guard?.argv).toEqual(['/h/dotfiles/scripts/floor-guard', '--base', 'base1'])
+  expect(guard?.cwd).toBe('/work')
+})
+
+
+test('a spec tab shows its criteria and the last check table', async ($, on) => {
+  const world = setup(on)
+  world.list = '[]'
+  world.files['/work/SPEC.md'] = '---\nbranch: feat/x\n---\n'
+  await $.command.run(RUN)
+  let drawn = lines(await $.ui.render(PANE))
+  expect(drawn).toContain('AC-1: draw the pane')
+  expect(drawn).toContain('    runs: true')
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  await ui.press({ key: 'review-check' })
+  await world.clock.settle()
+  drawn = lines(await $.ui.render(PANE))
+  expect(drawn).toContain('last check')
+  expect(drawn).toContain('| AC-1 | PASS | 0 | 1.0 |')
+  expect(world.calls.filter(call => call.argv[1] === 'check').map(call => call.argv)).toEqual([
+    ['/h/dotfiles/scripts/ac-run', 'check', '/work/SPEC.md'],
+  ])
+})
+
+test('the pane draws on the desktop surface', async ($, on) => {
+  const world = setup(on)
+  seedAgents(world)
+  world.diffs['src/a.ts'] = '--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,1 +1,1 @@\n-old\n+new\n'
+  await $.command.run(RUN)
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE, surface: 'desktop' })
+  const drawn = await ui.drawn()
+  expect(codes(drawn)).toHaveLength(1)
+  expect(lines(drawn)).toContain('pi run-1 · src/a.ts · shared with claude c1')
 })

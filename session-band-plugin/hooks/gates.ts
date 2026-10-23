@@ -1,4 +1,5 @@
 import type { Worktree } from './worktrees'
+import type { ReviewFocus } from './review-sources'
 
 export type SpecState = 'draft' | 'approved' | 'stale' | 'invalid'
 export type SpecRow = { kind: 'spec'; key: string; worktree: string; branch: string; path: string; rel: string; state?: SpecState; error?: string }
@@ -32,6 +33,12 @@ export const parseReviewList = (stdout: string): ReviewEntry[] | undefined => {
   } catch { return undefined }
 }
 export const reviewRows = (entries: readonly ReviewEntry[]): ReviewRow[] => entries.map(entry => ({ kind: 'review', key: `review:${entry.runId}`, worktree: entry.owner, entry }))
+
+/** The agent a gates row opens the review pane on: a Pi run by id, or a spec by path. */
+export const reviewFocus = (row: GateRow): ReviewFocus | undefined =>
+  row.kind === 'review'
+    ? row.worktree === null ? undefined : { kind: 'pi', runId: row.entry.runId, worktree: row.worktree }
+    : { kind: 'spec', specPath: row.path, worktree: row.worktree }
 
 export const specBranch = (text: string): string | undefined => {
   const lines = text.split(/\r?\n/)

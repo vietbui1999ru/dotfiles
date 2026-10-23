@@ -1,5 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
+import { reviewFocus } from './gates'
+
 const PANE = {
   component: 'Pane' as const, surface: 'terminal' as const, requestId: 'gates',
   props: { title: 'Gates', isFocused: true, bodyColumns: 120, placement: 'dock' as const, scroll: { offset: 0, bodyRows: 30 }, view: {} },
@@ -17,7 +19,8 @@ const lines = (node: unknown): string[] => {
 const setup = (on: Parameters<Parameters<typeof test>[1]>[1], state = 'draft', hold = false, reviews = { ...OK, stdout: '[]' }, approval = '{"ok":true}') => {
   const clock = mock.clock(on, { now: 1000 })
   mock.env(on, { HOME: '/h', TMPDIR: '/tmp', USER: 'test' })
-  on('ui.open', () => ({ value: { isPlaced: true } } as never))
+  const opens: { id?: string; title?: string; focus?: boolean }[] = []
+  on('ui.open', (_$, e) => { opens.push(e as never); return { value: { isPlaced: true } } as never })
   on('session.cwd', () => ({ value: '/r/w' }))
   on('fs.read', (_$, e) => ({ value: e.path === '/r/w/SPEC.md' ? '---\nbranch: feat/w\n---\n' : e.path === '/r/SPEC.md' ? '---\nbranch: main\n---\n' : '' }))
   on('fs.list', () => ({ value: [] } as never))
@@ -49,7 +52,7 @@ const setup = (on: Parameters<Parameters<typeof test>[1]>[1], state = 'draft', h
     if (e.argv.includes('--remote-expr')) return { value: { ...OK, stdout: '/r/w' } } as never
     return { value: OK } as never
   })
-  return { clock, calls, release: () => release?.(), reached }
+  return { clock, calls, opens, release: () => release?.(), reached }
 }
 
 const review = (over: Record<string, unknown> = {}) => ({ runId: 'run-12345678', owner: '/r/w', branch: 'feat/w', name: 'build', startedAt: '', processing: false, error: false, landed: true, orphan: false, ...over })
@@ -276,4 +279,19 @@ test('gates h hides and shows the orphan group, moving selection off a hidden ro
   await ui.press({ key: 'gates-key-orphans' })
   await clock.settle()
   expect(lines(await $.ui.render(PANE))).toContain('(no worktree)')
+})
+
+
+test('v in gates opens the review pane on that agent', async ($, on) => {
+  const { clock, opens } = setup(on, 'draft', false, { ...OK, stdout: JSON.stringify([review()]) })
+  await $.command.run(RUN)
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  await ui.press({ key: 'gates-key-down' })
+  await clock.settle()
+  await ui.press({ key: 'gates-open-review-pane' })
+  await clock.settle()
+  expect(opens).toContainEqual({ id: 'review', title: 'Review', focus: true })
+  const row = { kind: 'review' as const, key: 'review:run-12345678', worktree: '/r/w', entry: review() as never }
+  expect(reviewFocus(row)).toEqual({ kind: 'pi', runId: 'run-12345678', worktree: '/r/w' })
+  expect(reviewFocus({ kind: 'spec', key: '/r/w/SPEC.md', worktree: '/r/w', branch: 'feat/w', path: '/r/w/SPEC.md', rel: 'SPEC.md' })).toEqual({ kind: 'spec', specPath: '/r/w/SPEC.md', worktree: '/r/w' })
 })

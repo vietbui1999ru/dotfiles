@@ -33,7 +33,7 @@ export type ReviewTab = {
 }
 
 // What `/gates` asks the pane to select when it opens it (`v` on a row).
-export type ReviewFocus = { kind: ReviewAgent['kind']; runId?: string; specPath?: string }
+export type ReviewFocus = { kind: ReviewAgent['kind']; runId?: string; specPath?: string; worktree?: string }
 
 // The pane's atom: the tabs it drew, the cursor, and the small facts that must
 // survive a redraw (a half-typed comment, the cycler, which answers were toasted).

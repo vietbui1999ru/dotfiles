@@ -120,7 +120,8 @@ declare module 'claude-code' {
         tabs: { key: string; agent: string; kind: 'pi' | 'claude' | 'spec'; label: string; file: string; base: string; runId?: string; specPath?: string; shared?: string[]; unread?: boolean }[]
         selected?: string
         hunk: number
-        focus?: { kind: 'pi' | 'claude' | 'spec'; runId?: string; specPath?: string }
+        worktree?: string
+        focus?: { kind: 'pi' | 'claude' | 'spec'; runId?: string; specPath?: string; worktree?: string }
         composer?: { tab: string; kind: 'comment' | 'patch'; text: string }
         answerer?: Record<string, number>
         unread?: Record<string, boolean>

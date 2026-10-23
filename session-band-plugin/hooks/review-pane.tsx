@@ -15,6 +15,7 @@ import {
   loadAgents,
   pageDiff,
   splitHunks,
+  specCheck,
   specShow,
   tabKey,
   type DiffView,
@@ -27,6 +28,7 @@ import { landPatch } from './review-land'
 import { acRunArgv } from './gates'
 import { approveArgv, approvalAction } from './pane.tsx'
 import { approveSession } from './review-touch'
+import { takeReviewFocus } from './review-focus'
 import { PALETTE } from './palette'
 
 // The atom lives here, not in review-sources: the engine's scan reads state only from
@@ -101,14 +103,15 @@ export async function draw($: EngineInterface, state: ReviewPaneState, worktree:
 
 /** Loads the tabs from disk and keeps the cursor, the unread flags and the findings. */
 export async function reload($: EngineInterface, worktree?: string): Promise<ReviewPaneState> {
-  const root = worktree ?? await worktreeRoot($, await $.session.cwd().catch(() => ''))
   const state = await read($, review)
+  const requested = takeReviewFocus() ?? state.focus
+  const root = worktree ?? requested?.worktree ?? state.worktree ?? await worktreeRoot($, await $.session.cwd().catch(() => ''))
   const agents = await loadAgents($, root)
   const tabs = buildTabs(agents).map(tab => ({ ...tab, ...(state.unread?.[tab.key] ? { unread: true } : {}) }))
-  const focused = state.focus === undefined ? undefined : tabs.find(tab =>
-    state.focus?.kind === 'pi' ? tab.runId === state.focus.runId
-      : state.focus?.kind === 'spec' ? tab.specPath === state.focus.specPath
-        : tab.agent === `claude:${state.focus?.specPath ?? ''}`)
+  const focused = requested === undefined ? undefined : tabs.find(tab =>
+    requested.kind === 'pi' ? tab.runId === requested.runId
+      : requested.kind === 'spec' ? tab.specPath === requested.specPath
+        : tab.agent === `claude:${requested.specPath ?? ''}`)
   const selected = focused?.key ?? (tabs.some(tab => tab.key === state.selected) ? state.selected : tabs[0]?.key)
   const findings: Record<string, string[]> = {}
   const lens: Record<string, string[]> = {}
@@ -119,6 +122,7 @@ export async function reload($: EngineInterface, worktree?: string): Promise<Rev
   const next: ReviewPaneState = {
     ...state,
     tabs,
+    worktree: root,
     ...(selected === undefined ? { selected: undefined } : { selected }),
     focus: undefined,
     findings,
@@ -492,6 +496,15 @@ async function returnFile($: EngineInterface, worktree: string, tab: ReviewTab |
   await $.ui.toast(`Returned ${tab.file}: the run is not approved; resolve it in the review.`)
 }
 
+/** `t`: runs the spec's verify commands on demand and keeps the result table in the tab. */
+async function runSpecCheck($: EngineInterface, worktree: string, tab: ReviewTab | undefined): Promise<void> {
+  if (tab?.kind !== 'spec') return
+  const path = tab.specPath ?? tab.file
+  const table = await specCheck($, worktree, path)
+  await update($, review, state => ({ ...state, checks: { ...state.checks, [path]: table } }))
+  await $.ui.toast(`Check finished for ${tab.file}.`)
+}
+
 let watching = false
 
 /**
@@ -520,7 +533,7 @@ export const register: Register = on => {
   on('ui.open', { id: 'review' }, async ($, e, next) => {
     const result = await next(e)
     const state = await reload($)
-    const worktree = await worktreeRoot($, await $.session.cwd().catch(() => ''))
+    const worktree = state.worktree ?? await worktreeRoot($, await $.session.cwd().catch(() => ''))
     await noteAnswers($, state, worktree, await readQueue($, worktree))
     await landAgreed($, worktree, await read($, review))
     startAnswerWatch($)
@@ -528,9 +541,10 @@ export const register: Register = on => {
   })
   on('ui.render', { component: 'Pane', requestId: 'review' }, async ($, e, _next) => {
     const { Box, Text, Button, Code, Input } = $.ui.resolve(e)
-    const worktree = await worktreeRoot($, await $.session.cwd().catch(() => ''))
+    const loaded = await read($, review)
+    const worktree = loaded.worktree ?? await worktreeRoot($, await $.session.cwd().catch(() => ''))
     const queue = await readQueue($, worktree)
-    const state = await read($, review)
+    const state = loaded
     const tab = current(state)
     const view = await draw($, state, worktree)
     const composer = state.composer
@@ -545,6 +559,7 @@ export const register: Register = on => {
         <Button key="review-key-patch" plain dimColor={tab === undefined || tab.kind === 'spec' || view.page.total === 0} hotkey="p" label="propose edit" onPress={() => void openComposer($, tab, 'patch', view.hunks[view.page.at])} />
         <Button key="review-send" plain dimColor={tab === undefined} hotkey="s" label="send" onPress={() => void send($, state, tab, worktree)} />
         <Button key="review-key-model" plain dimColor={tab === undefined} hotkey="m" label="answerer" onPress={() => void cycleAnswerer($, tab)} />
+        <Button key="review-check" plain dimColor={tab?.kind !== 'spec'} hotkey="t" label="check spec" onPress={() => void runSpecCheck($, worktree, tab)} />
         <Button key="review-overrule" plain dimColor={tab === undefined || !view.thread.some(entry => entry.kind === 'clapback')} hotkey="o" label="overrule" onPress={() => void overrule($, worktree, tab, view.thread)} />
         <Button key="review-accept-alternative" plain dimColor={tab === undefined || !view.thread.some(entry => entry.kind === 'clapback' && entry.patch !== undefined)} hotkey="y" label="accept alternative" onPress={() => void acceptAlternative($, worktree, tab, view.thread)} />
         <Button key="review-approve" plain dimColor={tab === undefined} hotkey="a" label="approve" onPress={() => void approveCurrent($, worktree, state, tab)} />

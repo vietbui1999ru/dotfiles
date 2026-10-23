@@ -1,6 +1,7 @@
 import { atom, read, update, type EngineInterface, type Register } from 'claude-code'
 
-import { acRunArgv, approveTimeoutMs, editRemoteArgv, parseSpecStatus, specRows, REVIEW_LIST_ARGV, parseReviewList, reviewRows, skipArgv, type GateRow, type SpecRow, type ReviewRow } from './gates'
+import { acRunArgv, approveTimeoutMs, editRemoteArgv, parseSpecStatus, specRows, REVIEW_LIST_ARGV, parseReviewList, reviewFocus, reviewRows, skipArgv, type GateRow, type SpecRow, type ReviewRow } from './gates'
+import { requestReviewFocus } from './review-focus'
 import { approveArgv, approvalAction, matchingSocket, needsRejectConfirm, rejectToast, reviewRemoteArgv, reviewPaneRunArgv, reviewSplitArgv } from './pane.tsx'
 import { FOCUS_ACTION, FOCUS_REFUSED, JUMP_KEYS, nextPane, PANE_TITLES, switchSteps } from './pane-nav'
 import { PALETTE } from './palette'
@@ -212,6 +213,15 @@ const reject = async ($: EngineInterface, row: GateRow | undefined) => {
   await refresh($)
 }
 
+/** `v`: open the review pane on this row's agent (a Pi run's files, or a spec). */
+const openReviewPane = async ($: EngineInterface, row: GateRow | undefined) => {
+  if (!row) return
+  const focus = reviewFocus(row)
+  if (!focus) return
+  requestReviewFocus(focus)
+  await $.ui.open({ id: 'review', title: PANE_TITLES.review, focus: true })
+}
+
 const goTo = async ($: EngineInterface, to: string | undefined) => {
   for (const step of switchSteps('gates', to)) await ('close' in step ? $.ui.close({ id: step.close }) : $.ui.open({ id: step.open, title: step.title, focus: step.focus }))
 }
@@ -249,6 +259,7 @@ export const register: Register = on => {
         <Button key="gates-reject" plain hotkey="x" label={state.confirm === pick?.key && pick ? 'Reject again?' : pick?.kind === 'review' ? 'Reject all' : 'Reject'} onPress={() => void reject($, pick)} />
         <Button key="gates-edit" plain hotkey="e" label="Edit" onPress={() => void edit($, pick)} />
         <Button key="gates-open" plain hotkey="o" label="Open review" onPress={() => void openReview($, pick)} />
+        <Button key="gates-open-review-pane" plain dimColor={!pick} hotkey="v" label="review" onPress={() => void openReviewPane($, pick)} />
         <Button key="gates-key-reload" plain dimColor hotkey="r" label="refresh" onPress={() => void refresh($, true)} />
         <Button key="gates-key-orphans" plain dimColor hotkey="h" label={state.hideOrphans ? 'show orphans' : 'hide orphans'} onPress={() => void toggleOrphans($)} />
         <Button key="gates-key-prev" plain dimColor hotkey="b" label="prev" onPress={() => void cycle($, -1)} />
