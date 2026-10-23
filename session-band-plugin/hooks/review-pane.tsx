@@ -1,6 +1,7 @@
 import { atom, read, update, type EngineInterface, type Register } from 'claude-code'
 
-import { worktreeRoot } from './review-batch'
+import { batchFiles, enqueue, markBatch, readQueue, worktreeRoot, type Batch } from './review-batch'
+import { sweep as sweepDelivery } from './review-deliver'
 import { appendEntry, readThread, type ThreadEntry } from './review-thread'
 import {
   buildTabs,
@@ -15,6 +16,7 @@ import {
   pageDiff,
   splitHunks,
   specShow,
+  tabKey,
   type DiffView,
   type Hunk,
   type ReviewPaneState,
@@ -172,18 +174,108 @@ async function focusSelf($: EngineInterface) {
   if (!(await $.ui.panes()).some(pane => pane.id === 'review' && pane.isFocused)) await $.ui.toast(FOCUS_REFUSED)
 }
 
-export type ThreadLine = { key: string; text: string; color?: string }
+export type ThreadLine = { key: string; text: string; color?: string; state?: string; batch?: string }
+
+export const BATCH_TEXT: Record<Batch['state'], string> = { queued: 'queued', delivered: 'delivered', answered: 'answered', 'no-reply': 'no reply' }
+
+/** The batch a person entry was sent in, if any: its latest state is what the entry shows. */
+const batchFor = (entry: ThreadEntry, queue: readonly Batch[]): Batch | undefined =>
+  queue.find(batch => batch.entryIds.includes(entry.id))
 
 /** The file's thread in order; a clapback shows in its own colour with the reason it gave. */
-export const threadLines = (entries: readonly ThreadEntry[]): ThreadLine[] =>
+export const threadLines = (entries: readonly ThreadEntry[], queue: readonly Batch[] = []): ThreadLine[] =>
   entries.map(entry => {
     const who = entry.author === 'person' ? 'you' : entry.author === 'agent' ? 'agent' : 'pane'
     const where = entry.line === undefined ? '' : ` L${entry.line}`
     const key = `review-thread-${entry.id}`
-    if (entry.kind === 'clapback') return { key, text: `${who}${where} · clapback: ${entry.text}`, color: PALETTE.red }
-    if (entry.kind === 'patch') return { key, text: `${who}${where} · proposed patch: ${entry.text}`, color: PALETTE.yellow }
-    return { key, text: `${who}${where} · ${entry.kind}: ${entry.text}` }
+    const batch = batchFor(entry, queue)
+    const state = batch === undefined ? undefined : BATCH_TEXT[batch.state]
+    const known = batch === undefined ? {} : { ...(state === undefined ? {} : { state }), batch: batch.id }
+    if (entry.kind === 'clapback') return { key, text: `${who}${where} · clapback: ${entry.text}`, color: PALETTE.red, ...known }
+    if (entry.kind === 'patch') return { key, text: `${who}${where} · proposed patch: ${entry.text}`, color: PALETTE.yellow, ...known }
+    return { key, text: `${who}${where} · ${entry.kind}: ${entry.text}`, ...known }
   })
+
+/**
+ * The answerer cycler: the default is the agent that wrote the change, because its model's cached
+ * context keeps a reply cheap. Any other choice re-reads that context uncached, hence the warning.
+ */
+export const ANSWER_WARNING = 'switching model re-reads the full context (no cache)'
+
+export const ANSWERERS: readonly { label: string; model?: string; effort?: string }[] = [
+  { label: 'same as agent' },
+  { label: 'haiku · low', model: 'haiku', effort: 'low' },
+  { label: 'sonnet · medium', model: 'sonnet', effort: 'medium' },
+  { label: 'opus · high', model: 'opus', effort: 'high' },
+  { label: 'opencode-go/claude-haiku-5-5 · off', model: 'opencode-go/claude-haiku-5-5:off', effort: 'off' },
+  { label: 'opencode-go/deepseek-v4.1-flash · medium', model: 'opencode-go/deepseek-v4.1-flash:medium', effort: 'medium' },
+  { label: 'opencode-go/deepseek-v4.1-flash · off', model: 'opencode-go/deepseek-v4.1-flash:off', effort: 'off' },
+]
+
+export const answererIndex = (state: { answerer?: Record<string, number> }, agent: string): number =>
+  (state.answerer?.[agent] ?? 0) % ANSWERERS.length
+
+const cycleAnswerer = async ($: EngineInterface, tab: ReviewTab | undefined) => {
+  if (tab === undefined) return
+  await update($, review, state => ({ ...state, answerer: { ...state.answerer, [tab.agent]: (answererIndex(state, tab.agent) + 1) % ANSWERERS.length } }))
+}
+
+/** Every unsent person entry for one agent, across its files; sender and agent replies are not sent. */
+async function unsentFor($: EngineInterface, worktree: string, state: ReviewPaneState, agent: string): Promise<ThreadEntry[]> {
+  const queue = await readQueue($, worktree)
+  const batched = new Set(queue.flatMap(batch => batch.entryIds))
+  const files = [...new Set(state.tabs.filter(tab => tab.agent === agent).map(tab => tab.file))]
+  const entries: ThreadEntry[] = []
+  for (const file of files) {
+    for (const entry of await readThread($, worktree, agent, file)) {
+      if (entry.author === 'person' && (entry.kind === 'comment' || entry.kind === 'patch') && !batched.has(entry.id)) entries.push(entry)
+    }
+  }
+  return entries
+}
+
+/** `s`: one batch per agent, with the cycler's model and effort on it, then the delivery sweep. */
+async function send($: EngineInterface, state: ReviewPaneState, tab: ReviewTab | undefined, worktree: string): Promise<void> {
+  if (tab === undefined) return
+  const entries = await unsentFor($, worktree, state, tab.agent)
+  if (entries.length === 0) {
+    await $.ui.toast('Nothing unsent for this agent.')
+    return
+  }
+  const batch = await enqueue($, worktree, tab.agent, entries)
+  const choice = ANSWERERS[answererIndex(state, tab.agent)]
+  if (choice?.model !== undefined) await markBatch($, worktree, batch.id, 'queued', { model: choice.model, ...(choice.effort === undefined ? {} : { effort: choice.effort }) })
+  await sweepDelivery($, worktree, await $.clock.now())
+  await $.ui.toast(`Queued ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'} for ${tab.label}.`)
+}
+
+/** A `no reply` batch goes back to `queued`, with any earlier reason dropped, and is swept again. */
+async function resend($: EngineInterface, worktree: string, id: string): Promise<void> {
+  await markBatch($, worktree, id, 'queued', { reason: undefined })
+  await sweepDelivery($, worktree, await $.clock.now())
+}
+
+/**
+ * The answered batches the pane has not shown yet: each raises a toast naming its files and marks
+ * their tabs unread. The selected tab counts as viewed; moving to another clears its mark.
+ */
+export async function noteAnswers($: EngineInterface, state: ReviewPaneState, worktree: string, queue: readonly Batch[]): Promise<ReviewPaneState> {
+  const seen = new Set(state.notified ?? [])
+  const fresh = queue.filter(batch => batch.state === 'answered' && !seen.has(batch.id))
+  if (fresh.length === 0) return state
+  const unread = { ...state.unread }
+  for (const batch of fresh) {
+    const files = await batchFiles($, worktree, batch)
+    for (const file of files) {
+      const key = tabKey(batch.agent, file)
+      if (key !== state.selected) unread[key] = true
+    }
+    if (files.length > 0) await $.ui.toast(`review answer for ${files.join(', ')}`)
+  }
+  const next: ReviewPaneState = { ...state, notified: [...seen, ...fresh.map(batch => batch.id)], unread }
+  await update($, review, () => next)
+  return next
+}
 
 const openComposer = async ($: EngineInterface, tab: ReviewTab | undefined, kind: 'comment' | 'patch', hunk: Hunk | undefined) => {
   if (tab === undefined) return
@@ -197,6 +289,25 @@ const openComposer = async ($: EngineInterface, tab: ReviewTab | undefined, kind
   }))
 }
 
+let watching = false
+
+/**
+ * Outside `ui.render`, where writing state is refused: answers are noticed when the pane opens and
+ * on a slow tick while it stays open, so a reply arriving mid-review marks its tab.
+ */
+function startAnswerWatch($: EngineInterface): void {
+  if (watching) return
+  watching = true
+  $.clock.every(15_000, () => {
+    void (async () => {
+      const worktree = await worktreeRoot($, await $.session.cwd().catch(() => ''))
+      const queue = await readQueue($, worktree)
+      const state = await read($, review)
+      await noteAnswers($, state, worktree, queue)
+    })().catch(() => undefined)
+  })
+}
+
 export const register: Register = on => {
   on('command.run', { command: 'diff-review' }, async ($, _e, _next) => {
     await $.ui.open({ id: 'review', title: PANE_TITLES.review, focus: true })
@@ -204,13 +315,17 @@ export const register: Register = on => {
   })
   on('ui.open', { id: 'review' }, async ($, e, next) => {
     const result = await next(e)
-    await reload($)
+    const state = await reload($)
+    const worktree = await worktreeRoot($, await $.session.cwd().catch(() => ''))
+    await noteAnswers($, state, worktree, await readQueue($, worktree))
+    startAnswerWatch($)
     return result
   })
   on('ui.render', { component: 'Pane', requestId: 'review' }, async ($, e, _next) => {
     const { Box, Text, Button, Code, Input } = $.ui.resolve(e)
-    const state = await read($, review)
     const worktree = await worktreeRoot($, await $.session.cwd().catch(() => ''))
+    const queue = await readQueue($, worktree)
+    const state = await read($, review)
     const tab = current(state)
     const view = await draw($, state, worktree)
     const composer = state.composer
@@ -223,6 +338,8 @@ export const register: Register = on => {
         <Button key="review-key-up" plain dimColor hotkey="k" label="prev hunk" onPress={() => void moveHunk($, state, -1, view.page.total)} />
         <Button key="review-key-comment" plain dimColor={tab === undefined || tab.kind === 'spec'} hotkey="c" label="comment" onPress={() => void openComposer($, tab, 'comment', view.hunks[view.page.at])} />
         <Button key="review-key-patch" plain dimColor={tab === undefined || tab.kind === 'spec' || view.page.total === 0} hotkey="p" label="propose edit" onPress={() => void openComposer($, tab, 'patch', view.hunks[view.page.at])} />
+        <Button key="review-send" plain dimColor={tab === undefined} hotkey="s" label="send" onPress={() => void send($, state, tab, worktree)} />
+        <Button key="review-key-model" plain dimColor={tab === undefined} hotkey="m" label="answerer" onPress={() => void cycleAnswerer($, tab)} />
         <Button key="review-key-prev" plain dimColor hotkey="b" label="prev" onPress={() => void cycle($, -1)} />
         <Button key="review-key-next" plain dimColor hotkey="f" label="next" onPress={() => void cycle($, 1)} />
         <Button key="review-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'review' })} />
@@ -230,10 +347,15 @@ export const register: Register = on => {
         {JUMP_KEYS.map(j => <Button key={`review-key-jump-${j.key}`} plain dimColor hotkey={j.key} label={j.label} onPress={() => void goTo($, j.id)} />)}
       </Box>
       {state.tabs.length === 0 && <Text dimColor>No unapproved files in this worktree.</Text>}
-      {state.tabs.map(row => <Text key={`review-tab-${row.key}`} mono weight={row.key === tab?.key ? 'bold' : undefined} color={row.unread ? PALETTE.yellow : undefined}>
-        {`${row.key === tab?.key ? '›' : ' '} ${row.label}  ${row.file}${row.shared ? `  shared: ${row.shared.join(', ')}` : ''}${row.unread ? '  unread' : ''}`}
-      </Text>)}
+      {state.tabs.map(row => {
+        const unread = row.unread === true || state.unread?.[row.key] === true
+        return <Text key={`review-tab-${row.key}`} mono weight={row.key === tab?.key ? 'bold' : undefined} color={unread ? PALETTE.yellow : undefined}>
+          {`${row.key === tab?.key ? '›' : ' '} ${row.label}  ${row.file}${row.shared ? `  shared: ${row.shared.join(', ')}` : ''}${unread ? '  unread' : ''}`}
+        </Text>
+      })}
       {tab !== undefined && <Text dimColor>{`${tab.label} · ${tab.file}${tab.shared ? ` · shared with ${tab.shared.join(', ')}` : ''}`}</Text>}
+      {tab !== undefined && <Text dimColor>{`answerer: ${ANSWERERS[answererIndex(state, tab.agent)]?.label ?? 'same as agent'}`}</Text>}
+      {tab !== undefined && answererIndex(state, tab.agent) > 0 && <Text color={PALETTE.yellow}>{ANSWER_WARNING}</Text>}
       {state.note !== undefined && <Text color={PALETTE.yellow}>{state.note}</Text>}
       {view.page.paged && <Text dimColor>{`hunk ${view.page.at + 1}/${view.page.total}`}</Text>}
       {tab?.kind === 'spec' && <Box flexDirection="column" marginTop={1}>
@@ -257,7 +379,11 @@ export const register: Register = on => {
       </Box>}
       <Box flexDirection="column" marginTop={1}>
         <Text dimColor>thread</Text>
-        {threadLines(view.thread).map(line => <Text key={line.key} color={line.color}>{line.text}</Text>)}
+        {threadLines(view.thread, queue).map(line => <Box key={line.key} flexDirection="row" columnGap={1}>
+          <Text color={line.color}>{line.text}</Text>
+          {line.state !== undefined && <Text dimColor>{`[${line.state}]`}</Text>}
+          {line.state === 'no reply' && line.batch !== undefined && <Button key={`review-resend-${line.batch}`} plain label="resend" onPress={() => void resend($, worktree, line.batch as string)} />}
+        </Box>)}
       </Box>
       {composer !== undefined && composer.tab === tab?.key && <Input
         key={composer.kind === 'comment' ? 'review-comment' : 'review-patch'}

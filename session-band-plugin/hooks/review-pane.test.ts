@@ -1,4 +1,7 @@
 import type { On } from 'claude-code'
+
+import { parseQueue, queueFile } from './review-batch'
+import { threadFile } from './review-thread'
 import { expect, mock, test } from 'claude-code/testing'
 
 const PANE = {
@@ -234,4 +237,92 @@ test('threads survive closing and reopening the pane', async ($, on) => {
   await ui.unmount()
   await $.command.run(RUN)
   expect(lines(await $.ui.render(PANE)).some(line => line.includes('survive me'))).toBe(true)
+})
+
+const queueOf = (world: World) => parseQueue(world.files[queueFile('/work')] ?? '')
+
+test('send queues one batch per agent', async ($, on) => {
+  const world = setup(on)
+  world.list = '[]'
+  world.files['/h/.local/state/session-band/review/c1.json'] = claudeState()
+  const entry = (id: string, file: string, kind: string, text: string) => JSON.stringify({
+    id, at: '2026-10-23T10:00:00.000Z', agent: 'claude:c1', file, kind, author: 'person', text,
+  }) + '\n'
+  world.files[threadFile('/work', 'claude:c1', 'src/a.ts')] = entry('e1', 'src/a.ts', 'comment', 'why?')
+  world.files[threadFile('/work', 'claude:c1', 'src/c.ts')] = entry('e2', 'src/c.ts', 'patch', 'edit') + JSON.stringify({
+    id: 'e3', at: '2026-10-23T10:01:00.000Z', agent: 'claude:c1', file: 'src/c.ts', kind: 'reply', author: 'agent', text: 'done', batch: 'older',
+  }) + '\n'
+  await $.command.run(RUN)
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  await ui.press({ key: 'review-send' })
+  await world.clock.settle()
+  const queue = queueOf(world)
+  expect(queue).toHaveLength(1)
+  expect(queue[0]).toMatchObject({ agent: 'claude:c1', entryIds: ['e1', 'e2'], state: 'queued' })
+  expect(lines(await $.ui.render(PANE)).filter(line => line.includes('[queued]'))).toHaveLength(1)
+  await ui.press({ key: 'review-key-next-tab' })
+  await world.clock.settle()
+  expect(lines(await $.ui.render(PANE)).filter(line => line.includes('[queued]'))).toHaveLength(1)
+})
+
+test('the cycler warns when leaving same as agent', async ($, on) => {
+  const world = setup(on)
+  world.list = '[]'
+  world.files['/h/.local/state/session-band/review/c1.json'] = claudeState()
+  world.files[threadFile('/work', 'claude:c1', 'src/a.ts')] = JSON.stringify({
+    id: 'e1', at: '2026-10-23T10:00:00.000Z', agent: 'claude:c1', file: 'src/a.ts', kind: 'comment', author: 'person', text: 'why?',
+  }) + '\n'
+  await $.command.run(RUN)
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  let drawn = await $.ui.render(PANE)
+  expect(lines(drawn)).toContain('answerer: same as agent')
+  expect(lines(drawn)).not.toContain('switching model re-reads the full context (no cache)')
+  await ui.press({ key: 'review-key-model' })
+  await world.clock.settle()
+  drawn = await $.ui.render(PANE)
+  expect(lines(drawn)).toContain('answerer: haiku · low')
+  expect(lines(drawn)).toContain('switching model re-reads the full context (no cache)')
+  await ui.press({ key: 'review-send' })
+  await world.clock.settle()
+  expect(queueOf(world)[0]).toMatchObject({ model: 'haiku', effort: 'low' })
+})
+
+test('an answer marks its tab unread and toasts', async ($, on) => {
+  const world = setup(on)
+  world.files['/work/.pi/agent-review/pending/run-1.json'] = piRecord()
+  world.files[queueFile('/work')] = JSON.stringify({
+    id: 'b1', agent: 'pi:pi-s1', entryIds: ['e2'], state: 'answered', queuedAt: '2026-10-23T10:00:00.000Z', answeredAt: '2026-10-23T10:05:00.000Z',
+  }) + '\n'
+  world.files[threadFile('/work', 'pi:pi-s1', 'src/b.ts')] = [
+    { id: 'e1', at: '2026-10-23T10:00:00.000Z', agent: 'pi:pi-s1', file: 'src/b.ts', kind: 'comment', author: 'person', text: 'why?', batch: 'b1' },
+    { id: 'e2', at: '2026-10-23T10:05:00.000Z', agent: 'pi:pi-s1', file: 'src/b.ts', kind: 'reply', author: 'agent', text: 'because', batch: 'b1' },
+  ].map(entry => JSON.stringify(entry)).join('\n') + '\n'
+  await $.command.run(RUN)
+  await $.ui.render(PANE)
+  expect(world.toasts.some(toast => toast.includes('src/b.ts'))).toBe(true)
+  expect(lines(await $.ui.render(PANE)).some(line => line.includes('src/b.ts') && line.includes('unread'))).toBe(true)
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  await ui.press({ key: 'review-key-next-tab' })
+  await world.clock.settle()
+  expect(lines(await $.ui.render(PANE)).some(line => line.includes('src/b.ts') && line.includes('unread'))).toBe(false)
+})
+
+test('no reply offers resend', async ($, on) => {
+  const world = setup(on)
+  world.list = '[]'
+  world.files['/h/.local/state/session-band/review/c1.json'] = claudeState()
+  world.files[queueFile('/work')] = JSON.stringify({
+    id: 'b1', agent: 'claude:c1', entryIds: ['e1'], state: 'no-reply', queuedAt: '2026-10-23T10:00:00.000Z', deliveredAt: '2026-10-23T10:01:00.000Z',
+  }) + '\n'
+  world.files[threadFile('/work', 'claude:c1', 'src/a.ts')] = JSON.stringify({
+    id: 'e1', at: '2026-10-23T10:00:00.000Z', agent: 'claude:c1', file: 'src/a.ts', kind: 'comment', author: 'person', text: 'why?', batch: 'b1',
+  }) + '\n'
+  await $.command.run(RUN)
+  const drawn = await $.ui.render(PANE)
+  expect(lines(drawn)).toContain('you · comment: why?')
+  expect(lines(drawn)).toContain('[no reply]')
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  await ui.press({ key: 'review-resend-b1' })
+  await world.clock.settle()
+  expect(queueOf(world)[0]?.state).toBe('queued')
 })
