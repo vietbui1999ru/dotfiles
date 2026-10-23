@@ -1,6 +1,7 @@
 import type { EngineInterface } from 'claude-code'
 
-import { batchEntries, buildBatchText, expireDelivered, markBatch, readQueue, type Batch } from './review-batch'
+import { batchDir, batchEntries, buildBatchText, expireDelivered, markBatch, readQueue, worktreeRoot, type Batch } from './review-batch'
+import { dispatchCommand, parseStatus, type Task } from './pueue'
 import { readSession } from './review-touch'
 
 // The housekeeping tick: a delivered batch's no-reply timeout, and the retry of a queued Pi batch.
@@ -30,7 +31,8 @@ async function batchText($: EngineInterface, worktree: string, batch: Batch): Pr
 
 async function delivered($: EngineInterface, worktree: string, batch: Batch, extra: Partial<Batch> = {}): Promise<void> {
   const deliveredAt = new Date(await $.clock.now()).toISOString()
-  await markBatch($, worktree, batch.id, 'delivered', { deliveredAt, ...extra })
+  // A reason from an earlier attempt (no model, a refused send) must not outlive the delivery.
+  await markBatch($, worktree, batch.id, 'delivered', { reason: undefined, deliveredAt, ...extra })
 }
 
 /**
@@ -93,13 +95,70 @@ export async function deliverOwn($: EngineInterface, worktree: string, sessionId
 }
 
 /**
+ * The value after `--model` in a pueue task's command, as it was dispatched (`opencode-go/flash:high`).
+ */
+export const piModelFrom = (pueueCommand: string): string | undefined => {
+  const match = /(?:^|\s)--model(?:=|\s+)(?:'([^']*)'|"([^"]*)"|(\S+))/.exec(pueueCommand)
+  return match?.[1] ?? match?.[2] ?? match?.[3]
+}
+
+const sessionIdIn = (command: string): string | undefined => {
+  const match = /(?:^|\s)--session-id(?:=|\s+)(?:'([^']*)'|"([^"]*)"|(\S+))/.exec(command)
+  return match?.[1] ?? match?.[2] ?? match?.[3]
+}
+
+// The tasks that belong to one Pi session: by the session id their command carries, or by a label naming it.
+const tasksFor = (tasks: readonly Task[], piSessionId: string): Task[] =>
+  tasks.filter(task => sessionIdIn(task.command) === piSessionId || (task.label ?? '').includes(piSessionId))
+
+async function pueueTasks($: EngineInterface): Promise<Task[]> {
+  const status = await $.process.run(['pueue', 'status', '--json']).catch(() => undefined)
+  return status && status.exitCode === 0 ? parseStatus(status.stdout) : []
+}
+
+/**
+ * Dispatches one batch to a Pi session by resuming that same session (`--session-id` is reused, never a
+ * new id). The model is the batch's own (the pane's cycler) or the one the original run was dispatched
+ * with; with neither, the batch stays `queued` with `no model` and the pane offers the cycler. A running
+ * pueue task for the session holds the batch: notes never interrupt a turn in progress.
+ */
+export async function deliverToPi($: EngineInterface, worktree: string, batch: Batch, piSessionId: string): Promise<void> {
+  const root = await worktreeRoot($, worktree)
+  const tasks = tasksFor(await pueueTasks($), piSessionId)
+  if (tasks.some(task => task.state === 'Running')) return
+
+  const model = batch.model ?? tasks.map(task => piModelFrom(task.command)).find(value => value !== undefined)
+  if (model === undefined) {
+    if (batch.reason !== 'no model') await markBatch($, root, batch.id, 'queued', { reason: 'no model' })
+    return
+  }
+
+  const path = `${batchDir(root)}/${batch.id}.md`
+  await $.fs.write(path, buildBatchText(batch.id, await batchEntries($, root, batch), 'cli', root))
+  const dispatched = await $.process.run([
+    'pueue', 'add', '-i', '--print-task-id', '--label', `review-${batch.id.slice(0, 8)}`, '-w', root,
+    '--', dispatchCommand(model, piSessionId, path),
+  ])
+  if (dispatched.exitCode !== 0) {
+    const why = dispatched.stderr.trim().split('\n')[0] ?? ''
+    await markBatch($, root, batch.id, 'queued', { reason: `dispatch failed: ${why === '' ? 'pueue add failed' : why}` })
+    return
+  }
+  await delivered($, root, batch, { model, effort: batch.effort })
+}
+
+/**
  * The housekeeping tick, once a minute: a delivered batch nobody answered becomes `no-reply`, and
- * queued batches for a Pi session are retried. Registered at session start by register.tsx, which
- * already holds the plugin's one unmatched `session.start` hook.
+ * queued batches for a Pi session are retried. Register.tsx starts the tick at session start, and the
+ * pane calls it right after `enqueue` so a send does not wait for the next minute.
  */
 export async function sweep($: EngineInterface, worktree: string, nowMs: number): Promise<void> {
-  for (const batch of expireDelivered(await readQueue($, worktree), nowMs)) {
-    await markBatch($, worktree, batch.id, 'no-reply')
+  const root = await worktreeRoot($, worktree)
+  const queue = await readQueue($, root)
+  for (const batch of expireDelivered(queue, nowMs)) await markBatch($, root, batch.id, 'no-reply')
+  for (const batch of queue) {
+    if (batch.state !== 'queued' || !batch.agent.startsWith('pi:')) continue
+    await deliverToPi($, root, batch, batch.agent.slice('pi:'.length))
   }
 }
 
