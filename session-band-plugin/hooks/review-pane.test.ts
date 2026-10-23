@@ -2,6 +2,7 @@ import type { On } from 'claude-code'
 
 import { parseQueue, queueFile } from './review-batch'
 import { threadFile } from './review-thread'
+import { statePath } from './review-touch'
 import { expect, mock, test } from 'claude-code/testing'
 
 const PANE = {
@@ -38,6 +39,8 @@ type World = {
   calls: { argv: string[]; cwd?: string }[]
   toasts: string[]
   clock: ReturnType<typeof mock.clock>
+  approval: { exitCode: number; stdout: string; stderr: string; isStdoutTruncated: boolean; isStderrTruncated: boolean }
+  applyCheck: number
 }
 
 const review = (over: Record<string, unknown> = {}) => ({
@@ -47,7 +50,7 @@ const review = (over: Record<string, unknown> = {}) => ({
 
 const setup = (on: On, over: Partial<World> = {}): World => {
   const clock = mock.clock(on, { now: 1_000_000 })
-  const world: World = { files: {}, list: JSON.stringify([review()]), diffs: {}, status: 3, calls: [], toasts: [], clock, ...over }
+  const world: World = { files: {}, list: JSON.stringify([review()]), diffs: {}, status: 3, calls: [], toasts: [], clock, approval: OK, applyCheck: 0, ...over }
   mock.env(on, { HOME: '/h', TMPDIR: '/tmp' })
   on('ui.open', () => ({ value: { isPlaced: true } } as never))
   on('ui.toast', (_$, e) => { world.toasts.push(String((e as { text?: unknown }).text ?? '')); return { value: undefined } as never })
@@ -75,6 +78,13 @@ const setup = (on: On, over: Partial<World> = {}): World => {
     world.calls.push({ argv: [...e.argv], cwd: e.init?.cwd })
     const argv = e.argv
     if (argv[0]?.endsWith('/agent-review') && argv[1] === 'list') return { value: { ...OK, stdout: world.list } } as never
+    if (argv[0]?.endsWith('/agent-review') && argv[1] === 'approve') return { value: world.approval } as never
+    if (argv[0]?.endsWith('/ac-run') && argv[1] === 'approve') return { value: { ...OK, stdout: 'approved: fixture record\n' } } as never
+    if (argv[0] === 'git' && (argv.includes('add') || argv.includes('rm'))) return { value: OK } as never
+    if (argv[0] === 'git' && argv.includes('write-tree')) return { value: { ...OK, stdout: 'tree2\n' } } as never
+    if (argv[0] === 'git' && argv.includes('apply')) return { value: world.applyCheck === 0 ? OK : { ...OK, exitCode: 1 } } as never
+    if (argv[0]?.endsWith('/commit-funnel')) return { value: OK } as never
+    if (argv[0] === 'pueue' && argv[1] === 'status') return { value: { ...OK, stdout: '{"tasks":{}}' } } as never
     if (argv[0]?.endsWith('/ac-run') && argv[1] === 'status') return { value: { ...OK, exitCode: world.status, stdout: world.status === 0 ? 'approved' : 'draft' } } as never
     if (argv[0]?.endsWith('/ac-run') && argv[1] === 'show') return { value: { ...OK, stdout: 'AC-1: draw the pane\n    runs: true\n' } } as never
     if (argv.includes('rev-parse') && argv.includes('--show-toplevel')) return { value: { ...OK, stdout: '/work\n' } } as never
@@ -325,4 +335,97 @@ test('no reply offers resend', async ($, on) => {
   await ui.press({ key: 'review-resend-b1' })
   await world.clock.settle()
   expect(queueOf(world)[0]?.state).toBe('queued')
+})
+
+const stateOf = (world: World) => JSON.parse(world.files[statePath('/h', 'c1')] ?? '{}') as Record<string, unknown>
+
+test('Pi approval goes through agent-review approve', async ($, on) => {
+  const world = setup(on)
+  seedAgents(world)
+  await $.command.run(RUN)
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  await ui.press({ key: 'review-approve' })
+  await world.clock.settle()
+  expect(world.calls.filter(call => call.argv[1] === 'approve').map(call => call.argv)).toEqual([
+    ['/h/dotfiles/scripts/agent-review', 'approve', 'run-1'],
+  ])
+  expect(world.calls.find(call => call.argv[1] === 'approve')?.cwd).toBe('/work')
+})
+
+test('a Claude session needs two presses', async ($, on) => {
+  const world = setup(on)
+  world.list = '[]'
+  world.files['/h/.local/state/session-band/review/c1.json'] = claudeState()
+  await $.command.run(RUN)
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  await ui.press({ key: 'review-approve' })
+  await world.clock.settle()
+  expect(stateOf(world).touched).toEqual(['src/c.ts', 'src/a.ts'])
+  expect(lines(await $.ui.render(PANE))).toContain('Press a again to approve claude c1.')
+  expect(world.toasts.some(toast => toast.includes('Press a again'))).toBe(true)
+  await ui.press({ key: 'review-approve' })
+  await world.clock.settle()
+  expect(stateOf(world).touched).toEqual([])
+  expect(typeof stateOf(world).approvedAt).toBe('string')
+  expect(lines(await $.ui.render(PANE)).some(line => line.includes('src/a.ts'))).toBe(false)
+})
+
+test('a shared file waits for both agents', async ($, on) => {
+  const world = setup(on)
+  seedAgents(world)
+  await $.command.run(RUN)
+  let drawn = lines(await $.ui.render(PANE))
+  expect(drawn).toContain('› pi run-1  src/a.ts  shared: claude c1')
+  expect(drawn).toContain('  claude c1  src/a.ts  shared: pi run-1')
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  // Move from the Pi tab to the Claude tab on the same file, then approve the Claude session.
+  await ui.press({ key: 'review-key-next-tab' })
+  await ui.press({ key: 'review-key-next-tab' })
+  await world.clock.settle()
+  await ui.press({ key: 'review-approve' })
+  await ui.press({ key: 'review-approve' })
+  await world.clock.settle()
+  expect(stateOf(world).touched).toEqual([])
+  expect(world.calls.some(call => call.argv[1] === 'approve')).toBe(false)
+  // The Pi tab still holds src/a.ts: one agent's approval does not approve the other's change.
+  expect(lines(await $.ui.render(PANE))).toContain('› pi run-1  src/a.ts')
+  // A on the second press approves the file for every agent that touched it.
+  await ui.press({ key: 'review-approve-all' })
+  await world.clock.settle()
+  expect(lines(await $.ui.render(PANE))).toContain('Press x again to approve src/a.ts for every agent.')
+  await ui.press({ key: 'review-approve-all' })
+  await world.clock.settle()
+  expect(world.calls.filter(call => call.argv[1] === 'approve').map(call => call.argv)).toEqual([
+    ['/h/dotfiles/scripts/agent-review', 'approve', 'run-1'],
+  ])
+})
+
+test('tree-changed is reported, not retried', async ($, on) => {
+  const world = setup(on, { approval: { ...OK, stdout: '{"ok":false,"reason":"tree-changed","message":"the working tree changed since the run ended"}' } })
+  seedAgents(world)
+  await $.command.run(RUN)
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  await ui.press({ key: 'review-approve' })
+  await world.clock.settle()
+  expect(lines(await $.ui.render(PANE))).toContain('tree-changed: wait for the re-snapshot; this run is not approved.')
+  await $.ui.render(PANE)
+  expect(world.calls.filter(call => call.argv[1] === 'approve')).toHaveLength(1)
+})
+
+test('returning a Claude file keeps it unapproved and queues a note', async ($, on) => {
+  const world = setup(on)
+  world.list = '[]'
+  world.files['/h/.local/state/session-band/review/c1.json'] = claudeState()
+  await $.command.run(RUN)
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  await ui.press({ key: 'review-return' })
+  await world.clock.settle()
+  expect(stateOf(world).touched).toEqual(['src/c.ts', 'src/a.ts'])
+  const entries = threadOf(world, 'claude:c1', 'src/a.ts')
+  const note = entries.find(entry => entry.kind === 'comment')
+  expect(note?.text).toBe('Returned for rework: src/a.ts')
+  const queue = queueOf(world)
+  expect(queue).toHaveLength(1)
+  expect(queue[0]?.entryIds).toEqual([note?.id])
+  expect(lines(await $.ui.render(PANE)).some(line => line.includes('src/a.ts'))).toBe(true)
 })

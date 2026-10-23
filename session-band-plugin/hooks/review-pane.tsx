@@ -24,6 +24,9 @@ import {
 } from './review-sources'
 import { FOCUS_ACTION, FOCUS_REFUSED, JUMP_KEYS, MOD_PANES, PANE_TITLES, switchSteps } from './pane-nav'
 import { landPatch } from './review-land'
+import { acRunArgv } from './gates'
+import { approveArgv, approvalAction } from './pane.tsx'
+import { approveSession } from './review-touch'
 import { PALETTE } from './palette'
 
 // The atom lives here, not in review-sources: the engine's scan reads state only from
@@ -349,6 +352,146 @@ const openComposer = async ($: EngineInterface, tab: ReviewTab | undefined, kind
   }))
 }
 
+const sessionOf = (tab: ReviewTab): string => tab.agent.slice('claude:'.length)
+
+/**
+ * Landing first, then approval: an agreed patch the agent has not yet seen applied would make the
+ * run's snapshot stale. A busy agent holds the approval too, like a note.
+ */
+async function landAgentAgreed($: EngineInterface, worktree: string, state: ReviewPaneState, agent: string): Promise<boolean> {
+  for (const tab of state.tabs.filter(row => row.agent === agent && row.kind !== 'spec')) {
+    const entries = await readThread($, worktree, tab.agent, tab.file)
+    const patches = new Map(entries.filter(entry => entry.kind === 'patch').map(entry => [entry.id, entry]))
+    const done = landed(entries)
+    for (const [id, reply] of verdicts(entries)) {
+      if (reply.verdict !== 'agree' || done.has(id)) continue
+      const patch = patches.get(id)
+      if (patch === undefined) continue
+      if (await landPatch($, worktree, patch) === 'waiting') return false
+    }
+  }
+  return true
+}
+
+const setNote = async ($: EngineInterface, note: string) => update($, review, state => ({ ...state, note }))
+
+/** `a`: the agent's own gate, never a decision the pane writes itself. */
+async function approveCurrent($: EngineInterface, worktree: string, state: ReviewPaneState, tab: ReviewTab | undefined): Promise<void> {
+  if (tab === undefined) return
+  const home = await $.env.get('HOME')
+  if (tab.kind === 'claude') {
+    if (state.confirm !== tab.agent) {
+      await update($, review, value => ({ ...value, confirm: tab.agent, note: `Press a again to approve ${tab.label}.` }))
+      await $.ui.toast(`Press a again to approve ${tab.label}.`)
+      return
+    }
+    await approveSession($, sessionOf(tab))
+    await update($, review, value => ({ ...value, confirm: undefined, note: undefined }))
+    await $.ui.toast(`${tab.label} approved.`)
+    await reload($, worktree)
+    return
+  }
+  if (!home) {
+    await $.ui.toast('Review gate not available.')
+    return
+  }
+  if (tab.kind === 'spec') {
+    const result = await $.process.run(acRunArgv(home, 'approve', tab.specPath ?? tab.file), { cwd: worktree, timeoutMs: 600_000 }).catch(() => undefined)
+    const message = (result?.stdout.trim() || result?.stderr.trim() || 'not approved').split('\n').filter(Boolean).pop() ?? 'not approved'
+    await $.ui.toast(message)
+    await reload($, worktree)
+    return
+  }
+  if (tab.runId === undefined) return
+  if (!(await landAgentAgreed($, worktree, state, tab.agent))) {
+    await $.ui.toast('The agent is mid-turn; the patch must land before approval.')
+    return
+  }
+  const result = await $.process.run(approveArgv(home, tab.runId), { cwd: worktree, timeoutMs: 60_000 }).catch(() => undefined)
+  const action = result ? approvalAction(result.stdout) : 'unavailable'
+  if (action === 'approved') {
+    await $.ui.toast('Review approved.')
+    await reload($, worktree)
+    return
+  }
+  if (action === 'open-review') {
+    await setNote($, 'tree-changed: wait for the re-snapshot; this run is not approved.')
+    await $.ui.toast('tree-changed: wait for the re-snapshot; this run is not approved.')
+    return
+  }
+  let message: string | undefined
+  try { message = (JSON.parse(result?.stdout ?? '') as { message?: string }).message } catch { /* the outcome was already parsed */ }
+  await $.ui.toast(message ?? 'Review approval refused.')
+}
+
+/** `x`, twice: the explicit approve-for-all for a file two agents touched. */
+async function approveForAll($: EngineInterface, worktree: string, state: ReviewPaneState, tab: ReviewTab | undefined): Promise<void> {
+  if (tab === undefined) return
+  const key = `all:${tab.file}`
+  if (state.confirm !== key) {
+    await update($, review, value => ({ ...value, confirm: key }))
+    await $.ui.toast(`Press x again to approve ${tab.file} for every agent.`)
+    return
+  }
+  const home = await $.env.get('HOME')
+  await update($, review, value => ({ ...value, confirm: undefined }))
+  for (const row of state.tabs.filter(item => item.file === tab.file)) {
+    if (row.kind === 'claude') await approveSession($, sessionOf(row))
+    if (row.kind === 'pi' && home && row.runId !== undefined && await landAgentAgreed($, worktree, state, row.agent)) {
+      await $.process.run(approveArgv(home, row.runId), { cwd: worktree, timeoutMs: 60_000 }).catch(() => undefined)
+    }
+    if (row.kind === 'spec' && home) {
+      await $.process.run(acRunArgv(home, 'approve', row.specPath ?? row.file), { cwd: worktree, timeoutMs: 600_000 }).catch(() => undefined)
+    }
+  }
+  await $.ui.toast(`Approved ${tab.file} for every agent.`)
+  await reload($, worktree)
+}
+
+/**
+ * `r`: the file is not accepted. A Claude session keeps it in `touched` and gets a queued note
+ * saying why; a Pi run records the return in the pane only, never as a notes or patch decision.
+ */
+async function returnFile($: EngineInterface, worktree: string, tab: ReviewTab | undefined): Promise<void> {
+  if (tab === undefined) return
+  if (tab.kind === 'spec') {
+    await $.ui.toast('A spec is approved or rejected in the gates pane.')
+    return
+  }
+  if (tab.kind === 'claude') {
+    const entry: ThreadEntry = {
+      id: crypto.randomUUID(),
+      at: new Date(await $.clock.now()).toISOString(),
+      agent: tab.agent,
+      file: tab.file,
+      kind: 'comment',
+      author: 'person',
+      text: `Returned for rework: ${tab.file}`,
+    }
+    await appendEntry($, worktree, entry)
+    await enqueue($, worktree, tab.agent, [entry])
+    await sweepDelivery($, worktree, await $.clock.now())
+    await setNote($, `returned ${tab.file}: it stays unapproved; a note is queued.`)
+    await $.ui.toast(`Returned ${tab.file}: it stays unapproved; a note is queued.`)
+    return
+  }
+  await appendEntry($, worktree, {
+    id: crypto.randomUUID(),
+    at: new Date(await $.clock.now()).toISOString(),
+    agent: tab.agent,
+    file: tab.file,
+    kind: 'system',
+    author: 'pane',
+    text: 'returned for rework',
+  })
+  await update($, review, value => ({
+    ...value,
+    returned: { ...value.returned, [tab.agent]: [...(value.returned?.[tab.agent] ?? []), tab.file] },
+    note: `returned ${tab.file}: the run is not approved; resolve it in the review.`,
+  }))
+  await $.ui.toast(`Returned ${tab.file}: the run is not approved; resolve it in the review.`)
+}
+
 let watching = false
 
 /**
@@ -404,6 +547,9 @@ export const register: Register = on => {
         <Button key="review-key-model" plain dimColor={tab === undefined} hotkey="m" label="answerer" onPress={() => void cycleAnswerer($, tab)} />
         <Button key="review-overrule" plain dimColor={tab === undefined || !view.thread.some(entry => entry.kind === 'clapback')} hotkey="o" label="overrule" onPress={() => void overrule($, worktree, tab, view.thread)} />
         <Button key="review-accept-alternative" plain dimColor={tab === undefined || !view.thread.some(entry => entry.kind === 'clapback' && entry.patch !== undefined)} hotkey="y" label="accept alternative" onPress={() => void acceptAlternative($, worktree, tab, view.thread)} />
+        <Button key="review-approve" plain dimColor={tab === undefined} hotkey="a" label="approve" onPress={() => void approveCurrent($, worktree, state, tab)} />
+        <Button key="review-approve-all" plain dimColor={tab === undefined || (tab.shared === undefined && state.tabs.filter(item => item.file === tab.file).length < 2)} hotkey="x" label="approve for all" onPress={() => void approveForAll($, worktree, state, tab)} />
+        <Button key="review-return" plain dimColor={tab === undefined || tab.kind === 'spec'} hotkey="r" label="return" onPress={() => void returnFile($, worktree, tab)} />
         <Button key="review-key-prev" plain dimColor hotkey="b" label="prev" onPress={() => void cycle($, -1)} />
         <Button key="review-key-next" plain dimColor hotkey="f" label="next" onPress={() => void cycle($, 1)} />
         <Button key="review-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'review' })} />
@@ -420,6 +566,8 @@ export const register: Register = on => {
       {tab !== undefined && <Text dimColor>{`${tab.label} · ${tab.file}${tab.shared ? ` · shared with ${tab.shared.join(', ')}` : ''}`}</Text>}
       {tab !== undefined && <Text dimColor>{`answerer: ${ANSWERERS[answererIndex(state, tab.agent)]?.label ?? 'same as agent'}`}</Text>}
       {tab !== undefined && answererIndex(state, tab.agent) > 0 && <Text color={PALETTE.yellow}>{ANSWER_WARNING}</Text>}
+      {tab !== undefined && state.confirm === tab.agent && <Text color={PALETTE.yellow}>{`Press a again to approve ${tab.label}.`}</Text>}
+      {tab !== undefined && state.confirm === `all:${tab.file}` && <Text color={PALETTE.yellow}>{`Press x again to approve ${tab.file} for every agent.`}</Text>}
       {state.note !== undefined && <Text color={PALETTE.yellow}>{state.note}</Text>}
       {view.page.paged && <Text dimColor>{`hunk ${view.page.at + 1}/${view.page.total}`}</Text>}
       {tab?.kind === 'spec' && <Box flexDirection="column" marginTop={1}>
