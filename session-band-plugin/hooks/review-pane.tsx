@@ -23,6 +23,7 @@ import {
   type ReviewTab,
 } from './review-sources'
 import { FOCUS_ACTION, FOCUS_REFUSED, JUMP_KEYS, MOD_PANES, PANE_TITLES, switchSteps } from './pane-nav'
+import { landPatch } from './review-land'
 import { PALETTE } from './palette'
 
 // The atom lives here, not in review-sources: the engine's scan reads state only from
@@ -255,6 +256,65 @@ async function resend($: EngineInterface, worktree: string, id: string): Promise
   await sweepDelivery($, worktree, await $.clock.now())
 }
 
+const landed = (entries: readonly ThreadEntry[]): Set<string> =>
+  new Set(entries.flatMap(entry => entry.kind === 'system' && entry.replyTo !== undefined ? [entry.replyTo] : []))
+
+/** The latest agent reply for each proposed patch, the one whose verdict decides what happens. */
+const verdicts = (entries: readonly ThreadEntry[]): Map<string, ThreadEntry> => {
+  const latest = new Map<string, ThreadEntry>()
+  for (const entry of entries) {
+    if ((entry.kind === 'reply' || entry.kind === 'clapback') && entry.replyTo !== undefined) latest.set(entry.replyTo, entry)
+  }
+  return latest
+}
+
+/**
+ * An `agree` reply lands its patch mechanically, once: a landed or refused patch has a system
+ * entry naming it, so a redraw or a retry never lands it twice. A busy agent waits for the tick.
+ */
+export async function landAgreed($: EngineInterface, worktree: string, state: ReviewPaneState): Promise<void> {
+  for (const tab of state.tabs) {
+    if (tab.kind === 'spec') continue
+    const entries = await readThread($, worktree, tab.agent, tab.file)
+    const patches = new Map(entries.filter(entry => entry.kind === 'patch').map(entry => [entry.id, entry]))
+    const done = landed(entries)
+    for (const [id, reply] of verdicts(entries)) {
+      if (reply.verdict !== 'agree' || done.has(id)) continue
+      const patch = patches.get(id)
+      if (patch === undefined) continue
+      const result = await landPatch($, worktree, patch)
+      if (result === 'landed') await $.ui.toast(`review: landed the agreed patch in ${tab.file}`)
+      if (result === 'waiting') await $.ui.toast(`review: ${tab.label} is mid-turn; the patch waits.`)
+    }
+  }
+}
+
+/** `o`: the person's patch lands anyway, and the commit says the agent warned against it. */
+async function overrule($: EngineInterface, worktree: string, tab: ReviewTab | undefined, thread: readonly ThreadEntry[]): Promise<void> {
+  if (tab === undefined) return
+  const patches = new Map(thread.filter(entry => entry.kind === 'patch').map(entry => [entry.id, entry]))
+  const clapback = [...verdicts(thread).values()].reverse().find(entry => entry.verdict === 'clapback' && patches.has(entry.replyTo ?? ''))
+  if (clapback === undefined) {
+    await $.ui.toast('No clapback to overrule in this file.')
+    return
+  }
+  const result = await landPatch($, worktree, patches.get(clapback.replyTo as string) as ThreadEntry, clapback)
+  await $.ui.toast(result === 'landed' ? 'review: overruled and landed.' : result === 'waiting' ? 'review: the agent is mid-turn; the overrule waits.' : 'review: the patch no longer applies.')
+}
+
+/** `y`: the agent's alternative patch lands as agreed instead of the person's. */
+async function acceptAlternative($: EngineInterface, worktree: string, tab: ReviewTab | undefined, thread: readonly ThreadEntry[]): Promise<void> {
+  if (tab === undefined) return
+  const clapback = [...verdicts(thread).values()].reverse().find(entry => entry.verdict === 'clapback' && typeof entry.patch === 'string' && entry.patch.trim() !== '')
+  if (clapback === undefined) {
+    await $.ui.toast('No alternative patch to accept in this file.')
+    return
+  }
+  const alternative: ThreadEntry = { ...clapback, kind: 'patch', author: 'person', patch: clapback.patch as string }
+  const result = await landPatch($, worktree, alternative)
+  await $.ui.toast(result === 'landed' ? "review: landed the agent's alternative." : result === 'waiting' ? 'review: the agent is mid-turn; the alternative waits.' : 'review: the alternative no longer applies.')
+}
+
 /**
  * The answered batches the pane has not shown yet: each raises a toast naming its files and marks
  * their tabs unread. The selected tab counts as viewed; moving to another clears its mark.
@@ -304,6 +364,7 @@ function startAnswerWatch($: EngineInterface): void {
       const queue = await readQueue($, worktree)
       const state = await read($, review)
       await noteAnswers($, state, worktree, queue)
+      await landAgreed($, worktree, await read($, review))
     })().catch(() => undefined)
   })
 }
@@ -318,6 +379,7 @@ export const register: Register = on => {
     const state = await reload($)
     const worktree = await worktreeRoot($, await $.session.cwd().catch(() => ''))
     await noteAnswers($, state, worktree, await readQueue($, worktree))
+    await landAgreed($, worktree, await read($, review))
     startAnswerWatch($)
     return result
   })
@@ -340,6 +402,8 @@ export const register: Register = on => {
         <Button key="review-key-patch" plain dimColor={tab === undefined || tab.kind === 'spec' || view.page.total === 0} hotkey="p" label="propose edit" onPress={() => void openComposer($, tab, 'patch', view.hunks[view.page.at])} />
         <Button key="review-send" plain dimColor={tab === undefined} hotkey="s" label="send" onPress={() => void send($, state, tab, worktree)} />
         <Button key="review-key-model" plain dimColor={tab === undefined} hotkey="m" label="answerer" onPress={() => void cycleAnswerer($, tab)} />
+        <Button key="review-overrule" plain dimColor={tab === undefined || !view.thread.some(entry => entry.kind === 'clapback')} hotkey="o" label="overrule" onPress={() => void overrule($, worktree, tab, view.thread)} />
+        <Button key="review-accept-alternative" plain dimColor={tab === undefined || !view.thread.some(entry => entry.kind === 'clapback' && entry.patch !== undefined)} hotkey="y" label="accept alternative" onPress={() => void acceptAlternative($, worktree, tab, view.thread)} />
         <Button key="review-key-prev" plain dimColor hotkey="b" label="prev" onPress={() => void cycle($, -1)} />
         <Button key="review-key-next" plain dimColor hotkey="f" label="next" onPress={() => void cycle($, 1)} />
         <Button key="review-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'review' })} />

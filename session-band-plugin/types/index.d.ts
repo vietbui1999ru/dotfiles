@@ -114,6 +114,8 @@ declare module 'claude-code' {
       worktrees: WorktreeState
       draftPrs: DraftPrsState
       gates: import('../hooks/gates.tsx').GatesState
+      /** This session's own turn, so a patch landing waits while it is mid-turn. */
+      'review-turn': { started: boolean }
       review: {
         tabs: { key: string; agent: string; kind: 'pi' | 'claude' | 'spec'; label: string; file: string; base: string; runId?: string; specPath?: string; shared?: string[]; unread?: boolean }[]
         selected?: string

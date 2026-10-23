@@ -15,6 +15,7 @@ import { loadSessionBlocks, pendingCount } from './safety-blocks'
 import { onSessionStart as lifecycleSessionStart, register as registerLifecycle } from './lifecycle.tsx'
 import { register as registerGates } from './gates.tsx'
 import { register as registerReviewPane } from './review-pane.tsx'
+import { setTurn } from './review-land'
 import { register as registerReviewTouch } from './review-touch'
 import { deliverOwn, startDelivery } from './review-deliver'
 import { register as registerReviewReply, registerTool as registerReviewReplyTool } from './review-reply'
@@ -218,7 +219,15 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // The review pane lands and commits patches only between turns; turn.start/turn.complete are
+  // the one pair that records this session's own turn in review-land's atom.
+  on('turn.start', async ($, e, next) => {
+    if (e.agentId === undefined) await setTurn($, true).catch(() => undefined)
+    return next(e)
+  })
+
   on('turn.complete', async ($, e, next) => {
+    if (e.agentId === undefined) await setTurn($, false).catch(() => undefined)
     await refreshGit($)
     // Notes never interrupt a running turn: the main loop's end is when this session's batches go in.
     if (e.agentId === undefined) {
