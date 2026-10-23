@@ -14,7 +14,7 @@ import { PANE as BLOCKS_PANE, register as registerSafetyBlocks } from './safety-
 import { loadSessionBlocks, pendingCount } from './safety-blocks'
 import { onSessionStart as lifecycleSessionStart, register as registerLifecycle } from './lifecycle.tsx'
 import { register as registerGates } from './gates.tsx'
-import { register as registerReviewPane } from './review-pane.tsx'
+import { register as registerReviewPane, startReviewAnswers } from './review-pane.tsx'
 import { setTurn } from './review-land'
 import { register as registerReviewTouch } from './review-touch'
 import { deliverOwn, startDelivery } from './review-deliver'
@@ -207,6 +207,8 @@ export const register: Register = on => {
     await ensureSessionBase($, await $.session.id().catch(() => ''), await $.session.cwd().catch(() => '')).catch(() => undefined)
     // One 60-second tick for the review queue: no-reply timeouts, and a retry for a queued Pi batch.
     startDelivery($)
+    // Answers and agreed patches are noticed while the review pane is open; closed, the tick is a no-op.
+    startReviewAnswers($)
     // The tool an agent answers a review batch with; a failure here costs only that tool.
     await registerReviewReplyTool($).catch(() => undefined)
 

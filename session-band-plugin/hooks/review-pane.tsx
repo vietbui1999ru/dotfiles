@@ -509,16 +509,18 @@ let watching = false
 
 /**
  * Outside `ui.render`, where writing state is refused: answers are noticed when the pane opens and
- * on a slow tick while it stays open, so a reply arriving mid-review marks its tab.
+ * on a slow tick while it stays open, so a reply arriving mid-review marks its tab. The tick starts
+ * once at session start and does nothing while the pane is closed.
  */
-function startAnswerWatch($: EngineInterface): void {
+export function startReviewAnswers($: EngineInterface): void {
   if (watching) return
   watching = true
   $.clock.every(15_000, () => {
     void (async () => {
-      const worktree = await worktreeRoot($, await $.session.cwd().catch(() => ''))
-      const queue = await readQueue($, worktree)
+      if (!(await $.ui.panes()).some(pane => pane.id === 'review')) return
       const state = await read($, review)
+      const worktree = state.worktree ?? await worktreeRoot($, await $.session.cwd().catch(() => ''))
+      const queue = await readQueue($, worktree)
       await noteAnswers($, state, worktree, queue)
       await landAgreed($, worktree, await read($, review))
     })().catch(() => undefined)
@@ -536,7 +538,6 @@ export const register: Register = on => {
     const worktree = state.worktree ?? await worktreeRoot($, await $.session.cwd().catch(() => ''))
     await noteAnswers($, state, worktree, await readQueue($, worktree))
     await landAgreed($, worktree, await read($, review))
-    startAnswerWatch($)
     return result
   })
   on('ui.render', { component: 'Pane', requestId: 'review' }, async ($, e, _next) => {
