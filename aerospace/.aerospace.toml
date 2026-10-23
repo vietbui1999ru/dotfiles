@@ -287,6 +287,11 @@ T = ['MAG 275UD', 'main']
 if.app-id = 'com.apple.UserNotificationCenter'  
 run = ['layout floating']
 
+
+[[on-window-detected]]
+if.app-id = 'dev.vendicated.vencordinstaller'
+run = ['layout floating']
+
 [[on-window-detected]]
 if.app-id = 'com.gizmolabs.openwhispr'  
 run = ['layout floating' , 'move-node-to-workspace 0']
