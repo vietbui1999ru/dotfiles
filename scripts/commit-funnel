@@ -157,9 +157,44 @@ def check_git_index(rels):
                  ])
 
 
+def refuse_unknown(rel, places):
+    """Refuse a listed path that is in neither the work tree nor `places`."""
+    refusals(f"path {rel!r} is not in the work tree, {places}", [
+        "Check the path for typos; list only files you changed or deleted.",
+        "Rerun: commit-funnel --worktree <session worktree> -F <message file> <path>...",
+    ])
+
+
+def in_index(rel):
+    return git("ls-files", "--error-unmatch", "--", rel, check=False).returncode == 0
+
+
+def in_head(rel):
+    return git("cat-file", "-e", f"HEAD:{rel}", check=False).returncode == 0
+
+
+def stage_git(rels):
+    """Stage the listed paths, deletions included; refuse a path that never existed.
+
+    Classify every path before touching the index, so a refusal changes nothing.
+    """
+    on_disk, removals = [], []
+    for rel in rels:
+        if os.path.lexists(rel):
+            on_disk.append(rel)
+        elif in_index(rel):
+            removals.append(rel)
+        elif not in_head(rel):
+            refuse_unknown(rel, "the index or HEAD")
+    if on_disk:
+        git("add", "--", *on_disk)
+    if removals:
+        git("rm", "--cached", "-q", "--", *removals)
+
+
 def commit_git(rels, message_path):
     check_git_index(rels)
-    git("add", "--", *rels)
+    stage_git(rels)
     # COMMIT_FUNNEL=1 lets the reference-transaction hook allow this one ref update.
     git("commit", "-F", message_path, env={**os.environ, "COMMIT_FUNNEL": "1"})
     subject = git("log", "-1", "--format=%h %s").stdout.strip()
@@ -171,9 +206,19 @@ def fileset(rel):
     return 'root:"' + rel.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+def jj_in_parent(rel):
+    return bool(jj("file", "list", "-r", "@-", fileset(rel)).stdout.strip())
+
+
 def commit_jj(rels, text, branch):
     sets = [fileset(r) for r in rels]
-    jj("file", "track", *sets)
+    # jj snapshots deletions of tracked files itself: track only what is on disk.
+    for rel in rels:
+        if not os.path.lexists(rel) and not jj_in_parent(rel):
+            refuse_unknown(rel, "nor the parent commit")
+    on_disk = [fileset(r) for r in rels if os.path.lexists(r)]
+    if on_disk:
+        jj("file", "track", *on_disk)
     jj("commit", "-m", text, *sets)
     jj("bookmark", "move", branch, "--to", "@-")
     git("switch", branch)
