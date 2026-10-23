@@ -25,6 +25,15 @@ const STATES: readonly BatchState[] = ['queued', 'delivered', 'answered', 'no-re
 
 export const queueFile = (worktree: string): string => `${threadDir(worktree)}/queue.jsonl`
 
+/**
+ * The worktree's repository root: a thread and its queue live beside the review record at the root,
+ * so a session started in a subdirectory still finds them. A directory outside git is its own root.
+ */
+export async function worktreeRoot($: EngineInterface, worktree: string): Promise<string> {
+  const result = await $.process.run(['git', '-C', worktree, 'rev-parse', '--show-toplevel']).catch(() => undefined)
+  return result?.exitCode === 0 && result.stdout.trim() !== '' ? result.stdout.trim() : worktree
+}
+
 export const batchDir = (worktree: string): string => `${threadDir(worktree)}/batches`
 
 const isBatch = (value: unknown): value is Batch => {

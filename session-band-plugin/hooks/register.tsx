@@ -16,6 +16,7 @@ import { onSessionStart as lifecycleSessionStart, register as registerLifecycle 
 import { register as registerGates } from './gates.tsx'
 import { register as registerReviewTouch } from './review-touch'
 import { deliverOwn, startDelivery } from './review-deliver'
+import { register as registerReviewReply, registerTool as registerReviewReplyTool } from './review-reply'
 import { ensureSessionBase } from './review-touch'
 import { summarize, type TrackedTask } from './handoff'
 import type { PiProgress } from './pisession'
@@ -171,6 +172,7 @@ export const register: Register = on => {
   registerLifecycle(on)
   registerGates(on)
   registerSendIt(on)
+  registerReviewReply(on)
   // Last, so its Bash snapshot runs only for a call the guards above let through.
   registerReviewTouch(on)
 
@@ -201,6 +203,8 @@ export const register: Register = on => {
     await ensureSessionBase($, await $.session.id().catch(() => ''), await $.session.cwd().catch(() => '')).catch(() => undefined)
     // One 60-second tick for the review queue: no-reply timeouts, and a retry for a queued Pi batch.
     startDelivery($)
+    // The tool an agent answers a review batch with; a failure here costs only that tool.
+    await registerReviewReplyTool($).catch(() => undefined)
 
     return next(e)
   })
