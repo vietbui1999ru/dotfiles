@@ -37,6 +37,19 @@ resumed() {
   node "99 System/Agents/Gemini/skills/obsidian-notes-to-resume/scripts/generate_resume.js"
 }
 
+# Copy files from the Taildrive inbox on proxmox into the current directory.
+# Goes over SSH rather than the Finder mount: no WebDAV cache, no ._ sidecars.
+#   inbox-pull              everything except dotfiles (._*, .DS_Store, ...)
+#   inbox-pull a.pdf b.zip  only the named files
+inbox-pull() {
+  local src="root@proxmox.tail953017.ts.net:/root/Inbox"
+  if (( $# == 0 )); then
+    rsync -ah --progress --exclude='.*' "$src/" .
+  else
+    rsync -ah --progress "${@/#/$src/}" .
+  fi
+}
+
 sshr() {
   local host="${1:-vietbui1999ru@rtx2060}"
   kitten ssh "$host"
