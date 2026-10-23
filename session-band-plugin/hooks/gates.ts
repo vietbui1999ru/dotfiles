@@ -6,7 +6,7 @@ export type ReviewEntry = { runId: string; owner: string | null; branch: string;
 export type ReviewRow = { kind: 'review'; key: string; worktree: string | null; entry: ReviewEntry }
 export type GateRow = SpecRow | ReviewRow
 
-export const acRunArgv = (home: string, sub: 'status' | 'show' | 'approve' | 'reject', spec: string): string[] => [`${home}/dotfiles/scripts/ac-run`, sub, spec]
+export const acRunArgv = (home: string, sub: 'status' | 'show' | 'approve' | 'reject' | 'check', spec: string): string[] => [`${home}/dotfiles/scripts/ac-run`, sub, spec]
 // $.process.run rejects a timeout over ten minutes, so cap it there.
 export const approveTimeoutMs = (runnable: number): number => Math.min((75 + 120 * runnable + 30) * 1000, 600_000)
 export const editRemoteArgv = (socket: string, path: string): string[] => ['nvim', '--server', socket, '--remote-send', `<C-\\><C-N>:edit ${path.replace(/[ \\%#|"<>\r\n]/g, char => char === '<' ? '<LT>' : `\\${char}`)}<CR>`]

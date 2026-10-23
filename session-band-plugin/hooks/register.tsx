@@ -14,6 +14,7 @@ import { PANE as BLOCKS_PANE, register as registerSafetyBlocks } from './safety-
 import { loadSessionBlocks, pendingCount } from './safety-blocks'
 import { onSessionStart as lifecycleSessionStart, register as registerLifecycle } from './lifecycle.tsx'
 import { register as registerGates } from './gates.tsx'
+import { register as registerReviewPane } from './review-pane.tsx'
 import { register as registerReviewTouch } from './review-touch'
 import { deliverOwn, startDelivery } from './review-deliver'
 import { register as registerReviewReply, registerTool as registerReviewReplyTool } from './review-reply'
@@ -171,6 +172,7 @@ export const register: Register = on => {
   registerSafetyBlocks(on)
   registerLifecycle(on)
   registerGates(on)
+  registerReviewPane(on)
   registerSendIt(on)
   registerReviewReply(on)
   // Last, so its Bash snapshot runs only for a call the guards above let through.
@@ -192,6 +194,7 @@ export const register: Register = on => {
     await $.command.register({ name: 'draft-prs', description: 'Open the draft PRs pane: open drafts, ready PRs and merges from the last 7 days' })
     await $.command.register({ name: BLOCKS_PANE.command, description: "Open the blocks pane: this session's bash-safety blocks, o marks ok, f marks false-positive" })
     await $.command.register({ name: 'gates', description: 'Open spec approvals and pending Pi reviews across worktrees' })
+    await $.command.register({ name: 'diff-review', description: 'Review the worktree: one tab per unapproved file, with comments, questions and proposed patches' })
     await $.command.register({ name: 'send-it', description: 'Turn send-it mode on or off for this repo, or show its state', argumentHint: 'on|off|status' })
     const current = await $.session.usage()
     await Promise.all([
