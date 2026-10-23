@@ -53,6 +53,10 @@ const setup = (on: On, over: Partial<World> = {}): World => {
     if (!(e.path in world.files)) throw new Error('ENOENT')
     return { value: world.files[e.path] as never }
   })
+  on('fs.write', (_$, e) => {
+    world.files[e.path] = e.text
+    return { value: undefined }
+  })
   on('fs.list', (_$, e) => {
     const dir = (e.path ?? '').replace(/\/+$/, '')
     return {
@@ -77,6 +81,12 @@ const setup = (on: On, over: Partial<World> = {}): World => {
       return { value: { ...OK, stdout: world.diffs[file] ?? '' } } as never
     }
     if (argv[0]?.endsWith('/floor-guard')) return { value: { ...OK, exitCode: 1, stdout: '' } } as never
+    const [cmd, flag, from, to] = argv
+    if (cmd === 'mv' && flag === '-f' && from && to && from in world.files) {
+      world.files[to] = world.files[from] as string
+      delete world.files[from]
+      return { value: OK } as never
+    }
     return { value: FAIL } as never
   })
   return world
@@ -162,4 +172,66 @@ test('a long diff is paged by hunk', async ($, on) => {
   drawn = await $.ui.render(PANE)
   expect(lines(drawn)).toContain('hunk 2/3')
   expect(codes(drawn)[0]?.source).toContain('@@ -4001,2 +4001,2 @@')
+})
+
+const threadPath = (agent: string, file: string) => `/work/.pi/agent-review/threads/${encodeURIComponent(agent)}/${encodeURIComponent(file)}.jsonl`
+const threadOf = (world: World, agent: string, file: string) =>
+  (world.files[threadPath(agent, file)] ?? '').split('\n').filter(line => line.trim() !== '').map(line => JSON.parse(line) as Record<string, unknown>)
+
+test('a comment is stored with its line', async ($, on) => {
+  const world = setup(on)
+  seedAgents(world)
+  world.diffs['src/a.ts'] = '--- a/src/a.ts\n+++ b/src/a.ts\n@@ -10,2 +20,3 @@\n ctx\n-old\n+new\n'
+  await $.command.run(RUN)
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  await ui.press({ key: 'review-key-comment' })
+  await world.clock.settle()
+  await ui.input({ key: 'review-comment', text: 'why is this here?' })
+  await world.clock.settle()
+  const entries = threadOf(world, 'pi:pi-s1', 'src/a.ts')
+  expect(entries).toHaveLength(1)
+  expect(entries[0]).toMatchObject({ kind: 'comment', author: 'person', text: 'why is this here?', line: 20, agent: 'pi:pi-s1', file: 'src/a.ts' })
+  // Nothing was written into a source file: only the thread, and no src/a.ts key exists.
+  expect(world.files['src/a.ts']).toBeUndefined()
+})
+
+test('a typed edit becomes a patch entry with a unified diff', async ($, on) => {
+  const world = setup(on)
+  seedAgents(world)
+  world.diffs['src/a.ts'] = '--- a/src/a.ts\n+++ b/src/a.ts\n@@ -10,2 +20,3 @@\n ctx\n-old\n+new\n'
+  await $.command.run(RUN)
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  await ui.press({ key: 'review-key-patch' })
+  await world.clock.settle()
+  await ui.input({ key: 'review-patch', text: 'ctx\nbrand new' })
+  await world.clock.settle()
+  const entries = threadOf(world, 'pi:pi-s1', 'src/a.ts')
+  expect(entries).toHaveLength(1)
+  expect(entries[0]?.kind).toBe('patch')
+  expect(entries[0]?.patch).toBe([
+    '--- a/src/a.ts',
+    '+++ b/src/a.ts',
+    '@@ -10,2 +20,2 @@',
+    '-ctx',
+    '-old',
+    '+ctx',
+    '+brand new',
+    '',
+  ].join('\n'))
+})
+
+test('threads survive closing and reopening the pane', async ($, on) => {
+  const world = setup(on)
+  seedAgents(world)
+  world.diffs['src/a.ts'] = '--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,1 +1,2 @@\n old\n+new\n'
+  await $.command.run(RUN)
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  await ui.press({ key: 'review-key-comment' })
+  await world.clock.settle()
+  await ui.input({ key: 'review-comment', text: 'survive me' })
+  await world.clock.settle()
+  expect(lines(await $.ui.render(PANE)).some(line => line.includes('survive me'))).toBe(true)
+  await ui.unmount()
+  await $.command.run(RUN)
+  expect(lines(await $.ui.render(PANE)).some(line => line.includes('survive me'))).toBe(true)
 })

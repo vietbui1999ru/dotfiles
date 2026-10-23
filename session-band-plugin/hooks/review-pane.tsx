@@ -1,10 +1,11 @@
 import { atom, read, update, type EngineInterface, type Register } from 'claude-code'
 
 import { worktreeRoot } from './review-batch'
-import { readThread } from './review-thread'
+import { appendEntry, readThread, type ThreadEntry } from './review-thread'
 import {
   buildTabs,
   describeDiff,
+  editPatch,
   fileDiff,
   floorFindings,
   hunkLine,
@@ -171,6 +172,31 @@ async function focusSelf($: EngineInterface) {
   if (!(await $.ui.panes()).some(pane => pane.id === 'review' && pane.isFocused)) await $.ui.toast(FOCUS_REFUSED)
 }
 
+export type ThreadLine = { key: string; text: string; color?: string }
+
+/** The file's thread in order; a clapback shows in its own colour with the reason it gave. */
+export const threadLines = (entries: readonly ThreadEntry[]): ThreadLine[] =>
+  entries.map(entry => {
+    const who = entry.author === 'person' ? 'you' : entry.author === 'agent' ? 'agent' : 'pane'
+    const where = entry.line === undefined ? '' : ` L${entry.line}`
+    const key = `review-thread-${entry.id}`
+    if (entry.kind === 'clapback') return { key, text: `${who}${where} · clapback: ${entry.text}`, color: PALETTE.red }
+    if (entry.kind === 'patch') return { key, text: `${who}${where} · proposed patch: ${entry.text}`, color: PALETTE.yellow }
+    return { key, text: `${who}${where} · ${entry.kind}: ${entry.text}` }
+  })
+
+const openComposer = async ($: EngineInterface, tab: ReviewTab | undefined, kind: 'comment' | 'patch', hunk: Hunk | undefined) => {
+  if (tab === undefined) return
+  if (kind === 'patch' && hunk === undefined) {
+    await $.ui.toast('This file has no hunk to edit.')
+    return
+  }
+  await update($, review, state => ({
+    ...state,
+    composer: { tab: tab.key, kind, text: kind === 'patch' && hunk !== undefined ? hunkNewLines(hunk).join('\n') : '' },
+  }))
+}
+
 export const register: Register = on => {
   on('command.run', { command: 'diff-review' }, async ($, _e, _next) => {
     await $.ui.open({ id: 'review', title: PANE_TITLES.review, focus: true })
@@ -195,6 +221,8 @@ export const register: Register = on => {
         <Button key="review-key-next-tab" plain dimColor hotkey="l" label="next file" onPress={() => void moveTab($, state, 1)} />
         <Button key="review-key-down" plain dimColor hotkey="j" label="next hunk" onPress={() => void moveHunk($, state, 1, view.page.total)} />
         <Button key="review-key-up" plain dimColor hotkey="k" label="prev hunk" onPress={() => void moveHunk($, state, -1, view.page.total)} />
+        <Button key="review-key-comment" plain dimColor={tab === undefined || tab.kind === 'spec'} hotkey="c" label="comment" onPress={() => void openComposer($, tab, 'comment', view.hunks[view.page.at])} />
+        <Button key="review-key-patch" plain dimColor={tab === undefined || tab.kind === 'spec' || view.page.total === 0} hotkey="p" label="propose edit" onPress={() => void openComposer($, tab, 'patch', view.hunks[view.page.at])} />
         <Button key="review-key-prev" plain dimColor hotkey="b" label="prev" onPress={() => void cycle($, -1)} />
         <Button key="review-key-next" plain dimColor hotkey="f" label="next" onPress={() => void cycle($, 1)} />
         <Button key="review-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'review' })} />
@@ -227,6 +255,10 @@ export const register: Register = on => {
         {view.findings.map((line, index) => <Text key={`review-floor-${index}`} color={PALETTE.orange}>{line}</Text>)}
         {view.lens.map((line, index) => <Text key={`review-lens-${index}`} dimColor>{line}</Text>)}
       </Box>}
+      <Box flexDirection="column" marginTop={1}>
+        <Text dimColor>thread</Text>
+        {threadLines(view.thread).map(line => <Text key={line.key} color={line.color}>{line.text}</Text>)}
+      </Box>
       {composer !== undefined && composer.tab === tab?.key && <Input
         key={composer.kind === 'comment' ? 'review-comment' : 'review-patch'}
         label={composer.kind === 'comment' ? 'Comment' : 'Proposed patch'}
@@ -234,16 +266,35 @@ export const register: Register = on => {
         value={composer.text}
         submitLabel="add"
         autoFocus
-        onSubmit={value => void addEntry($, tab, composer.kind, value, view)}
+        onSubmit={value => void addEntry($, tab, composer.kind, value, view.hunks[view.page.at], worktree)}
       />}
     </Box>
   })
 }
 
-// Filled by the later tasks; keeping the signature here lets the render compile first.
-async function addEntry($: EngineInterface, tab: ReviewTab | undefined, kind: 'comment' | 'patch', text: string, view: ReviewDraw): Promise<void> {
+/**
+ * Appends the person's comment or proposed patch to the file's thread, durably and before it is
+ * shown: `s` is what sends it. A patch is the unified diff from the hunk's old side to the typed text.
+ */
+async function addEntry($: EngineInterface, tab: ReviewTab | undefined, kind: 'comment' | 'patch', text: string, hunk: Hunk | undefined, worktree: string): Promise<void> {
   if (tab === undefined) return
-  await update($, review, state => ({ ...state, composer: { tab: tab.key, kind, text: '' } }))
-  void text
-  void view
+  if (kind === 'patch' && hunk === undefined) {
+    await update($, review, state => ({ ...state, composer: undefined }))
+    await $.ui.toast('This file has no hunk to edit.')
+    return
+  }
+  const entry: ThreadEntry = {
+    id: crypto.randomUUID(),
+    at: new Date(await $.clock.now()).toISOString(),
+    agent: tab.agent,
+    file: tab.file,
+    kind,
+    author: 'person',
+    text: kind === 'patch' ? text.split('\n')[0] ?? '' : text,
+    ...(kind === 'comment' && hunk !== undefined && hunkLine(hunk) !== undefined ? { line: hunkLine(hunk) as number } : {}),
+    ...(kind === 'patch' && hunk !== undefined ? { patch: editPatch(tab.file, hunk, text) } : {}),
+  }
+  await appendEntry($, worktree, entry)
+  await update($, review, state => ({ ...state, composer: undefined }))
+  await $.ui.toast(kind === 'comment' ? 'Comment added. Press s to send.' : 'Proposed patch added. Press s to send.')
 }
