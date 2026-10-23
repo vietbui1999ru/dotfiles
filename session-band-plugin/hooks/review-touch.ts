@@ -128,6 +128,36 @@ export async function recordTouch($: EngineInterface, sessionId: string, worktre
   })
 }
 
+export async function readSession($: EngineInterface, sessionId: string): Promise<SessionReview | undefined> {
+  return load($, sessionId)
+}
+
+/**
+ * The person's approval of everything the session touched: the tree as it now stands becomes the new
+ * base, the touched set is cleared, and the moment is recorded. Files touched afterwards appear again.
+ */
+export async function approveSession($: EngineInterface, sessionId: string): Promise<SessionReview> {
+  const existing = await load($, sessionId)
+  const worktree = existing?.worktree ?? await repoRoot($, await $.session.cwd())
+  const approved: SessionReview = {
+    sessionId,
+    worktree,
+    baseTree: await snapshotTree($, worktree),
+    touched: [],
+    approvedAt: new Date(await $.clock.now()).toISOString(),
+  }
+  await save($, approved)
+  return approved
+}
+
+/** Writes the session's base at its start, unless a state file is already there (a resume, or an approval). */
+export async function ensureSessionBase($: EngineInterface, sessionId: string, worktree: string): Promise<void> {
+  if (sessionId === '') return
+  if (await load($, sessionId) !== undefined) return
+  const root = await repoRoot($, worktree)
+  await save($, { sessionId, worktree: root, baseTree: await snapshotTree($, root), touched: [] })
+}
+
 // A touch log that fails must never fail the tool call.
 async function recordSafely($: EngineInterface, worktree: string, paths: readonly string[]): Promise<void> {
   try {

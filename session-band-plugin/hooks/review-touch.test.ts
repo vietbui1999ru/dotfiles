@@ -1,7 +1,7 @@
 import type { EngineInterface, On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
-import { changedPaths, snapshotTree, statePath } from './review-touch'
+import { approveSession, changedPaths, ensureSessionBase, readSession, snapshotTree, statePath } from './review-touch'
 
 const START = { cwd: '/work', surface: 'terminal' as const, isInteractive: true }
 const HOME = '/Users/test'
@@ -20,6 +20,21 @@ type World = {
   snapshots: number
 }
 
+const runGit = (world: World, argv: readonly string[], env?: Record<string, string>) => {
+  if (argv[0] !== 'git') return ok()
+  switch (argv[3]) {
+    case 'rev-parse': return ok('/work\n')
+    case 'add': world.envs.push(env?.GIT_INDEX_FILE); return ok()
+    case 'rm': world.envs.push(env?.GIT_INDEX_FILE); return ok()
+    case 'write-tree':
+      world.envs.push(env?.GIT_INDEX_FILE)
+      world.snapshots += 1
+      return ok(`${INDEX}${world.snapshots}\n`)
+    case 'diff': return ok(world.changed.join('\n'))
+    default: return ok()
+  }
+}
+
 const setup = (on: On, over: Partial<World> = {}): World => {
   const world: World = { files: {}, changed: [], envs: [], snapshots: 0, ...over }
   mock.clock(on, { now: 1_000_000 })
@@ -29,22 +44,9 @@ const setup = (on: On, over: Partial<World> = {}): World => {
   on('session.id', () => ({ value: 's1' }))
   on('session.model', () => ({ value: 'claude-sonnet-5-5' }))
   on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('command.register', () => ({ value: undefined }))
   on('settings.read', () => ({ value: {} }))
-  on('process.run', ($, e) => {
-    const argv = e.argv
-    if (argv[0] !== 'git') return { value: ok() }
-    const verb = argv[3]
-    if (verb === 'rev-parse') return { value: ok('/work\n') }
-    if (verb === 'add') { world.envs.push(e.init?.env?.GIT_INDEX_FILE); return { value: ok() } }
-    if (verb === 'rm') { world.envs.push(e.init?.env?.GIT_INDEX_FILE); return { value: ok() } }
-    if (verb === 'write-tree') {
-      world.envs.push(e.init?.env?.GIT_INDEX_FILE)
-      world.snapshots += 1
-      return { value: ok(`${INDEX}${world.snapshots}\n`) }
-    }
-    if (verb === 'diff') return { value: ok(world.changed.join('\n')) }
-    return { value: ok() }
-  })
+  on('process.run', ($, e) => ({ value: runGit(world, e.argv, e.init?.env) }))
   on('fs.read', ($, e) => {
     if (!(e.path in world.files)) throw new Error('ENOENT')
     return { value: world.files[e.path] as never }
@@ -62,6 +64,24 @@ const setup = (on: On, over: Partial<World> = {}): World => {
   })
   return world
 }
+
+// The test body's `$` carries no file system, process or clock: the data layer gets one with the
+// engine's contract instead, over the same in-memory world the hooks are mocked with.
+const engine = (world: World): EngineInterface => ({
+  env: { get: async (name: string) => name === 'HOME' ? HOME : name === 'TMPDIR' ? '/tmp' : undefined },
+  fs: {
+    read: async (path: string) => {
+      if (!(path in world.files)) throw new Error('ENOENT')
+      return world.files[path] as string
+    },
+    write: async (path: string, text: string) => { world.files[path] = text },
+  },
+  process: {
+    run: async (argv: readonly string[], init?: { env?: Record<string, string> }) => runGit(world, argv, init?.env),
+  },
+  clock: { now: async () => 1_000_000 },
+  session: { cwd: async () => '/work', id: async () => 's1' },
+} as unknown as EngineInterface)
 
 const touched = (world: World) => JSON.parse(world.files[STATE] ?? '{"touched":[]}').touched as string[]
 
@@ -174,4 +194,62 @@ test('changedPaths reads the names git prints and is empty on a failed diff', as
 
   const broken = { process: { run: async () => failed } } as unknown as EngineInterface
   expect(await changedPaths(broken, '/work', 'tree-1', 'tree-2')).toEqual([])
+})
+
+test('approval clears touched and moves the base', async ($, on) => {
+  const world = setup(on)
+  world.files[STATE] = JSON.stringify({ sessionId: 's1', worktree: '/work', baseTree: 'tree-0', touched: ['a.ts'], approvedAt: '2026-10-01T00:00:00.000Z' })
+
+  const approved = await approveSession(engine(world), 's1')
+
+  expect(approved.touched).toEqual([])
+  expect(approved.baseTree).toBe('tree-1')
+  expect(approved.approvedAt).toBe(new Date(1_000_000).toISOString())
+  expect(await readSession(engine(world), 's1')).toEqual(approved)
+})
+
+test('a file touched after approval appears again', async ($, on) => {
+  const world = setup(on)
+  world.files[STATE] = JSON.stringify({ sessionId: 's1', worktree: '/work', baseTree: 'tree-0', touched: ['a.ts'] })
+
+  await approveSession(engine(world), 's1')
+  await edit($, '/work/b.ts')
+
+  expect((await readSession(engine(world), 's1'))?.touched).toEqual(['b.ts'])
+})
+
+test('session start takes the first snapshot as the base when none exists', async ($, on) => {
+  const world = setup(on)
+
+  await $.session.start(START)
+
+  expect(JSON.parse(world.files[STATE]!).baseTree).toBe('tree-1')
+  expect(JSON.parse(world.files[STATE]!).touched).toEqual([])
+})
+
+test('session start keeps an existing base', async ($, on) => {
+  const world = setup(on)
+  world.files[STATE] = JSON.stringify({ sessionId: 's1', worktree: '/work', baseTree: 'tree-stable', touched: ['a.ts'] })
+
+  await $.session.start(START)
+
+  expect(world.snapshots).toBe(0)
+  expect(JSON.parse(world.files[STATE]!).baseTree).toBe('tree-stable')
+  expect(JSON.parse(world.files[STATE]!).touched).toEqual(['a.ts'])
+})
+
+test('ensureSessionBase leaves an existing session alone', async ($, on) => {
+  const world = setup(on)
+  world.files[STATE] = JSON.stringify({ sessionId: 's1', worktree: '/work', baseTree: 'tree-stable', touched: [] })
+
+  await ensureSessionBase(engine(world), 's1', '/work')
+
+  expect(world.snapshots).toBe(0)
+  expect(JSON.parse(world.files[STATE]!).baseTree).toBe('tree-stable')
+})
+
+test('an absent session state reads as undefined', async ($, on) => {
+  const world = setup(on)
+
+  expect(await readSession(engine(world), 'nobody')).toBeUndefined()
 })
