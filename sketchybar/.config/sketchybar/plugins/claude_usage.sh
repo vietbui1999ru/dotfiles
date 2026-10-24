@@ -44,5 +44,5 @@ for i in 1 2 3; do
   name=(claude chatgpt opencode); name=claude_usage.${name[i-1]}
   [[ -n "${rows[i]}" ]] && args+=(--set "$name" drawing=on label="${rows[i]}") || args+=(--set "$name" drawing=off)
 done
-[[ "$SENDER" == "mouse.clicked" ]] && args+=(--set claude_usage popup.drawing=toggle)
+[[ "$SENDER" == "mouse.clicked" ]] && args+=(--set claude_usage.popup popup.drawing=toggle)
 sketchybar "${args[@]}"
