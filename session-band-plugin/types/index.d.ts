@@ -114,6 +114,25 @@ declare module 'claude-code' {
       worktrees: WorktreeState
       draftPrs: DraftPrsState
       gates: import('../hooks/gates.tsx').GatesState
+      /** This session's own turn, so a patch landing waits while it is mid-turn. */
+      'review-turn': { started: boolean }
+      review: {
+        tabs: { key: string; agent: string; kind: 'pi' | 'claude' | 'spec'; label: string; file: string; base: string; runId?: string; specPath?: string; shared?: string[]; unread?: boolean }[]
+        selected?: string
+        hunk: number
+        worktree?: string
+        focus?: { kind: 'pi' | 'claude' | 'spec'; runId?: string; specPath?: string; worktree?: string }
+        composer?: { tab: string; kind: 'comment' | 'patch'; text: string }
+        answerer?: Record<string, number>
+        unread?: Record<string, boolean>
+        notified?: string[]
+        confirm?: string
+        returned?: Record<string, string[]>
+        note?: string
+        findings?: Record<string, string[]>
+        lens?: Record<string, string[]>
+        checks?: Record<string, string>
+      }
       sendIt: boolean
       safetyBlocks: import('../hooks/safety-blocks.tsx').SafetyBlocksState
       blastFacts: import('../hooks/preview').PreviewFacts | null

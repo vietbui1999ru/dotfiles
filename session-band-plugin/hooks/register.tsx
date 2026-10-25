@@ -14,6 +14,8 @@ import { PANE as BLOCKS_PANE, register as registerSafetyBlocks } from './safety-
 import { loadSessionBlocks, pendingCount } from './safety-blocks'
 import { onSessionStart as lifecycleSessionStart, register as registerLifecycle } from './lifecycle.tsx'
 import { register as registerGates } from './gates.tsx'
+import { register as registerReviewPane, startReviewAnswers } from './review-pane.tsx'
+import { setTurn } from './review-land'
 import { register as registerReviewTouch } from './review-touch'
 import { deliverOwn, startDelivery } from './review-deliver'
 import { register as registerReviewReply, registerTool as registerReviewReplyTool } from './review-reply'
@@ -171,6 +173,7 @@ export const register: Register = on => {
   registerSafetyBlocks(on)
   registerLifecycle(on)
   registerGates(on)
+  registerReviewPane(on)
   registerSendIt(on)
   registerReviewReply(on)
   // Last, so its Bash snapshot runs only for a call the guards above let through.
@@ -192,6 +195,7 @@ export const register: Register = on => {
     await $.command.register({ name: 'draft-prs', description: 'Open the draft PRs pane: open drafts, ready PRs and merges from the last 7 days' })
     await $.command.register({ name: BLOCKS_PANE.command, description: "Open the blocks pane: this session's bash-safety blocks, o marks ok, f marks false-positive" })
     await $.command.register({ name: 'gates', description: 'Open spec approvals and pending Pi reviews across worktrees' })
+    await $.command.register({ name: 'diff-review', description: 'Review the worktree: one tab per unapproved file, with comments, questions and proposed patches' })
     await $.command.register({ name: 'send-it', description: 'Turn send-it mode on or off for this repo, or show its state', argumentHint: 'on|off|status' })
     const current = await $.session.usage()
     await Promise.all([
@@ -203,6 +207,8 @@ export const register: Register = on => {
     await ensureSessionBase($, await $.session.id().catch(() => ''), await $.session.cwd().catch(() => '')).catch(() => undefined)
     // One 60-second tick for the review queue: no-reply timeouts, and a retry for a queued Pi batch.
     startDelivery($)
+    // Answers and agreed patches are noticed while the review pane is open; closed, the tick is a no-op.
+    startReviewAnswers($)
     // The tool an agent answers a review batch with; a failure here costs only that tool.
     await registerReviewReplyTool($).catch(() => undefined)
 
@@ -215,7 +221,15 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // The review pane lands and commits patches only between turns; turn.start/turn.complete are
+  // the one pair that records this session's own turn in review-land's atom.
+  on('turn.start', async ($, e, next) => {
+    if (e.agentId === undefined) await setTurn($, true).catch(() => undefined)
+    return next(e)
+  })
+
   on('turn.complete', async ($, e, next) => {
+    if (e.agentId === undefined) await setTurn($, false).catch(() => undefined)
     await refreshGit($)
     // Notes never interrupt a running turn: the main loop's end is when this session's batches go in.
     if (e.agentId === undefined) {

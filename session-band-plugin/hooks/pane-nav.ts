@@ -16,7 +16,7 @@ export const nextPane = (open: readonly string[], current: string, step: 1 | -1)
 }
 
 export type ModPane = (typeof MOD_PANES)[number]
-export const PANE_TITLES: Record<ModPane, string> = { 'pi-handoff': 'Pi hand-off', 'pi-history': 'Pi history', worktrees: 'Worktrees', 'draft-prs': 'Draft PRs', gates: 'Gates' }
+export const PANE_TITLES: Record<ModPane | 'review', string> = { 'pi-handoff': 'Pi hand-off', 'pi-history': 'Pi history', worktrees: 'Worktrees', 'draft-prs': 'Draft PRs', gates: 'Gates', review: 'Review' }
 
 // The jump digits, the same in every pane. A pane's own digit does nothing; each jump uses that
 // pane's existing goTo runner, which also opens a pane that is not yet open.
