@@ -407,6 +407,11 @@ async function approveCurrent($: EngineInterface, worktree: string, state: Revie
     return
   }
   if (tab.runId === undefined) return
+  const returned = state.returned?.[tab.agent] ?? []
+  if (returned.length > 0) {
+    await $.ui.toast(`${tab.label} has returned files (${returned.join(', ')}); resolve them in the review before approving.`)
+    return
+  }
   if (!(await landAgentAgreed($, worktree, state, tab.agent))) {
     await $.ui.toast('The agent is mid-turn; the patch must land before approval.')
     return
@@ -439,16 +444,21 @@ async function approveForAll($: EngineInterface, worktree: string, state: Review
   }
   const home = await $.env.get('HOME')
   await update($, review, value => ({ ...value, confirm: undefined }))
+  // Each gate answers for itself: a refusal, a stale snapshot or a busy agent leaves that row unapproved.
+  const missed: string[] = []
   for (const row of state.tabs.filter(item => item.file === tab.file)) {
     if (row.kind === 'claude') await approveSession($, sessionOf(row))
-    if (row.kind === 'pi' && home && row.runId !== undefined && await landAgentAgreed($, worktree, state, row.agent)) {
-      await $.process.run(approveArgv(home, row.runId), { cwd: worktree, timeoutMs: 60_000 }).catch(() => undefined)
+    if (row.kind === 'pi') {
+      const ready = home && row.runId !== undefined && !(state.returned?.[row.agent]?.length) && await landAgentAgreed($, worktree, state, row.agent)
+      const result = ready ? await $.process.run(approveArgv(home, row.runId as string), { cwd: worktree, timeoutMs: 60_000 }).catch(() => undefined) : undefined
+      if (!result || approvalAction(result.stdout) !== 'approved') missed.push(row.label)
     }
-    if (row.kind === 'spec' && home) {
-      await $.process.run(acRunArgv(home, 'approve', row.specPath ?? row.file), { cwd: worktree, timeoutMs: 600_000 }).catch(() => undefined)
+    if (row.kind === 'spec') {
+      const result = home ? await $.process.run(acRunArgv(home, 'approve', row.specPath ?? row.file), { cwd: worktree, timeoutMs: 600_000 }).catch(() => undefined) : undefined
+      if (result?.exitCode !== 0) missed.push(row.label)
     }
   }
-  await $.ui.toast(`Approved ${tab.file} for every agent.`)
+  await $.ui.toast(missed.length === 0 ? `Approved ${tab.file} for every agent.` : `${tab.file}: not approved for ${missed.join(', ')}.`)
   await reload($, worktree)
 }
 

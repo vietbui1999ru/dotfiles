@@ -433,6 +433,31 @@ test('returning a Claude file keeps it unapproved and queues a note', async ($, 
   expect(lines(await $.ui.render(PANE)).some(line => line.includes('src/a.ts'))).toBe(true)
 })
 
+test('a Pi run with a returned file is not approved', async ($, on) => {
+  const world = setup(on)
+  seedAgents(world)
+  await $.command.run(RUN)
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  await ui.press({ key: 'review-return' })
+  await world.clock.settle()
+  await ui.press({ key: 'review-approve' })
+  await world.clock.settle()
+  expect(world.calls.some(call => call.argv[1] === 'approve')).toBe(false)
+  expect(world.toasts.at(-1)).toBe('pi run-1 has returned files (src/a.ts); resolve them in the review before approving.')
+})
+
+test('approve for all names the agents it could not approve', async ($, on) => {
+  const world = setup(on, { approval: { ...OK, stdout: '{"ok":false,"reason":"tree-changed","message":"the working tree changed since the run ended"}' } })
+  seedAgents(world)
+  await $.command.run(RUN)
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  await ui.press({ key: 'review-approve-all' })
+  await ui.press({ key: 'review-approve-all' })
+  await world.clock.settle()
+  expect(stateOf(world).touched).toEqual([])
+  expect(world.toasts.at(-1)).toBe('src/a.ts: not approved for pi run-1.')
+})
+
 
 test('floor-guard findings for the file appear in its tab', async ($, on) => {
   const world = setup(on, { floor: 'src/a.ts:3: [rule2] added suppression\nsrc/other.ts:1: [rule4] stub\n' })
