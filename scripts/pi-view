@@ -76,15 +76,19 @@ open_pane() {
 }
 
 pane=$(open_pane) || pane=""
+# Resolved from this script, so a worktree copy tails its own pi-tail.mjs;
+# pane run types the command into the pane's shell, so every path is quoted.
+tail_script=${${0:A}:h}/pi-tail.mjs
+# A viewer that never started cannot report anything about the task.
+if [[ -n $pane ]] && ! herdr_json pane run "$pane" \
+  "node ${(q)tail_script} --session-id ${(q)session_id} --cwd ${(q)PWD}" >/dev/null; then
+  pane=""
+fi
+
 if [[ -n $pane ]]; then
-  # Resolved from this script, so a worktree copy tails its own pi-tail.mjs.
-  self=${0:A}
-  tail_script=${self:h}/pi-tail.mjs
-  # pane run types its command into the pane's interactive shell, so quote every path.
-  herdr_json pane run "$pane" "node ${(q)tail_script} --session-id ${(q)session_id} --cwd ${(q)PWD}" >/dev/null
-  # pueue exposes no task id to the task; the session id is the name the pane is known by.
-  message="pi#${PUEUE_TASK_ID:-}"
-  [[ -n ${PUEUE_TASK_ID:-} ]] || message=$session_id
+  # pueue hands a task only PUEUE_GROUP and PUEUE_WORKER_ID, so the session id names the pane.
+  message=${PUEUE_TASK_ID:+pi#$PUEUE_TASK_ID}
+  [[ -n $message ]] || message=$session_id
   report_state "$pane" working "$message" 1
 fi
 
