@@ -406,6 +406,12 @@ export const transcriptLines = (entries: readonly TranscriptEntry[], showThinkin
     return entry.text.split('\n').map((line, lineIndex) => ({ key: `entry-${index}-${lineIndex}`, text: `  ↳ ${line}`, dim: true }))
   })
 
+/** The all view: `rows` shared evenly across the tasks, one row each for its header, never fewer than 3 lines. */
+export const stackedSections = (ids: readonly number[], allProgress: Readonly<Record<number, PiProgress | undefined>>, showThinking: boolean, rows: number) => {
+  const per = Math.max(3, Math.floor(rows / Math.max(1, ids.length)) - 1)
+  return ids.map(id => ({ id, lines: transcriptLines(allProgress[id]?.entries ?? [], showThinking).slice(-per) }))
+}
+
 export const register: Register = on => {
   on('command.run', { command: 'pi' }, async ($, e, _next) => {
     const parsed = parsePiArgs(e.args)
@@ -438,6 +444,11 @@ export const register: Register = on => {
     const pi = selectedProgress(state.tasks, state.selectedId, allProgress, rowIds)
     const transcript = pi?.entries.slice(-200) ?? []
     const confirm = state.confirm && nowMs - state.confirm.atMs <= CONFIRM_MS ? state.confirm : undefined
+    // The all view stacks every working task's transcript; the rows left after the strip and monitor are shared out.
+    const working = rowIds.flatMap(id => state.tasks.filter(item => item.id === id && (item.task?.state === 'Running' || item.task?.state === 'Paused')))
+    const sections = state.showAll && working.length > 0
+      ? stackedSections(working.map(item => item.id), allProgress, state.showThinking ?? false, e.props.scroll.bodyRows - rows.length - 8)
+      : undefined
     return <Box flexDirection="column">
       {state.tasks.length === 0 && <Text>No Pi hand-offs tracked in this session.</Text>}
       {/* Hotkeys, not hints: a key the pane does not bind falls through to the composer. */}
@@ -452,6 +463,7 @@ export const register: Register = on => {
         <Button key="pi-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'pi-handoff' })} />
         <Button key="pi-key-focus" plain dimColor action={FOCUS_ACTION} label="ctrl+x b" onPress={() => void focusSelf($)} />
         <Button key="pi-key-thinking" plain dimColor hotkey="t" label={state.showThinking ? 'hide thinking' : 'thinking'} onPress={() => void update($, handoff, value => ({ ...value, showThinking: !value.showThinking }))} />
+        <Button key="pi-key-all" plain dimColor hotkey="v" label={state.showAll ? 'one task' : 'all tasks'} onPress={() => void update($, handoff, value => ({ ...value, showAll: !value.showAll }))} />
         {JUMP_KEYS.map(j => <Button key={`pi-key-jump-${j.key}`} plain dimColor hotkey={j.key} label={j.label} onPress={() => void (j.id === 'pi-handoff' ? undefined : goTo($, j.id))} />)}
         {task && <Text dimColor>x kill  s stop  h hold  p pause  y/n confirm</Text>}
         {(!task || complete(task)) && <Button key="pi-key-abort" plain dimColor hotkey="x" label="kill" onPress={() => undefined} />}
@@ -479,8 +491,12 @@ export const register: Register = on => {
           </Box>
         })}
       </Box>}
-      {task && <Text>{`\n${taskLabel(task)}${pi?.lastActivity ? ` · ${pi.lastActivity}` : ''}\n${pi ? `${pi.tokens} tokens · $${pi.cost.toFixed(3)}` : 'usage n/a'}`}</Text>}
-      {transcriptLines(transcript, state.showThinking ?? false).map(line => <Text key={line.key} dimColor={line.dim}>{line.text}</Text>)}
+      {sections && working.map((item, index) => <Box key={`pi-all-${item.id}`} flexDirection="column">
+        <Text>{`\n── ${taskLabel(item)}${allProgress[item.id]?.lastActivity ? ` · ${allProgress[item.id]!.lastActivity}` : ''}`}</Text>
+        {sections[index]!.lines.map(line => <Text key={`${item.id}-${line.key}`} dimColor={line.dim}>{line.text}</Text>)}
+      </Box>)}
+      {!sections && task && <Text>{`\n${taskLabel(task)}${pi?.lastActivity ? ` · ${pi.lastActivity}` : ''}\n${pi ? `${pi.tokens} tokens · $${pi.cost.toFixed(3)}` : 'usage n/a'}`}</Text>}
+      {!sections && transcriptLines(transcript, state.showThinking ?? false).map(line => <Text key={line.key} dimColor={line.dim}>{line.text}</Text>)}
       {task && <Box flexDirection="row" flexWrap="wrap" columnGap={1} marginTop={1}>
         {!complete(task) && <Button key="pi-abort" hotkey="x" onPress={() => void askConfirm($, 'kill', [task.id])}>Abort</Button>}
         {task.task && eligible('kill', task.task.state) && <Button key="pi-hold" hotkey="h" onPress={() => void askConfirm($, 'hold', [task.id])}>Hold queue</Button>}
