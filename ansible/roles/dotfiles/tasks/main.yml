@@ -1,7 +1,16 @@
 ---
+- name: Check dotfiles_git_transport is a known transport
+  ansible.builtin.assert:
+    that: dotfiles_git_transport in ['ssh', 'https']
+    fail_msg: "dotfiles_git_transport must be 'ssh' or 'https', got '{{ dotfiles_git_transport }}'"
+    quiet: true
+
 - name: Clone dotfiles repo
   ansible.builtin.git:
-    repo: git@github.com:vietbui1999ru/dotfiles.git
+    repo: >-
+      {{ 'https://github.com/vietbui1999ru/dotfiles.git'
+         if dotfiles_git_transport == 'https'
+         else 'git@github.com:vietbui1999ru/dotfiles.git' }}
     dest: "{{ ansible_env.HOME }}/dotfiles"
     version: main
     depth: 1
@@ -10,8 +19,14 @@
 
 - name: Init and update git submodules (llm-wiki)
   ansible.builtin.command:
-    cmd: git submodule update --init --recursive
+    argv: "{{ ['git'] + dotfiles_submodule_url_rewrite + ['submodule', 'update', '--init', '--recursive'] }}"
     chdir: "{{ ansible_env.HOME }}/dotfiles"
+  vars:
+    # .gitmodules pins the submodule to the SSH URL; rewrite it per command
+    # rather than touching the user's global git config.
+    dotfiles_submodule_url_rewrite: >-
+      {{ ['-c', 'url.https://github.com/.insteadOf=git@github.com:']
+         if dotfiles_git_transport == 'https' else [] }}
   changed_when: false
   when: dotfiles_submodule_enabled
 
