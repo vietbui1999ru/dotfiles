@@ -1,0 +1,93 @@
+#!/usr/bin/env zsh
+# pi-view — run a Pi dispatch with a live viewer pane in the dispatcher's herdr workspace.
+#
+#   pi-view pi --model <provider/id[:thinking]> --session-id pueue-<slug> -p "..." < /dev/null
+#
+# Pueue stays the only source of truth: the pane only displays the task's session
+# file, and every herdr call is best-effort, so a herdr failure can never fail the
+# task. Outside a herdr pane the arguments run untouched. This file must not be
+# named `pi` or end in `/pi`, because session-band reads the first such word as the
+# Pi command (session-band-plugin/hooks/pueue.ts).
+set -u
+
+usage() {
+  print -u2 -- 'usage: pi-view [pi arguments]'
+  print -u2 -- 'Runs the given command, streaming its Pi transcript in a herdr pane when called from one.'
+}
+
+[[ ${1:-} == -h || ${1:-} == --help ]] && { usage; exit 0 }
+[[ $# -gt 0 ]] || { usage; exit 2 }
+
+# The session id decides what the pane tails, so find it before deciding anything else.
+session_id=""
+argv=("$@")
+for (( index = 1; index <= $#; index++ )); do
+  [[ ${argv[index]} == --session-id ]] && session_id=${argv[index + 1]:-}
+done
+
+if [[ ${HERDR_ENV:-} != 1 ]] || (( ! $+commands[herdr] )) || [[ -z $session_id ]]; then
+  exec "$@"
+fi
+
+# A herdr failure is reported on nothing and ignored: the task still runs.
+herdr_json() { herdr "$@" 2>/dev/null }
+
+report_state() {
+  local pane=$1 state=$2 message=$3 seq=$4
+  herdr_json pane report-agent "$pane" --source custom:pueue --agent pi --state "$state" \
+    --message "$message" --seq "$seq" >/dev/null
+}
+
+# Echo the pane id of a fresh viewer pane, or nothing when the herdr calls fail.
+open_pane() {
+  local workspace=${HERDR_WORKSPACE_ID:-}
+  [[ -n $workspace ]] || return 1
+
+  local tab_id pane created
+  tab_id=$(herdr_json tab list | jq -r --arg workspace "$workspace" \
+    '[.result.tabs[]? | select(.workspace_id == $workspace and .label == "pi") | .tab_id] | first // empty') || return 1
+
+  if [[ -z $tab_id ]]; then
+    created=$(herdr_json tab create --workspace "$workspace" --label pi --no-focus --cwd "$PWD") || return 1
+    pane=$(jq -r '.result.root_pane.pane_id // empty' <<< "$created")
+  else
+    # The last pane of the tab is the one at the bottom, so the newest run appears under the older ones.
+    local previous
+    previous=$(herdr_json pane list | jq -r --arg tab "$tab_id" \
+      '[.result.panes[]? | select(.tab_id == $tab) | .pane_id] | last // empty') || return 1
+    [[ -n $previous ]] || return 1
+    created=$(herdr_json pane split "$previous" --direction down --no-focus --cwd "$PWD") || return 1
+    pane=$(jq -r '.result.pane.pane_id // empty' <<< "$created")
+  fi
+
+  [[ -n $pane ]] || return 1
+  print -r -- "$pane"
+}
+
+pane=$(open_pane) || pane=""
+if [[ -n $pane ]]; then
+  # Resolved from this script, so a worktree copy tails its own pi-tail.mjs.
+  self=${0:A}
+  tail_script=${self:h}/pi-tail.mjs
+  # pane run types its command into the pane's interactive shell, so quote every path.
+  herdr_json pane run "$pane" "node ${(q)tail_script} --session-id ${(q)session_id} --cwd ${(q)PWD}" >/dev/null
+  # pueue exposes no task id to the task; the session id is the name the pane is known by.
+  message="pi#${PUEUE_TASK_ID:-}"
+  [[ -n ${PUEUE_TASK_ID:-} ]] || message=$session_id
+  report_state "$pane" working "$message" 1
+fi
+
+# Pi must not think it is the pane's agent: the herdr extension is the only other reporter.
+env -u HERDR_PANE_ID "$@"
+rc=$?
+
+# A reported `idle` is what herdr's sidebar shows as done; `done` is not a reportable state.
+if [[ -n $pane ]]; then
+  if (( rc == 0 )); then
+    report_state "$pane" idle 'exit 0' 2
+  else
+    report_state "$pane" blocked "exit ${rc}" 2
+  fi
+fi
+
+exit $rc
