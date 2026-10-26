@@ -1,19 +1,30 @@
 #!/usr/bin/env zsh
 # pi-view — run a Pi dispatch with a live viewer pane in the dispatcher's herdr workspace.
 #
-#   pi-view pi --model <provider/id[:thinking]> --session-id pueue-<slug> -p "..." < /dev/null
+#   pi-view [--live] pi --model <provider/id[:thinking]> --session-id pueue-<slug> -p "..." < /dev/null
 #
 # Pueue stays the only source of truth: the pane only displays the task's session
 # file, and every herdr call is best-effort, so a herdr failure can never fail the
 # task. Outside a herdr pane the arguments run untouched. This file must not be
 # named `pi` or end in `/pi`, because session-band reads the first such word as the
 # Pi command (session-band-plugin/hooks/pueue.ts).
+#
+# With --live the arguments go through scripts/pi-live.mjs instead, so a line typed
+# in the viewer pane (or sent with scripts/pi-steer) reaches the running Pi. The
+# session id still names the herdr pane and the input FIFO.
 set -u
 
 usage() {
-  print -u2 -- 'usage: pi-view [pi arguments]'
+  print -u2 -- 'usage: pi-view [--live] [pi arguments]'
   print -u2 -- 'Runs the given command, streaming its Pi transcript in a herdr pane when called from one.'
+  print -u2 -- '--live sends input from the pane or scripts/pi-steer to the running Pi.'
 }
+
+live=0
+if [[ ${1:-} == --live ]]; then
+  live=1
+  shift
+fi
 
 [[ ${1:-} == -h || ${1:-} == --help ]] && { usage; exit 0 }
 [[ $# -gt 0 ]] || { usage; exit 2 }
@@ -25,7 +36,20 @@ for (( index = 1; index <= $#; index++ )); do
   [[ ${argv[index]} == --session-id ]] && session_id=${argv[index + 1]:-}
 done
 
-if [[ ${HERDR_ENV:-} != 1 ]] || (( ! $+commands[herdr] )) || [[ -z $session_id ]]; then
+driver=${${0:A}:h}/pi-live.mjs
+input_path=${TMPDIR:-/tmp}
+input_path=${input_path%/}/pi-view/${session_id}.in
+
+in_herdr=0
+if [[ ${HERDR_ENV:-} == 1 ]] && (( $+commands[herdr] )) && [[ -n $session_id ]]; then
+  in_herdr=1
+fi
+
+if (( ! in_herdr )); then
+  if (( live )); then
+    node "$driver" -- "$@"
+    exit $?
+  fi
   exec "$@"
 fi
 
@@ -79,9 +103,12 @@ pane=$(open_pane) || pane=""
 # Resolved from this script, so a worktree copy tails its own pi-tail.mjs;
 # pane run types the command into the pane's shell, so every path is quoted.
 tail_script=${${0:A}:h}/pi-tail.mjs
+tail_command="node ${(q)tail_script} --session-id ${(q)session_id} --cwd ${(q)PWD}"
+if (( live )); then
+  tail_command+=" --input ${(q)input_path}"
+fi
 # A viewer that never started cannot report anything about the task.
-if [[ -n $pane ]] && ! herdr_json pane run "$pane" \
-  "node ${(q)tail_script} --session-id ${(q)session_id} --cwd ${(q)PWD}" >/dev/null; then
+if [[ -n $pane ]] && ! herdr_json pane run "$pane" "$tail_command" >/dev/null; then
   pane=""
 fi
 
@@ -92,9 +119,14 @@ if [[ -n $pane ]]; then
   report_state "$pane" working "$message" 1
 fi
 
-# Pi must not think it is the pane's agent: the herdr extension is the only other reporter.
-env -u HERDR_PANE_ID "$@"
-rc=$?
+if (( live )); then
+  node "$driver" -- "$@"
+  rc=$?
+else
+  # Pi must not think it is the pane's agent: the herdr extension is the only other reporter.
+  env -u HERDR_PANE_ID "$@"
+  rc=$?
+fi
 
 # A reported `idle` is what herdr's sidebar shows as done; `done` is not a reportable state.
 if [[ -n $pane ]]; then
