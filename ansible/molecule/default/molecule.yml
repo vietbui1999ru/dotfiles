@@ -12,6 +12,12 @@ platforms:
     pre_build_image: false
     groups:
       - debian
+  - name: ubuntu2604
+    image: docker.io/library/ubuntu:26.04
+    command: sleep infinity
+    pre_build_image: false
+    groups:
+      - debian
   - name: rockylinux9
     image: docker.io/rockylinux/rockylinux:9-minimal
     command: sleep infinity
