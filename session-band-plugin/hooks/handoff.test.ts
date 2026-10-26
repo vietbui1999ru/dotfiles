@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { activityLabel, formatElapsed, formatTokens, idleAge, monitorRows, selectStale, summarize, type TrackedTask } from './handoff'
+import { trackedFrom } from './handoff.tsx'
 import { emptyProgress, fold } from './pisession'
 import { dispatchCommand, isPiDispatch, parseAddResult, parsePiCommand, parseStatus } from './pueue'
 import { parsePending, reviewState } from './review'
@@ -95,6 +96,15 @@ test('a newer non-message event keeps the assistant thinking flag', () => {
     { type: 'thinking_level_change', timestamp: '2026-10-10T00:00:02.000Z', thinkingLevel: 'high' },
   ].map(row => JSON.stringify(row)).join('\n') + '\n'
   expect(activityLabel(fold(emptyProgress(), chunk))).toBe('thinking')
+})
+
+test('a pi-view prefix keeps dispatch parsing and tracking intact', () => {
+  // What the dispatch rule will send: the viewer wrapper, then Pi's own command.
+  const command = '"$HOME/dotfiles/scripts/pi-view" pi --model opencode-go/x:high --session-id pueue-a -p "$(cat /tmp/p)" < /dev/null'
+  expect(isPiDispatch(command)).toBe(true)
+  expect(parsePiCommand(command)).toEqual({ model: 'opencode-go/x', effort: 'high', sessionId: 'pueue-a' })
+  const task = { id: 12, cwd: '/repo', command, state: 'Queued' as const, createdMs: 100 }
+  expect(trackedFrom([task], 99, '/repo', '/repo').map(item => [item.id, item.sessionId])).toEqual([[12, 'pueue-a']])
 })
 
 test('reads pending and accepted or changed review decisions', () => {
