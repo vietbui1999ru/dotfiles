@@ -1,3 +1,6 @@
 ---
 dotfiles_clone_enabled: true
 dotfiles_submodule_enabled: true
+# How the repo (and its submodule) is fetched: ssh needs a key on the box,
+# https does not. Both repos are public.
+dotfiles_git_transport: ssh

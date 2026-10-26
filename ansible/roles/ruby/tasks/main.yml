@@ -11,7 +11,7 @@
       - libreadline-dev
       - zlib1g-dev
       - libgmp-dev
-      - libncurses5-dev
+      - libncurses-dev
       - libffi-dev
       - libgdbm-dev
       - libdb-dev

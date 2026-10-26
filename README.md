@@ -75,6 +75,33 @@ ansible-playbook ansible/site.yml --limit dev_debian -i ansible/inventory/hosts.
 ansible-playbook ansible/site.yml --limit admin_redhat -i ansible/inventory/hosts.yml
 ```
 
+### Ubuntu 26.04 desktop
+
+Two routes, both running the `ubuntu_desktop` play.
+
+On the box itself — one script, no GitHub SSH key:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/vietbui1999ru/dotfiles/main/scripts/bootstrap-ubuntu.sh | bash
+
+# or, once the repo is cloned:
+scripts/bootstrap-ubuntu.sh
+```
+
+The script requires Ubuntu (`/etc/os-release`), warns if the version is not 26.04, installs `git ansible python3-apt`, clones `~/dotfiles` over HTTPS when it is missing, then runs the play locally with `-e dotfiles_git_transport=https`. Extra arguments pass through (`--check`, `--tags dotfiles`). It is safe to rerun: an existing `~/dotfiles` is left alone, not pulled.
+
+This route clones over HTTPS, so `origin` in `~/dotfiles` stays HTTPS. Once the box has an SSH key, switch it:
+
+```sh
+git -C ~/dotfiles remote set-url origin git@github.com:vietbui1999ru/dotfiles.git
+```
+
+From the Mac, over SSH (unchanged):
+
+```sh
+ansible-playbook ansible/site.yml --limit ubuntu_desktop -i ansible/inventory/hosts.yml -K
+```
+
 ## Scripts
 
 | Script | Purpose |

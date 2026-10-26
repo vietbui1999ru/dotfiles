@@ -43,7 +43,7 @@
 # Obsidian → Settings → General → Command line interface.
 - name: Check Obsidian CLI registration (macOS)
   ansible.builtin.command: zsh -lc 'command -v obsidian'
-  register: obsidian_cli_macos
+  register: tools_obsidian_cli_macos
   changed_when: false
   failed_when: false
   when: ansible_os_family == "Darwin"
@@ -56,7 +56,7 @@
       /usr/local/bin/obsidian; restart the terminal afterwards.
   when:
     - ansible_os_family == "Darwin"
-    - obsidian_cli_macos.rc != 0
+    - tools_obsidian_cli_macos.rc != 0
 
 # ── ketch (AI-agent research CLI: web/code/docs search) ────────────────
 # Go-based, cross-platform via `go install`. Ansible shell tasks don't source
@@ -134,7 +134,7 @@
 
 - name: Check Obsidian CLI registration (Linux)
   ansible.builtin.command: bash -lc 'command -v obsidian'
-  register: obsidian_cli_linux
+  register: tools_obsidian_cli_linux
   changed_when: false
   failed_when: false
   when: ansible_os_family != "Darwin"
@@ -148,7 +148,7 @@
       to ~/.local/bin/obsidian and chmod 755 it.
   when:
     - ansible_os_family != "Darwin"
-    - obsidian_cli_linux.rc != 0
+    - tools_obsidian_cli_linux.rc != 0
 
 - name: Create fd symlink for fdfind (Debian)
   ansible.builtin.file:
@@ -271,7 +271,7 @@
 - name: Add GitHub CLI apt repository (Debian)
   ansible.builtin.copy:
     content: >-
-      deb [arch={{ ansible_architecture }}
+      deb [arch={{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_architecture] | default(ansible_architecture) }}
       signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg]
       https://cli.github.com/packages stable main
     dest: /etc/apt/sources.list.d/github-cli.list
