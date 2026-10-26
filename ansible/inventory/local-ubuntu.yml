@@ -1,0 +1,9 @@
+---
+# As seen from the box itself, by scripts/bootstrap-ubuntu.sh. The host is not
+# named `localhost` on purpose: ansible/site.yml's `hosts: localhost` play is
+# the macOS one, and this inventory must not match it.
+ubuntu_desktop:
+  hosts:
+    ubuntu-local:
+      ansible_connection: local
+      ansible_python_interpreter: /usr/bin/python3
