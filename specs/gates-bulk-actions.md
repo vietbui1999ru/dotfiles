@@ -58,6 +58,13 @@ j k a x e o r b f w q plus `JUMP_KEYS`).
 - Merge the PR
 
 ## Open Questions
-- Which hotkeys for mark and mark-all? Default: `m` toggles, `M` marks all or clears; confirm the `Button` hotkey accepts them.
-- Does Approve-all need a cap? Default: no cap; each review shows its own dialog anyway.
-- Should spec rows and review rows be markable together in one batch? Default: yes; each row uses its own command.
+None. All three were resolved on 2026-10-21; see Assumptions.
+
+## Assumptions
+Resolved with the user on 2026-10-21.
+- Hotkeys: `m` toggles a mark on the selected row; `v` marks every row, or clears all marks when every row is already marked. `M` cannot work: the engine lowercases `Button` hotkeys on keydown, so Shift+m is `m`. Both `m` and `v` are unbound in the Gates pane today, so no existing hotkey changes.
+- Approve batches have no cap; each review row shows its own `agent-review approve` dialog.
+- Spec rows and review rows can be marked together in one batch; each row runs its own command.
+- Eligibility (AC-4): Approve leaves out processing and orphan reviews and invalid or approved specs. Reject leaves out invalid specs only, because `ac-run reject` on an approved spec revokes its approval, which is a valid action. Skip takes every review row.
+- A single-row action keeps today's per-row toast, and a single review whose approval reports a changed tree still opens the review in Neovim. In a batch of more than one row, that outcome is recorded as the row's message and Neovim is not opened.
+- The existing pane test that asserts a non-orphan review reject sends `AgentReviewRejectAll` to Neovim is updated to assert `agent-review skip`, because AC-1 removes that behaviour on purpose. No other existing test changes.
