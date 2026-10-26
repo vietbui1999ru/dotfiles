@@ -123,10 +123,6 @@
     "defaultMode": "plan"
   },
   "model": "opus",
-  "statusLine": {
-    "type": "command",
-    "command": "~/.claude/statusline-command.sh"
-  },
   "hooks": {
     "PostToolUse": [
       {
@@ -285,6 +281,10 @@
       }
     ]
   },
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/statusline-command.sh"
+  },
   "enabledPlugins": {
     "basedpyright@claude-code-lsps": false,
     "caveman@caveman": true,
@@ -346,6 +346,33 @@
     "allow": [
       "$defaults",
       "The user pre-authorized (2026-10-10) git add by path, git commit, and non-force git push of the current branch, from a feature branch or a git worktree, never main or master. This covers files the user asked to change, including the agent-review gate scripts and their tests: committing records the work, it does not approve or weaken the gate. It does not cover force-push, deleting remote branches, merge, rebase, reset --hard, or running agent-review approve."
+    ],
+    "environment": [
+      "### Org-wide",
+      "**Organization**: None configured",
+      "**Cloud provider(s)**: None configured",
+      "**Repository visibility**: PUBLIC — vietbui1999ru/dotfiles (origin). Any push here is publishing.",
+      "**Internal sharing / snippet hosting**: None configured — treat public paste/gist services as outside the trust boundary",
+      "**Secrets management**: None configured",
+      "**Default / protected branches**: main (default, protected per gh). No rulesets listed.",
+      "**CI/CD deploy targets**: None configured",
+      "**Network posture**: None configured",
+      "**Host containment**: None configured — assume Claude Code runs on an ordinary developer machine or CI runner with open internet",
+      "**Source control**: The trusted repo (vietbui1999ru/dotfiles, origin) and its remote only — no additional orgs configured",
+      "**Trusted internal domains**: None configured",
+      "**Trusted cloud buckets**: None configured",
+      "**Key internal services**: None configured",
+      "**Internal package registry**: None configured",
+      "**Sensitive data locations & audiences**: any file or store holding personal data, confidential business data, credentials, regulated data, or similarly sensitive material; preserve exact handles when known and share only with audiences cleared at the [named+specifics] bar",
+      "**Data retention / declassification**: None configured",
+      "**Sensitive remote targets**: any namespace, host, or container whose name carries `prod` or `production` as a whole word or name segment (hyphen/underscore/dot-delimited — e.g. matches `prod-db`, not `producer`)",
+      "**Protected deployment namespaces / environments**: None configured — fall back to the Sensitive remote targets heuristic",
+      "**Protected IaC scopes**: IAM, RBAC, networking, quota, and node-pool resources; anything whose name or tag carries `prod` or `production` as a whole word or name segment",
+      "### User-specific",
+      "**Primary use of Claude Code**: software development (personal dotfiles management — mixed personal/hobby posture)",
+      "**Trusted repo**: this repo's working directory (/Users/vietquocbui/dotfiles/.claude/worktrees/ubuntu-2604-bootstrap) and its origin remote (github.com:vietbui1999ru/dotfiles.git), a PUBLIC repo — only this repo's own work should be pushed there; content ported from elsewhere is not its own work",
+      "**Org-specific CLIs**: None configured",
+      "routine under current feature-branch/worktree prefix: git add by path, git commit, and non-force git push of the current branch (never main or master) is user pre-authorized (2026-10-10); does not cover force-push, deleting remote branches, merge, rebase, reset --hard, or running agent-review approve"
     ]
   },
   "mcpServers": {
