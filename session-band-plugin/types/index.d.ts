@@ -43,7 +43,7 @@ export type TrackedTask = {
   dismissed?: boolean
 }
 
-export type HandoffState = { tasks: TrackedTask[]; available: boolean; selectedId?: number; confirm?: { action: 'kill' | 'hold'; ids: number[]; atMs: number }; queue?: string }
+export type HandoffState = { tasks: TrackedTask[]; available: boolean; selectedId?: number; showThinking?: boolean; showAll?: boolean; confirm?: { action: 'kill' | 'hold'; ids: number[]; atMs: number }; queue?: string }
 
 export type HistoryCache = {
   path?: string
