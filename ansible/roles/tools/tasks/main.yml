@@ -271,7 +271,7 @@
 - name: Add GitHub CLI apt repository (Debian)
   ansible.builtin.copy:
     content: >-
-      deb [arch={{ ansible_architecture }}
+      deb [arch={{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_architecture] | default(ansible_architecture) }}
       signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg]
       https://cli.github.com/packages stable main
     dest: /etc/apt/sources.list.d/github-cli.list
