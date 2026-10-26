@@ -138,14 +138,13 @@ git submodule update --init repos/llm-wiki
 
 `omp` binaries land in `~/.bun/bin/` — already on PATH via `.zprofile`.
 
-The `pi/` stow package includes these Pi extensions:
+Pi runs headless only: dispatched through pueue with `pi -p`, and watched in
+the session-band pane or a herdr viewer pane (`scripts/pi-view`). Extensions
+that only act in Pi's interactive TUI are not kept. The `pi/` stow package
+includes these Pi extensions:
 
-- `pi-statusline.ts` — Catppuccin footer statusline (dir, git, ctx%, model)
-  with Nerd Font icons
 - `~/repos/DiffViewer/pi-extension` — Pi package for the measured review gate:
   persistent `.pi/diff-review/` drafts and submitted decisions
-- `pi-side-panel/` — persistent tmux/herdr side panel (session, DiffViewer
-  review, verification, Commandr, Neovim, git); `/panel` toggles
 - `post-run-verifier.ts` — owns completed-run verification (format → lint →
   typecheck → focused tests), inferred per-project config persisted under
   `~/.pi/agent/verification/projects/`, max 3 automatic repair cycles;
