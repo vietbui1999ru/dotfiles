@@ -1,0 +1,26 @@
+#!/usr/bin/env zsh
+# pi-steer — send one line to a live pi-view session.
+#
+#   pi-steer <session-id> <message…>
+#
+# The line goes to the same FIFO the viewer pane types into: a steer while Pi
+# works, a prompt while it is idle, or /abort or /done. Exits 1 when no live
+# session has that id.
+set -u
+
+if (( $# < 2 )); then
+  print -u2 -- 'usage: pi-steer <session-id> <message…>'
+  exit 2
+fi
+
+session_id=$1
+shift
+fifo=${TMPDIR:-/tmp}
+fifo=${fifo%/}/pi-view/${session_id}.in
+
+if [[ ! -p $fifo ]]; then
+  print -u2 -- "no live session ${session_id}"
+  exit 1
+fi
+
+print -r -- "$*" > "$fifo"

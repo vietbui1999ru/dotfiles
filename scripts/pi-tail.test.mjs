@@ -1,7 +1,14 @@
 // Run: node --test scripts/pi-tail.test.mjs
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { closeSync, constants, mkdtempSync, openSync, readSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { PassThrough } from "node:stream";
 import { test } from "node:test";
-import { foldChunk, render, splitComplete } from "./pi-tail.mjs";
+import { foldChunk, relayInput, render, splitComplete } from "./pi-tail.mjs";
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 test("renders text, tool, and error entries as the Pi pane does", () => {
 	assert.deepEqual(render({ kind: "text", text: "planning the change" }, false), ["planning the change"]);
@@ -32,4 +39,39 @@ test("foldChunk returns only the entries of the lines it was given", () => {
 	assert.deepEqual(foldChunk([line("first")]).map((entry) => entry.text), ["first"]);
 	assert.deepEqual(foldChunk([line("second")]).map((entry) => entry.text), ["second"]);
 	assert.deepEqual(foldChunk([]), []);
+});
+
+test("relays pane input to a session FIFO and stops after it disappears", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "pi-tail-input-"));
+	const fifo = join(dir, "pueue-a.in");
+	execFileSync("mkfifo", ["-m", "600", fifo]);
+	const reader = openSync(fifo, constants.O_RDONLY | constants.O_NONBLOCK);
+	const input = new PassThrough();
+	const messages = [];
+	const relay = relayInput(input, fifo, (line) => messages.push(line));
+	try {
+		input.write("steer this\n");
+		let received = "";
+		for (let attempt = 0; attempt < 100 && received.length === 0; attempt++) {
+			await sleep(20);
+			const buffer = Buffer.alloc(64);
+			try {
+				const count = readSync(reader, buffer, 0, buffer.length, null);
+				if (count > 0) received = buffer.subarray(0, count).toString();
+			} catch (error) {
+				if (error.code !== "EAGAIN") throw error;
+			}
+		}
+		assert.equal(received, "steer this\n");
+
+		rmSync(fifo);
+		input.write("too late\n");
+		for (let attempt = 0; attempt < 100 && messages.length === 0; attempt++) await sleep(20);
+		assert.deepEqual(messages, ["session ended"]);
+	} finally {
+		relay.close();
+		input.end();
+		closeSync(reader);
+		rmSync(dir, { recursive: true, force: true });
+	}
 });
