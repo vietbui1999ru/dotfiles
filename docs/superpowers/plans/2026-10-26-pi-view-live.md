@@ -46,6 +46,29 @@ Claude runs this, because a Pi build run would have to start a nested RPC Pi in 
 
 Write the findings into this plan under a "Spike results" heading and commit them. If check 1 or check 2 fails, `--live` is not viable as designed: stop and report. Otherwise adjust Steps 1-4 to what the spike found, then dispatch Steps 1-5 to Pi.
 
+## Spike results (2026-10-26, Claude, scratch worktree `spike-pi-live-bb3478bf`)
+
+All six checks ran against `pi --mode rpc` with every extension loaded, on `opencode-go/deepseek-v4.1-flash:off`. The design holds; Step 1 is adjusted below.
+
+1. **Session file: pass.** `…/--Users-vietquocbui-dotfiles-.claude-worktrees-spike-pi-live-bb3478bf--/2026-10-26T10-51-47-012Z_pueue-spike-bb3478bf.jsonl` was written. Pi prints `Warning: No project session found with id …; creating a new session with that id.` to stderr. It is harmless and lands in `pueue log`.
+2. **Steer: pass.**
+   - A `steer` sent at the first `tool_execution_start` was answered `{"command":"steer","success":true,"data":{"disposition":"queued"}}`, together with a `queue_update`.
+   - It appears in the session file as a user message after that turn's tool results and before the next assistant turn.
+   - The final reply ended with `STEERED`, as the steer asked.
+3. **Settle order: `turn_end`, then `agent_end`, then `agent_settled`,** a few milliseconds apart. post-run-verifier ran inside the run, before `agent_end` (its `notify` "verification skipped: 0 passed, 0 failed, 4 skipped" came first). No `agent_start` followed either settle within 20-25 s. So the grace timer starts on `agent_settled`. Cancelling it on `agent_start` stays as a safeguard.
+4. **agent-review between runs.**
+   - Run A, which made no edits, left no review.
+   - Run B wrote `spike-note.txt`, which left review `d20e0446-f6fe-4a97-bbad-3c38a35225bf` pending. That review is left for the person: not approved, not skipped.
+   - The third `prompt` was **not rejected**. It came back `{"success":true,"data":{"disposition":"handled"}}`, preceded by an `extension_ui_request` `notify` reading "Review pending (d20e0446-…) — /review skip review to continue". No run started.
+   - Whether agent-review's approval follow-up then arrives in the same RPC session was not observed, because the review was left pending and the session was closed.
+5. **Dialogs: none.** The only `extension_ui_request` methods seen were:
+   - `setStatus`, many, from the review gate's status updates;
+   - `setWidget`, with key `subagent-async`, from pi-subagents;
+   - `notify`, from post-run-verifier and agent-review.
+
+   No `select`, `confirm`, `input` or `editor` request appeared. Cancelling dialogs stays as a safeguard.
+6. **Shutdown.** Closing stdin made Pi exit with code 0 about 180 ms later, even with a review pending. In RPC mode the exit code does not report a refused input, because agent-review's print-mode failure applies only to `-p`.
+
 ## Step 1: `scripts/pi-live.mjs`, the RPC driver
 
 Usage, from `pi-view` only: `node scripts/pi-live.mjs -- pi --model … --session-id <id> -p "<prompt>"`
@@ -54,7 +77,9 @@ Usage, from `pi-view` only: `node scripts/pi-live.mjs -- pi --model … --sessio
 - **The FIFO.** Create it with `mkfifo -m 600` under `$TMPDIR/pi-view/`. Open it read-write, so it never reports end-of-file when a writer disconnects. Remove it and the `.notes` file on exit.
 - **The state machine** is a pure, exported `nextAction(state, event) -> { state, commands[], close? }`, with no I/O, unit-tested. States: `working` and `idle`. Events: an input line, `agent_start`, `agent_settled`, the grace timer firing, and an `extension_ui_request`.
 - **Reading Pi's output.** Parse stdout as JSON lines. Pass `agent_start`, `agent_settled` and `extension_ui_request` to `nextAction`. Ignore the rest: the session file already has the transcript.
-- **Exit code.** Exit with Pi's code, or with the rule the spike's check 6 set.
+- **Refused input (spike check 4).** A `prompt` answered `success: true` with `disposition: "handled"` started no run. When a `notify` arrived just before it, write that notify to the notes file as the reason, and stay `idle`. Do not treat `success: true` as "a run started": only `agent_start` means that.
+- **Status records.** Ignore `setStatus` and `setWidget` requests: they need no answer.
+- **Exit code (spike check 6).** Exit 1 if the most recent prompt was refused as described above. Otherwise exit with Pi's code. This mirrors `-p` mode, where agent-review fails the run only when input is refused, not merely because a review is pending.
 - **Tests.** `scripts/pi-live.test.mjs` (`node --test`). Cover:
   - argument rewriting (`-p` removed, `--mode rpc` added, nothing else changed);
   - steer while working and prompt while idle;
