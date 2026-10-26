@@ -43,23 +43,34 @@ open_pane() {
   local workspace=${HERDR_WORKSPACE_ID:-}
   [[ -n $workspace ]] || return 1
 
-  local tab_id pane created
-  tab_id=$(herdr_json tab list | jq -r --arg workspace "$workspace" \
-    '[.result.tabs[]? | select(.workspace_id == $workspace and .label == "pi") | .tab_id] | first // empty') || return 1
-
-  if [[ -z $tab_id ]]; then
-    created=$(herdr_json tab create --workspace "$workspace" --label pi --no-focus --cwd "$PWD") || return 1
-    pane=$(jq -r '.result.root_pane.pane_id // empty' <<< "$created")
+  # Two dispatches started together would both find no `pi` tab and each create
+  # one, so the find-or-create step is serialized. The lock is best effort: if it
+  # cannot be taken the pane still opens, at worst in a second tab.
+  local lock_file=${TMPDIR:-/tmp}/pi-view-${UID}.lock lock_fd=""
+  if zmodload zsh/system 2>/dev/null && exec {lock_fd}>"$lock_file" 2>/dev/null; then
+    zsystem flock -t 10 -f lock_fd "$lock_file" 2>/dev/null || true
   else
-    # The last pane of the tab is the one at the bottom, so the newest run appears under the older ones.
-    local previous
-    previous=$(herdr_json pane list | jq -r --arg tab "$tab_id" \
-      '[.result.panes[]? | select(.tab_id == $tab) | .pane_id] | last // empty') || return 1
-    [[ -n $previous ]] || return 1
-    created=$(herdr_json pane split "$previous" --direction down --no-focus --cwd "$PWD") || return 1
-    pane=$(jq -r '.result.pane.pane_id // empty' <<< "$created")
+    lock_fd=""
   fi
 
+  local tab_id pane created previous
+  tab_id=$(herdr_json tab list | jq -r --arg workspace "$workspace" \
+    '[.result.tabs[]? | select(.workspace_id == $workspace and .label == "pi") | .tab_id] | first // empty')
+
+  if [[ -z $tab_id ]]; then
+    if created=$(herdr_json tab create --workspace "$workspace" --label pi --no-focus --cwd "$PWD"); then
+      pane=$(jq -r '.result.root_pane.pane_id // empty' <<< "$created")
+    fi
+  else
+    # The last pane of the tab is the one at the bottom, so the newest run appears under the older ones.
+    previous=$(herdr_json pane list | jq -r --arg tab "$tab_id" \
+      '[.result.panes[]? | select(.tab_id == $tab) | .pane_id] | last // empty')
+    if [[ -n $previous ]] && created=$(herdr_json pane split "$previous" --direction down --no-focus --cwd "$PWD"); then
+      pane=$(jq -r '.result.pane.pane_id // empty' <<< "$created")
+    fi
+  fi
+
+  [[ -n $lock_fd ]] && exec {lock_fd}>&-
   [[ -n $pane ]] || return 1
   print -r -- "$pane"
 }
