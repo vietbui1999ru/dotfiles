@@ -86,10 +86,11 @@ async function poll($: EngineInterface) {
       if (updateProgress) next[item.id] = updateProgress
     }
     await update($, progress, () => next)
-    // Notify only on a transition this poller saw live: a repeat poll sees it finished in `before`.
-    for (const item of (await read($, handoff)).tasks) {
-      const was = before.get(item.id)
-      if (!was || !liveState(was) || isLive(item.task)) continue
+    // Act only on a transition this poller saw live: a repeat poll sees it finished in `before`.
+    const ended = (await read($, handoff)).tasks.filter(item => liveState(before.get(item.id)) && !isLive(item.task))
+    // A pick that finishes lets go, so the transcript follows the newest running task again.
+    await update($, handoff, value => ended.some(item => item.id === value.selectedId) ? { ...value, selectedId: undefined } : value)
+    for (const item of ended) {
       const notice = finishNotice(item, next[item.id] ?? existing[item.id])
       const sent = await $.ui.notify(notice, { title: 'Pi hand-off' }).catch(() => undefined)
       if (!sent?.isSent) await $.ui.toast(notice)

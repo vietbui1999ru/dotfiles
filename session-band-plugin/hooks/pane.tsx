@@ -501,10 +501,11 @@ export const register: Register = on => {
     </Box>
   })
 
-  // Arrows move the pane's focus ring over the row Buttons; the task under the ring is the selected one.
+  // The person's arrows move the focus ring over the row Buttons; the task under the ring is the selected one.
+  // A plugin's move (j/k already selected; an autoFocus) is not a pick, so it never pins the transcript.
   on('ui.focus', { requestId: 'pi-handoff' }, async ($, e, next) => {
     const id = /^pi-row-(\d+)$/.exec(e.element ?? '')?.[1]
-    if (id !== undefined) await update($, handoff, value => ({ ...value, selectedId: Number(id) }))
+    if (id !== undefined && e.origin?.kind === 'person') await update($, handoff, value => ({ ...value, selectedId: Number(id) }))
     return next(e)
   })
 }
