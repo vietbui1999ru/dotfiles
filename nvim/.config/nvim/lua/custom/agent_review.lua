@@ -341,6 +341,7 @@ function M.open_in(repo, run_id)
 		local record = entry.record
 		assert(valid_hash(record.base), "invalid base in pending record")
 		M.current, M.notes = record, {}
+		M.reset_layout()
 		vlog("opened review %s with base %s", record.runId, record.base)
 		-- Scope the view to the files this run touched. Unscoped, diffview shows
 		-- every difference between the base and the working tree, so the panel
@@ -522,6 +523,7 @@ function M.done()
 			notes = M.notes,
 			patch = patch,
 		})
+		M.reset_layout()
 		require("diffview").close()
 		require("gitsigns").reset_base(true)
 		M.current, M.notes = nil, {}
@@ -724,6 +726,60 @@ function M.clear_notes()
 	vim.notify("Agent review notes cleared")
 end
 
+-- Review layouts, cycled by :AgentReviewLayout. Unified is diffview's one-pane
+-- layout on the working file, with gitsigns (already based on the run's base)
+-- drawing deleted lines and changed words inline. That pane is the real file,
+-- so rejecting with :Gitsigns reset_hunk or :AgentReviewReject works in all three.
+local LAYOUTS = {
+	{ name = "side by side", module = "diffview.scene.layouts.diff_2_hor", class = "Diff2Hor" },
+	{ name = "stacked", module = "diffview.scene.layouts.diff_2_ver", class = "Diff2Ver" },
+	{ name = "unified", module = "diffview.scene.layouts.diff_1", class = "Diff1", inline = true },
+}
+M.layout = 1
+
+local function set_inline(on)
+	local gitsigns = require("gitsigns")
+	gitsigns.toggle_deleted(on)
+	gitsigns.toggle_linehl(on)
+	gitsigns.toggle_word_diff(on)
+end
+
+-- Back to side by side with no inline overlay, for a review opening or closing.
+function M.reset_layout()
+	if LAYOUTS[M.layout].inline then
+		set_inline(false)
+	end
+	M.layout = 1
+end
+
+function M.cycle_layout()
+	if not M.current then
+		return vim.notify("Open :AgentReview first", vim.log.levels.WARN)
+	end
+	local view = require("diffview.lib").get_current_view()
+	local entry = view and view.cur_entry
+	if not entry then
+		return vim.notify("Agent review: go to the review's diff tab first", vim.log.levels.WARN)
+	end
+	local next_index = M.layout % #LAYOUTS + 1
+	local next_layout = LAYOUTS[next_index]
+	local class = require(next_layout.module)[next_layout.class]
+	-- As diffview's own cycle_layout: convert every entry, then reopen the
+	-- current one with the cursor where it was.
+	local main = view.cur_layout:get_main_win()
+	local pos = vim.api.nvim_win_get_cursor(main.id)
+	for _, file in ipairs(vim.list_extend(vim.list_extend({}, view.panel.files.working), view.panel.files.staged)) do
+		file:convert_layout(class)
+	end
+	entry.layout.emitter:once("files_opened", function()
+		pcall(vim.api.nvim_win_set_cursor, view.cur_layout:get_main_win().id, pos)
+	end)
+	view:set_file(entry, false)
+	M.layout = next_index
+	set_inline(next_layout.inline == true)
+	vim.notify("Agent review layout: " .. next_layout.name)
+end
+
 vim.api.nvim_create_user_command("AgentReviewDebug", M.debug, {})
 vim.api.nvim_create_user_command("AgentReviewStatus", function()
 	vim.notify(M.status())
@@ -738,6 +794,7 @@ vim.api.nvim_create_user_command("AgentReviewRejectAll", function(opts)
 	M.reject_all(opts.args)
 end, { nargs = "?" })
 vim.api.nvim_create_user_command("AgentReviewClearNotes", M.clear_notes, {})
+vim.api.nvim_create_user_command("AgentReviewLayout", M.cycle_layout, {})
 vim.api.nvim_create_user_command("AgentReviewVerbose", function()
 	M.verbose = not M.verbose
 	vim.notify("Agent review verbose " .. (M.verbose and "on" or "off"))
@@ -745,6 +802,7 @@ end, {})
 vim.keymap.set("n", "<leader>ar", M.open, { desc = "Agent: review run" })
 vim.keymap.set("n", "<leader>an", M.note, { desc = "Agent: review note" })
 vim.keymap.set("n", "<leader>aD", M.done, { desc = "Agent: review done" })
+vim.keymap.set("n", "<leader>al", M.cycle_layout, { desc = "Agent: cycle review layout" })
 vim.keymap.set("n", "<leader>aR", function()
 	M.reject()
 end, { desc = "Agent: reject file under cursor" })
