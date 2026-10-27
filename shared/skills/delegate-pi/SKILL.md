@@ -80,6 +80,8 @@ Every pueue dispatch carries `--label <slug>` and `-w <worktree>` (pueue flags, 
 
 Start every pueue dispatch's command with `$HOME/dotfiles/scripts/pi-view`. When the dispatch comes from a herdr pane, it opens a viewer pane in the workspace's `pi` tab that streams the run's transcript, and reports `working` and then `done` or `blocked` to herdr. Outside herdr it simply runs Pi. Either way it exits with Pi's exit code. The session-band mod still tracks the task, because its command keeps `pi --model` and `--session-id`.
 
+For a run the person wants to steer, put `--live` before the Pi arguments: text typed in the viewer pane, or `$HOME/dotfiles/scripts/pi-steer <session-id> "<message>"` from the main pane, reaches Pi as a steer while it works or a new prompt once it is idle. `/abort` stops the current turn and keeps the session; `/done` ends it. After Pi settles it waits 120 s for more input before closing, so the task holds its pueue slot during that grace period.
+
 **Model routing for delegation:**
 
 | Task difficulty | Model |

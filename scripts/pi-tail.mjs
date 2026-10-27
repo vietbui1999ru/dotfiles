@@ -5,9 +5,14 @@
  * Pi pane renders the same entries through session-band-plugin/hooks/pane.tsx.
  * That module is not imported here because it pulls in the plugin runtime, so
  * the entry kinds and prefixes are copied below and kept in step by hand.
+ *
+ * With --input it also relays lines typed in the pane to the live session FIFO
+ * and prints notes from the pi-live driver as `NOTE …`.
  */
 import { open, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
+import { dirname } from "node:path";
+import { createInterface } from "node:readline";
 
 import { emptyProgress, fold, sessionDir, sessionFileName } from "../session-band-plugin/hooks/pisession.ts";
 
@@ -53,6 +58,77 @@ export function foldChunk(lines) {
 	return fold(emptyProgress(), `${lines.join("\n")}\n`).entries;
 }
 
+/**
+ * Relay lines typed in the pane to the live session FIFO. A missing FIFO means
+ * the session ended, so say so once and stop reading input.
+ * @param {import("node:stream").Readable} input
+ * @param {string} fifo
+ * @param {(line: string) => void} [log]
+ */
+export function relayInput(input, fifo, log = (line) => process.stdout.write(`${line}\n`)) {
+	const reader = createInterface({ input, crlfDelay: Infinity });
+	let pending = Promise.resolve();
+	let ended = false;
+	reader.on("line", (line) => {
+		pending = pending.then(async () => {
+			if (ended) return;
+			try {
+				const handle = await open(fifo, "r+");
+				try {
+					await handle.write(`${line}\n`);
+				} finally {
+					await handle.close();
+				}
+			} catch (error) {
+				if (error?.code === "ENOENT" || error?.code === "ENXIO") {
+					ended = true;
+					reader.close();
+					log("session ended");
+				}
+			}
+		});
+	});
+	return reader;
+}
+
+/** Print each line appended to the notes file as `NOTE <text>`. */
+async function tailNotes(path) {
+	let handle;
+	let offset = 0;
+	let buffer = "";
+	const decoder = new TextDecoder();
+	const bytes = Buffer.alloc(READ_BYTES);
+	for (;;) {
+		if (!handle) {
+			try {
+				handle = await open(path, "r");
+				offset = 0;
+				buffer = "";
+			} catch {
+				await sleep(POLL_MS);
+				continue;
+			}
+		}
+		let bytesRead = 0;
+		try {
+			({ bytesRead } = await handle.read(bytes, 0, bytes.length, offset));
+		} catch {
+			await handle.close().catch(() => {});
+			handle = undefined;
+			continue;
+		}
+		if (bytesRead > 0) {
+			offset += bytesRead;
+			buffer += decoder.decode(bytes.subarray(0, bytesRead), { stream: true });
+			const { lines, rest } = splitComplete(buffer);
+			buffer = rest;
+			for (const line of lines) process.stdout.write(`NOTE ${line}\n`);
+			continue;
+		}
+		await sleep(POLL_MS);
+	}
+}
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** The newest session file for `id` under `dir`, or undefined while Pi has not created it. */
@@ -69,20 +145,26 @@ async function findSessionFile(dir, id) {
 }
 
 async function main(argv) {
-	const options = { sessionId: undefined, cwd: undefined, thinking: false };
+	const options = { sessionId: undefined, cwd: undefined, thinking: false, input: undefined };
 	for (let index = 0; index < argv.length; index++) {
 		const arg = argv[index];
 		if (arg === "--session-id") options.sessionId = argv[++index];
 		else if (arg === "--cwd") options.cwd = argv[++index];
 		else if (arg === "--thinking") options.thinking = true;
+		else if (arg === "--input") options.input = argv[++index];
 		else {
 			process.stderr.write(`pi-tail: unknown argument '${arg}'\n`);
 			return 2;
 		}
 	}
 	if (!options.sessionId || !options.cwd) {
-		process.stderr.write("usage: pi-tail --session-id <id> --cwd <dir> [--thinking]\n");
+		process.stderr.write("usage: pi-tail --session-id <id> --cwd <dir> [--thinking] [--input <fifo>]\n");
 		return 2;
+	}
+
+	if (options.input) {
+		relayInput(process.stdin, options.input);
+		tailNotes(`${dirname(options.input)}/${options.sessionId}.notes`).catch(() => {});
 	}
 
 	const dir = `${homedir()}/.pi/agent/sessions/${sessionDir(options.cwd)}`;
