@@ -1,0 +1,30 @@
+#!/usr/bin/env zsh
+# pi-pane-run — run interactive Pi in a herdr pane, for pi-view --tui.
+#
+#   pi-pane-run <watch-pid> <exit-file> <prompt-file> <pi command…>
+#
+# Runs the Pi command in the foreground, so its TUI owns the pane and the person
+# can steer it, with the prompt file's text as its first message. When Pi exits
+# its exit code goes to <exit-file>, which pi-view (inside the pueue task) waits
+# for. If <watch-pid> goes away first, as under pueue kill, Pi is ended too.
+set -u
+
+if (( $# < 4 )); then
+  print -u2 -- 'usage: pi-pane-run <watch-pid> <exit-file> <prompt-file> <pi command…>'
+  exit 2
+fi
+watch=$1 exit_file=$2 prompt_file=$3
+shift 3
+prompt=$(<$prompt_file)
+rm -f -- $prompt_file
+
+# This script is not interactive, so the watcher shares its process group:
+# signalling group 0 ends Pi and this script together, not the pane's shell.
+{ while kill -0 $watch 2>/dev/null; do sleep 2; done; kill -TERM 0 } &
+watcher=$!
+
+"$@" -- "$prompt"
+rc=$?
+kill $watcher 2>/dev/null
+print -r -- $rc >| $exit_file
+exit $rc
