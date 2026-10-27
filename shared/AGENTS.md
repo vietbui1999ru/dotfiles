@@ -150,6 +150,13 @@ commit with a clear message, without asking first. The history is the trace of
 the work. Do this on a branch or worktree, never directly on `main` or `master`.
 In a `gh stack`, commit each layer as you go, on that layer's branch.
 
+Keep branch and worktree names to 16 characters or fewer, type prefix included
+(`feat/pi-live`, `docs/name-limit`): longer names get cut off or crowd the
+panes, bars and lists that show them. A dispatch slug is a name of at most 11
+characters plus a 4-hex suffix (`openssl rand -hex 2`), so `pi-live-a3f9` fits.
+Claude Code's EnterWorktree adds `worktree-` to the branch name, so give it at
+most 7 characters, or create the worktree with `git worktree add -b <branch>`.
+
 Still ask before push, force-push, merge, rebase, `reset --hard`, and deleting
 branches. The review gates (`agent-review`, `:AgentReview`) apply to what is
 pushed or merged, not to commits.
