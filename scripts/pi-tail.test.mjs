@@ -6,9 +6,39 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
-import { foldChunk, relayInput, render, splitComplete } from "./pi-tail.mjs";
+import { foldChunk, relayInput, render, splitComplete, watchRunner } from "./pi-tail.mjs";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// pueue kill sends SIGKILL, so pi-view cannot report; the viewer reports for it.
+test("a runner that dies while herdr still shows working is reported blocked", async () => {
+	let alive = 2;
+	const reports = [];
+	await watchRunner({
+		pid: 123,
+		pane: "w1:p1",
+		intervalMs: 1,
+		isAlive: () => alive-- > 0,
+		paneStatus: async () => "working",
+		report: async (pane) => reports.push(pane),
+	});
+	assert.deepEqual(reports, ["w1:p1"]);
+});
+
+test("a runner that already reported its own end is left alone", async () => {
+	for (const status of ["idle", "blocked"]) {
+		const reports = [];
+		await watchRunner({
+			pid: 123,
+			pane: "w1:p1",
+			intervalMs: 1,
+			isAlive: () => false,
+			paneStatus: async () => status,
+			report: async (pane) => reports.push(pane),
+		});
+		assert.deepEqual(reports, [], `reported over ${status}`);
+	}
+});
 
 test("renders text, tool, and error entries as the Pi pane does", () => {
 	assert.deepEqual(render({ kind: "text", text: "planning the change" }, false), ["planning the change"]);

@@ -104,6 +104,9 @@ pane=$(open_pane) || pane=""
 # pane run types the command into the pane's shell, so every path is quoted.
 tail_script=${${0:A}:h}/pi-tail.mjs
 tail_command="node ${(q)tail_script} --session-id ${(q)session_id} --cwd ${(q)PWD}"
+# pueue kill sends SIGKILL, so this script cannot report its own end; the viewer
+# watches this process and reports the pane blocked if it vanishes still working.
+[[ -n $pane ]] && tail_command+=" --watch-pid $$ --pane ${(q)pane}"
 if (( live )); then
   tail_command+=" --input ${(q)input_path}"
 fi

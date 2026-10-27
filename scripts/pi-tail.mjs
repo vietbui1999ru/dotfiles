@@ -9,6 +9,7 @@
  * With --input it also relays lines typed in the pane to the live session FIFO
  * and prints notes from the pi-live driver as `NOTE …`.
  */
+import { execFile } from "node:child_process";
 import { open, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname } from "node:path";
@@ -131,6 +132,40 @@ async function tailNotes(path) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Wait for the runner (pi-view) to exit, then report the pane `blocked` if herdr
+ * still shows it working. pueue kill sends SIGKILL, so pi-view never reports its
+ * own end; a runner that did report (idle or blocked) is left alone.
+ */
+export async function watchRunner({ pid, pane, intervalMs, isAlive, paneStatus, report }) {
+	while (isAlive(pid)) await sleep(intervalMs);
+	if ((await paneStatus(pane)) === "working") await report(pane);
+}
+
+const runnerAlive = (pid) => {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		return error.code === "EPERM";
+	}
+};
+
+const herdr = (args) =>
+	new Promise((resolve) => execFile("herdr", args, (error, stdout) => resolve(error ? undefined : stdout)));
+
+const herdrPaneStatus = async (pane) => {
+	try {
+		return JSON.parse((await herdr(["pane", "get", pane])) ?? "").result?.pane?.agent_status;
+	} catch {
+		return undefined;
+	}
+};
+
+// seq 3: pi-view reports working at 1 and its own end at 2.
+const reportKilled = (pane) =>
+	herdr(["pane", "report-agent", pane, "--source", "custom:pueue", "--agent", "pi", "--state", "blocked", "--message", "killed", "--seq", "3"]);
+
 /** The newest session file for `id` under `dir`, or undefined while Pi has not created it. */
 async function findSessionFile(dir, id) {
 	const match = sessionFileName(id);
@@ -145,21 +180,27 @@ async function findSessionFile(dir, id) {
 }
 
 async function main(argv) {
-	const options = { sessionId: undefined, cwd: undefined, thinking: false, input: undefined };
+	const options = { sessionId: undefined, cwd: undefined, thinking: false, input: undefined, watchPid: undefined, pane: undefined };
 	for (let index = 0; index < argv.length; index++) {
 		const arg = argv[index];
 		if (arg === "--session-id") options.sessionId = argv[++index];
 		else if (arg === "--cwd") options.cwd = argv[++index];
 		else if (arg === "--thinking") options.thinking = true;
 		else if (arg === "--input") options.input = argv[++index];
+		else if (arg === "--watch-pid") options.watchPid = Number(argv[++index]);
+		else if (arg === "--pane") options.pane = argv[++index];
 		else {
 			process.stderr.write(`pi-tail: unknown argument '${arg}'\n`);
 			return 2;
 		}
 	}
 	if (!options.sessionId || !options.cwd) {
-		process.stderr.write("usage: pi-tail --session-id <id> --cwd <dir> [--thinking] [--input <fifo>]\n");
+		process.stderr.write("usage: pi-tail --session-id <id> --cwd <dir> [--thinking] [--input <fifo>] [--watch-pid <pid> --pane <id>]\n");
 		return 2;
+	}
+
+	if (options.watchPid > 0 && options.pane) {
+		watchRunner({ pid: options.watchPid, pane: options.pane, intervalMs: 2000, isAlive: runnerAlive, paneStatus: herdrPaneStatus, report: reportKilled }).catch(() => {});
 	}
 
 	if (options.input) {
