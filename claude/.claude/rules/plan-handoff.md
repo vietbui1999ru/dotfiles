@@ -7,14 +7,14 @@ Use `shared/skills/delegate-pi/SKILL.md`. Use delegate mode (async through `pueu
 Dispatch approved file-backed plans through `pueue`, one task per plan:
 
 ```bash
-SLUG="<plan-name>-$(openssl rand -hex 4)"
+SLUG="<plan-name>-$(openssl rand -hex 2)"
 TASK_ID=$(pueue add -i --print-task-id --label "$SLUG" -w <absolute-path-to-worktree> -- \
   "$HOME/dotfiles/scripts/pi-view pi --model <explicit-model> --session-id pueue-$SLUG -p \"\$(cat <absolute-path-to-plan>.md)\" < /dev/null")
 ```
 
 `scripts/pi-view` in front of `pi` gives the run a herdr viewer pane that streams its transcript when the dispatch comes from a herdr pane, and does nothing extra outside herdr. Keep it on every dispatch.
 
-`-w <worktree>` (a pueue flag, before `--`) is required: create the worktree first and run Pi inside it. agent-review snapshots only the run's working directory, so a Pi run started in the main checkout that edits a worktree it made itself leaves no review at all. Never ask Pi to create its own worktree. `< /dev/null` is required. Set an explicit model tier per `model-routing.md`; never rely on defaults. `--label` (a pueue flag, before `--`) and `--session-id pueue-<slug>` (a pi flag) are required: the session-band mod finds the task's Pi session by that id. `<slug>` is the plan name in lowercase `[a-z0-9-]` plus a fresh 8-hex suffix, new for every dispatch. `pi --session-id` resumes an existing session with that id, so a reused slug silently continues an old conversation.
+`-w <worktree>` (a pueue flag, before `--`) is required: create the worktree first and run Pi inside it. agent-review snapshots only the run's working directory, so a Pi run started in the main checkout that edits a worktree it made itself leaves no review at all. Never ask Pi to create its own worktree. `< /dev/null` is required. Set an explicit model tier per `model-routing.md`; never rely on defaults. `--label` (a pueue flag, before `--`) and `--session-id pueue-<slug>` (a pi flag) are required: the session-band mod finds the task's Pi session by that id. `<slug>` is the plan name, at most 11 characters, in lowercase `[a-z0-9-]` plus a fresh 4-hex suffix: 16 characters at most, new for every dispatch. The worktree's branch name stays within 16 characters too. `pi --session-id` resumes an existing session with that id, so a reused slug silently continues an old conversation.
 
 The `\"\$(cat)\"` escaping matters: unescaped, the plan text is pasted into the stored command when the task is added.
 

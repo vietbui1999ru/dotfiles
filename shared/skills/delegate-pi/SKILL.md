@@ -67,7 +67,7 @@ For long tasks that run in the background while you continue work.
 ```bash
 # Fire task to pueue (medium difficulty). The slug must be new for every task.
 # WORKTREE is an existing worktree, absolute path; create it before dispatching.
-SLUG="<task-name>-$(openssl rand -hex 4)"
+SLUG="<task-name>-$(openssl rand -hex 2)"
 TASK_ID=$(pueue add -i --print-task-id --label "$SLUG" -w "$WORKTREE" -- \
   "$HOME/dotfiles/scripts/pi-view pi --model opencode-go/deepseek-v4.1-flash:medium --session-id pueue-$SLUG \
       -p '<full task description>' < /dev/null")
@@ -76,7 +76,7 @@ TASK_ID=$(pueue add -i --print-task-id --label "$SLUG" -w "$WORKTREE" -- \
 pueue wait "$TASK_ID" && pueue log "$TASK_ID"
 ```
 
-Every pueue dispatch carries `--label <slug>` and `-w <worktree>` (pueue flags, before `--`) and `--session-id pueue-<slug>` (pi flag). Create the worktree first and point `-w` at it: agent-review snapshots only the run's working directory, so a Pi run started in the main checkout that edits a worktree it made itself leaves no review. Never ask Pi to create its own worktree. Parallel tasks that edit code each get their own worktree. `<slug>` is a short task name in lowercase `[a-z0-9-]` plus a fresh 8-hex suffix. Never reuse a slug: `pi --session-id` resumes an existing session with that id. Council and subagent modes are synchronous, not pueue dispatches: keep `--no-session` there and never add `--session-id`.
+Every pueue dispatch carries `--label <slug>` and `-w <worktree>` (pueue flags, before `--`) and `--session-id pueue-<slug>` (pi flag). Create the worktree first and point `-w` at it: agent-review snapshots only the run's working directory, so a Pi run started in the main checkout that edits a worktree it made itself leaves no review. Never ask Pi to create its own worktree. Parallel tasks that edit code each get their own worktree. `<slug>` is a task name of at most 11 characters in lowercase `[a-z0-9-]` plus a fresh 4-hex suffix, 16 characters at most in all; name the worktree's branch within the same 16. Never reuse a slug: `pi --session-id` resumes an existing session with that id. Council and subagent modes are synchronous, not pueue dispatches: keep `--no-session` there and never add `--session-id`.
 
 Start every pueue dispatch's command with `$HOME/dotfiles/scripts/pi-view`. When the dispatch comes from a herdr pane, it opens a viewer pane in the workspace's `pi` tab that streams the run's transcript, and reports `working` and then `done` or `blocked` to herdr. Outside herdr it simply runs Pi. Either way it exits with Pi's exit code. The session-band mod still tracks the task, because its command keeps `pi --model` and `--session-id`.
 
@@ -136,9 +136,9 @@ These are pi command lines; a pueue dispatch wraps them as in Delegate Mode, wit
 ```bash
 # 1. Dispatch all tasks, collect IDs. Each task gets its own fresh slug and its own
 #    existing worktree (WT_REVIEW, WT_IMPL, WT_LOW: absolute paths, created beforehand).
-S_REVIEW="review-$(openssl rand -hex 4)"
-S_IMPL="impl-$(openssl rand -hex 4)"
-S_LOW="low-$(openssl rand -hex 4)"
+S_REVIEW="review-$(openssl rand -hex 2)"
+S_IMPL="impl-$(openssl rand -hex 2)"
+S_LOW="low-$(openssl rand -hex 2)"
 
 T_REVIEW=$(pueue add -i --print-task-id --label "$S_REVIEW" -w "$WT_REVIEW" -- \
   "$HOME/dotfiles/scripts/pi-view pi --model openai-codex/gpt-6.1-sol:high --session-id pueue-$S_REVIEW \
