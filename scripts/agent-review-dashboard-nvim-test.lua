@@ -7,7 +7,7 @@
 --
 -- Run from the repo root, one case per process:
 --   nvim --clean --headless -l scripts/agent-review-dashboard-nvim-test.lua <case>
--- Cases: rows_from_contract, empty_list, cli_failure, non_blocking, open_action, row_cap
+-- Cases: rows_from_contract, empty_list, cli_failure, non_blocking, open_action, row_cap, row_keys
 local CASE = arg[1]
 local SELF = debug.getinfo(1, "S").source:sub(2)
 local MODULE = assert(
@@ -325,6 +325,36 @@ elseif CASE == "row_cap" then
 	rows[6].action()
 	check("the overflow row runs :AgentReview", ran == 1, ran)
 	check("the title counts every waiting review", M.count() == 7, M.count())
+elseif CASE == "row_keys" then
+	-- Review rows get letters, so the dashboard's digits stay with Recent Files.
+	local owner = tempdir()
+	local many = {}
+	for i = 1, 7 do
+		many[i] = {
+			runId = ("%08d-0000-4000-8000-000000000000"):format(i),
+			owner = owner,
+			branch = "feat/" .. i,
+			name = "Review " .. i,
+			startedAt = ago(60 * i),
+			landed = false,
+			orphan = false,
+			repo = "/nonexistent/repos/dotfiles",
+		}
+	end
+	M.cli = stub_cli(vim.json.encode(many))
+	refresh()
+	local rows = M.rows()
+	local keys = {}
+	for i = 1, 5 do
+		keys[i] = rows[i] and rows[i].key
+	end
+	check("the five review rows are keyed a b d e i", vim.deep_equal(keys, { "a", "b", "d", "e", "i" }), vim.inspect(keys))
+	check("no review row asks for an autokey digit", rows[1] and rows[1].autokey == nil, rows[1] and rows[1].autokey)
+	check("the overflow row has no key", rows[6] and rows[6].key == nil, rows[6] and rows[6].key)
+	M.cli = stub_cli("[]")
+	refresh()
+	rows = M.rows()
+	check("the empty-state row has no key", rows[1] and rows[1].key == nil, rows[1] and rows[1].key)
 else
 	io.write("unknown case: " .. tostring(CASE) .. "\n")
 	os.exit(2)

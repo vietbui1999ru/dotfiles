@@ -14,6 +14,10 @@ M.cli = (here:gsub("nvim/%.config/nvim/lua/custom/agent_review_dashboard%.lua$",
 -- How many review rows the area shows before it collapses the rest into a
 -- "+N more" row, so the start screen stays shorter than the keys section.
 local MAX_ROWS = 5
+-- One dashboard key per review row. Letters, so the autokey digits stay with
+-- Recent Files; f g n r c s q are the dashboard's own keys and Snacks keeps
+-- hjkl for movement, so the sequence skips them.
+local ROW_KEYS = { "a", "b", "d", "e", "i" }
 
 local function parse(stdout)
 	if type(stdout) ~= "string" then
@@ -140,6 +144,7 @@ function M.rows()
 		end
 		table.insert(rows, {
 			text = label(entry),
+			key = ROW_KEYS[#rows + 1],
 			action = function()
 				M.open_entry(entry)
 			end,
