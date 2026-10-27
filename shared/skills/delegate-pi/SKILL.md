@@ -82,6 +82,8 @@ Start every pueue dispatch's command with `$HOME/dotfiles/scripts/pi-view`. When
 
 For a run the person wants to steer, put `--live` before the Pi arguments: text typed in the viewer pane, or `$HOME/dotfiles/scripts/pi-steer <session-id> "<message>"` from the main pane, reaches Pi as a steer while it works or a new prompt once it is idle. `/abort` stops the current turn and keeps the session; `/done` ends it. After Pi settles it waits 120 s for more input before closing, so the task holds its pueue slot during that grace period.
 
+For a run the person wants to drive themselves, put `--tui` before the Pi arguments instead: the herdr pane runs Pi's own interactive TUI with the request already submitted, so they steer, queue follow-ups and add prompts in Pi directly, and Pi's herdr extension reports its state. The pueue task, and its slot, lasts until they quit Pi (`Ctrl+D`); `pueue kill` ends Pi in the pane. Outside herdr there is no pane, so `--tui` runs as a plain dispatch.
+
 **Model routing for delegation:**
 
 | Task difficulty | Model |

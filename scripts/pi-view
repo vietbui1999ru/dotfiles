@@ -12,17 +12,25 @@
 # With --live the arguments go through scripts/pi-live.mjs instead, so a line typed
 # in the viewer pane (or sent with scripts/pi-steer) reaches the running Pi. The
 # session id still names the herdr pane and the input FIFO.
+#
+# With --tui the pane runs Pi's own interactive TUI on the request instead of a
+# viewer (through scripts/pi-pane-run), so the person steers and queues in Pi
+# itself. The task lasts until they quit Pi; Pi's herdr extension reports its state.
 set -u
 
 usage() {
-  print -u2 -- 'usage: pi-view [--live] [pi arguments]'
+  print -u2 -- 'usage: pi-view [--live|--tui] [pi arguments]'
   print -u2 -- 'Runs the given command, streaming its Pi transcript in a herdr pane when called from one.'
   print -u2 -- '--live sends input from the pane or scripts/pi-steer to the running Pi.'
+  print -u2 -- '--tui runs interactive Pi in the pane on the request; the task ends when Pi is quit.'
 }
 
-live=0
+live=0 tui=0
 if [[ ${1:-} == --live ]]; then
   live=1
+  shift
+elif [[ ${1:-} == --tui ]]; then
+  tui=1
   shift
 fi
 
@@ -100,6 +108,39 @@ open_pane() {
 }
 
 pane=$(open_pane) || pane=""
+
+if (( tui )); then
+  # Without a pane there is no terminal for a TUI: run it as a plain dispatch.
+  [[ -n $pane ]] || exec "$@"
+  # Pi's -p is a flag; the message after it becomes the TUI's first message,
+  # handed over in a file because a whole plan is too long to type into a shell.
+  run_dir=${TMPDIR:-/tmp}
+  run_dir=${run_dir%/}/pi-view
+  mkdir -p -- $run_dir
+  exit_file=$run_dir/${session_id}.exit prompt_file=$run_dir/${session_id}.prompt
+  tui_argv=() prompt=""
+  for (( index = 1; index <= $#; index++ )); do
+    if [[ ${argv[index]} == -p || ${argv[index]} == --print ]]; then
+      prompt=${argv[index + 1]:-}
+      (( index++ ))
+    else
+      tui_argv+=("${argv[index]}")
+    fi
+  done
+  rm -f -- $exit_file
+  print -r -- "$prompt" >| $prompt_file
+  guard=${${0:A}:h}/pi-pane-run
+  herdr_json pane run "$pane" "${(q)guard} $$ ${(q)exit_file} ${(q)prompt_file} ${(j: :)${(q)tui_argv[@]}}" >/dev/null || exec "$@"
+  # Wait for Pi to be quit. A pane closed with Pi still in it ends the task too.
+  while [[ ! -e $exit_file ]]; do
+    herdr_json pane get "$pane" >/dev/null || exit 1
+    sleep 2
+  done
+  rc=$(<$exit_file)
+  rm -f -- $exit_file
+  exit ${rc:-1}
+fi
+
 # Resolved from this script, so a worktree copy tails its own pi-tail.mjs;
 # pane run types the command into the pane's shell, so every path is quoted.
 tail_script=${${0:A}:h}/pi-tail.mjs
