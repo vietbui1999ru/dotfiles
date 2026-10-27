@@ -64,3 +64,39 @@ if [[ $OSTYPE == darwin* ]]; then
   alias s="kitten ssh"
   alias syncth="open http://127.0.0.1:8384/"
 fi
+
+# typos tracker
+
+command_not_found_handler() {
+  echo "$(date +%F) $1" >> ~/.cnf_log
+  print -u2 "zsh: command not found: $1"; return 127
+}
+
+# NAV
+alias ..="cd .."
+alias ...="cd ../.."
+alias ....="cd ../../.."
+alias .....="cd ../../../.."
+
+
+# TYPOS
+
+alias gti="git"
+alias gi="git"
+alias nvmi="nvim"
+alias nivm="nvim"
+alias vnim="nvim"
+alias nvi="nvim"
+
+alias cd..="cd .."
+
+alias claer="clear"
+alias clea="clear"
+alias crl="clear"
+alias sl="ls"
+alias la="ll"
+alias pyhton="python3"
+alias pytohn="python3"
+alias dokcer="docker"
+alias kubctl="kubectl"
+alias souce="exec zsh"
