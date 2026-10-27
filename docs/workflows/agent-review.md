@@ -378,9 +378,15 @@ exclusion, tree comparison, identifier validation, and record shapes.
   short id and the number of notes taken, or `no review open`.
 - `:AgentReviewClearNotes` — remove all notes collected so far. Useful when iterating on a review
   without closing it.
+- `:AgentReviewLayout` — cycle the diff layout: side by side, stacked (base above working copy),
+  unified (one pane on the working file, with gitsigns drawing deleted lines and changed words
+  inline against the run's base). Every layout keeps the working file as a real buffer, so
+  `:AgentReviewReject`, `:Gitsigns reset_hunk` and notes work in all three. A review opens side by
+  side, and `:AgentReviewDone` turns the inline overlay off.
 - `:AgentReviewVerbose` — toggle `M.verbose`, which emits `vim.notify` DEBUG messages for
   `:AgentReview`, `:AgentReviewNote`, `:AgentReviewReject`, and `:AgentReviewDone`.
-- Keymaps: `<leader>ar` review, `<leader>an` note, **`<leader>aD`** done, **`<leader>aR`** reject.
+- Keymaps: `<leader>ar` review, `<leader>an` note, **`<leader>aD`** done, **`<leader>aR`** reject,
+  `<leader>al` cycle layout.
   `<leader>ad` is taken by Evidence's DAP snapshot (`lua/custom/plugins/evidence.lua:425`). Add all
   four to the which-key group in `init.lua` with accurate labels.
 

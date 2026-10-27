@@ -124,6 +124,45 @@ check("files present in the base are not named", noticed("agent%.txt.* new") == 
 check("diffview is scoped to the run's files",
   vim.deep_equal(seen.diffview_open, { base, "--", "agent.txt", "added.txt" }), vim.inspect(seen.diffview_open))
 check("gitsigns.change_base pinned globally", vim.deep_equal(seen.change_base, { base, true }), vim.inspect(seen.change_base))
+
+io.write("\nlayout cycle\n")
+-- A stand-in for diffview's current view: every entry records the layout class
+-- it is converted to, and reopening the file fires files_opened at once.
+local converted = {}
+local function fake_entry(name)
+  return {
+    convert_layout = function(_, class) table.insert(converted, name .. ":" .. class) end,
+    layout = { emitter = { once = function(_, _, callback) callback() end } },
+  }
+end
+local cur_entry = fake_entry("cur")
+local view = {
+  cur_entry = cur_entry,
+  cur_layout = { get_main_win = function() return { id = vim.api.nvim_get_current_win() } end },
+  panel = { files = { working = { cur_entry, fake_entry("other") }, staged = {} } },
+  set_file = function() end,
+}
+package.loaded["diffview.lib"] = { get_current_view = function() return view end }
+package.loaded["diffview.scene.layouts.diff_2_hor"] = { Diff2Hor = "Diff2Hor" }
+package.loaded["diffview.scene.layouts.diff_2_ver"] = { Diff2Ver = "Diff2Ver" }
+package.loaded["diffview.scene.layouts.diff_1"] = { Diff1 = "Diff1" }
+local inline = {}
+package.loaded["gitsigns"].toggle_deleted = function(on) inline.deleted = on end
+package.loaded["gitsigns"].toggle_linehl = function(on) inline.linehl = on end
+package.loaded["gitsigns"].toggle_word_diff = function(on) inline.word_diff = on end
+local function step(expected_class, expected_inline)
+  converted = {}
+  M.cycle_layout()
+  return vim.deep_equal(converted, { "cur:" .. expected_class, "other:" .. expected_class })
+    and inline.deleted == expected_inline and inline.linehl == expected_inline and inline.word_diff == expected_inline
+end
+check("first cycle: stacked, no inline overlay", step("Diff2Ver", false), vim.inspect({ converted, inline }))
+check("second cycle: unified, gitsigns draws deletions inline", step("Diff1", true), vim.inspect({ converted, inline }))
+check("third cycle: back to side by side, overlay off", step("Diff2Hor", false), vim.inspect({ converted, inline }))
+step("Diff2Ver", false)
+step("Diff1", true)
+M.reset_layout()
+check("reset from unified turns the overlay off and returns to side by side", inline.deleted == false and M.layout == 1, vim.inspect({ inline, M.layout }))
 check("pending record became current", M.current ~= nil and M.current.runId == runId)
 check("status reports the open review", M.status():match("review " .. runId:sub(1, 8)) ~= nil, M.status())
 
