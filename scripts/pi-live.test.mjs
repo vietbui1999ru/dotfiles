@@ -2,7 +2,65 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { spawn } from "node:child_process";
+import { chmodSync, existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { GRACE_SECONDS, buildPiInvocation, nextAction } from "./pi-live.mjs";
+
+// A stand-in Pi: answers the prompt with a run that settles, then exits on its own a
+// second later. By then the driver's FIFO read has been idle and pending, which is
+// the state the live grace-period close found it in.
+const FAKE_PI = `#!/usr/bin/env node
+import { createInterface } from "node:readline";
+const rl = createInterface({ input: process.stdin });
+rl.on("line", (line) => {
+	if (JSON.parse(line).type !== "prompt") return;
+	process.stdout.write('{"type":"agent_start"}\\n{"type":"agent_settled"}\\n');
+	setTimeout(() => process.exit(0), 1000);
+});
+`;
+
+// A stand-in Pi that stays up until the driver closes its stdin.
+const FAKE_PI_UNTIL_CLOSED = FAKE_PI.replace("setTimeout(() => process.exit(0), 1000);", "").concat('rl.on("close", () => process.exit(0));\n');
+
+// Start the driver on a fake Pi; returns its process and FIFO path once the FIFO exists.
+async function startDriver(fakeSource) {
+	const dir = mkdtempSync(join(tmpdir(), "pi-live-exit-"));
+	const fake = join(dir, "fake-pi.mjs");
+	writeFileSync(fake, fakeSource);
+	chmodSync(fake, 0o755);
+	const driver = spawn(process.execPath, [new URL("./pi-live.mjs", import.meta.url).pathname, "--", fake, "--session-id", "pueue-exit-test", "-p", "hi"], {
+		env: { ...process.env, TMPDIR: dir },
+		stdio: "ignore",
+	});
+	const fifo = join(dir, "pi-view", "pueue-exit-test.in");
+	for (let i = 0; i < 50 && !existsSync(fifo); i += 1) await new Promise((r) => setTimeout(r, 100));
+	assert.ok(existsSync(fifo), "the driver never created its FIFO");
+	return { driver, fifo };
+}
+
+async function exitCode(driver) {
+	const code = await Promise.race([
+		new Promise((resolve) => driver.on("exit", (c) => resolve(c))),
+		new Promise((resolve) => setTimeout(() => resolve("still running after 5 s"), 5000)),
+	]);
+	if (code === "still running after 5 s") driver.kill("SIGKILL");
+	return code;
+}
+
+test("the driver process exits once Pi exits, even with a FIFO read pending", async () => {
+	const { driver } = await startDriver(FAKE_PI);
+	assert.equal(await exitCode(driver), 0);
+});
+
+test("a line written to the FIFO reaches the driver: /done ends the session", async () => {
+	const { driver, fifo } = await startDriver(FAKE_PI_UNTIL_CLOSED);
+	await new Promise((r) => setTimeout(r, 500));
+	writeFileSync(fifo, "/done\n");
+	assert.equal(await exitCode(driver), 0);
+});
 
 const idle = { phase: "idle", graceActive: false };
 const working = { phase: "working", graceActive: false };

@@ -9,7 +9,8 @@
  * gives the person time to send another prompt before stdin is closed.
  */
 import { execFileSync, spawn } from "node:child_process";
-import { appendFileSync, createReadStream, mkdirSync, rmSync } from "node:fs";
+import { appendFileSync, constants, mkdirSync, openSync, rmSync } from "node:fs";
+import { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -244,7 +245,11 @@ async function main(argv) {
 		for (const record of records) handleRecord(record);
 	});
 
-	fifoStream = createReadStream(fifoPath, { flags: "r+" });
+	// Read-write keeps the FIFO from ever reporting end-of-file when a writer
+	// disconnects. Non-blocking, read through a Socket: fs.createReadStream would
+	// park a blocking read in the thread pool that never ends, and the process
+	// could not exit after Pi did.
+	fifoStream = new Socket({ fd: openSync(fifoPath, constants.O_RDWR | constants.O_NONBLOCK), readable: true, writable: false });
 	fifoStream.on("error", (error) => process.stderr.write(`pi-live: input: ${error.message}\n`));
 	createInterface({ input: fifoStream, crlfDelay: Infinity }).on("line", handleInput);
 
