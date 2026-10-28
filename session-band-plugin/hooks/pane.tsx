@@ -563,27 +563,27 @@ export const register: Register = on => {
       {state.tasks.length === 0 && <Text>No Pi hand-offs tracked in this session.</Text>}
       {/* Hotkeys, not hints: a key the pane does not bind falls through to the composer. */}
       <Box flexDirection="row" flexWrap="wrap" columnGap={2} marginBottom={1}>
-        <Button key="pi-key-down" plain dimColor hotkey="j" label="down" onPress={() => void move($, rowIds, task?.id, 'down')} />
-        <Button key="pi-key-up" plain dimColor hotkey="k" label="up" onPress={() => void move($, rowIds, task?.id, 'up')} />
-        <Button key="pi-key-top" plain dimColor hotkey="g" label="top" onPress={() => void move($, rowIds, task?.id, 'top')} />
-        <Button key="pi-key-insert" plain dimColor hotkey="i" label="continue" onPress={() => { if (task) void focusRing($, 'pi-handoff', 'pi-continue') }} />
-        <Button key="pi-key-reload" plain dimColor hotkey="r" label="reload" onPress={() => void open($)} />
-        <Button key="pi-key-prev" plain dimColor hotkey="b" label="prev" onPress={() => void cycle($, -1)} />
-        <Button key="pi-key-next" plain dimColor hotkey="f" label="next" onPress={() => void cycle($, 1)} />
-        <Button key="pi-key-quit" plain dimColor hotkey="q" label="close" onPress={() => void $.ui.close({ id: 'pi-handoff' })} />
+        <Button key="pi-key-down" plain dimColor hotkey="j" label={'\uF063'} onPress={() => void move($, rowIds, task?.id, 'down')} />
+        <Button key="pi-key-up" plain dimColor hotkey="k" label={'\uF062'} onPress={() => void move($, rowIds, task?.id, 'up')} />
+        <Button key="pi-key-top" plain dimColor hotkey="g" label={'\uF102'} onPress={() => void move($, rowIds, task?.id, 'top')} />
+        <Button key="pi-key-insert" plain dimColor hotkey="i" label={'\uF040'} onPress={() => { if (task) void focusRing($, 'pi-handoff', 'pi-continue') }} />
+        <Button key="pi-key-reload" plain dimColor hotkey="r" label={'\uF021'} onPress={() => void open($)} />
+        <Button key="pi-key-prev" plain dimColor hotkey="b" label={'\uF053'} onPress={() => void cycle($, -1)} />
+        <Button key="pi-key-next" plain dimColor hotkey="f" label={'\uF054'} onPress={() => void cycle($, 1)} />
+        <Button key="pi-key-quit" plain dimColor hotkey="q" label={'\uF00D'} onPress={() => void $.ui.close({ id: 'pi-handoff' })} />
         <Button key="pi-key-focus" plain dimColor action={FOCUS_ACTION} label="ctrl+x b" onPress={() => void focusSelf($)} />
-        <Button key="pi-key-thinking" plain dimColor hotkey="t" label={state.showThinking ? 'hide thinking' : 'thinking'} onPress={() => void update($, handoff, value => ({ ...value, showThinking: !value.showThinking }))} />
-        <Button key="pi-key-all" plain dimColor hotkey="v" label={state.showAll ? 'one task' : 'all tasks'} onPress={() => void update($, handoff, value => ({ ...value, showAll: !value.showAll }))} />
+        <Button key="pi-key-thinking" plain dimColor hotkey="t" label={state.showThinking ? '\uF0E5' : '\uF075'} onPress={() => void update($, handoff, value => ({ ...value, showThinking: !value.showThinking }))} />
+        <Button key="pi-key-all" plain dimColor hotkey="v" label={state.showAll ? '\uF096' : '\uF00B'} onPress={() => void update($, handoff, value => ({ ...value, showAll: !value.showAll }))} />
         {pane && <Button key="pi-tui-focus" plain dimColor hotkey="o" label={'\uF08E'} onPress={() => void focusTuiPane($, pane)} />}
         {pane && task && <Button key="pi-tui-close" plain dimColor label={'\uF08B'} onPress={() => void closeTuiRun($, task, pane)} />}
         {JUMP_KEYS.map(j => <Button key={`pi-key-jump-${j.key}`} plain dimColor hotkey={j.key} label={j.label} onPress={() => void (j.id === 'pi-handoff' ? undefined : goTo($, j.id))} />)}
         {task && <Text dimColor>x kill  s stop  h hold  p pause  y/n confirm</Text>}
-        {(!task || complete(task)) && <Button key="pi-key-abort" plain dimColor hotkey="x" label="kill" onPress={() => undefined} />}
-        {(!task?.task || !eligible('kill', task.task.state)) && <Button key="pi-key-hold" plain dimColor hotkey="h" label="hold" onPress={() => undefined} />}
-        {(!task || complete(task)) && <Button key="pi-key-pause" plain dimColor hotkey="p" label="pause" onPress={() => undefined} />}
-        {(!task?.task || !eligible('pause', task.task.state)) && <Button key="pi-key-stop" plain dimColor hotkey="s" label="stop" onPress={() => undefined} />}
-        {!confirm && <Button key="pi-key-yes" plain dimColor hotkey="y" label="confirm" onPress={() => undefined} />}
-        {!confirm && <Button key="pi-key-no" plain dimColor hotkey="n" label="cancel" onPress={() => undefined} />}
+        {(!task || complete(task)) && <Button key="pi-key-abort" plain dimColor hotkey="x" label={'\uF057'} onPress={() => undefined} />}
+        {(!task?.task || !eligible('kill', task.task.state)) && <Button key="pi-key-hold" plain dimColor hotkey="h" label={'\uF28B'} onPress={() => undefined} />}
+        {(!task || complete(task)) && <Button key="pi-key-pause" plain dimColor hotkey="p" label={'\uF04C'} onPress={() => undefined} />}
+        {(!task?.task || !eligible('pause', task.task.state)) && <Button key="pi-key-stop" plain dimColor hotkey="s" label={'\uF04D'} onPress={() => undefined} />}
+        {!confirm && <Button key="pi-key-yes" plain dimColor hotkey="y" label={'\uF00C'} onPress={() => undefined} />}
+        {!confirm && <Button key="pi-key-no" plain dimColor hotkey="n" label={'\uF05E'} onPress={() => undefined} />}
       </Box>
       {confirm && <Box flexDirection="row" columnGap={1}>
         <Text color={PALETTE.red}>{`${confirm.action === 'hold' ? 'Hold queue and kill' : 'Kill'} ${confirm.ids.map(id => `#${id}`).join(' ')}?`}</Text>
