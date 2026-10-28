@@ -1,6 +1,6 @@
 import { atom, read, update, type EngineInterface, type Register } from 'claude-code'
 
-import { dispatchCommand, parseAddResult, parsePiCommand, parseStatus } from './pueue'
+import { dispatchCommand, isTuiDispatch, parseAddResult, parsePiCommand, parseStatus } from './pueue'
 import { controlArgv, eligible, holdArgv, parsePiArgs, PS_ARGV, releaseArgv, resolveTargets, signalGroupArgv, stopArgvs, strayGroups, type ControlAction, type Targets } from './controls'
 import { monitorRows, selectStale, type MonitorRow, type StaleSelection, type TrackedTask } from './handoff'
 import type { HandoffState } from './handoff.tsx'
@@ -43,6 +43,7 @@ export const monitorText = (row: MonitorRow, columns: number): string => {
     { name: 'tokens', text: row.tokens },
     { name: 'cost', text: row.cost },
     ...(row.label ? [{ text: row.label }] : []),
+    ...(row.pane ? [{ text: row.pane }] : []),
   ]
   const gap = '  '
   const joined = () => fields.map(field => field.text).join(gap)
@@ -209,8 +210,45 @@ export const continueArgv = (task: TrackedTask, model: string, path: string): st
 export const continuePath = (tmp: string, sessionId: string, nowMs = Date.now()): string =>
   `${tmp.replace(/\/$/, '')}/pi-continue-${sessionId.replace(/[^A-Za-z0-9_-]/g, '-')}-${nowMs}.md`
 
+/** A `--tui` run's pane id lives here; `scripts/pi-view` writes it for every mode. */
+export const tuiPanePath = (tmp: string, sessionId: string): string =>
+  `${tmp.replace(/\/$/, '')}/pi-view/${sessionId}.pane`
+
+/** Typed into Pi's own TUI: a steer while it works, a new prompt once it is idle. */
+export const tuiSendArgvs = (pane: string, text: string): string[][] => [
+  ['herdr', 'pane', 'send-text', pane, text],
+  ['herdr', 'pane', 'send-keys', pane, 'Enter'],
+]
+
+/** Ctrl+D quits Pi, which ends the pueue task the pane belongs to. */
+export const tuiCloseArgv = (pane: string): string[] => ['herdr', 'pane', 'send-keys', pane, 'ctrl+d']
+
+/** `herdr agent focus` jumps to a pane in another tab; a bare pane id is its target. */
+export const tuiFocusArgv = (pane: string): string[] => ['herdr', 'agent', 'focus', pane]
+
+/** Where a run's pane sits, in the words the person uses for it. */
+export const paneWhere = (tabId: string | undefined, label: string | undefined, dispatcherTabId: string | undefined): string => {
+  if (!tabId) return 'unknown'
+  if (dispatcherTabId && tabId === dispatcherTabId) return 'beside'
+  if (label === 'verdict') return 'verdict'
+  if (label === 'pi') return 'pi tab'
+  return label ?? 'unknown'
+}
+
 async function continueTask($: EngineInterface, task: TrackedTask, pi: PiProgress | undefined, text: string) {
   if (!task.sessionId || text.trim() === '') return
+  // A --tui run reads the text in Pi itself instead of a fresh dispatch.
+  const pane = await tuiPane($, task)
+  if (pane) {
+    for (const argv of tuiSendArgvs(pane, text)) {
+      const sent = await $.process.run(argv).catch(() => undefined)
+      if (!sent || sent.exitCode !== 0) {
+        await $.ui.toast(`Could not reach the Pi pane ${pane}; the run keeps going.`)
+        return
+      }
+    }
+    return
+  }
   const model = continueModel(task, pi)
   if (!model) { await $.ui.toast('Cannot continue: model unknown'); return }
   const tmp = await $.env.get('TMPDIR') ?? '/tmp'
@@ -224,6 +262,73 @@ async function continueTask($: EngineInterface, task: TrackedTask, pi: PiProgres
   const queued = parseStatus(status.stdout).find(item => item.id === id)
   const addedMs = await $.clock.now()
   await update($, handoff, state => ({ ...state, tasks: [...state.tasks, { id, cwd: task.cwd, addedMs, task: queued, sessionId: task.sessionId, label }] }))
+}
+
+/** The pane of a running `--tui` run, read from the file `scripts/pi-view` writes. */
+async function tuiPane($: EngineInterface, task: TrackedTask): Promise<string | undefined> {
+  const live = task.task
+  if (!live || live.state !== 'Running' || !isTuiDispatch(live.command)) return undefined
+  const sessionId = task.sessionId ?? parsePiCommand(live.command).sessionId
+  if (!sessionId) return undefined
+  const tmp = await $.env.get('TMPDIR') ?? '/tmp'
+  const pane = (await $.fs.read(tuiPanePath(tmp, sessionId)).catch(() => '')).trim().split('\n')[0]
+  return pane ? pane : undefined
+}
+
+/** One herdr pane, or undefined when herdr does not know it: a closed pane answers nothing. */
+async function herdrPane($: EngineInterface, pane: string): Promise<{ tab_id?: string } | undefined> {
+  const result = await $.process.run(['herdr', 'pane', 'get', pane]).catch(() => undefined)
+  if (!result || result.exitCode !== 0) return undefined
+  try {
+    const parsed = JSON.parse(result.stdout) as { result?: { pane?: { tab_id?: string } } }
+    return parsed.result?.pane
+  } catch {
+    return undefined
+  }
+}
+
+/** `beside`, `verdict`, `pi tab`, or the pane's own tab label, from herdr's tab list. */
+async function tuiWhere($: EngineInterface, pane: string): Promise<string | undefined> {
+  const info = await herdrPane($, pane)
+  if (!info?.tab_id) return undefined
+  const listed = await $.process.run(['herdr', 'tab', 'list']).catch(() => undefined)
+  let label: string | undefined
+  if (listed?.exitCode === 0) {
+    try {
+      const parsed = JSON.parse(listed.stdout) as { result?: { tabs?: { tab_id?: string; label?: string }[] } }
+      label = parsed.result?.tabs?.find(tab => tab.tab_id === info.tab_id)?.label
+    } catch {
+      label = undefined
+    }
+  }
+  return paneWhere(info.tab_id, label, await $.env.get('HERDR_TAB_ID') ?? undefined)
+}
+
+/** `herdr agent focus` jumps across tabs; a pane herdr does not call an agent still has a tab. */
+async function focusTuiPane($: EngineInterface, pane: string) {
+  const focused = await $.process.run(tuiFocusArgv(pane)).catch(() => undefined)
+  if (focused?.exitCode === 0) return
+  const info = await herdrPane($, pane)
+  if (info?.tab_id) await $.process.run(['herdr', 'tab', 'focus', info.tab_id]).catch(() => undefined)
+}
+
+/** Ctrl+D ends the run through Pi itself; a Pi that does not quit falls back to the kill path. */
+async function closeTuiRun($: EngineInterface, task: TrackedTask, pane: string) {
+  const group = task.task?.group ?? 'default'
+  const sent = await $.process.run(tuiCloseArgv(pane)).catch(() => undefined)
+  if (!sent || sent.exitCode !== 0) {
+    await $.ui.toast(await runControl($, 'kill', [task.id], group))
+    return
+  }
+  let timer: { cancel(): void } | undefined
+  timer = $.clock.every(5_000, () => {
+    timer?.cancel()
+    void (async () => {
+      const status = await $.process.run(['pueue', 'status', '--json']).catch(() => undefined)
+      const live = status ? parseStatus(status.stdout).find(item => item.id === task.id) : undefined
+      if (live?.state === 'Running' || live?.state === 'Paused') await runControl($, 'kill', [task.id], group)
+    })()
+  })
 }
 
 async function reviewRoot($: EngineInterface, cwd: string): Promise<string> {
@@ -437,9 +542,14 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: 'pi-handoff' }, async ($, e, _next) => {
     const { Box, Text, Button, Input } = $.ui.resolve(e)
     const [state, allProgress, nowMs] = await Promise.all([read($, handoff), read($, progress), $.clock.now()])
-    const rows = monitorRows(state.tasks, allProgress, state.tasks.flatMap(item => item.task ? [item.task] : []), nowMs)
-    const rowIds = rows.map(row => row.id)
+    const base = monitorRows(state.tasks, allProgress, state.tasks.flatMap(item => item.task ? [item.task] : []), nowMs)
+    const rowIds = base.map(row => row.id)
     const task = selectedTask(state.tasks, state.selectedId, rowIds)
+    // Only the selected run's pane is asked about, so a redraw costs no herdr calls for the rest.
+    const pane = task ? await tuiPane($, task) : undefined
+    const where = pane ? await tuiWhere($, pane) : undefined
+    let rows = base
+    if (where && task) rows = monitorRows(state.tasks, allProgress, state.tasks.flatMap(item => item.task ? [item.task] : []), nowMs, { [task.id]: where })
     const pending = task ? await pendingFor($, task) : undefined
     const pi = selectedProgress(state.tasks, state.selectedId, allProgress, rowIds)
     const transcript = pi?.entries.slice(-200) ?? []
@@ -464,6 +574,8 @@ export const register: Register = on => {
         <Button key="pi-key-focus" plain dimColor action={FOCUS_ACTION} label="ctrl+x b" onPress={() => void focusSelf($)} />
         <Button key="pi-key-thinking" plain dimColor hotkey="t" label={state.showThinking ? 'hide thinking' : 'thinking'} onPress={() => void update($, handoff, value => ({ ...value, showThinking: !value.showThinking }))} />
         <Button key="pi-key-all" plain dimColor hotkey="v" label={state.showAll ? 'one task' : 'all tasks'} onPress={() => void update($, handoff, value => ({ ...value, showAll: !value.showAll }))} />
+        {pane && <Button key="pi-tui-focus" plain dimColor hotkey="o" label={'\uF08E'} onPress={() => void focusTuiPane($, pane)} />}
+        {pane && task && <Button key="pi-tui-close" plain dimColor label={'\uF08B'} onPress={() => void closeTuiRun($, task, pane)} />}
         {JUMP_KEYS.map(j => <Button key={`pi-key-jump-${j.key}`} plain dimColor hotkey={j.key} label={j.label} onPress={() => void (j.id === 'pi-handoff' ? undefined : goTo($, j.id))} />)}
         {task && <Text dimColor>x kill  s stop  h hold  p pause  y/n confirm</Text>}
         {(!task || complete(task)) && <Button key="pi-key-abort" plain dimColor hotkey="x" label="kill" onPress={() => undefined} />}

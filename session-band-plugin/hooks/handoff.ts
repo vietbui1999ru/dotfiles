@@ -25,6 +25,8 @@ export type MonitorRow = {
   cost: string
   idle?: { text: string; tone: 'muted' | 'yellow' | 'red' }
   label?: string
+  /** Where a `--tui` run's pane sits: `beside`, `verdict` or `pi tab`. */
+  pane?: string
 }
 
 export type HandoffSegment = {
@@ -94,6 +96,7 @@ export const monitorRows = (
   progress: Readonly<Record<number, PiProgress | undefined>>,
   tasks: readonly Task[],
   nowMs: number,
+  paneWhere?: Readonly<Record<number, string | undefined>>,
 ): MonitorRow[] => {
   const current = new Map(tasks.map(task => [task.id, task]))
   return tracked
@@ -124,6 +127,7 @@ export const monitorRows = (
         cost: pi ? cost(pi.cost) : 'n/a',
         ...(idle ? { idle } : {}),
         ...(item.label ? { label: item.label } : {}),
+        ...(paneWhere?.[item.id] ? { pane: paneWhere[item.id] } : {}),
       }
     })
 }
