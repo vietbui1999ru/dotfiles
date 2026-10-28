@@ -14,7 +14,7 @@ Routes work to the `pi` CLI as a subprocess. Four modes: **council** (adversaria
 
 | Mode | When | Command pattern |
 |---|---|---|
-| **council** | Architectural decisions, security changes, irreversible ops | Sync `pi -p` — short prompt, one cross-vendor voice |
+| **council** | Architectural decisions, security changes, irreversible ops | Sync `pi -p` — short prompt, four cross-vendor voices, one of them a security veto |
 | **delegate** | Long coding task, parallel with current work | Async via `pueue` — fire and continue, wait later |
 | **pane** | Watched implementation, benefits from mid-run correction | Interactive pane via `scripts/pane-handoff` |
 | **subagent** | Bounded research or transformation, result needed now | Sync `pi -p` — structured output format |
@@ -25,22 +25,20 @@ Routes work to the `pi` CLI as a subprocess. Four modes: **council** (adversaria
 
 Use before committing to architectural decisions, security-relevant changes, or irreversible operations.
 
-Council mode is a thin wrapper over the unified `bin/council` engine. It evaluates a working diff — not a task packet — and is bus-less. The engine handles 3-dimension dispatch, parallelism, vote parsing, majority rule, and fail-safe. `delegate-pi` supplies only the cross-vendor evaluator (pi/Codex) through the `COUNCIL_EVALUATOR_CMD` seam.
+Council mode is a thin wrapper, `pi-council.sh`, over the unified `bin/council` engine. It evaluates a working diff — not a task packet — and is bus-less. The engine handles the three-voice dispatch, parallelism, vote parsing, majority rule, and fail-safe, and `delegate-pi` supplies the cross-vendor evaluator (pi/Codex) through the `COUNCIL_EVALUATOR_CMD` seam. The wrapper adds a fourth voice, `security`, as a veto after the engine has voted.
 
 ```bash
 # Evaluate the current working diff against HEAD
-COUNCIL_EVALUATOR_CMD="$HOME/.claude/skills/delegate-pi/pi-evaluator.sh" \
-  "${COUNCIL_CMD:-council}" --diff HEAD
+"$HOME/.claude/skills/delegate-pi/pi-council.sh" --diff HEAD
 
 # Evaluate a range (e.g. feature branch vs main)
-COUNCIL_EVALUATOR_CMD="$HOME/.claude/skills/delegate-pi/pi-evaluator.sh" \
-  "${COUNCIL_CMD:-council}" --diff main...HEAD
+"$HOME/.claude/skills/delegate-pi/pi-council.sh" --diff main...HEAD
 
 # Stdin form — pipe a unified diff directly
-git diff main...HEAD | \
-  COUNCIL_EVALUATOR_CMD="$HOME/.claude/skills/delegate-pi/pi-evaluator.sh" \
-  "${COUNCIL_CMD:-council}" --diff -
+git diff main...HEAD | "$HOME/.claude/skills/delegate-pi/pi-council.sh" --diff -
 ```
+
+The engine is `${COUNCIL_CMD:-council}`; override it only to point at a different checkout of `bin/council`.
 
 **Output** is a single JSON object on stdout:
 
@@ -48,13 +46,25 @@ git diff main...HEAD | \
 {"mode":"diff","verdict":"PASS|FAIL","votes":[
   {"dimension":"acceptance-criteria","vote":"PASS|FAIL|ABSTAIN","reason":"..."},
   {"dimension":"code-quality",       "vote":"PASS|FAIL|ABSTAIN","reason":"..."},
-  {"dimension":"style",              "vote":"PASS|FAIL|ABSTAIN","reason":"..."}
+  {"dimension":"style",              "vote":"PASS|FAIL|ABSTAIN","reason":"..."},
+  {"dimension":"security",           "vote":"PASS|FAIL|ABSTAIN","reason":"..."}
 ]}
 ```
 
 Read `.verdict` for the gate decision. Read `.votes[].reason` for per-dimension rationale.
 
-**Dimensions and voting:** Three dimensions — `acceptance-criteria`, `code-quality`, `style` — each gets one `pi` call through `pi-router.sh`. Majority rule: verdict is PASS if ≥ 2 dimensions vote PASS; all-ABSTAIN and ties fail-safe to FAIL. Routing is configured in `~/.pi/agent/routing.env`; blank values fall back to Pi's own `~/.pi/agent/settings.json` defaults.
+**Dimensions and voting:** Three voices — `acceptance-criteria`, `code-quality`, `style` — each get one `pi` call through `pi-router.sh`. Majority rule: verdict is PASS if ≥ 2 dimensions vote PASS; all-ABSTAIN and ties fail-safe to FAIL. The fourth voice, `security` (security and correctness), is a veto rather than a vote: a FAIL turns the verdict to FAIL even when all three voices pass, while a PASS, or an answer that is not a clean vote, leaves the three-voice verdict as it is. Routing is configured in `~/.pi/agent/routing.env`; blank values fall back to Pi's own `~/.pi/agent/settings.json` defaults.
+
+**Voices, models and efforts.** Keep these in step with `claude/.claude/rules/model-routing.md`:
+
+| Voice | Route in `routing.env` | Default model and effort |
+|---|---|---|
+| `acceptance-criteria` | `PI_COUNCIL_ACCEPTANCE_MODEL` | `openai-codex/gpt-6.1-sol:high` |
+| `code-quality` | `PI_COUNCIL_CODE_QUALITY_MODEL` | `opencode-go/deepseek-v4-pro:high` |
+| `style` | `PI_COUNCIL_STYLE_MODEL` | `opencode-go/deepseek-v4-pro:high` |
+| `security` (veto) | `PI_COUNCIL_SECURITY_MODEL` | `opencode-go/glm-5.3:high` |
+
+Every voice runs at `medium` or `high` effort, never above it: the veto has to be cheap enough to run on every diff, and a council is one call per voice. The wrapper's test, `council-veto.test.sh`, stubs the engine and the security voice and makes no model calls.
 
 **Why a cross-vendor evaluator matters:** Different training lineages surface different blind spots. A Codex evaluator will catch issues that Claude-family reviewers normalize away, and vice versa. The engine's majority rule makes that disagreement structurally load-bearing — a single dissenting dimension cannot override two passing ones, but two dissenting dimensions will fail the gate.
 
@@ -82,7 +92,14 @@ Start every pueue dispatch's command with `$HOME/dotfiles/scripts/pi-view`. When
 
 For a run the person wants to steer, put `--live` before the Pi arguments: text typed in the viewer pane, or `$HOME/dotfiles/scripts/pi-steer <session-id> "<message>"` from the main pane, reaches Pi as a steer while it works or a new prompt once it is idle. `/abort` stops the current turn and keeps the session; `/done` ends it. After Pi settles it waits 120 s for more input before closing, so the task holds its pueue slot during that grace period.
 
-Implementation dispatches, meaning any task that edits code, use `--tui` by default; search, exploration, viewing and review dispatches use plain `pi-view`. With `--tui` before the Pi arguments, the herdr pane runs Pi's own interactive TUI with the request already submitted, so they steer, queue follow-ups and add prompts in Pi directly, and Pi's herdr extension reports its state. The pueue task, and its slot, lasts until they quit Pi (`Ctrl+D`); `pueue kill` ends Pi in the pane. Outside herdr there is no pane, so `--tui` runs as a plain dispatch.
+Implementation dispatches, meaning any task that edits code, use `--tui` by default; search, exploration, viewing and review dispatches use plain `pi-view`. With `--tui` before the Pi arguments, the herdr pane runs Pi's own interactive TUI with the request already submitted, so they steer, queue follow-ups and add prompts in Pi directly, and Pi's herdr extension reports its state. The pueue task, and its slot, lasts until they quit Pi (`Ctrl+D`); `pueue kill` ends Pi in the pane. Outside herdr there is no pane, so `--tui` runs as a plain dispatch. When Pi exits normally, `scripts/pi-pane-run` writes the exit file and closes its own pane, so the slot frees up for the next queued dispatch.
+
+**Pi has no web access.** Its tools are files, `qmd` and `context7` (see `shared/pi-role.md`). A task whose answer needs the open web — a URL, a current event, product research, a comparison — is Claude's, not Pi's: research it first, or hand it to Claude, and never dispatch Pi to go looking.
+
+### After a Pi run settles
+
+Claude owns verification. When the dispatched run settles — exit 0 or not — run `verify-spec` against the branch, then send each failure back into the same interactive Pi: type it in the `--tui` pane, or use
+`$HOME/dotfiles/scripts/pi-steer <session-id> "<failing check, file and line>"`. Do not open a second session for the same work: the first one holds the context. A plain `pi-view` run has no session to re-enter, so dispatch the fix against the same worktree.
 
 **Model routing for delegation:**
 
@@ -92,7 +109,7 @@ Implementation dispatches, meaning any task that edits code, use `--tui` by defa
 | medium | `PI_DELEGATE_MEDIUM_MODEL` from `~/.pi/agent/routing.env` |
 | low | `PI_DELEGATE_LOW_MODEL` from `~/.pi/agent/routing.env` |
 
-Default routes: high=`opencode-go/claude-haiku-5-5:off` (keep Claude's thinking off in Pi: pi-lens and context-mode add unsaved messages to each request, which breaks Claude's signed thinking from the second turn with a 400 "thinking block is bound to a different conversation"), medium=`opencode-go/deepseek-v4.1-flash:medium`, low=`opencode-go/deepseek-v4.1-flash:off`. Delegated implementation is pure coding, so it uses the low tiers and low effort. The high tier (`openai-codex/gpt-6.1-sol:high`, `opencode-go/deepseek-v4-pro:high`) is reserved for council dimensions and second or third adversarial reviews. These match the tiers in `claude/.claude/rules/model-routing.md`; change both together. Check an ID with `pi --list-models <name>` before adding it. Note: `--fallback-models` requires a custom extension (not built-in). Without it, assign model per task at dispatch time.
+Default routes: high=`opencode-go/claude-haiku-5-5:off` (keep Claude's thinking off in Pi: pi-lens and context-mode add unsaved messages to each request, which breaks Claude's signed thinking from the second turn with a 400 "thinking block is bound to a different conversation"), medium=`opencode-go/deepseek-v4.1-flash:medium`, low=`opencode-go/deepseek-v4.1-flash:off`. Delegated implementation is pure coding, so it uses the low tiers and low effort. The high tier (`openai-codex/gpt-6.1-sol:high`, `opencode-go/deepseek-v4-pro:high`, and `opencode-go/glm-5.3:high` for the security veto) is reserved for council voices and second or third adversarial reviews. These match the tiers in `claude/.claude/rules/model-routing.md`; change both together. Check an ID with `pi --list-models <name>` before adding it. Note: `--fallback-models` requires a custom extension (not built-in). Without it, assign model per task at dispatch time.
 
 ---
 

@@ -25,6 +25,9 @@ case "$mode:$selector" in
   council:style)
     model="${PI_COUNCIL_STYLE_MODEL:-${PI_COUNCIL_DEFAULT_MODEL:-${PI_MODEL:-}}}"
     ;;
+  council:security)
+    model="${PI_COUNCIL_SECURITY_MODEL:-${PI_COUNCIL_DEFAULT_MODEL:-${PI_MODEL:-}}}"
+    ;;
   delegate:high)
     model="${PI_DELEGATE_HIGH_MODEL:-${PI_MODEL:-}}"
     ;;

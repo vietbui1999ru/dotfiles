@@ -4,8 +4,11 @@
 # Run after updating rules/*.md or shared/AGENTS.md.
 #
 # Usage: ./scripts/sync-agent-rules.sh
+#
+# The dotfiles root is this script's own checkout, not $HOME/dotfiles, so a run
+# from a worktree syncs that branch's catalogue instead of main's.
 
-DOTFILES="$HOME/dotfiles"
+DOTFILES=${0:A:h:h}
 SHARED="$DOTFILES/shared/AGENTS.md"
 
 echo "Syncing agent rules..."
@@ -37,16 +40,22 @@ for _agent in "$HOME"/dotfiles/codex/.codex/agents/*.toml; do
 done
 
 # ── MCP Servers ───────────────────────────────────────────────────────────────
-# Inject portable URL-based MCP servers into each tool's config.
+# Inject portable URL-based MCP servers into each tool's config. A server dropped
+# from the shared catalogue is not re-added; the live entry is removed once, by
+# hand, so this script never has to name a retired server.
 
-python3 <<'PYEOF'
+DOTFILES="$DOTFILES" python3 <<'PYEOF'
 import json, os, re
 
 _home = os.path.expanduser("~")
-shared_path = f"{_home}/dotfiles/shared/mcp-servers.json"
+shared_path = os.path.join(os.environ["DOTFILES"], "shared", "mcp-servers.json")
 with open(shared_path) as f:
     shared = json.load(f)
 servers = shared["servers"]
+
+# Pi is a lean coding harness: context7 for docs and qmd for the local knowledge
+# base, nothing general-purpose. Everything else in Pi's list is dropped.
+PI_SERVERS = ("context7",)
 
 # ── OpenCode ──
 opencode_path = f"{_home}/.config/opencode/opencode.json"
@@ -72,21 +81,21 @@ config["mcp"]["qmd"] = {
     "enabled": True,
 }
 
+
 with open(opencode_path, "w") as f:
     json.dump(config, f, indent=2)
 print("✓ OpenCode: mcp servers synced (incl. qmd stdio)")
 
 # ── Pi ──
-# Pi's built-in MCP client accepts the standard `mcpServers` shape. Preserve
-# machine-specific servers and translate OpenCode's {env:NAME} placeholders.
+# Pi's built-in MCP client accepts the standard `mcpServers` shape. The list is
+# rebuilt on every run: PI_SERVERS plus qmd, with OpenCode's {env:NAME}
+# placeholders translated to Pi's ${NAME}. Other keys in the file are kept.
 pi_path = f"{_home}/.pi/agent/mcp.json"
 try:
     with open(pi_path) as f:
         pi_config = json.load(f)
 except FileNotFoundError:
     pi_config = {}
-
-pi_servers = pi_config.setdefault("mcpServers", {})
 
 def pi_value(value):
     if isinstance(value, str):
@@ -97,26 +106,26 @@ def pi_value(value):
         return [pi_value(item) for item in value]
     return value
 
-for name, cfg in servers.items():
-    entry = {
+pi_servers = {}
+for name in PI_SERVERS:
+    cfg = servers[name]
+    pi_servers[name] = {
         key: pi_value(value)
         for key, value in cfg.items()
         if not key.startswith("_")
     }
-    pi_servers.setdefault(name, {}).update(entry)
-
-if "qmd" not in pi_servers:
-    pi_servers["qmd"] = {
-        "command": "qmd",
-        "args": ["mcp"],
-        "description": "Search the local knowledge base.",
-    }
+pi_servers["qmd"] = {
+    "command": "qmd",
+    "args": ["mcp"],
+    "description": "Search the local knowledge base.",
+}
+pi_config["mcpServers"] = pi_servers
 
 os.makedirs(os.path.dirname(pi_path), exist_ok=True)
 with open(pi_path, "w") as f:
     json.dump(pi_config, f, indent=2)
     f.write("\n")
-print("✓ Pi: built-in MCP servers synced (incl. qmd stdio)")
+print("✓ Pi: mcp servers set to context7 and qmd only")
 
 PYEOF
 
@@ -134,22 +143,6 @@ if command -v codex >/dev/null 2>&1; then
 			echo "✗ Codex: qmd add failed"
 	fi
 
-	if grep -q '^\[mcp_servers\.shadcn\]' "$_codex_cfg" 2>/dev/null; then
-		echo "✓ Codex: shadcn already configured"
-	else
-		codex mcp add --url https://www.shadcn.io/api/mcp shadcn 2>/dev/null &&
-			echo "✓ Codex: shadcn remote added" ||
-			echo "✗ Codex: shadcn add failed"
-	fi
-
-	if grep -q '^\[mcp_servers\.sentry\]' "$_codex_cfg" 2>/dev/null; then
-		echo "✓ Codex: sentry already configured"
-	else
-		codex mcp add --url https://mcp.sentry.dev/mcp sentry 2>/dev/null &&
-			echo "✓ Codex: sentry remote added" ||
-			echo "✗ Codex: sentry add failed"
-	fi
-
 	echo "  (context7 skipped — Codex MCP client lacks header auth support)"
 else
 	echo "  (codex CLI not in PATH — skipping MCP registration)"
@@ -159,7 +152,7 @@ fi
 # Claude Code ignores `mcpServers` in settings.json; user-scope servers live in
 # ~/.claude.json and are managed through `claude mcp`. Re-add on each run so a
 # changed entry in claude/.claude/mcp-servers.json takes effect.
-_claude_mcp="$HOME/dotfiles/claude/.claude/mcp-servers.json"
+_claude_mcp="$DOTFILES/claude/.claude/mcp-servers.json"
 if command -v claude >/dev/null 2>&1 && [ -f "$_claude_mcp" ]; then
 	for _name in $(jq -r '.servers | keys[]' "$_claude_mcp"); do
 		claude mcp remove -s user "$_name" >/dev/null 2>&1

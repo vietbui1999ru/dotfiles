@@ -131,9 +131,14 @@ if (( tui )); then
   print -r -- "$prompt" >| $prompt_file
   guard=${${0:A}:h}/pi-pane-run
   herdr_json pane run "$pane" "${(q)guard} $$ ${(q)exit_file} ${(q)prompt_file} ${(j: :)${(q)tui_argv[@]}}" >/dev/null || exec "$@"
-  # Wait for Pi to be quit. A pane closed with Pi still in it ends the task too.
+  # Wait for Pi to be quit. A pane closed with Pi still in it ends the task too,
+  # but pi-pane-run closes its own pane on exit, so take the exit file it wrote
+  # just before that instead of reporting the vanished pane as a failure.
   while [[ ! -e $exit_file ]]; do
-    herdr_json pane get "$pane" >/dev/null || exit 1
+    if ! herdr_json pane get "$pane" >/dev/null; then
+      [[ -e $exit_file ]] || exit 1
+      break
+    fi
     sleep 2
   done
   rc=$(<$exit_file)

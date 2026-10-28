@@ -21,6 +21,8 @@ echo "✓ ~/repos"
 
 # Shared personal skills are symlinked so Claude and Pi cannot drift. Never
 # overwrite a real existing destination: it may be a user-managed fork.
+# ~/.agents/skills is Pi's global skill directory too, so this loop is the list Pi
+# sees; a skill that is Claude-only is linked further down, under ~/.claude.
 link_shared_skill() {
 	local name="$1"
 	local src="$HOME/dotfiles/shared/skills/$name"
@@ -35,9 +37,17 @@ link_shared_skill() {
 	echo "✓ ~/.agents/skills/$name → shared/skills/$name"
 }
 
-for shared_skill in gh-stack approval-workflow delegate-pi kanban-status grill-me verify-spec pele design-brief; do
+for shared_skill in approval-workflow delegate-pi kanban-status grill-me verify-spec pele design-brief; do
 	link_shared_skill "$shared_skill"
 done
+
+# gh-stack stays Claude's: stacked PRs are an interactive review workflow, and Pi's
+# skills stay lean (pi-lens's ast-grep and lsp-navigation only). Pi reads
+# ~/.agents/skills, so link gh-stack into Claude's own directory instead.
+if [[ -d "$HOME/.claude/skills" && ! -d "$HOME/.claude/skills/gh-stack" ]]; then
+	ln -sfn ../../dotfiles/shared/skills/gh-stack "$HOME/.claude/skills/gh-stack"
+	echo "✓ ~/.claude/skills/gh-stack → shared/skills/gh-stack (Claude only)"
+fi
 
 # pele skill owns a pinned node dependency (bun.lock, installed with bun); install it in
 # place and expose its wrapper as pele-render. Claude reads the skill through
