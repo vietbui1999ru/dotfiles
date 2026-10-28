@@ -125,7 +125,10 @@ branches. The review gates (`agent-review`, `:AgentReview`) apply to what is
 pushed or merged, not to commits.
 
 jj is the default VCS for agent sessions, colocated with git so the git-based
-gates keep working. In a new worktree run `jj git init --colocate` once.
+gates keep working. Use jj for local history work. A new worktree is colocated
+once with `jj git init --colocate`: in Claude Code a hook does it on the first
+Bash call, because the worktree guard refuses every typed `jj git` command; Pi
+runs it itself.
 Agents commit only through the funnel, in git and jj mode alike:
 `$HOME/dotfiles/scripts/commit-funnel --worktree <session worktree> -F <message
 file> <path>...`, with the session worktree spelled out literally. It tracks and
@@ -136,7 +139,9 @@ plain `git commit` or `jj commit` is blocked, and git refuses any other move of
 an existing branch (reset, rebase, merge, `update-ref`, branch deletion); those
 are the user's call, so ask. Do not run `jj bookmark move`, `jj tug` or other
 jj history rewrites yourself: jj runs no git hooks, so the branch guard cannot
-see them. Push with `jj git push -b <branch>` or `git push`. Never move or push
+see them. Push with `jj git push -b <branch>` or `git push origin <branch>`, and
+fetch with `jj git fetch` or `git fetch`; in a Claude Code worktree only the git
+forms pass the guard. Never move or push
 `main`/`master`, never pass `--ignore-immutable`, and never rewrite a branch that
 another worktree has checked out.
 

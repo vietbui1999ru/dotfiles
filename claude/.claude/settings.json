@@ -172,6 +172,10 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/enforce-bash-safety.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/jj-colocate-worktree.sh"
           }
         ]
       },
