@@ -69,7 +69,7 @@ For long tasks that run in the background while you continue work.
 # WORKTREE is an existing worktree, absolute path; create it before dispatching.
 SLUG="<task-name>-$(openssl rand -hex 2)"
 TASK_ID=$(pueue add -i --print-task-id --label "$SLUG" -w "$WORKTREE" -- \
-  "$HOME/dotfiles/scripts/pi-view pi --model opencode-go/deepseek-v4.1-flash:medium --session-id pueue-$SLUG \
+  "$HOME/dotfiles/scripts/pi-view --tui pi --model opencode-go/deepseek-v4.1-flash:medium --session-id pueue-$SLUG \
       -p '<full task description>' < /dev/null")
 
 # Check when ready
@@ -82,7 +82,7 @@ Start every pueue dispatch's command with `$HOME/dotfiles/scripts/pi-view`. When
 
 For a run the person wants to steer, put `--live` before the Pi arguments: text typed in the viewer pane, or `$HOME/dotfiles/scripts/pi-steer <session-id> "<message>"` from the main pane, reaches Pi as a steer while it works or a new prompt once it is idle. `/abort` stops the current turn and keeps the session; `/done` ends it. After Pi settles it waits 120 s for more input before closing, so the task holds its pueue slot during that grace period.
 
-For a run the person wants to drive themselves, put `--tui` before the Pi arguments instead: the herdr pane runs Pi's own interactive TUI with the request already submitted, so they steer, queue follow-ups and add prompts in Pi directly, and Pi's herdr extension reports its state. The pueue task, and its slot, lasts until they quit Pi (`Ctrl+D`); `pueue kill` ends Pi in the pane. Outside herdr there is no pane, so `--tui` runs as a plain dispatch.
+Implementation dispatches, meaning any task that edits code, use `--tui` by default; search, exploration, viewing and review dispatches use plain `pi-view`. With `--tui` before the Pi arguments, the herdr pane runs Pi's own interactive TUI with the request already submitted, so they steer, queue follow-ups and add prompts in Pi directly, and Pi's herdr extension reports its state. The pueue task, and its slot, lasts until they quit Pi (`Ctrl+D`); `pueue kill` ends Pi in the pane. Outside herdr there is no pane, so `--tui` runs as a plain dispatch.
 
 **Model routing for delegation:**
 
@@ -149,12 +149,12 @@ T_REVIEW=$(pueue add -i --print-task-id --label "$S_REVIEW" -w "$WT_REVIEW" -- \
       -p '<review task>' < /dev/null")
 
 T_IMPL=$(pueue add -i --print-task-id --label "$S_IMPL" -w "$WT_IMPL" -- \
-  "$HOME/dotfiles/scripts/pi-view pi --model opencode-go/deepseek-v4.1-flash:medium --session-id pueue-$S_IMPL \
+  "$HOME/dotfiles/scripts/pi-view --tui pi --model opencode-go/deepseek-v4.1-flash:medium --session-id pueue-$S_IMPL \
       -p '<implementation task>' < /dev/null")
 
 T_LOW=$(pueue add -i --print-task-id --label "$S_LOW" -w "$WT_LOW" -- \
-  "$HOME/dotfiles/scripts/pi-view pi --model opencode-go/deepseek-v4.1-flash:off --session-id pueue-$S_LOW \
-      -p '<low-difficulty task>' < /dev/null")
+  "$HOME/dotfiles/scripts/pi-view --tui pi --model opencode-go/deepseek-v4.1-flash:off --session-id pueue-$S_LOW \
+      -p '<low-difficulty implementation task>' < /dev/null")
 
 # 2. Optional: check status without blocking
 pueue status
