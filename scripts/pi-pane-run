@@ -7,6 +7,10 @@
 # can steer it, with the prompt file's text as its first message. When Pi exits
 # its exit code goes to <exit-file>, which pi-view (inside the pueue task) waits
 # for. If <watch-pid> goes away first, as under pueue kill, Pi is ended too.
+#
+# Once Pi exits normally the pane has done its job, so it closes itself and its
+# slot in the tab frees up for the next queued dispatch. The close is best effort
+# and comes after the exit file, so pi-view reads the code before the pane goes.
 set -u
 
 if (( $# < 4 )); then
@@ -27,4 +31,7 @@ watcher=$!
 rc=$?
 kill $watcher 2>/dev/null
 print -r -- $rc >| $exit_file
+if [[ -n ${HERDR_PANE_ID:-} ]] && (( $+commands[herdr] )); then
+  herdr pane close "$HERDR_PANE_ID" >/dev/null 2>&1
+fi
 exit $rc
