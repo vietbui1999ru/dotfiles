@@ -137,9 +137,11 @@ and in jj mode moves the branch bookmark and reattaches git HEAD (`git switch`)
 for `ac-run` and the other git-based tools. In a `.claude/worktrees/` checkout a
 plain `git commit` or `jj commit` is blocked, and git refuses any other move of
 an existing branch (reset, rebase, merge, `update-ref`, branch deletion); those
-are the user's call, so ask. Do not run `jj bookmark move`, `jj tug` or other
-jj history rewrites yourself: jj runs no git hooks, so the branch guard cannot
-see them. Push with `jj git push -b <branch>` or `git push origin <branch>`, and
+are the user's call, so ask. Do not run `jj bookmark move`, `jj tug`, `jj
+abandon` or other jj history rewrites yourself: jj runs no git hooks, so the
+branch guard cannot see them. The exceptions are `jj squash` and `jj rebase`, to
+consolidate and reorder your own commits before you push them; jj's
+`immutable_heads()` refuses to rewrite pushed commits and `main`/`master`. Push with `jj git push -b <branch>` or `git push origin <branch>`, and
 fetch with `jj git fetch` or `git fetch`; in a Claude Code worktree only the git
 forms pass the guard. Never move or push
 `main`/`master`, never pass `--ignore-immutable`, and never rewrite a branch that
