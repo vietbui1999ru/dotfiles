@@ -30,6 +30,8 @@
       "Bash(jj commit:*)",
       "Bash(jj describe:*)",
       "Bash(jj new:*)",
+      "Bash(jj squash:*)",
+      "Bash(jj rebase:*)",
       "Bash(jj tug:*)",
       "Bash(jj bookmark:*)",
       "Bash(jj git init:*)",
@@ -349,6 +351,7 @@
   "autoMode": {
     "allow": [
       "$defaults",
+      "The user pre-authorized (2026-10-28) jj squash and jj rebase in a feature branch or git worktree, to consolidate and reorder commits that have not been pushed. jj's immutable_heads config refuses rewrites of pushed commits and main/master. It does not cover --ignore-immutable, jj abandon, force-push, or rewriting a branch another worktree has checked out.",
       "The user pre-authorized (2026-10-10) git add by path, git commit, and non-force git push of the current branch, from a feature branch or a git worktree, never main or master. This covers files the user asked to change, including the agent-review gate scripts and their tests: committing records the work, it does not approve or weaken the gate. It does not cover force-push, deleting remote branches, merge, rebase, reset --hard, or running agent-review approve."
     ],
     "environment": [

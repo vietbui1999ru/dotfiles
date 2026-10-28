@@ -12,6 +12,9 @@ auto-track = "none()"   # explicit `jj file track`, same as the stage-by-path ru
 
 [revset-aliases]
 "open()" = "mine() & ~::trunk()"
+# Pushed history is immutable: agents may squash and rebase only commits that
+# no remote has seen yet. main/master are immutable even before a push.
+"immutable_heads()" = "builtin_immutable_heads() | remote_bookmarks() | bookmarks(exact:main) | bookmarks(exact:master)"
 
 [aliases]
 tug = ["bookmark", "move", "--from", "heads(::@- & bookmarks())", "--to", "@-"]
