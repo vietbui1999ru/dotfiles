@@ -23,6 +23,9 @@
 # labelled with its pueue task (scripts/pi-pane-label.mjs).
 set -u
 
+# EPOCHSECONDS for the idle clock below; date +%s covers a shell without it.
+zmodload zsh/datetime 2>/dev/null || true
+
 usage() {
   print -u2 -- 'usage: pi-view [--live|--tui] [pi arguments]'
   print -u2 -- 'Runs the given command, streaming its Pi transcript in a herdr pane when called from one.'
@@ -123,6 +126,41 @@ label_pane() {
   return 0
 }
 
+# Drop a pane from every tab record it appears in, so its slot beside Claude is reused.
+forget_pane() {
+  local pane=$1 record kept
+  for record in $run_dir/tab-*.panes(N); do
+    kept=$(grep -v -x -- "$pane" "$record")
+    if [[ -n $kept ]]; then
+      print -r -- "$kept" >| "$record"
+    else
+      rm -f -- "$record"
+    fi
+  done
+  return 0
+}
+
+# Move a finished --tui pane into the workspace's `verdict` tab, creating it the
+# first time. Returns 1 when herdr refuses, so the run stays where it was.
+move_to_verdict() {
+  local pane=$1 workspace=$2 tab_id last
+  [[ -n $workspace ]] || return 1
+  tab_id=$(herdr_json tab list | jq -r --arg workspace "$workspace" \
+    '[.result.tabs[]? | select(.workspace_id == $workspace and .label == "verdict") | .tab_id] | first // empty')
+  if [[ -z $tab_id ]]; then
+    herdr_json pane move "$pane" --new-tab --workspace "$workspace" --label verdict --no-focus >/dev/null || return 1
+  else
+    # The verdict tab stacks downward, newest run at the bottom.
+    last=$(herdr_json pane list | jq -r --arg tab "$tab_id" \
+      '[.result.panes[]? | select(.tab_id == $tab) | .pane_id] | last // empty')
+    [[ -n $last ]] || return 1
+    herdr_json pane move "$pane" --tab "$tab_id" --split down --target-pane "$last" --no-focus >/dev/null || return 1
+  fi
+  return 0
+}
+
+now_seconds() { print -r -- ${EPOCHSECONDS:-$(date +%s)} }
+
 # Echo the pane id of a fresh pane, or nothing when the herdr calls fail.
 open_pane() {
   local workspace=${HERDR_WORKSPACE_ID:-}
@@ -216,8 +254,33 @@ if (( tui )); then
   guard=$script_dir/pi-pane-run
   herdr_json pane run "$pane" "${(q)guard} $$ ${(q)exit_file} ${(q)prompt_file} ${(j: :)${(q)tui_argv[@]}}" >/dev/null || exec "$@"
   # Wait for Pi to be quit. A pane closed with Pi still in it ends the task too.
+  # Meanwhile a run that settles - agent_status idle or done, unchecked by the
+  # person - moves into the verdict tab, so its slot beside Claude frees up. It
+  # moves at most once, and a run already in verdict stays there.
+  verdict_moved=0 idle_since=""
   while [[ ! -e $exit_file ]]; do
-    herdr_json pane get "$pane" >/dev/null || exit 1
+    if ! info=$(herdr_json pane get "$pane"); then
+      exit 1
+    fi
+    if (( verdict_moved == 0 )); then
+      # `status` is read-only in zsh, so the two fields get their own name.
+      fields=$(jq -r '[.result.pane.agent_status // "", .result.pane.focused // false] | @tsv' <<< "$info")
+      state=${fields%%$'\t'*} focused=${fields##*$'\t'}
+      if [[ $focused == false && ( $state == idle || $state == done ) ]]; then
+        [[ -n $idle_since ]] || idle_since=$(now_seconds)
+        if (( $(now_seconds) - idle_since >= 15 )); then
+          if move_to_verdict "$pane" "${HERDR_WORKSPACE_ID:-}"; then
+            verdict_moved=1
+            forget_pane "$pane"
+            notice=${PUEUE_TASK_ID:+pi#$PUEUE_TASK_ID}
+            [[ -n $notice ]] || notice=$session_id
+            herdr_json notification show "$notice ready for verdict" >/dev/null
+          fi
+        fi
+      else
+        idle_since=""
+      fi
+    fi
     sleep 2
   done
   rc=$(<$exit_file)
