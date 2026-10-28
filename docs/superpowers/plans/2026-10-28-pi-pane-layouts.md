@@ -89,6 +89,46 @@ In `session-band-plugin/hooks/`:
 
   Add tests only; edit no existing test.
 
+## Step 4b: icons instead of words on the Pi hand-off pane's key strip (person's request)
+
+The person knows the keys and their flow, so the key strip in `session-band-plugin/hooks/pane.tsx` swaps each Button's word label for an icon and keeps the key hint. A `plain` Button with a `hotkey` is drawn as the hotkey in the accent color, a colon, then the label (`j: down`), so changing only `label` gives `j: ` and the hint stays by itself.
+
+- Change only the `label` of these buttons. Keep the `key`, `hotkey`, `action` and `onPress` exactly as they are. Use the Nerd Font (Font Awesome) glyphs below, written as `\u` escapes in the source:
+
+| Button key | Word now | Icon | Codepoint |
+|---|---|---|---|
+| `pi-key-down` | down | arrow down | U+F063 |
+| `pi-key-up` | up | arrow up | U+F062 |
+| `pi-key-top` | top | angle double up | U+F102 |
+| `pi-key-insert` | continue | pencil | U+F040 |
+| `pi-key-reload` | reload | refresh | U+F021 |
+| `pi-key-prev` | prev | chevron left | U+F053 |
+| `pi-key-next` | next | chevron right | U+F054 |
+| `pi-key-quit` | close | times | U+F00D |
+| `pi-key-thinking` | thinking / hide thinking | comment / comment outline | U+F075 / U+F0E5 |
+| `pi-key-all` | all tasks / one task | list / square outline | U+F00B / U+F096 |
+| `pi-key-abort` | kill | times circle | U+F057 |
+| `pi-key-hold` | hold | pause circle | U+F28B |
+| `pi-key-pause` | pause | pause | U+F04C |
+| `pi-key-stop` | stop | stop | U+F04D |
+| `pi-key-yes` | confirm | check | U+F00C |
+| `pi-key-no` | cancel | ban | U+F05E |
+| new Focus (Step 4) | focus | external link | U+F08E |
+| new Close (Step 4) | close run | sign out | U+F08B |
+
+- Leave the rest as it is:
+  - `pi-key-focus`: its label `ctrl+x b` is the key itself, not a description;
+  - the `1`-`5` pane-jump buttons from `pane-nav.ts`: they're shared by every mod pane;
+  - the `x kill  s stop  h hold  p pause  y/n confirm` hint line;
+  - the larger Abort, Hold queue, Pause, Remove and Dismiss buttons below the transcript.
+- **Tests.** The person asked for this label change, so the assertions that pin the old words are the one place in this plan where existing tests change. They were found by searching before this plan was written:
+  - `pane-keys.test.ts:69` and `:72` expect `thinking` and `hide thinking` on `pi-key-thinking`;
+  - `pane-hotkeys.test.ts:34` loops over the word labels of abort, hold, pause, stop and others.
+
+  Update exactly those expected labels to the new glyphs, and keep every `hotkey` assertion. Change no other existing test. If another existing test fails on a label, stop and report it. The `activityLabel` assertions in `handoff.test.ts` are a different function and stay as they are.
+
+  Add one test that every Step 4b button keeps its `hotkey` and that its label is the listed glyph.
+
 ## Step 5: docs
 
 - **`shared/skills/delegate-pi/SKILL.md`,** in the `pi-view` paragraphs: `PI_VIEW_LAYOUT` and its templates, the 3-pane limit and overflow, `verdict` for finished `--tui` runs, and the mod's Focus, Close and Continue.
