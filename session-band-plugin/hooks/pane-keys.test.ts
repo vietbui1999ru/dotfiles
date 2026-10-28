@@ -66,10 +66,10 @@ test('t toggles thinking with no task selected, without throwing', async ($, on)
   const { clock } = await setup($, on, 0)
   const ui = await mountPane($)
   expect((await ui.find({ key: 'pi-key-thinking' }))?.props.hotkey).toBe('t')
-  expect((await ui.find({ key: 'pi-key-thinking' }))?.props.label).toBe('thinking')
+  expect((await ui.find({ key: 'pi-key-thinking' }))?.props.label).toBe('\uF075')
   await ui.press({ key: 'pi-key-thinking' })
   await clock.settle()
-  expect((await ui.find({ key: 'pi-key-thinking' }))?.props.label).toBe('hide thinking')
+  expect((await ui.find({ key: 'pi-key-thinking' }))?.props.label).toBe('\uF0E5')
 })
 
 test('digits 1-5 jump between mod panes; the pane\'s own digit does nothing', async ($, on) => {

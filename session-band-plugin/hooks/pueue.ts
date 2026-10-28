@@ -124,6 +124,13 @@ export const parsePiCommand = (command: string): PiCommand => {
   }
 }
 
+/**
+ * A `--tui` dispatch runs interactive Pi in its own herdr pane, so the mod steers
+ * that pane instead of starting a new run, and `pi-view` labels the task by it.
+ */
+export const isTuiDispatch = (command: string): boolean =>
+  /(?:^|[\s;&|])\S*pi-view\s+--tui(?:\s|$)/.test(command)
+
 /** pueue joins argv raw; dispatch must be supplied as this single, pre-quoted argument. */
 export const dispatchCommand = (model: string, sessionId: string, promptPath: string): string =>
   `pi --model '${model.replace(/'/g, "'\\''")}' --session-id '${sessionId.replace(/'/g, "'\\''")}' -p "$(cat '${promptPath.replace(/'/g, "'\\''")}')" < /dev/null`

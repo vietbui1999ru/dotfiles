@@ -32,6 +32,8 @@ export const dispatch = '"pi --model opencode-go/flash:high --session-id pueue-s
 export const fakePueue = (on: On, nowMs: () => number) => {
   const tasks: Record<string, ReturnType<typeof running>> = {}
   const calls: string[][] = []
+  // `herdr` records each herdr argv; `herdrPane` is what `pane get` and `tab list` answer.
+  const herdr: string[][] = []
   // `ps` is the process table the fake reports; `signals` records each `/bin/kill` argv after the program.
   const signals: string[][] = []
   let reached: () => void = () => undefined
@@ -59,6 +61,15 @@ export const fakePueue = (on: On, nowMs: () => number) => {
     // As real pueue with no daemon: every client call fails to connect.
     if (e.argv[0] === 'pueue' && fake.down) return { value: { exitCode: 1, stdout: '', stderr: 'Error: Failed to connect to the daemon.' } } as never
     if (e.argv[0] === 'ps') return { value: { exitCode: 0, stdout: fake.ps, stderr: '' } } as never
+    if (e.argv[0] === 'herdr') {
+      herdr.push(e.argv.slice(1))
+      const pane = { pane_id: fake.herdrPane.pane, tab_id: fake.herdrPane.tab }
+      const tab = { tab_id: fake.herdrPane.tab, label: fake.herdrPane.label, workspace_id: 'w1' }
+      let stdout = '{}'
+      if (e.argv[1] === 'pane' && e.argv[2] === 'get') stdout = JSON.stringify({ result: { pane } })
+      if (e.argv[1] === 'tab' && e.argv[2] === 'list') stdout = JSON.stringify({ result: { tabs: [tab] } })
+      return { value: { exitCode: 0, stdout, stderr: '' } } as never
+    }
     if (e.argv[0] === '/bin/kill') {
       signals.push(e.argv.slice(1))
       return { value: { exitCode: 0, stdout: '', stderr: '' } } as never
@@ -112,7 +123,7 @@ export const fakePueue = (on: On, nowMs: () => number) => {
     return { result: 'ok', text: String(id) } as never
   })
   // `down`/`group`/`parallel` are the daemon and default group; `order` logs pueued, pueue calls and tool-call adds in sequence.
-  const fake = Object.assign(gate, { tasks, calls, failing, signals, ps: '', down: false, group: 'Running' as string, parallel: 1, order: [] as string[], git: [] as string[][], porcelain: undefined as string | undefined })
+  const fake = Object.assign(gate, { tasks, calls, failing, signals, herdr, herdrPane: { pane: 'w1:p2', tab: 'w1:t1', label: '1' }, ps: '', down: false, group: 'Running' as string, parallel: 1, order: [] as string[], git: [] as string[][], porcelain: undefined as string | undefined })
   return fake
 }
 
