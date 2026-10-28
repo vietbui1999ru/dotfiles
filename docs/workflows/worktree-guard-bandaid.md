@@ -98,6 +98,16 @@ Human override: for the human's own work inside an agent worktree, run `AGENT_RE
 
 Known gap: jj bookmark moves do not run git hooks. jj writes refs through its own library, so `jj bookmark move` and jj's commit path are not covered. The Bash hook still blocks `jj commit`/`jj ci` for Claude, and Pi's rules say to use the funnel. A jj-native check needs jj's own hook support, which jj 0.46 does not offer.
 
+## jj in worktree sessions
+
+The guard treats `jj` as a launcher and refuses any command with `git` among its operands: `jj git init --colocate`, `jj git fetch` and `jj git push` are refused in every spelling, including with `-R <literal worktree>`. Every other jj command passes (`jj st`, `log`, `diff`, `new`, `describe`, `bookmark`, and the commit funnel).
+
+- `claude/.claude/hooks/jj-colocate-worktree.sh` is a Bash PreToolUse hook. When the hook `cwd` is inside a `.claude/worktrees/*` checkout that has no `.jj`, it runs `jj git init --colocate` at the worktree root, once, silently. Hooks run outside the guard, so this covers `EnterWorktree`, `isolation: "worktree"` subagents, background jobs and worktrees a session creates with `git worktree add` and then enters. Test: `bash claude/.claude/hooks/tests/jj-colocate-worktree.test.sh`.
+- Wire operations use git in Claude sessions: `git fetch` and `git push origin <branch>`. In a colocated repo jj imports git's ref changes on its next command, so nothing is lost. Local history work stays in jj.
+- Pi has no guard and runs `jj git init --colocate`, `jj git fetch` and `jj git push -b <branch>` itself.
+
+After merging, run `scripts/restow.sh` so `~/.claude/hooks/` gets the new link.
+
 ## Removal criteria
 
 - A stable rtk release that contains PR #3879: delete `rtk-hook-unless-worktree.sh`, point `settings.json` back at `rtk hook claude`, and drop rule 2's first sentence.
