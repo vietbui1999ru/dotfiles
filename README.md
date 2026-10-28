@@ -139,7 +139,10 @@ git submodule update --init repos/llm-wiki
 `omp` binaries land in `~/.bun/bin/` — already on PATH via `.zprofile`.
 
 Pi runs headless only: dispatched through pueue with `pi -p`, and watched in
-the session-band pane or a herdr viewer pane (`scripts/pi-view`). Extensions
+the session-band pane or a herdr pane (`scripts/pi-view`) that opens beside
+Claude — `PI_VIEW_LAYOUT=auto|side|below|tab`, at most three panes, then the
+`pi` tab — labelled with its task and moved to the `verdict` tab once a `--tui`
+run settles. Extensions
 that only act in Pi's interactive TUI are not kept. The `pi/` stow package
 includes these Pi extensions:
 
