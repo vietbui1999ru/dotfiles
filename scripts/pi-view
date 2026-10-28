@@ -16,7 +16,15 @@
 # With --tui the pane runs Pi's own interactive TUI on the request instead of a
 # viewer (through scripts/pi-pane-run), so the person steers and queues in Pi
 # itself. The task lasts until they quit Pi; Pi's herdr extension reports its state.
+#
+# The pane opens beside the dispatcher's own pane, following PI_VIEW_LAYOUT
+# (auto|side|below|tab, decided by scripts/pi-layout.mjs). A fourth agent pane, or a
+# tab too small for another, falls back to the workspace's `pi` tab. Every pane is
+# labelled with its pueue task (scripts/pi-pane-label.mjs).
 set -u
+
+# EPOCHSECONDS for the idle clock below; date +%s covers a shell without it.
+zmodload zsh/datetime 2>/dev/null || true
 
 usage() {
   print -u2 -- 'usage: pi-view [--live|--tui] [pi arguments]'
@@ -44,9 +52,16 @@ for (( index = 1; index <= $#; index++ )); do
   [[ ${argv[index]} == --session-id ]] && session_id=${argv[index + 1]:-}
 done
 
-driver=${${0:A}:h}/pi-live.mjs
+# `$0` names the function inside one, so resolve the script directory once here.
+script_dir=${${0:A}:h}
+driver=$script_dir/pi-live.mjs
 input_path=${TMPDIR:-/tmp}
 input_path=${input_path%/}/pi-view/${session_id}.in
+run_dir=${TMPDIR:-/tmp}
+run_dir=${run_dir%/}/pi-view
+layout_template=${PI_VIEW_LAYOUT:-auto}
+# The session-band mod reads this to focus, steer and close a --tui run's pane.
+pane_file=$run_dir/${session_id}.pane
 
 in_herdr=0
 if [[ ${HERDR_ENV:-} == 1 ]] && (( $+commands[herdr] )) && [[ -n $session_id ]]; then
@@ -70,14 +85,91 @@ report_state() {
     --message "$message" --seq "$seq" >/dev/null
 }
 
-# Echo the pane id of a fresh viewer pane, or nothing when the herdr calls fail.
+# The record of the agent panes a dispatcher opened in one tab. `pane list` carries
+# no labels, so this file is how a later dispatch finds the column or row to extend.
+tab_record() { print -r -- "$run_dir/tab-${1}.panes" }
+
+# The panes in the record that are still in the anchor's tab, one per line. A pane
+# closed or moved since it was opened would otherwise be split again.
+live_panes() {
+  local record=$1 anchor=$2 live id
+  [[ -f $record ]] || return 0
+  live=$(herdr_json pane layout --pane "$anchor" | jq -r '[.result.layout.panes[]?.pane_id] | join(" ")')
+  for id in ${(f)"$(<$record)"}; do
+    [[ " $live " == *" $id "* ]] && print -r -- $id
+  done
+  return 0
+}
+
+# Split where the template says and print the new pane id; 1 means use the `pi` tab.
+place_beside() {
+  local anchor=$1 decision target direction ratio created pane
+  decision=$(node $script_dir/pi-layout.mjs "$layout_template" "$anchor" ${=2} 2>/dev/null) || return 1
+  [[ $(jq -r '.kind // empty' <<< "$decision") == split ]] || return 1
+  target=$(jq -r '.target // empty' <<< "$decision")
+  direction=$(jq -r '.direction // empty' <<< "$decision")
+  ratio=$(jq -r '.ratio // empty' <<< "$decision")
+  [[ -n $target && -n $direction && -n $ratio ]] || return 1
+  created=$(herdr_json pane split "$target" --direction "$direction" --ratio "$ratio" --no-focus --cwd "$PWD") || return 1
+  pane=$(jq -r '.result.pane.pane_id // empty' <<< "$created")
+  [[ -n $pane ]] || return 1
+  print -r -- "$pane"
+}
+
+# Name the pane after its pueue task, so the person can tell the runs apart. A task
+# has no environment of its own, so its command is how the session id finds it.
+label_pane() {
+  local pane=$1 label
+  label=$(pueue status --json 2>/dev/null | node $script_dir/pi-pane-label.mjs "$session_id" 2>/dev/null) || return 0
+  [[ -n $label ]] || return 0
+  herdr_json pane rename "$pane" "$label" >/dev/null
+  return 0
+}
+
+# Drop a pane from every tab record it appears in, so its slot beside Claude is reused.
+forget_pane() {
+  local pane=$1 record kept
+  for record in $run_dir/tab-*.panes(N); do
+    kept=$(grep -v -x -- "$pane" "$record")
+    if [[ -n $kept ]]; then
+      print -r -- "$kept" >| "$record"
+    else
+      rm -f -- "$record"
+    fi
+  done
+  return 0
+}
+
+# Move a finished --tui pane into the workspace's `verdict` tab, creating it the
+# first time. Returns 1 when herdr refuses, so the run stays where it was.
+move_to_verdict() {
+  local pane=$1 workspace=$2 tab_id last
+  [[ -n $workspace ]] || return 1
+  tab_id=$(herdr_json tab list | jq -r --arg workspace "$workspace" \
+    '[.result.tabs[]? | select(.workspace_id == $workspace and .label == "verdict") | .tab_id] | first // empty')
+  if [[ -z $tab_id ]]; then
+    herdr_json pane move "$pane" --new-tab --workspace "$workspace" --label verdict --no-focus >/dev/null || return 1
+  else
+    # The verdict tab stacks downward, newest run at the bottom.
+    last=$(herdr_json pane list | jq -r --arg tab "$tab_id" \
+      '[.result.panes[]? | select(.tab_id == $tab) | .pane_id] | last // empty')
+    [[ -n $last ]] || return 1
+    herdr_json pane move "$pane" --tab "$tab_id" --split down --target-pane "$last" --no-focus >/dev/null || return 1
+  fi
+  return 0
+}
+
+now_seconds() { print -r -- ${EPOCHSECONDS:-$(date +%s)} }
+
+# Echo the pane id of a fresh pane, or nothing when the herdr calls fail.
 open_pane() {
   local workspace=${HERDR_WORKSPACE_ID:-}
   [[ -n $workspace ]] || return 1
 
   # Two dispatches started together would both find no `pi` tab and each create
-  # one, so the find-or-create step is serialized. The lock is best effort: if it
-  # cannot be taken the pane still opens, at worst in a second tab.
+  # one, or both take the same free slot beside Claude, so the whole
+  # decide-and-split step is serialized. The lock is best effort: if it cannot be
+  # taken the pane still opens, at worst in a second tab.
   local lock_file=${TMPDIR:-/tmp}/pi-view-${UID}.lock lock_fd=""
   if zmodload zsh/system 2>/dev/null && exec {lock_fd}>"$lock_file" 2>/dev/null; then
     zsystem flock -t 10 -f lock_fd "$lock_file" 2>/dev/null || true
@@ -85,20 +177,45 @@ open_pane() {
     lock_fd=""
   fi
 
-  local tab_id pane created previous
-  tab_id=$(herdr_json tab list | jq -r --arg workspace "$workspace" \
-    '[.result.tabs[]? | select(.workspace_id == $workspace and .label == "pi") | .tab_id] | first // empty')
-
-  if [[ -z $tab_id ]]; then
-    if created=$(herdr_json tab create --workspace "$workspace" --label pi --no-focus --cwd "$PWD"); then
-      pane=$(jq -r '.result.root_pane.pane_id // empty' <<< "$created")
+  local tab_id pane created previous record agents
+  # Beside the dispatcher first, in the template PI_VIEW_LAYOUT names.
+  if [[ -n ${HERDR_PANE_ID:-} && $layout_template != tab ]]; then
+    tab_id=${HERDR_TAB_ID:-}
+    if [[ -z $tab_id ]]; then
+      tab_id=$(herdr_json pane layout --pane "$HERDR_PANE_ID" | jq -r '.result.layout.tab_id // empty')
     fi
-  else
-    # The last pane of the tab is the one at the bottom, so the newest run appears under the older ones.
-    previous=$(herdr_json pane list | jq -r --arg tab "$tab_id" \
-      '[.result.panes[]? | select(.tab_id == $tab) | .pane_id] | last // empty')
-    if [[ -n $previous ]] && created=$(herdr_json pane split "$previous" --direction down --no-focus --cwd "$PWD"); then
-      pane=$(jq -r '.result.pane.pane_id // empty' <<< "$created")
+    if [[ -n $tab_id ]]; then
+      record=$(tab_record "$tab_id")
+      agents=$(live_panes "$record" "$HERDR_PANE_ID")
+      # Prune as we go, so a closed pane's slot is reused instead of split again.
+      if [[ -n $agents ]]; then
+        print -rl -- ${(f)agents} >| "$record"
+      else
+        rm -f -- "$record"
+      fi
+      if pane=$(place_beside "$HERDR_PANE_ID" "$agents"); then
+        print -r -- "$pane" >> "$record"
+      else
+        pane=""
+      fi
+    fi
+  fi
+
+  if [[ -z $pane ]]; then
+    tab_id=$(herdr_json tab list | jq -r --arg workspace "$workspace" \
+      '[.result.tabs[]? | select(.workspace_id == $workspace and .label == "pi") | .tab_id] | first // empty')
+
+    if [[ -z $tab_id ]]; then
+      if created=$(herdr_json tab create --workspace "$workspace" --label pi --no-focus --cwd "$PWD"); then
+        pane=$(jq -r '.result.root_pane.pane_id // empty' <<< "$created")
+      fi
+    else
+      # The last pane of the tab is the one at the bottom, so the newest run appears under the older ones.
+      previous=$(herdr_json pane list | jq -r --arg tab "$tab_id" \
+        '[.result.panes[]? | select(.tab_id == $tab) | .pane_id] | last // empty')
+      if [[ -n $previous ]] && created=$(herdr_json pane split "$previous" --direction down --no-focus --cwd "$PWD"); then
+        pane=$(jq -r '.result.pane.pane_id // empty' <<< "$created")
+      fi
     fi
   fi
 
@@ -107,16 +224,21 @@ open_pane() {
   print -r -- "$pane"
 }
 
+# The record of open agent panes lives here, so it exists before the first split.
+mkdir -p -- $run_dir
 pane=$(open_pane) || pane=""
+
+rm -f -- $pane_file
+if [[ -n $pane ]]; then
+  print -r -- "$pane" >| $pane_file
+  label_pane "$pane"
+fi
 
 if (( tui )); then
   # Without a pane there is no terminal for a TUI: run it as a plain dispatch.
   [[ -n $pane ]] || exec "$@"
   # Pi's -p is a flag; the message after it becomes the TUI's first message,
   # handed over in a file because a whole plan is too long to type into a shell.
-  run_dir=${TMPDIR:-/tmp}
-  run_dir=${run_dir%/}/pi-view
-  mkdir -p -- $run_dir
   exit_file=$run_dir/${session_id}.exit prompt_file=$run_dir/${session_id}.prompt
   tui_argv=() prompt=""
   for (( index = 1; index <= $#; index++ )); do
@@ -129,15 +251,38 @@ if (( tui )); then
   done
   rm -f -- $exit_file
   print -r -- "$prompt" >| $prompt_file
-  guard=${${0:A}:h}/pi-pane-run
+  guard=$script_dir/pi-pane-run
   herdr_json pane run "$pane" "${(q)guard} $$ ${(q)exit_file} ${(q)prompt_file} ${(j: :)${(q)tui_argv[@]}}" >/dev/null || exec "$@"
   # Wait for Pi to be quit. A pane closed with Pi still in it ends the task too,
   # but pi-pane-run closes its own pane on exit, so take the exit file it wrote
   # just before that instead of reporting the vanished pane as a failure.
+  # Meanwhile a run that settles - agent_status idle or done, unchecked by the
+  # person - moves into the verdict tab, so its slot beside Claude frees up. It
+  # moves at most once, and a run already in verdict stays there.
+  verdict_moved=0 idle_since=""
   while [[ ! -e $exit_file ]]; do
-    if ! herdr_json pane get "$pane" >/dev/null; then
+    if ! info=$(herdr_json pane get "$pane"); then
       [[ -e $exit_file ]] || exit 1
       break
+    fi
+    if (( verdict_moved == 0 )); then
+      # `status` is read-only in zsh, so the two fields get their own name.
+      fields=$(jq -r '[.result.pane.agent_status // "", .result.pane.focused // false] | @tsv' <<< "$info")
+      state=${fields%%$'\t'*} focused=${fields##*$'\t'}
+      if [[ $focused == false && ( $state == idle || $state == done ) ]]; then
+        [[ -n $idle_since ]] || idle_since=$(now_seconds)
+        if (( $(now_seconds) - idle_since >= 15 )); then
+          if move_to_verdict "$pane" "${HERDR_WORKSPACE_ID:-}"; then
+            verdict_moved=1
+            forget_pane "$pane"
+            notice=${PUEUE_TASK_ID:+pi#$PUEUE_TASK_ID}
+            [[ -n $notice ]] || notice=$session_id
+            herdr_json notification show "$notice ready for verdict" >/dev/null
+          fi
+        fi
+      else
+        idle_since=""
+      fi
     fi
     sleep 2
   done
@@ -148,7 +293,7 @@ fi
 
 # Resolved from this script, so a worktree copy tails its own pi-tail.mjs;
 # pane run types the command into the pane's shell, so every path is quoted.
-tail_script=${${0:A}:h}/pi-tail.mjs
+tail_script=$script_dir/pi-tail.mjs
 tail_command="node ${(q)tail_script} --session-id ${(q)session_id} --cwd ${(q)PWD}"
 # pueue kill sends SIGKILL, so this script cannot report its own end; the viewer
 # watches this process and reports the pane blocked if it vanishes still working.
@@ -185,5 +330,7 @@ if [[ -n $pane ]]; then
     report_state "$pane" blocked "exit ${rc}" 2
   fi
 fi
+
+rm -f -- $pane_file
 
 exit $rc

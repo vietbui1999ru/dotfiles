@@ -31,7 +31,7 @@ test('empty /pi binds every hotkey exactly once and inactive keys have no effect
   const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
   expectPiKeys(await ui.drawn())
   for (const key of ['pi-abort', 'pi-hold', 'pi-pause', 'pi-stop']) expect(await ui.find({ key })).toBeUndefined()
-  for (const [key, label] of [['abort', 'kill'], ['hold', 'hold'], ['pause', 'pause'], ['stop', 'stop'], ['yes', 'confirm'], ['no', 'cancel']]) {
+  for (const [key, label] of [['abort', '\uF057'], ['hold', '\uF28B'], ['pause', '\uF04C'], ['stop', '\uF04D'], ['yes', '\uF00C'], ['no', '\uF05E']]) {
     const button = await ui.find({ key: `pi-key-${key}` })
     expect(button?.props.plain).toBe(true)
     expect(button?.props.dimColor).toBe(true)
