@@ -3,7 +3,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.bench_lib import arms, cli_log, events
+import os
+import subprocess
+
+from scripts.bench_lib import arms, cli_log, events, prepare
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 BENCH = ROOT / "scripts" / "bench"
@@ -48,6 +51,49 @@ class Log(unittest.TestCase):
             before = path.read_text()
             self.assertEqual(cli_log.log("t-a-1", "bogus", "x", runs=runs), 2)
             self.assertEqual(path.read_text(), before)
+
+
+class Prepare(unittest.TestCase):
+    def _repo(self, tmp):
+        """A temp git repo: base commit has a file; the archived spec sits at a path under docs/specs."""
+        repo = Path(tmp) / "repo"
+        repo.mkdir()
+        env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+               "GIT_COMMITTER_EMAIL": "t@t", "PATH": os.environ["PATH"], "HOME": tmp}
+        def g(*a):
+            subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True, env=env)
+        g("init", "-q", "-b", "main")
+        (repo / "app.txt").write_text("base\n")
+        (repo / "docs" / "specs").mkdir(parents=True)
+        (repo / "docs" / "specs" / "2026-01-01-demo.md").write_text(
+            "---\nstatus: draft\nbranch: feat/demo\n---\n# SPEC: demo\n")
+        g("add", "-A")
+        g("commit", "-q", "-m", "base")
+        (repo / "app.txt").write_text("changed\n")
+        g("commit", "-qam", "change")
+        return repo, env
+
+    def test_worktree_at_base_with_spec(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, _ = self._repo(tmp)
+            base = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD~1"],
+                                  capture_output=True, text=True).stdout.strip()
+            tasks = {"demo": {"spec": "docs/specs/2026-01-01-demo.md", "base": "HEAD~1", "reference": []}}
+            runs = Path(tmp) / "runs"
+            wt_root = Path(tmp) / "wt"
+            out = prepare.prepare("demo", "council", 1, repo=repo, runs=runs, wt_root=wt_root, tasks=tasks)
+            wt = Path(out["worktree"])
+            self.assertEqual(out["run_id"], "demo-council-1")
+            self.assertEqual((wt / "app.txt").read_text(), "base\n")
+            self.assertEqual(out["base"], base)
+            spec = (wt / "SPEC.md").read_text()
+            self.assertIn("status: approved", spec)
+            self.assertIn("# SPEC: demo", spec)
+            run_dir = runs / "demo-council-1"
+            self.assertEqual((run_dir / "events.jsonl").read_text(), "")
+            self.assertTrue((run_dir / "meta.json").exists())
+            self.assertIn("pi-view", out["command"])
+            self.assertIn("bench-demo-council-1", out["command"])
 
 
 if __name__ == "__main__":
