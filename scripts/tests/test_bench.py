@@ -7,7 +7,7 @@ import json
 import os
 import subprocess
 
-from scripts.bench_lib import arms, cli_log, events, loop, prepare, review
+from scripts.bench_lib import arms, cli_log, collect, events, loop, prepare, review
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 BENCH = ROOT / "scripts" / "bench"
@@ -248,6 +248,59 @@ class ReviewRun(unittest.TestCase):
             types = [r["type"] for r in events.read(runs / rid / "events.jsonl")]
             self.assertIn("note", types)
             self.assertIn("review_round", types)
+
+
+class Collect(unittest.TestCase):
+    def test_steer_from_session(self):
+        steers, tokens, cost = collect.read_session(FIXTURES / "session-sample.jsonl")
+        # First user message is the brief, not steering. The [bench-review] message is the
+        # harness's own, not steering. The custom_message is an extension injection, not steering.
+        self.assertEqual(steers, ["The log path is wrong, fix it.", "Also rename the flag."])
+        self.assertEqual(tokens, 150 + 110 + 80)
+        self.assertAlmostEqual(cost, 0.0021 + 0.0015 + 0.0009, places=6)
+
+    def test_collect_writes_events_diff_and_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            repo = tmp / "repo"
+            repo.mkdir()
+            env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+                   "GIT_COMMITTER_EMAIL": "t@t", "PATH": os.environ["PATH"], "HOME": str(tmp)}
+            def g(*a):
+                subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True, env=env)
+            g("init", "-q", "-b", "main")
+            (repo / "a.txt").write_text("one\n")
+            g("add", "-A")
+            g("commit", "-q", "-m", "base")
+            wt = tmp / "wt"
+            g("worktree", "add", "-q", "--detach", str(wt), "HEAD")
+            (wt / "a.txt").write_text("two\n")
+            run_id = "demo-single-gpt-1"
+            runs = tmp / "runs"
+            (runs / run_id).mkdir(parents=True)
+            base = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
+                                  capture_output=True, text=True).stdout.strip()
+            (runs / run_id / "meta.json").write_text(json.dumps(
+                {"run_id": run_id, "worktree": str(wt), "base": base}))
+            (runs / run_id / "events.jsonl").write_text("")
+            events.append(runs / run_id / "events.jsonl", "note", "a manual note")
+            sessions = tmp / "sessions" / "enc"
+            sessions.mkdir(parents=True)
+            (sessions / f"2026-10-29_bench-{run_id}-abc.jsonl").write_text(
+                (FIXTURES / "session-sample.jsonl").read_text())
+
+            out1 = collect.collect(run_id, runs, sessions=tmp / "sessions")
+            out2 = collect.collect(run_id, runs, sessions=tmp / "sessions")
+            recs = events.read(runs / run_id / "events.jsonl")
+            steer = [r for r in recs if r["type"] == "steer"]
+            self.assertEqual(len(steer), 2)
+            self.assertEqual(out1["steers"], 2)
+            self.assertEqual(len(steer), out2["steers"])
+            self.assertEqual(len([r for r in recs if r["type"] == "note"]), 1)
+            diff = (runs / run_id / "final.diff").read_text()
+            self.assertIn("+two", diff)
+            meta = json.loads((runs / run_id / "meta.json").read_text())
+            self.assertEqual(meta["tokens"], 340)
 
 
 if __name__ == "__main__":

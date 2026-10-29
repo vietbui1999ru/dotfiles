@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts.bench_lib import cli_log, events, prepare, review  # noqa: E402
+from scripts.bench_lib import cli_log, collect, events, prepare, review  # noqa: E402
 
 
 def main(argv=None):
@@ -22,6 +22,8 @@ def main(argv=None):
     pr.add_argument("run", type=int)
     rv = sub.add_parser("review", help="run one review round for a prepared run")
     rv.add_argument("run_id")
+    co = sub.add_parser("collect", help="derive steer events and usage from the Pi session")
+    co.add_argument("run_id")
     args = p.parse_args(argv)
     if args.cmd == "log":
         return cli_log.log(args.run_id, args.type, args.text)
@@ -42,6 +44,14 @@ def main(argv=None):
             return 2
         print(f"round {idx}: {result['verdict']}, {len(result['findings'])} findings")
         print(action)
+        return 0
+    if args.cmd == "collect":
+        try:
+            out = collect.collect(args.run_id, review.RUNS)
+        except FileNotFoundError as exc:
+            sys.stderr.write(f"bench collect: {exc}\n")
+            return 2
+        print(f"steers: {out['steers']}  tokens: {out['tokens']}  cost: {out['cost']:.6f}")
         return 0
     return 2
 
