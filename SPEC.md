@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 branch: worktree-wfbench
 ---
 # SPEC: Benchmark harness for three review workflows (pilot)
