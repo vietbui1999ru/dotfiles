@@ -3,10 +3,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import json
 import os
 import subprocess
 
-from scripts.bench_lib import arms, cli_log, events, prepare
+from scripts.bench_lib import arms, cli_log, events, loop, prepare, review
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 BENCH = ROOT / "scripts" / "bench"
@@ -94,6 +95,91 @@ class Prepare(unittest.TestCase):
             self.assertTrue((run_dir / "meta.json").exists())
             self.assertIn("pi-view", out["command"])
             self.assertIn("bench-demo-council-1", out["command"])
+
+
+class Review(unittest.TestCase):
+    ACS = ["- AC-1: block logging for safety events", "- AC-2: rotate the log file"]
+
+    def test_reviewer_input_and_flags(self):
+        seen = {}
+        def caller(model, prompt):
+            seen["model"], seen["prompt"] = model, prompt
+            return '{"verdict":"pass","findings":[]}'
+        template = "REVIEW TEMPLATE"
+        diff = "+added line\n"
+        review.review_once("m:medium", template, self.ACS, diff, caller)
+        self.assertIn("REVIEW TEMPLATE", seen["prompt"])
+        self.assertIn("- AC-1: block logging for safety events", seen["prompt"])
+        self.assertIn("+added line", seen["prompt"])
+        self.assertNotIn("transcript", seen["prompt"].lower())
+        self.assertNotIn("plan", seen["prompt"].lower())
+        # The real call site builds the exact flag set.
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = Path(tmp) / "pi"
+            argv_log = Path(tmp) / "argv.json"
+            fake.write_text(
+                "#!/usr/bin/env python3\nimport json,os,sys\n"
+                f"open({str(argv_log)!r},'w').write(json.dumps({{'argv':sys.argv[1:],"
+                "'routing':os.environ.get('PI_ROUTING_FILE')}))\n"
+                "print('{\"verdict\":\"pass\",\"findings\":[]}')\n")
+            fake.chmod(0o755)
+            old = os.environ.get("BENCH_PI_BIN")
+            os.environ["BENCH_PI_BIN"] = str(fake)
+            try:
+                review.call_pi("x/y:medium", "hello", routing=Path(tmp) / "r.env")
+            finally:
+                if old is None:
+                    os.environ.pop("BENCH_PI_BIN", None)
+                else:
+                    os.environ["BENCH_PI_BIN"] = old
+            rec = json.loads(argv_log.read_text())
+            for flag in ("--no-session", "--no-extensions", "--no-skills", "-p"):
+                self.assertIn(flag, rec["argv"])
+            self.assertEqual(rec["argv"][rec["argv"].index("--model") + 1], "x/y:medium")
+            self.assertTrue(rec["routing"].endswith("r.env"))
+
+    def test_parse_findings(self):
+        good = ('{"verdict":"fail","findings":[{"file":"a.py","line":3,"severity":"major",'
+                '"ac":"AC-1","failure_scenario":"crashes on empty input"}]}')
+        verdict, findings = review.parse_findings(good)
+        self.assertEqual(verdict, "fail")
+        self.assertEqual(set(findings[0]),
+                         {"file", "line", "severity", "ac", "failure_scenario"})
+        self.assertEqual(findings[0]["ac"], "AC-1")
+        for bad in ("not json", '{"verdict":"maybe","findings":[]}',
+                    '{"verdict":"fail","findings":[{"file":"a"}]}'):
+            with self.assertRaises((ValueError, json.JSONDecodeError)):
+                review.parse_findings(bad)
+
+    def test_malformed_output_is_fail_and_noted(self):
+        result = review.review_once("m", "t", self.ACS, "d", lambda m, p: "garbage")
+        self.assertEqual(result["verdict"], "fail")
+        self.assertEqual(result["findings"], [])
+        self.assertFalse(result["ok"])
+
+    def test_council_majority_and_veto(self):
+        ok = {"verdict": "pass", "findings": [], "ok": True}
+        bad = {"verdict": "fail", "findings": [{"file": "f", "line": 1, "severity": "major",
+                                                "ac": None, "failure_scenario": "x"}], "ok": True}
+        votes = [("a", "voice", ok), ("b", "voice", bad), ("c", "voice", bad), ("s", "veto", ok)]
+        self.assertEqual(review.merge_council(votes)["verdict"], "fail")
+        votes = [("a", "voice", ok), ("b", "voice", bad), ("c", "voice", ok), ("s", "veto", ok)]
+        self.assertEqual(review.merge_council(votes)["verdict"], "pass")
+        votes = [("a", "voice", ok), ("b", "voice", ok), ("c", "voice", ok), ("s", "veto", bad)]
+        self.assertEqual(review.merge_council(votes)["verdict"], "fail")
+
+
+class Loop(unittest.TestCase):
+    def test_stop_conditions(self):
+        P = {"verdict": "pass", "findings": []}
+        F = {"verdict": "fail", "findings": [{"severity": "major"}]}
+        N = {"verdict": "fail", "findings": [{"severity": "nit"}, {"severity": "nit"}]}
+        self.assertEqual(loop.next_action([], 3), loop.CONTINUE)
+        self.assertEqual(loop.next_action([F], 3), loop.CONTINUE)
+        self.assertEqual(loop.next_action([F, P], 3), loop.STOP_PASSED)
+        self.assertEqual(loop.next_action([F, N], 3), loop.STOP_NITS)
+        self.assertEqual(loop.next_action([F, F, F], 3), loop.STOP_CAP)
+        self.assertEqual(loop.next_action([F, F], 3), loop.CONTINUE)
 
 
 if __name__ == "__main__":
