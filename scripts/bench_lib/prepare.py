@@ -2,6 +2,7 @@
 import json
 import os
 import re
+import shlex
 import subprocess
 import time
 from pathlib import Path
@@ -56,10 +57,21 @@ def set_status_approved(text):
     return head + rest
 
 
+# The first message of every Pi run. Identical across arms; collect never counts it as steering.
+INITIAL_PROMPT = ("Implement the approved SPEC.md in this directory. Work only toward its AC ids, "
+                  "obey its Boundaries, and commit as you go.")
+
+
 def dispatch_command(rid, arm_cfg, worktree):
-    """The Pi command for the implementer step. Printed, never run here."""
+    """The implementer step, in the plan-handoff pueue form. Printed, never run here."""
+    if arm_cfg.get("builder"):
+        return f"send-it arm: start Claude in {worktree} with /send-it on and the same first message: {INITIAL_PROMPT}"
     implementer = arm_cfg.get("implementer", arms.load()["review_defaults"]["implementer"])
-    return f"cd {worktree} && pi-view --tui --session-id bench-{rid} --model {implementer}"
+    pi_view = Path.home() / "dotfiles" / "scripts" / "pi-view"
+    inner = (f"{pi_view} --tui pi --model {implementer} --session-id bench-{rid} "
+             f"-p {shlex.quote(INITIAL_PROMPT)} < /dev/null")
+    return (f"pueue add -i --print-task-id --label bench-{rid} -w {shlex.quote(str(worktree))} -- "
+            f"{shlex.quote(inner)}")
 
 
 def prepare(task, arm, n, repo=ROOT, runs=RUNS, wt_root=None, tasks=None, arm_data=None):

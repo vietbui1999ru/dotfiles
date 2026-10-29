@@ -28,9 +28,12 @@ Run id: `<task>-<arm>-<n>`, for example `safety-block-log-council-1`.
    The worktree is under `${BENCH_WORKTREES:-$HOME/.cache/wf-bench}/<run-id>`. It holds `SPEC.md`
    (status `approved`), and `bench/runs/<run-id>/` holds an empty `events.jsonl` and `meta.json`.
 
-2. **Dispatch Pi.** Run the printed command, which is `pi-view --tui --session-id bench-<run-id> --model
-   <implementer>`. Pi implements the spec in that worktree. Steer it live as you normally would. Each of
-   your messages after the first is captured later as a `steer` event.
+2. **Dispatch Pi.** Run the printed `pueue add ... -w <worktree> -- '.../pi-view --tui pi --model
+   <implementer> --session-id bench-<run-id> -p <first message> < /dev/null'` command. The first message
+   is the same fixed text in every arm. Pi implements the spec in that worktree. Steer it live as you
+   normally would. Each of your messages after the first is captured later as a `steer` event. For the
+   send-it arm the command prints an instruction instead: start Claude in the worktree with send-it on
+   and the same first message.
 
 3. **Review rounds.** When Pi says it is done, run the reviewer from the harness:
 
