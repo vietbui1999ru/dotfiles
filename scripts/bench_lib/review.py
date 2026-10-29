@@ -93,9 +93,16 @@ def merge_council(votes):
     return {"verdict": "fail" if failed else "pass", "findings": findings}
 
 
+# Files the harness puts in the worktree. They are never part of the implementation, and REVIEW.md
+# holds earlier findings, so leaving it in would leak them to the next reviewer and to the graders.
+HARNESS_FILES = ("REVIEW.md", "SPEC.md")
+
+
 def diff_of(worktree, base):
     subprocess.run(["git", "-C", str(worktree), "add", "-N", "."], capture_output=True)
-    r = subprocess.run(["git", "-C", str(worktree), "diff", base], capture_output=True, text=True)
+    excludes = [f":(exclude){name}" for name in HARNESS_FILES]
+    r = subprocess.run(["git", "-C", str(worktree), "diff", base, "--", ".", *excludes],
+                       capture_output=True, text=True)
     return r.stdout
 
 
@@ -109,7 +116,7 @@ def review(run_id, runs=RUNS, arm_data=None, caller=call_pi, prompts=PROMPTS):
     acs = read_acs(spec_text)
     diff = diff_of(wt, meta["base"])
     events_path = run_dir / "events.jsonl"
-    prior = _prior_rounds(events_path)
+    prior = _prior_rounds(run_dir)
     idx = len(prior) + 1
 
     single = (prompts / "review-single.md").read_text(encoding="utf-8")
@@ -142,15 +149,11 @@ def review(run_id, runs=RUNS, arm_data=None, caller=call_pi, prompts=PROMPTS):
     return idx, action, result
 
 
-def _prior_rounds(events_path):
+def _prior_rounds(run_dir):
+    """Earlier rounds, oldest first, each read back from its own findings-<n>.json."""
     rounds = []
-    for rec in events.read(events_path):
-        if rec["type"] == "review_round":
-            verdict = rec["detail"].split(":")[1].split(",")[0].strip() if ":" in rec["detail"] else "fail"
-            rounds.append({"verdict": verdict, "findings": []})
-    for rec in events.read(events_path):
-        if rec["type"] == "finding" and rounds:
-            rounds[-1]["findings"].append(json.loads(rec["detail"]))
+    while (path := Path(run_dir) / f"findings-{len(rounds) + 1}.json").exists():
+        rounds.append(json.loads(path.read_text(encoding="utf-8")))
     return rounds
 
 

@@ -238,6 +238,29 @@ class ReviewRun(unittest.TestCase):
             diff_text = review.diff_of(wt, "HEAD")
             self.assertIn("+changed", diff_text)
 
+    def test_harness_files_stay_out_of_the_diff_and_rounds_keep_their_findings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rid, runs, wt = self._prepared(tmp, "single-gpt")
+            old = os.environ.get("BENCH_PI_BIN")
+            os.environ["BENCH_PI_BIN"] = str(FIXTURES / "fake-pi")
+            os.environ["FAKE_PI_MODE"] = "nits"
+            try:
+                review.review(rid, runs=runs)
+                review.review(rid, runs=runs)
+            finally:
+                os.environ.pop("FAKE_PI_MODE", None)
+                if old is None:
+                    os.environ.pop("BENCH_PI_BIN", None)
+                else:
+                    os.environ["BENCH_PI_BIN"] = old
+            diff_text = review.diff_of(wt, "HEAD")
+            self.assertIn("+changed", diff_text)
+            self.assertNotIn("REVIEW.md", diff_text)
+            self.assertNotIn("SPEC.md", diff_text)
+            rounds = review._prior_rounds(runs / rid)
+            self.assertEqual(len(rounds), 2)
+            self.assertEqual([len(r["findings"]) for r in rounds], [1, 1])
+
     def test_malformed_output_logs_note_and_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             rid, runs, _ = self._prepared(tmp, "single-deepseek")

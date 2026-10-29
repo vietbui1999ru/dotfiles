@@ -1,9 +1,8 @@
 """`bench collect`: derive steer events and usage from a Pi session, and capture the final diff."""
 import json
-import subprocess
 from pathlib import Path
 
-from . import events
+from . import events, review
 
 REVIEW_MARK = "[bench-review]"
 DERIVED = "derived"
@@ -71,9 +70,7 @@ def collect(run_id, runs, sessions=SESSIONS):
     for s in steers:
         events.append(ev_path, "steer", s, source=DERIVED)
 
-    wt = meta["worktree"]
-    subprocess.run(["git", "-C", wt, "add", "-N", "."], capture_output=True)
-    diff = subprocess.run(["git", "-C", wt, "diff", meta["base"]], capture_output=True, text=True).stdout
+    diff = review.diff_of(meta["worktree"], meta["base"])
     (run_dir / "final.diff").write_text(diff, encoding="utf-8")
 
     meta["tokens"] = tokens
