@@ -360,21 +360,25 @@ def cmd_check(args):
     except (OSError, ValueError):
         print(f"{args.spec}: no approval record for these verify lines; "
               "a human must run: ~/dotfiles/scripts/ac-run approve SPEC.md", file=sys.stderr)
+        save_check(args.record, spec, 3, {})
         return 3
     rec = rec if isinstance(rec, dict) else {}
     baseline = rec.get("baseline") if isinstance(rec.get("baseline"), dict) else {}
-    rows, failed, tails = [], False, []
+    rows, failed, tails, saved = [], False, [], {}
     for a in spec["acs"]:
         name = f"AC-{a['n']}"
         if a["cmd"] is None:
             rows.append((name, "MANUAL", "-", "-"))
+            saved[name] = {"result": "manual"}
             continue
         code, secs, tail = run_one(a["cmd"], spec["top"], args.timeout)
         result = classify(code, baseline.get(name, "unknown"), a["baseline"] == "pass")
         failed |= result in ("FAIL", "TIMEOUT", "PRE-SATISFIED")
         rows.append((name, result, "-" if code is None else str(code), f"{secs:.1f}"))
+        saved[name] = {"result": RECORD_RESULT.get(result, "pass")}
         if result in ("FAIL", "TIMEOUT"):
             tails.append((name, tail))
+            saved[name]["tail"] = "\n".join(tail)
     print("| AC | Result | Exit | Seconds |")
     print("|---|---|---|---|")
     for row in rows:
@@ -382,7 +386,24 @@ def cmd_check(args):
     print(f"\napproved: {rec.get('approved', 'unknown')}")
     for name, tail in tails:
         print(f"\n{name} output (last 40 lines):\n```\n" + "\n".join(tail) + "\n```")
-    return 1 if failed else 0
+    code = 1 if failed else 0
+    save_check(args.record, spec, code, saved)
+    return code
+
+
+# The saved result names; every PASS variant is "pass".
+RECORD_RESULT = {"FAIL": "fail", "TIMEOUT": "fail", "PRE-SATISFIED": "pre-satisfied"}
+
+
+def save_check(path, spec, code, acs):
+    """With --record, write this check's result as JSON for pi-checks and the /pi Monitor."""
+    if not path:
+        return
+    rec = {"spec": spec["rel"], "specHash": spec_hash(spec), "branch": spec["branch"],
+           "exit": code, "acs": acs}
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(rec, indent=2) + "\n", encoding="utf-8")
 
 
 def classify(code, baseline, keep):
@@ -404,6 +425,8 @@ def main():
         p = sub.add_parser(name)
         if name in ("approve", "check"):
             p.add_argument("--timeout", type=int, default=120, help="seconds per AC (default 120)")
+        if name == "check":
+            p.add_argument("--record", metavar="FILE", help="also write the result to FILE as JSON")
         p.add_argument("spec", metavar="SPEC_PATH")
     args = ap.parse_args()
     handler = {"lint": cmd_lint, "approve": cmd_approve, "check": cmd_check,
