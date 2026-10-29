@@ -27,10 +27,13 @@ const completed = (task: Task) => task.state === 'Done' || task.state === 'Faile
 const filtered = (task: Task, filter: HistoryFilter) =>
   filter === 'all' || (filter === 'done' && task.state === 'Done') || (filter === 'failed' && task.state === 'Failed') || (filter === 'killed' && task.state === 'Killed')
 
-export const resultStyle = (task: Task, hadPendingReview: boolean): ResultStyle => {
+/** agent-review ends a print run that left a review with 3; runs from before that used 1. */
+export const leftReviewExit = (exit: number | undefined): boolean => exit === 3 || exit === 1
+
+export const resultStyle =(task: Task, hadPendingReview: boolean): ResultStyle => {
   if (task.state === 'Done') return { glyph: '✓', result: 'success', tone: 'green' }
   if (task.state === 'Killed') return { glyph: '✗', result: 'killed', tone: 'mauve' }
-  if (task.state === 'Failed' && task.exit === 1 && hadPendingReview) return { glyph: '✓', result: 'review', tone: 'yellow' }
+  if (task.state === 'Failed' && leftReviewExit(task.exit) && hadPendingReview) return { glyph: '✓', result: 'review', tone: 'yellow' }
   return { glyph: '✗', result: `exit ${task.exit ?? '?'}`, tone: 'red' }
 }
 
