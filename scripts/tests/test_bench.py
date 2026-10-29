@@ -7,7 +7,9 @@ import json
 import os
 import subprocess
 
-from scripts.bench_lib import arms, cli_log, collect, events, loop, prepare, review
+import random
+
+from scripts.bench_lib import anonymize, arms, cli_log, collect, events, loop, prepare, report, review
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 BENCH = ROOT / "scripts" / "bench"
@@ -301,6 +303,88 @@ class Collect(unittest.TestCase):
             self.assertIn("+two", diff)
             meta = json.loads((runs / run_id / "meta.json").read_text())
             self.assertEqual(meta["tokens"], 340)
+
+
+class Anonymize(unittest.TestCase):
+    def test_no_arm_leak(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            runs = tmp / "runs"
+            for rid, arm in (("t-council-1", "council"), ("t-single-gpt-1", "single-gpt")):
+                d = runs / rid
+                d.mkdir(parents=True)
+                (d / "meta.json").write_text(json.dumps({"task": "t", "arm": arm, "run_id": rid,
+                                                         "base": "b", "worktree": "w", "tokens": 1, "cost": 0}))
+                (d / "final.diff").write_text(f"+ used {arm} via openai-codex/gpt-6.1-sol and {rid}\n")
+                (d / "findings-1.json").write_text(json.dumps({"verdict": "fail", "findings": [
+                    {"file": "a", "line": 1, "severity": "major", "ac": "AC-1",
+                     "failure_scenario": f"{arm} reviewer said so"}]}))
+                (d / "events.jsonl").write_text("")
+            grading = tmp / "grading"
+            sealed = grading / ".sealed-map.json"
+            n = anonymize.anonymize(runs=runs, grading=grading, sealed=sealed, rng=random.Random(1))
+            self.assertEqual(n, 2)
+            for item in grading.iterdir():
+                if not item.is_dir():
+                    continue
+                blob = "".join(p.read_text() for p in item.iterdir())
+                for needle in ("council", "single-gpt", "t-council-1", "t-single-gpt-1",
+                               "gpt-6.1-sol", "openai-codex"):
+                    self.assertNotIn(needle, blob)
+            self.assertTrue(sealed.exists())
+            self.assertIn("t-council-1", sealed.read_text())
+            for item in grading.iterdir():
+                if item.is_dir():
+                    self.assertNotIn(".sealed-map", [p.name for p in item.iterdir()])
+
+
+class Report(unittest.TestCase):
+    def _setup(self, tmp, graded):
+        tmp = Path(tmp)
+        runs = tmp / "runs"
+        grading = tmp / "grading"
+        grading.mkdir(parents=True)
+        sealed = grading / ".sealed-map.json"
+        seal = {}
+        for i, (rid, arm) in enumerate((("t-council-1", "council"), ("t-single-gpt-1", "single-gpt")), 1):
+            d = runs / rid
+            d.mkdir(parents=True)
+            (d / "meta.json").write_text(json.dumps({"task": "t", "arm": arm, "run_id": rid, "base": "b",
+                                                     "worktree": "w", "tokens": 100 * i, "cost": 0.01 * i}))
+            events.append(d / "events.jsonl", "steer", "fix it")
+            events.append(d / "events.jsonl", "review_round", "round 1: fail, 1 findings")
+            item = grading / f"item{i}"
+            item.mkdir()
+            grades = {"classes": list(anonymize.CLASSES),
+                      "human": {"rubric": dict.fromkeys(anonymize.RUBRIC, 4),
+                                "findings": {"f1": "real"}},
+                      "judge": {"rubric": dict.fromkeys(anonymize.RUBRIC, 3),
+                                "findings": {"f1": "nit"}}}
+            if not graded:
+                grades["judge"]["rubric"]["correctness"] = None
+            (item / "grades-template.json").write_text(json.dumps(grades))
+            seal[item.name] = rid
+        sealed.write_text(json.dumps(seal))
+        return runs, grading, sealed
+
+    def test_sealed_until_graded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runs, grading, sealed = self._setup(tmp, graded=False)
+            with self.assertRaises(report.NotGraded):
+                report.report(grading, sealed, runs)
+
+    def test_per_arm_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runs, grading, sealed = self._setup(tmp, graded=True)
+            text = report.report(grading, sealed, runs)
+            self.assertIn("== council", text)
+            self.assertIn("== single-gpt", text)
+            self.assertIn("steers", text)
+            self.assertIn("review_rounds", text)
+            self.assertIn("finding classes", text)
+            self.assertIn("rubric (human)", text)
+            self.assertIn("rubric (judge)", text)
+            self.assertIn("real=1", text)
 
 
 if __name__ == "__main__":

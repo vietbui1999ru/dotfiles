@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts.bench_lib import cli_log, collect, events, prepare, review  # noqa: E402
+from scripts.bench_lib import anonymize, cli_log, collect, events, judge_call, prepare, report, review  # noqa: E402
 
 
 def main(argv=None):
@@ -24,6 +24,9 @@ def main(argv=None):
     rv.add_argument("run_id")
     co = sub.add_parser("collect", help="derive steer events and usage from the Pi session")
     co.add_argument("run_id")
+    sub.add_parser("anonymize", help="write blind grading items and the sealed id map")
+    sub.add_parser("judge", help="fill the judge grades with the judge model")
+    sub.add_parser("report", help="print the per-arm summary (refuses until both graders have graded)")
     args = p.parse_args(argv)
     if args.cmd == "log":
         return cli_log.log(args.run_id, args.type, args.text)
@@ -52,6 +55,19 @@ def main(argv=None):
             sys.stderr.write(f"bench collect: {exc}\n")
             return 2
         print(f"steers: {out['steers']}  tokens: {out['tokens']}  cost: {out['cost']:.6f}")
+        return 0
+    if args.cmd == "anonymize":
+        print(f"{anonymize.anonymize()} item(s) written to bench/grading/")
+        return 0
+    if args.cmd == "judge":
+        print(f"{judge_call.judge_all(anonymize.GRADING)} item(s) judged")
+        return 0
+    if args.cmd == "report":
+        try:
+            sys.stdout.write(report.report(anonymize.GRADING, anonymize.SEALED, review.RUNS))
+        except report.NotGraded as exc:
+            sys.stderr.write(f"bench report: {exc}\n")
+            return 2
         return 0
     return 2
 
