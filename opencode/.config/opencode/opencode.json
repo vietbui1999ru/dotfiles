@@ -9,20 +9,6 @@
       },
       "enabled": true
     },
-    "shadcn": {
-      "type": "remote",
-      "enabled": true,
-      "url": "https://www.shadcn.io/api/mcp",
-      "oauth": {
-        "clientId": "{env:SHADCN_API_KEY}"
-      }
-    },
-    "sentry": {
-      "type": "remote",
-      "enabled": true,
-      "url": "https://mcp.sentry.dev/mcp",
-      "_note": "OAuth \u2014 no API key needed. Authenticate via browser on first use."
-    },
     "qmd": {
       "type": "local",
       "command": [
