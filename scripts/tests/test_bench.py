@@ -182,5 +182,73 @@ class Loop(unittest.TestCase):
         self.assertEqual(loop.next_action([F, F], 3), loop.CONTINUE)
 
 
+class ReviewRun(unittest.TestCase):
+    """End to end: a prepared run reviewed through the fake pi, logging rounds and writing REVIEW.md."""
+
+    def _prepared(self, tmp, arm):
+        repo = Path(tmp) / "repo"
+        repo.mkdir()
+        env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+               "GIT_COMMITTER_EMAIL": "t@t", "PATH": os.environ["PATH"], "HOME": tmp}
+        def g(*a):
+            subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True, env=env)
+        g("init", "-q", "-b", "main")
+        (repo / "app.txt").write_text("base\n")
+        (repo / "docs" / "specs").mkdir(parents=True)
+        (repo / "docs" / "specs" / "d.md").write_text(
+            "---\nstatus: draft\n---\n# SPEC: d\n\n## Acceptance Criteria\n- AC-1: app says changed\n")
+        g("add", "-A")
+        g("commit", "-q", "-m", "base")
+        tasks = {"d": {"spec": "docs/specs/d.md", "base": "HEAD", "reference": []}}
+        out = prepare.prepare("d", arm, 1, repo=repo, runs=Path(tmp) / "runs",
+                              wt_root=Path(tmp) / "wt", tasks=tasks)
+        (Path(out["worktree"]) / "app.txt").write_text("changed\n")
+        return out["run_id"], Path(tmp) / "runs", Path(out["worktree"])
+
+    def test_round_logged_and_review_md_written(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rid, runs, wt = self._prepared(tmp, "single-gpt")
+            fake = str(FIXTURES / "fake-pi")
+            old = os.environ.get("BENCH_PI_BIN")
+            os.environ["BENCH_PI_BIN"] = fake
+            os.environ["FAKE_PI_MODE"] = "nits"
+            try:
+                idx, action, result = review.review(rid, runs=runs)
+            finally:
+                os.environ.pop("FAKE_PI_MODE", None)
+                if old is None:
+                    os.environ.pop("BENCH_PI_BIN", None)
+                else:
+                    os.environ["BENCH_PI_BIN"] = old
+            self.assertEqual(idx, 1)
+            self.assertEqual(action, loop.STOP_NITS)
+            recs = events.read(runs / rid / "events.jsonl")
+            self.assertEqual([r["type"] for r in recs], ["review_round", "finding"])
+            self.assertTrue((runs / rid / "findings-1.json").exists())
+            first = (wt / "REVIEW.md").read_text().splitlines()[0]
+            self.assertEqual(first, "[bench-review]")
+            diff_text = review.diff_of(wt, "HEAD")
+            self.assertIn("+changed", diff_text)
+
+    def test_malformed_output_logs_note_and_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rid, runs, _ = self._prepared(tmp, "single-deepseek")
+            old = os.environ.get("BENCH_PI_BIN")
+            os.environ["BENCH_PI_BIN"] = str(FIXTURES / "fake-pi")
+            os.environ["FAKE_PI_MODE"] = "garbage"
+            try:
+                idx, action, result = review.review(rid, runs=runs)
+            finally:
+                os.environ.pop("FAKE_PI_MODE", None)
+                if old is None:
+                    os.environ.pop("BENCH_PI_BIN", None)
+                else:
+                    os.environ["BENCH_PI_BIN"] = old
+            self.assertEqual(result["verdict"], "fail")
+            types = [r["type"] for r in events.read(runs / rid / "events.jsonl")]
+            self.assertIn("note", types)
+            self.assertIn("review_round", types)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts.bench_lib import cli_log, events, prepare  # noqa: E402
+from scripts.bench_lib import cli_log, events, prepare, review  # noqa: E402
 
 
 def main(argv=None):
@@ -20,6 +20,8 @@ def main(argv=None):
     pr.add_argument("task")
     pr.add_argument("arm")
     pr.add_argument("run", type=int)
+    rv = sub.add_parser("review", help="run one review round for a prepared run")
+    rv.add_argument("run_id")
     args = p.parse_args(argv)
     if args.cmd == "log":
         return cli_log.log(args.run_id, args.type, args.text)
@@ -31,6 +33,15 @@ def main(argv=None):
             return 2
         print(f"run:      {out['run_id']}\nworktree: {out['worktree']}\nbase:     {out['base']}")
         print(f"dispatch (not run): {out['command']}")
+        return 0
+    if args.cmd == "review":
+        try:
+            idx, action, result = review.review(args.run_id)
+        except review.ReviewError as exc:
+            sys.stderr.write(f"bench review: {exc}\n")
+            return 2
+        print(f"round {idx}: {result['verdict']}, {len(result['findings'])} findings")
+        print(action)
         return 0
     return 2
 
