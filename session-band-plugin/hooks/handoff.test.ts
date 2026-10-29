@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { activityLabel, formatElapsed, formatTokens, idleAge, monitorRows, selectStale, summarize, type TrackedTask } from './handoff'
+import { STUCK_MS, type CheckRecord } from './outcome'
 import { trackedFrom } from './handoff.tsx'
 import { emptyProgress, fold } from './pisession'
 import { dispatchCommand, isPiDispatch, parseAddResult, parsePiCommand, parseStatus } from './pueue'
@@ -77,12 +78,53 @@ test('builds ordered monitor rows with idle states and legacy fallbacks', () => 
   expect(idleAge({ ...progress, lastEventMs: at - 119_000 }, task, at)?.tone).toBe('muted')
   expect(idleAge({ ...progress, lastEventMs: at - 121_000 }, task, at)?.tone).toBe('yellow')
   expect(idleAge({ ...progress, lastEventMs: at - 299_000 }, task, at)?.tone).toBe('yellow')
-  expect(idleAge({ ...progress, lastEventMs: at - 301_000 }, task, at)?.tone).toBe('red')
+  // A running task's red is the stuck outcome's job now, so its idle timer stops at yellow.
+  expect(idleAge({ ...progress, lastEventMs: at - 301_000 }, task, at)?.tone).toBe('yellow')
+  expect(idleAge({ ...progress, lastEventMs: at - 301_000 }, { ...task, state: 'Paused' }, at)?.tone).toBe('red')
   expect(activityLabel({ ...emptyProgress(), lastEventAssistant: true })).toBe('thinking')
   expect(activityLabel(emptyProgress())).toBe('starting')
   const legacy = { ...running(9), sessionId: undefined, label: 'legacy' }
   const legacyRow = monitorRows([legacy], {}, [legacy.task!], at)[0]!
   expect(legacyRow).toMatchObject({ id: 9, activity: 'n/a', tokens: 'n/a', cost: 'n/a', label: 'legacy' })
+})
+
+test('a row shows checks passed in green', () => {
+  const at = 1_000_000
+  const item = { ...running(1), task: { ...running(1).task!, state: 'Done' as const, endMs: at - 1_000 } }
+  const check: CheckRecord = { phase: 'done', commit: 'c1', diffHash: 'd1', specStatus: 'approved', passed: true, round: 0, steered: false }
+  const [row] = monitorRows([item], {}, [item.task!], at, undefined, { 1: { reviewPending: false, check, head: { commit: 'c1', diffHash: 'd1' } } })
+  expect(row).toMatchObject({ outcome: 'checks passed', tone: 'green' })
+})
+
+test('a row shows fixing 2/3', () => {
+  const item = running(2)
+  const check: CheckRecord = { phase: 'done', commit: 'c2', diffHash: 'd2', specStatus: 'approved', passed: false, round: 2, steered: true }
+  const [row] = monitorRows([item], {}, [item.task!], 5_000, undefined, { 2: { reviewPending: false, check, head: { commit: 'c2', diffHash: 'd2' } } })
+  expect(row).toMatchObject({ outcome: 'fixing', tone: 'yellow', round: 2 })
+})
+
+test('a review-waiting row keeps its marker', () => {
+  const item = { ...running(3), task: { ...running(3).task!, state: 'Failed' as const, exit: 3, endMs: 1_000 } }
+  const [row] = monitorRows([item], {}, [item.task!], 5_000, undefined, { 3: { reviewPending: true } })
+  expect(row).toMatchObject({ outcome: 'finished', tone: 'muted', reviewWaiting: true })
+})
+
+test('a stuck row replaces the red idle tone', () => {
+  const at = 1_000_000
+  const item = running(4)
+  const [row] = monitorRows([item], { 4: { ...emptyProgress(), lastEventMs: at - STUCK_MS - 1 } }, [item.task!], at, undefined, {
+    4: { reviewPending: false, agentStatus: 'working', logAgeMs: STUCK_MS + 1 },
+  })
+  expect(row).toMatchObject({ outcome: 'stuck', tone: 'red', idle: { tone: 'yellow' } })
+})
+
+test('exit 3 sorts with finished tasks, not failed ones', () => {
+  const at = 1_000_000
+  const failed = { ...running(1), task: { ...running(1).task!, state: 'Failed' as const, exit: 2, endMs: at - 1_000 } }
+  const review = { ...running(2), task: { ...running(2).task!, state: 'Failed' as const, exit: 3, endMs: at - 2_000 } }
+  const done = { ...running(3), task: { ...running(3).task!, state: 'Done' as const, endMs: at - 3_000 } }
+  const rows = monitorRows([review, failed, done], {}, [review.task!, failed.task!, done.task!], at, undefined, { 2: { reviewPending: true } })
+  expect(rows.map(row => row.id)).toEqual([1, 2, 3])
 })
 
 test('a multi-line bash command becomes a single-line activity', () => {

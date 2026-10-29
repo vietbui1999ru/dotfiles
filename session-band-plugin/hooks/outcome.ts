@@ -36,6 +36,22 @@ export type DerivedOutcome = {
 /** Ten minutes without a session-log write. */
 export const STUCK_MS = 600_000
 
+/**
+ * The uncommitted state's hash, shared by `scripts/pi-checks` and the Monitor.
+ * Two FNV-1a streams over the diff text: stable across processes and cheap
+ * enough to recompute on a redraw.
+ */
+export const diffHash = (text: string): string => {
+  let first = 0x811c9dc5
+  let second = 0x9e3779b1
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index)
+    first = Math.imul(first ^ code, 0x01000193) >>> 0
+    second = Math.imul(second ^ code, 0x85ebca6b) >>> 0
+  }
+  return `${first.toString(16).padStart(8, '0')}${second.toString(16).padStart(8, '0')}`
+}
+
 const toneOf = (outcome: Outcome): OutcomeTone => {
   if (outcome === 'checks passed') return 'green'
   if (outcome === 'failed' || outcome === 'checks failed' || outcome === 'stuck') return 'red'

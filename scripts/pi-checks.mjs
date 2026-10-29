@@ -22,11 +22,12 @@
  * HERDR_BIN_PATH, PI_CHECKS_STATE, PI_VIEW_RUN_DIR.
  */
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
+import { diffHash } from "../session-band-plugin/hooks/outcome.ts";
 
 export const MAX_ROUNDS = 3;
 
@@ -43,10 +44,10 @@ const git = (cwd, args) => {
 	return result.stdout.toString().trim();
 };
 
-const diffHash = (cwd) => {
+const diffHashOf = (cwd) => {
 	const result = spawnSync("git", ["diff", "HEAD"], { cwd });
 	if (result.status !== 0) throw new Error(`git diff HEAD failed: ${(result.stderr ?? "").toString().trim()}`);
-	return createHash("sha1").update(result.stdout ?? Buffer.alloc(0)).digest("hex");
+	return diffHash((result.stdout ?? Buffer.alloc(0)).toString("utf8"));
 };
 
 const readJson = (path) => {
@@ -156,7 +157,7 @@ async function main(argv) {
 
 	try {
 		const commit = git(worktree, ["rev-parse", "HEAD"]);
-		const hash = diffHash(worktree);
+		const hash = diffHashOf(worktree);
 		const previous = readJson(recordPath);
 		// A settle with no new commit and no new uncommitted change spends nothing.
 		if (previous?.phase === "done" && previous.commit === commit && previous.diffHash === hash) return 0;
