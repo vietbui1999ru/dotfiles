@@ -1,0 +1,34 @@
+{
+  "review_defaults": {
+    "implementer": "opencode-go/claude-haiku-5-5:off",
+    "max_rounds": 3,
+    "reviewer_input": ["diff", "acs"]
+  },
+  "arms": {
+    "council": {
+      "description": "Pi implements; the council reviews (acceptance, code-quality, style; security veto). All voices at medium.",
+      "reviewer": {
+        "kind": "council",
+        "voices": [
+          {"name": "acceptance-criteria", "model": "openai-codex/gpt-6.1-sol:medium", "role": "voice"},
+          {"name": "code-quality", "model": "opencode-go/deepseek-v4-pro:medium", "role": "voice"},
+          {"name": "style", "model": "opencode-go/deepseek-v4-pro:medium", "role": "voice"},
+          {"name": "security", "model": "opencode-go/glm-5.3:medium", "role": "veto"}
+        ]
+      }
+    },
+    "single-gpt": {
+      "description": "Pi implements; openai-codex gpt-6.1-sol at medium reviews alone.",
+      "reviewer": {"kind": "single", "model": "openai-codex/gpt-6.1-sol:medium"}
+    },
+    "single-deepseek": {
+      "description": "Pi implements; opencode-go deepseek-v4-pro at medium reviews alone.",
+      "reviewer": {"kind": "single", "model": "opencode-go/deepseek-v4-pro:medium"}
+    },
+    "send-it": {
+      "description": "Baseline: the send-it rule as written. Haiku worker builds, not Pi. Not a controlled arm.",
+      "confounds": ["Claude Haiku worker, not Pi", "Opus review and auto-merge are outside the harness"],
+      "builder": "claude-haiku"
+    }
+  }
+}
