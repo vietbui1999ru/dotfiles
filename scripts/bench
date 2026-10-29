@@ -28,6 +28,12 @@ def main(argv=None):
     sub.add_parser("judge", help="fill the judge grades with the judge model")
     sub.add_parser("report", help="print the per-arm summary (refuses until both graders have graded)")
     args = p.parse_args(argv)
+    if hasattr(args, "run_id"):
+        try:
+            events.check_run_id(args.run_id)
+        except events.BadRunId:
+            sys.stderr.write(f"bench: bad run id '{args.run_id}' (letters, digits, dot, dash, underscore only)\n")
+            return 2
     if args.cmd == "log":
         return cli_log.log(args.run_id, args.type, args.text)
     if args.cmd == "prepare":

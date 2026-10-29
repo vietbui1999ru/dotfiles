@@ -8,7 +8,7 @@ RUNS = Path(__file__).resolve().parent.parent.parent / "bench" / "runs"
 
 
 def run_dir(run_id, runs=RUNS):
-    return Path(runs) / run_id
+    return Path(runs) / events.check_run_id(run_id)
 
 
 def log(run_id, etype, text, runs=RUNS):

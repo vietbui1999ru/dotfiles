@@ -41,6 +41,12 @@ class Arms(unittest.TestCase):
 
 
 class Log(unittest.TestCase):
+    def test_run_id_cannot_escape(self):
+        for bad in ("../../etc", "a/b", "..", "", "x..y/z"):
+            with self.assertRaises(events.BadRunId):
+                events.check_run_id(bad)
+        self.assertEqual(events.check_run_id("safety-block-log-council-1"), "safety-block-log-council-1")
+
     def test_append_and_reject_unknown(self):
         with tempfile.TemporaryDirectory() as tmp:
             runs = Path(tmp)

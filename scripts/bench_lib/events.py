@@ -1,5 +1,6 @@
 """Per-run event log: append-only JSON lines in bench/runs/<run-id>/events.jsonl."""
 import json
+import re
 import time
 from pathlib import Path
 
@@ -8,6 +9,20 @@ TYPES = ("steer", "review_round", "finding", "test_iteration", "reject", "note")
 
 class UnknownType(ValueError):
     """Raised for an event type outside the D7 list."""
+
+
+class BadRunId(ValueError):
+    """Raised for a run id that could escape the runs directory."""
+
+
+SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def check_run_id(run_id):
+    """A run id is one path component: letters, digits, dot, dash, underscore. No separators, no `..`."""
+    if not SAFE_ID.match(run_id) or ".." in run_id:
+        raise BadRunId(run_id)
+    return run_id
 
 
 def append(path, etype, detail, source="manual", ts=None):
