@@ -4,12 +4,17 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts.bench_lib import anonymize, cli_log, collect, events, judge_call, prepare, report, review  # noqa: E402
+
+def _libs():
+    """Import the harness modules from the repo root. Deferred so the path is set first."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from scripts.bench_lib import anonymize, cli_log, collect, events, judge_call, prepare, report, review
+    return anonymize, cli_log, collect, events, judge_call, prepare, report, review
 
 
 def main(argv=None):
+    anonymize, cli_log, collect, events, judge_call, prepare, report, review = _libs()
     p = argparse.ArgumentParser(prog="bench")
     sub = p.add_subparsers(dest="cmd", required=True)
     lg = sub.add_parser("log", help="append a manual event to a run")
