@@ -1,0 +1,224 @@
+#!/usr/bin/env python3
+"""pi-queue — the pueue work queue: template steps, mechanical waits, one event log.
+
+    pi-queue add <template> key=value... [workflow=...] [session=<id>]
+    pi-queue run-step <step json file>
+    pi-queue wait <fact> <args...> --release <id>... [flags]
+
+`pi-wait` is the short entry point for `pi-queue wait`. The templates live in
+`pi-queue-templates.json`, next to this file. Everything here is stdlib only.
+
+Exit codes: 0 the fact held (or the step succeeded), 1 a contradiction, a failed
+step or a timeout, 2 a usage error.
+
+Every external command is reached through an env seam, so tests use stub binaries:
+PI_QUEUE_PUEUE, PI_QUEUE_GH, PI_QUEUE_AC_RUN, PI_QUEUE_PI_OUTCOME, PI_QUEUE_HERDR,
+PI_QUEUE_CLAUDE, PI_QUEUE_PI_VIEW. PI_QUEUE_STATE holds the events log and step
+files (`~/.local/state/pi-queue` by default).
+"""
+
+import argparse
+import json
+import os
+import shlex
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+TEMPLATES = HERE / "pi-queue-templates.json"
+
+DEFAULT_TIMEOUT = 24 * 60 * 60
+DEFAULT_INTERVAL = 10
+CONTRADICTIONS = {"failed", "killed"}
+
+
+def state_dir():
+    return Path(os.environ.get("PI_QUEUE_STATE") or Path.home() / ".local" / "state" / "pi-queue")
+
+
+def events_path():
+    return state_dir() / "events.jsonl"
+
+
+def binary(seam, default):
+    """The binary for one seam; an empty override is no override."""
+    return os.environ.get(seam) or default
+
+
+def now():
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def log_event(event, *, session="", workflow="gated", template="", step="", executor="", task="", round=None):
+    """Append one JSON line: time, session, workflow, template, step, executor, event, task."""
+    record = {
+        "time": now(),
+        "session": session,
+        "workflow": workflow,
+        "template": template,
+        "step": step,
+        "executor": executor,
+        "event": event,
+        "task": task,
+    }
+    if round is not None:
+        record["round"] = round
+    path = events_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record) + "\n")
+
+
+def run(argv, cwd=None):
+    """Run one command without a shell; return the completed process."""
+    try:
+        return subprocess.run(argv, cwd=cwd, capture_output=True, text=True)
+    except OSError as error:
+        return subprocess.CompletedProcess(argv, 127, "", str(error))
+
+
+# --- wait ------------------------------------------------------------------
+
+
+def fact_pr_merged(args):
+    result = run([binary("PI_QUEUE_GH", "gh"), "pr", "view", args[0], "--json", "state"])
+    if result.returncode != 0:
+        return "error", f"gh pr view {args[0]} failed: {result.stderr.strip() or result.stdout.strip()}"
+    try:
+        state = json.loads(result.stdout).get("state")
+    except ValueError:
+        return "error", f"gh pr view {args[0]} printed no JSON"
+    if state == "MERGED":
+        return "held", f"pr {args[0]} merged"
+    if state == "CLOSED":
+        return "contradicted", f"pr {args[0]} closed unmerged"
+    return "pending", f"pr {args[0]} {state or 'unknown'}"
+
+
+def fact_spec_approved(args):
+    result = run([binary("PI_QUEUE_AC_RUN", "ac-run"), "status", args[0]])
+    printed = result.stdout.strip().splitlines()
+    first = printed[0] if printed else ""
+    if result.returncode == 0 and first.startswith("approved"):
+        return "held", f"{args[0]} approved"
+    return "pending", f"{args[0]} {first or 'not approved'}"
+
+
+def fact_outcome(args):
+    task, wanted = args
+    result = run([binary("PI_QUEUE_PI_OUTCOME", "pi-outcome"), task, "--json"])
+    if result.returncode != 0:
+        return "pending", f"pi-outcome {task} unavailable"
+    try:
+        payload = json.loads(result.stdout)
+    except ValueError:
+        return "pending", f"pi-outcome {task} printed no JSON"
+    outcome = payload.get("outcome")
+    round_number = payload.get("round")
+    if outcome == wanted:
+        # `checks failed` is the checks-exhausted template's fact only at round 3.
+        if wanted == "checks failed" and (round_number is None or round_number < 3):
+            return "pending", f"pi#{task} checks failed {round_number}/3"
+        return "held", f"pi#{task} {outcome}" + (f" {round_number}/3" if round_number is not None else "")
+    if outcome in CONTRADICTIONS:
+        return "contradicted", f"pi#{task} {outcome}"
+    if outcome == "checks failed" and round_number is not None and round_number >= 3:
+        return "contradicted", f"pi#{task} checks failed 3/3"
+    return "pending", f"pi#{task} {outcome}"
+
+
+def fact_review_decided(args):
+    worktree, run_id = args
+    record = Path(worktree) / ".pi" / "agent-review" / "pending" / f"{run_id}.json"
+    if record.exists():
+        return "pending", f"review {run_id} still pending"
+    return "held", f"review {run_id} decided"
+
+
+FACTS = {
+    "pr-merged": (fact_pr_merged, 1),
+    "spec-approved": (fact_spec_approved, 1),
+    "outcome": (fact_outcome, 2),
+    "review-decided": (fact_review_decided, 2),
+}
+
+
+def command_wait(args):
+    check, arity = FACTS[args.fact]
+    if len(args.fact_args) != arity:
+        print(f"pi-wait: {args.fact} takes {arity} argument(s)", file=sys.stderr)
+        return 2
+    ids = ",".join(str(item) for item in args.release)
+    fields = {
+        "session": args.session,
+        "workflow": args.workflow,
+        "template": args.template,
+        "step": args.step,
+        "executor": "wait",
+        "task": ids,
+    }
+    deadline = time.monotonic() + args.timeout
+    while True:
+        verdict, detail = check(args.fact_args)
+        if verdict == "held":
+            released = run([binary("PI_QUEUE_PUEUE", "pueue"), "enqueue", *[str(item) for item in args.release]])
+            if released.returncode != 0:
+                print(f"pi-wait: pueue enqueue failed: {released.stderr.strip()}", file=sys.stderr)
+                log_event("failed", **fields)
+                return 1
+            print(f"pi-wait: {detail}; released {ids}")
+            log_event("released", **fields)
+            return 0
+        if verdict in ("contradicted", "error"):
+            print(f"pi-wait: {detail}", file=sys.stderr)
+            log_event("failed", **fields)
+            return 1
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            print(f"pi-wait: timed out waiting for {args.fact}: {detail}", file=sys.stderr)
+            log_event("failed", **fields)
+            return 1
+        time.sleep(min(args.interval, remaining))
+
+
+# --- command line ----------------------------------------------------------
+
+
+def positive(value):
+    number = int(value)
+    if number <= 0:
+        raise argparse.ArgumentTypeError("task ids are positive integers")
+    return number
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(prog="pi-queue", description="The pueue work queue.")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    wait = sub.add_parser("wait", help="wait for one fact, then release explicit task ids")
+    wait.add_argument("fact", choices=sorted(FACTS))
+    wait.add_argument("fact_args", nargs="*", metavar="ARG")
+    wait.add_argument("--release", nargs="+", type=positive, required=True, metavar="ID")
+    wait.add_argument("--session", default="")
+    wait.add_argument("--workflow", default="gated")
+    wait.add_argument("--template", default="")
+    wait.add_argument("--step", default="")
+    wait.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
+    wait.add_argument("--interval", type=float, default=DEFAULT_INTERVAL)
+    wait.set_defaults(handler=command_wait)
+    return parser
+
+
+def main(argv):
+    args = build_parser().parse_args(argv)
+    return args.handler(args)
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except KeyboardInterrupt:
+        sys.exit(130)
