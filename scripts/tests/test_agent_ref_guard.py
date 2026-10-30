@@ -114,6 +114,25 @@ class ReferenceTransactionCases(Fixture):
         self.assertEqual(self.head(self.wt), before)
         self.assertEqual(self.head(self.wt, "refs/heads/other"), other_before)
 
+    def test_pack_refs_allowed(self):
+        # pack-refs (run by gc and auto-maintenance too) writes each branch into packed-refs
+        # (old zero, new = its id), then deletes the loose copy (old = its id, new zero).
+        # Neither moves a branch, so neither may be refused.
+        before = {ref: self.head(self.wt, ref) for ref in ("refs/heads/feat", "refs/heads/other", "refs/heads/main")}
+        r = self.git(self.wt, "pack-refs", "--all", capture=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self.git(self.wt, "gc", "--quiet", capture=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual({ref: self.head(self.wt, ref) for ref in before}, before)
+        # A real move is still refused once the branches are packed, also when its arguments
+        # mention pack-refs: only the git subcommand counts.
+        for args in (("update-ref", "refs/heads/other", before["refs/heads/feat"]),
+                     ("update-ref", "-m", "pack-refs", "refs/heads/other", before["refs/heads/feat"])):
+            r = self.git(self.wt, *args, capture=True)
+            self.assertNotEqual(r.returncode, 0, args)
+            self.assertIn("commit-funnel", r.stderr)
+        self.assertEqual(self.head(self.wt, "refs/heads/other"), before["refs/heads/other"])
+
     def test_non_branch_moves_allowed(self):
         self.git(self.wt, "switch", "-q", "-c", "new")
         self.assertTrue(self.head(self.wt, "refs/heads/new"))
