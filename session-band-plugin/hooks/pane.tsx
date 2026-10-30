@@ -1,8 +1,8 @@
 import { atom, read, update, type EngineInterface, type Register } from 'claude-code'
 
-import { dispatchCommand, isTuiDispatch, parseAddResult, parsePiCommand, parseStatus, type Task } from './pueue'
+import { dispatchCommand, isTuiDispatch, parseAddResult, parsePiCommand, parseStatus, type PueueState, type Task } from './pueue'
 import { controlArgv, eligible, holdArgv, parsePiArgs, PS_ARGV, releaseArgv, resolveTargets, signalGroupArgv, stopArgvs, strayGroups, type ControlAction, type Targets } from './controls'
-import { monitorRows, runningPendingFor, selectStale, type MonitorRow, type StaleSelection, type TrackedTask } from './handoff'
+import { monitorRows, queueGroups, runningPendingFor, selectStale, type MonitorRow, type StaleSelection, type TrackedTask } from './handoff'
 import type { HandoffState } from './handoff.tsx'
 import { focusRing, moveTo, type Motion } from './motion'
 import { FOCUS_ACTION, FOCUS_REFUSED, JUMP_KEYS, nextPane, PANE_TITLES, switchSteps } from './pane-nav'
@@ -69,6 +69,10 @@ export const selectedProgress = (tasks: readonly TrackedTask[], selectedId: numb
 }
 
 export const hasMonitorRows = (rows: readonly MonitorRow[]): boolean => rows.length > 0
+
+/** A queue row's state, with the Monitor's own glyphs. */
+const queueGlyph = (state: PueueState): string =>
+  state === 'Running' ? '▶' : state === 'Queued' ? '◌' : state === 'Paused' ? '⏸' : state === 'Done' ? '✓' : state === 'Failed' || state === 'Killed' ? '✗' : '?'
 
 /** What the row says about the run itself: the outcome, its round, and the review marker. */
 export const outcomeLabel = (row: MonitorRow): string =>
@@ -644,6 +648,8 @@ export const register: Register = on => {
     const where = pane ? await tuiWhere($, pane) : undefined
     let rows = base
     if (where && task) rows = monitorRows(state.tasks, allProgress, taskList, nowMs, { [task.id]: where }, inputs)
+    // Queued waits and steps are not Pi dispatches, so they come from pueue's full status, not the tracked runs.
+    const groups = queueGroups(state.queueTasks ?? [])
     const pending = task ? await pendingFor($, task) : undefined
     const pi = selectedProgress(state.tasks, state.selectedId, allProgress, rowIds)
     const transcript = pi?.entries.slice(-200) ?? []
@@ -698,6 +704,13 @@ export const register: Register = on => {
             {idle && <Text color={PALETTE[row.idle!.tone]}>{` ${idle}`}</Text>}
           </Box>
         })}
+      </Box>}
+      {groups.length > 0 && <Box flexDirection="column">
+        <Text>Queue</Text>
+        {groups.map(group => <Box key={`pi-queue-${group.session}`} flexDirection="column">
+          <Text dimColor>{group.session}</Text>
+          {group.rows.map(row => <Text key={`pi-queue-${group.session}-${row.id}`}>{`  ${queueGlyph(row.state)} #${row.id} ${row.template}:${row.step}`}</Text>)}
+        </Box>)}
       </Box>}
       {sections && working.map((item, index) => <Box key={`pi-all-${item.id}`} flexDirection="column">
         <Text>{`\n── ${taskLabel(item)}${allProgress[item.id]?.lastActivity ? ` · ${allProgress[item.id]!.lastActivity}` : ''}`}</Text>
