@@ -8,6 +8,11 @@
 `pi-wait` is the short entry point for `pi-queue wait`. The templates live in
 `pi-queue-templates.json`, next to this file. Everything here is stdlib only.
 
+A template expands into stashed steps that wait for their predecessor, and one
+wait task in the `waits` group that starts the chain. Each step names exactly one
+executor (`shell`, `pi` or `claude`); a step that fails releases nothing. Labels
+are `q:<session>:<template>:<step>`.
+
 Exit codes: 0 the fact held (or the step succeeded), 1 a contradiction, a failed
 step or a timeout, 2 a usage error.
 
@@ -20,19 +25,29 @@ files (`~/.local/state/pi-queue` by default).
 import argparse
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 TEMPLATES = HERE / "pi-queue-templates.json"
+SELF = HERE / "pi-queue"
 
 DEFAULT_TIMEOUT = 24 * 60 * 60
 DEFAULT_INTERVAL = 10
+WAITS_GROUP = "waits"
+WAITS_SLOTS = 20
 CONTRADICTIONS = {"failed", "killed"}
+MAIN_BRANCHES = {"main", "master"}
+
+
+class QueueError(Exception):
+    """An external command the queue needs failed."""
 
 
 def state_dir():
@@ -184,6 +199,375 @@ def command_wait(args):
         time.sleep(min(args.interval, remaining))
 
 
+# --- pueue helpers ---------------------------------------------------------
+
+
+def pueue_bin():
+    return binary("PI_QUEUE_PUEUE", "pueue")
+
+
+def pueue_add(command, label, group=None, stashed=True):
+    """Create one task and return its id; labels carry the session, template and step."""
+    argv = [pueue_bin(), "add", "--print-task-id", "--label", label]
+    if group:
+        argv += ["--group", group]
+    if stashed:
+        argv += ["--stashed"]
+    argv += ["--", command]
+    result = run(argv)
+    if result.returncode != 0:
+        raise QueueError(f"pueue add failed: {result.stderr.strip() or result.stdout.strip()}")
+    try:
+        return int(result.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        raise QueueError(f"pueue add printed no task id: {result.stdout.strip()!r}")
+
+
+def ensure_waits_group():
+    """Create the waits group and its own slots when missing, so waits never take Pi slots."""
+    listed = run([pueue_bin(), "group", "--json"])
+    if listed.returncode != 0:
+        raise QueueError(f"pueue group --json failed: {listed.stderr.strip()}")
+    try:
+        groups = json.loads(listed.stdout) if listed.stdout.strip() else {}
+    except ValueError:
+        groups = {}
+    if WAITS_GROUP in groups:
+        return
+    added = run([pueue_bin(), "group", "add", WAITS_GROUP])
+    if added.returncode != 0:
+        raise QueueError(f"pueue group add {WAITS_GROUP} failed: {added.stderr.strip()}")
+    sized = run([pueue_bin(), "parallel", str(WAITS_SLOTS), "--group", WAITS_GROUP])
+    if sized.returncode != 0:
+        raise QueueError(f"pueue parallel --group {WAITS_GROUP} failed: {sized.stderr.strip()}")
+
+
+# --- add -------------------------------------------------------------------
+
+
+class Keep(dict):
+    """Leave an unknown `{name}` alone instead of failing the whole template."""
+
+    def __missing__(self, key):
+        return "{" + key + "}"
+
+
+def fill(text, values):
+    return str(text).format_map(Keep(values))
+
+
+def fill_step(spec, values):
+    """Fill every string in a step's spec; lists are filled item by item."""
+    filled = {}
+    for key, value in spec.items():
+        if isinstance(value, str):
+            filled[key] = fill(value, values)
+        elif isinstance(value, list):
+            filled[key] = [fill(item, values) if isinstance(item, str) else item for item in value]
+        else:
+            filled[key] = value
+    return filled
+
+
+def expand_steps(template, values):
+    """Expand `each` steps; the rest keep their template order."""
+    steps = []
+    for spec in template["steps"]:
+        if "each" not in spec:
+            steps.append(dict(spec))
+            continue
+        commands = [item.strip() for item in str(values.get(spec["each"], "")).split(";") if item.strip()]
+        for index, command in enumerate(commands, 1):
+            step = {key: value for key, value in spec.items() if key != "each"}
+            step["name"] = f"{spec['name']}-{index}"
+            step["cmd"] = [command]
+            steps.append(step)
+    return steps
+
+
+def default_session():
+    return os.environ.get("PI_QUEUE_SESSION") or os.environ.get("CLAUDE_SESSION_ID") or "unknown"
+
+
+def template_values(template, given):
+    """Resolve params, defaults and the reserved `session` / `workflow` keys."""
+    values = dict(given)
+    values.setdefault("session", default_session())
+    values.setdefault("workflow", "gated")
+    for key, default in template.get("optional", {}).items():
+        if not values.get(key):
+            values[key] = fill(default, values)
+    # Template shell steps call the same binaries the env seams name.
+    values["gh"] = binary("PI_QUEUE_GH", "gh")
+    values["herdr"] = binary("PI_QUEUE_HERDR", "herdr")
+    return values
+
+
+def command_add(args):
+    try:
+        templates = json.loads(TEMPLATES.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        print(f"pi-queue: cannot read templates: {error}", file=sys.stderr)
+        return 1
+    if args.template not in templates:
+        print(f"pi-queue: unknown template {args.template!r}", file=sys.stderr)
+        return 2
+    template = templates[args.template]
+
+    given = {}
+    for item in args.values:
+        if "=" not in item:
+            print(f"pi-queue: expected key=value, got {item!r}", file=sys.stderr)
+            return 2
+        key, _, value = item.partition("=")
+        given[key] = value
+    known = set(template.get("params", [])) | set(template.get("optional", {})) | {"session", "workflow"}
+    unknown = sorted(set(given) - known)
+    if unknown:
+        print(f"pi-queue: {args.template} has no parameter(s) {', '.join(unknown)}", file=sys.stderr)
+        return 2
+    missing = [key for key in template.get("params", []) if not given.get(key)]
+    if missing:
+        print(f"pi-queue: {args.template} needs {', '.join(missing)}", file=sys.stderr)
+        return 2
+    values = template_values(template, given)
+    if args.template == "pi-run-done" and values.get("branch") in MAIN_BRANCHES:
+        # Never automate a push to main, whichever template asks.
+        print(f"pi-queue: refusing to queue a push to {values['branch']}", file=sys.stderr)
+        return 2
+
+    steps = expand_steps(template, values)
+    if len(steps) < 2 or steps[0].get("executor") != "wait":
+        print(f"pi-queue: template {args.template} must start with a wait and a step", file=sys.stderr)
+        return 1
+    session, workflow = values["session"], values["workflow"]
+
+    try:
+        ensure_waits_group()
+        created = []
+        for spec in steps[1:]:
+            step = fill_step(spec, values)
+            label = f"q:{session}:{args.template}:{step['name']}"
+            path = state_dir() / "steps" / f"{label.replace(':', '-')}-{uuid.uuid4().hex}.json"
+            task_id = pueue_add(shlex.join([str(SELF), "run-step", str(path)]), label, stashed=True)
+            created.append((step, label, task_id, path))
+        for index, (step, label, task_id, path) in enumerate(created):
+            release = [created[index + 1][2]] if index + 1 < len(created) else []
+            record = {
+                **step,
+                "label": label,
+                "session": session,
+                "workflow": workflow,
+                "template": args.template,
+                "task": task_id,
+                "release": release,
+            }
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+        wait = fill_step(steps[0], values)
+        fact = [fill(item, values) for item in wait["fact"]]
+        label = f"q:{session}:{args.template}:{wait['name']}"
+        command = shlex.join([
+            str(SELF), "wait", *fact,
+            "--release", str(created[0][2]),
+            "--session", session,
+            "--workflow", workflow,
+            "--template", args.template,
+            "--step", wait["name"],
+        ])
+        wait_id = pueue_add(command, label, group=WAITS_GROUP, stashed=False)
+    except QueueError as error:
+        print(f"pi-queue: {error}", file=sys.stderr)
+        return 1
+
+    print(f"{label} {wait_id}")
+    for _, step_label, task_id, _ in created:
+        print(f"{step_label} {task_id}")
+    return 0
+
+
+# --- run-step --------------------------------------------------------------
+
+CHECK_STATE = lambda: Path(os.environ.get("PI_CHECKS_STATE") or Path.home() / ".local" / "state" / "pi-checks")
+
+
+def pi_session_id(step):
+    raw = f"pueue-{step.get('session', '')[:8]}-{step.get('template', '')}-{step.get('step', '')}"
+    return re.sub(r"[^A-Za-z0-9_-]", "-", raw)[:64]
+
+
+def pi_round(step):
+    """The check round for a Pi step: the step's own value, else the saved check record."""
+    if isinstance(step.get("round"), int):
+        return step["round"]
+    try:
+        record = json.loads((CHECK_STATE() / f"{pi_session_id(step)}.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    value = record.get("round")
+    return value if isinstance(value, int) else None
+
+
+def read_brief(step):
+    try:
+        return Path(step["brief"]).read_text(encoding="utf-8")
+    except (KeyError, OSError):
+        return None
+
+
+def running_in_worktree(worktree):
+    """The pueue task already running in this worktree, if any."""
+    result = run([pueue_bin(), "status", "--json"])
+    if result.returncode != 0:
+        raise QueueError(f"pueue status --json failed: {result.stderr.strip()}")
+    try:
+        tasks = json.loads(result.stdout).get("tasks", {})
+    except ValueError:
+        raise QueueError("pueue status --json printed no JSON")
+    target = os.path.realpath(worktree)
+    for task in tasks.values():
+        if "Running" in (task.get("status") or {}) and os.path.realpath(task.get("path", "")) == target:
+            return task
+    return None
+
+
+def run_shell(step):
+    worktree = step.get("worktree") or None
+    if worktree and not Path(worktree).is_dir():
+        return False, f"worktree {worktree} does not exist"
+    for command in step.get("cmd", []):
+        result = run(["/bin/sh", "-c", command], cwd=worktree)
+        if result.returncode != 0:
+            return False, f"command failed ({result.returncode}): {command}\n{result.stderr.strip()}"
+    return True, "commands ran"
+
+
+def run_pi(step):
+    worktree = step.get("worktree", "")
+    try:
+        busy = running_in_worktree(worktree)
+    except QueueError as error:
+        return False, f"refusing to dispatch: {error}"
+    if busy is not None:
+        return False, f"worktree {worktree} already runs pueue task {busy.get('id')}"
+    model = step.get("model")
+    if not model:
+        return False, "pi step has no model"
+    brief = read_brief(step)
+    if brief is None:
+        return False, f"brief {step.get('brief')!r} is unreadable"
+    argv = [binary("PI_QUEUE_PI_VIEW", "pi-view"), "--tui", "pi", "--model", model,
+            "--session-id", pi_session_id(step), "-p", brief]
+    result = run(argv, cwd=worktree or None)
+    if result.returncode != 0:
+        return False, f"pi-view exited {result.returncode}: {result.stderr.strip()}"
+    return True, "pi ran"
+
+
+def claude_pane(herdr, session):
+    """An idle Claude pane for this session, else any pane for it, else None."""
+    result = run([herdr, "pane", "list"])
+    if result.returncode != 0:
+        return None
+    try:
+        panes = json.loads(result.stdout).get("result", {}).get("panes", [])
+    except ValueError:
+        return None
+    matches = [pane for pane in panes
+               if pane.get("agent") == "claude"
+               and (pane.get("agent_session") or {}).get("value") == session]
+    for pane in matches:
+        if pane.get("agent_status") == "idle":
+            return pane
+    return None
+
+
+def run_claude(step, fields):
+    """Type the brief into a live Claude pane, or run it headless on an explicit fallback."""
+    brief = read_brief(step)
+    if brief is None:
+        return False, f"brief {step.get('brief')!r} is unreadable"
+    fallback = step.get("fallback", "wait")
+    herdr = binary("PI_QUEUE_HERDR", "herdr")
+    if fallback in ("sonnet", "opus"):
+        result = run([binary("PI_QUEUE_CLAUDE", "claude"), "-p", "--model", fallback, brief])
+        if result.returncode != 0:
+            return False, f"claude -p --model {fallback} exited {result.returncode}: {result.stderr.strip()}"
+        return True, f"claude ran headless with {fallback}"
+    deadline = time.monotonic() + float(step.get("timeout", DEFAULT_TIMEOUT))
+    interval = float(step.get("interval", DEFAULT_INTERVAL))
+    notified = False
+    while True:
+        pane = claude_pane(herdr, step.get("session", ""))
+        if pane:
+            sent = run([herdr, "pane", "send-text", pane["pane_id"], brief])
+            enter = run([herdr, "pane", "send-keys", pane["pane_id"], "Enter"])
+            if sent.returncode == 0 and enter.returncode == 0:
+                log_event("picked-up", **fields)
+                return True, f"typed into Claude pane {pane['pane_id']}"
+            return False, f"herdr could not type into pane {pane['pane_id']}: {sent.stderr.strip()}"
+        if not notified:
+            run([herdr, "notification", "show",
+                 f"pi-queue: {step.get('step', 'step')} waits for an idle Claude session"])
+            log_event("notified", **fields)
+            notified = True
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False, "timed out waiting for an idle Claude pane"
+        time.sleep(min(interval, remaining))
+
+
+def command_run_step(args):
+    path = Path(args.step_file)
+    try:
+        step = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        print(f"pi-queue: cannot read step file {path}: {error}", file=sys.stderr)
+        return 2
+    fields = {
+        "session": step.get("session", ""),
+        "workflow": step.get("workflow", "gated"),
+        "template": step.get("template", ""),
+        "step": step.get("step", ""),
+        "executor": step.get("executor", ""),
+        "task": str(step.get("task", "")),
+    }
+    log_event("started", **fields)
+    executor = step.get("executor")
+    if executor == "shell":
+        ok, detail = run_shell(step)
+    elif executor == "pi":
+        ok, detail = run_pi(step)
+    elif executor == "claude":
+        ok, detail = run_claude(step, fields)
+    else:
+        ok, detail = False, f"unknown executor {executor!r}"
+    if not ok:
+        print(f"pi-queue: {detail}", file=sys.stderr)
+        failure = dict(fields)
+        if executor == "pi":
+            round_number = pi_round(step)
+            if round_number is not None:
+                failure["round"] = round_number
+        log_event("failed", **failure)
+        return 1
+    done = dict(fields)
+    if executor == "pi":
+        round_number = pi_round(step)
+        if round_number is not None:
+            done["round"] = round_number
+    log_event("done", **done)
+    release = [int(item) for item in step.get("release") or []]
+    if release:
+        released = run([pueue_bin(), "enqueue", *[str(item) for item in release]])
+        if released.returncode != 0:
+            print(f"pi-queue: pueue enqueue failed: {released.stderr.strip()}", file=sys.stderr)
+            log_event("failed", **fields)
+            return 1
+        log_event("released", **{**fields, "task": ",".join(str(item) for item in release)})
+    return 0
+
+
 # --- command line ----------------------------------------------------------
 
 
@@ -197,6 +581,15 @@ def positive(value):
 def build_parser():
     parser = argparse.ArgumentParser(prog="pi-queue", description="The pueue work queue.")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    add = sub.add_parser("add", help="expand a template into stashed steps plus a wait")
+    add.add_argument("template")
+    add.add_argument("values", nargs="*", metavar="key=value")
+    add.set_defaults(handler=command_add)
+
+    run_step = sub.add_parser("run-step", help="run one step, then release its successors")
+    run_step.add_argument("step_file")
+    run_step.set_defaults(handler=command_run_step)
 
     wait = sub.add_parser("wait", help="wait for one fact, then release explicit task ids")
     wait.add_argument("fact", choices=sorted(FACTS))
