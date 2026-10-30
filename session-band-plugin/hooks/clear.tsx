@@ -9,7 +9,6 @@ import {
   type Register,
 } from 'claude-code'
 
-import { toRepoInfo, type RepoInfo } from './repo'
 import {
   buildDigest,
   extractSavedPath,
@@ -18,7 +17,6 @@ import {
   RECENT_SAVE_MS,
   summaryPrompt,
   SYSTEM_PROMPT,
-  taskStateFile,
   type ParsedSummary,
 } from './summary'
 
@@ -35,32 +33,16 @@ const reset = async ($: EngineInterface) => {
   await update($, prompts, () => 0)
 }
 
-const resolveRepo = async ($: EngineInterface): Promise<RepoInfo> => {
-  const out = await $.process.run(['git', 'rev-parse', '--path-format=absolute', '--show-toplevel', '--git-common-dir'])
-  const [top, common] = out.stdout.trim().split('\n')
-
-  if (out.exitCode !== 0 || !top || !common) return {}
-
-  const taskId = (await $.fs.read(`${top}/.agent-task-id`).catch(() => '')).trim() || undefined
-
-  return toRepoInfo(common, taskId)
-}
 
 const sessionsDir = async ($: EngineInterface): Promise<string | undefined> => {
   const out = await $.process.run(['agent-session', 'path'])
   return out.exitCode === 0 && out.stdout.trim() !== '' ? out.stdout.trim() : undefined
 }
 
-// A save in the last five minutes counts as "already saved by hand": the task
-// state file's mtime in a task worktree, else the newest file in the sessions
-// directory. (The non-task statePath is .claude/session-state.md, which the CLI
-// maintains, so it is not the signal here.)
-const recentlySaved = async ($: EngineInterface, repo: RepoInfo, nowMs: number): Promise<boolean> => {
-  if (repo.taskId !== undefined && repo.statePath !== undefined) {
-    const stat = await $.fs.stat(repo.statePath).catch(() => undefined)
-    return stat !== undefined && nowMs - stat.mtimeMs <= RECENT_SAVE_MS
-  }
-
+// A save in the last five minutes counts as "already saved by hand": the newest
+// file in the sessions directory. (statePath is .claude/session-state.md, which
+// the CLI maintains, so it is not the signal here.)
+const recentlySaved = async ($: EngineInterface, nowMs: number): Promise<boolean> => {
   const dir = await sessionsDir($)
   if (dir === undefined) return false
 
@@ -78,14 +60,8 @@ const recentlySaved = async ($: EngineInterface, repo: RepoInfo, nowMs: number):
   return newest !== undefined && nowMs - newest <= RECENT_SAVE_MS
 }
 
-const saveSession = async ($: EngineInterface, repo: RepoInfo, summary: ParsedSummary): Promise<string> => {
-  // Task worktrees write the claimed state file; the orchestrator goes through
-  // the agent-session CLI, which resolves the sessions directory itself.
-  if (repo.statePath !== undefined && repo.taskId !== undefined) {
-    await $.fs.write(repo.statePath, taskStateFile(repo.taskId, summary.body))
-    return repo.statePath
-  }
-
+const saveSession = async ($: EngineInterface, summary: ParsedSummary): Promise<string> => {
+  // The agent-session CLI resolves the sessions directory itself.
   const root = await $.session.root()
   const saved = await $.process.run(
     ['agent-session', 'save', '--harness', 'cc', '--goal', summary.goal, '--stdin'],
@@ -146,9 +122,8 @@ export const register: Register = on => {
       return next(e)
     }
 
-    const repo = await resolveRepo($)
     const nowMs = await $.clock.now()
-    if (await recentlySaved($, repo, nowMs)) {
+    if (await recentlySaved($, nowMs)) {
       await reset($)
       return next(e)
     }
@@ -175,7 +150,7 @@ export const register: Register = on => {
     }
 
     try {
-      const path = await saveSession($, repo, summary)
+      const path = await saveSession($, summary)
       await reset($)
       // The answer's text, not a toast: /clear ends the session and the toast went with it.
       const result = await next(e)

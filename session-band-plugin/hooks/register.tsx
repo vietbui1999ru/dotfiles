@@ -77,9 +77,7 @@ const resolveRepo = async ($: EngineInterface): Promise<RepoInfo> => {
 
   if (out.exitCode !== 0 || !top || !common) return {}
 
-  const taskId = (await $.fs.read(`${top}/.agent-task-id`).catch(() => '')).trim() || undefined
-
-  return toRepoInfo(common, taskId)
+  return toRepoInfo(common)
 }
 
 const settingStyle = async ($: EngineInterface): Promise<string | null> => {
@@ -249,7 +247,7 @@ export const register: Register = on => {
     if ('deny' in r) return r
 
     return (async () => {
-      const { taskId, statePath } = await resolveRepo($)
+      const { statePath } = await resolveRepo($)
       const lastSavedMs = statePath
         ? await $.fs.stat(statePath).then(stat => stat.mtimeMs).catch(() => undefined)
         : undefined
@@ -261,7 +259,6 @@ export const register: Register = on => {
         command: e.tool === 'Bash' ? e.command : undefined,
         nowMs: await $.clock.now(),
         isNotified: await read($, isNotified),
-        taskId,
         lastSavedMs,
       }
       const stop = softStop(check)

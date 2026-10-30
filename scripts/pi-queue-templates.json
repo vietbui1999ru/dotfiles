@@ -1,0 +1,47 @@
+{
+  "pr-merge": {
+    "params": ["pr", "repo"],
+    "optional": {"post": ""},
+    "steps": [
+      {"name": "wait-pr-merged", "executor": "wait", "fact": ["pr-merged", "{pr}"]},
+      {"name": "pull", "executor": "shell", "worktree": "{repo}", "cmd": ["git -C {repo} pull --ff-only"]},
+      {"name": "post", "each": "post", "executor": "shell", "worktree": "{repo}", "cmd": ["{post}"]}
+    ]
+  },
+  "spec-approved": {
+    "params": ["spec", "worktree", "brief"],
+    "optional": {"model": "opencode-go/deepseek-v4.1-flash:medium", "plan": ".pi/queue/plan-{session}.md"},
+    "steps": [
+      {"name": "wait-spec-approved", "executor": "wait", "fact": ["spec-approved", "{spec}"]},
+      {"name": "plan", "executor": "claude", "worktree": "{worktree}", "brief": "{brief}", "fallback": "wait"},
+      {"name": "dispatch", "executor": "pi", "worktree": "{worktree}", "model": "{model}", "brief": "{worktree}/{plan}"}
+    ]
+  },
+  "pi-run-done": {
+    "params": ["task", "worktree", "branch", "brief"],
+    "steps": [
+      {"name": "wait-outcome", "executor": "wait", "fact": ["outcome", "{task}", "checks passed"]},
+      {"name": "review", "executor": "claude", "worktree": "{worktree}", "brief": "{brief}", "fallback": "wait"},
+      {"name": "push-pr", "executor": "shell", "worktree": "{worktree}", "cmd": [
+        "git -C {worktree} push -u origin {branch}",
+        "{gh} pr create --draft --head {branch} --fill"
+      ]}
+    ]
+  },
+  "review-decided": {
+    "params": ["worktree", "run", "session", "message"],
+    "steps": [
+      {"name": "wait-review", "executor": "wait", "fact": ["review-decided", "{worktree}", "{run}"]},
+      {"name": "send", "executor": "shell", "worktree": "{worktree}", "cmd": [
+        "pane=$(head -n1 \"${{TMPDIR:-/tmp}}/pi-view/{session}.pane\"); [ -n \"$pane\" ] && {herdr} pane send-text \"$pane\" \"$(cat '{message}')\" && {herdr} pane send-keys \"$pane\" Enter"
+      ]}
+    ]
+  },
+  "checks-exhausted": {
+    "params": ["task"],
+    "steps": [
+      {"name": "wait-checks", "executor": "wait", "fact": ["outcome", "{task}", "checks failed"]},
+      {"name": "notify", "executor": "shell", "cmd": ["{herdr} notification show \"pi#{task} checks failed, needs you\""]}
+    ]
+  }
+}

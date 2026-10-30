@@ -2,7 +2,7 @@
   "primaryHarness": "pi",
   "providerAdapters": true,
   "externalHarnessAdapters": false,
-  "commandr": true,
+  "commandr": false,
   "preCommitGate": true,
   "diffviewer": true,
   "opencodeAdapters": false,
@@ -38,7 +38,7 @@
     "staleDays": 14,
     "historyDepth": 20,
     "multiRepo": false,
-    "repos": ["~/dotfiles", "~/repos/Commandr"]
+    "repos": ["~/dotfiles"]
   },
   "controlPlane": {
     "enabled": false,

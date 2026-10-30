@@ -1,0 +1,11 @@
+#!/bin/sh
+# pi-wait — wait for one fact, then release explicit queued task ids.
+#
+#   pi-wait pr-merged 42 --release 17 18
+#   pi-wait spec-approved SPEC.md --release 9
+#   pi-wait outcome 5 "checks passed" --release 12
+#   pi-wait review-decided <worktree> <runId> --release 4
+#
+# The implementation is `pi-queue wait`; this file is only the short name the
+# templates and pueue task commands use.
+exec "$(dirname "$0")/pi-queue" wait "$@"

@@ -56,6 +56,30 @@ export type HandoffSegment = {
   done?: number
 }
 
+export type QueueRow = { id: number; template: string; step: string; state: PueueState }
+export type QueueGroup = { session: string; rows: QueueRow[] }
+
+/**
+ * The queued steps, grouped by the session in their `q:<session>:<template>:<step>`
+ * label and ordered by task id, so a template's wait and steps read in queue order.
+ * Non-queue tasks are ignored.
+ */
+export const queueGroups = (tasks: readonly Task[]): QueueGroup[] => {
+  const groups = new Map<string, QueueRow[]>()
+  for (const task of [...tasks].sort((left, right) => left.id - right.id)) {
+    const parsed = task.label ? /^q:([^:]+):([^:]+):(.+)$/.exec(task.label) : null
+    if (!parsed) continue
+    const session = parsed[1]
+    const template = parsed[2]
+    const step = parsed[3]
+    if (!session || !template || !step) continue
+    const rows = groups.get(session) ?? []
+    rows.push({ id: task.id, template, step, state: task.state })
+    groups.set(session, rows)
+  }
+  return [...groups.entries()].map(([session, rows]) => ({ session, rows }))
+}
+
 const finished = (state: PueueState | undefined) => state === 'Done' || state === 'Failed' || state === 'Killed'
 const live = (state: PueueState | undefined) => state === 'Queued' || state === 'Running' || state === 'Paused'
 const glyph = (state: PueueState | undefined) => state === 'Running' ? '▶' : state === 'Queued' ? '…' : state === 'Paused' ? 'Ⅱ' : state === 'Done' ? '✓' : state === 'Failed' || state === 'Killed' ? '!' : '?'

@@ -5,7 +5,7 @@ import { parsePiCommand, parseStatus, type Task } from './pueue'
 import { finishNotice, type TrackedTask } from './handoff'
 import { daemonState, queueBadge } from './lifecycle'
 
-export type HandoffState = { tasks: TrackedTask[]; available: boolean; selectedId?: number; showThinking?: boolean; showAll?: boolean; confirm?: { action: 'kill' | 'hold'; ids: number[]; atMs: number }; queue?: string }
+export type HandoffState = { tasks: TrackedTask[]; available: boolean; selectedId?: number; showThinking?: boolean; showAll?: boolean; confirm?: { action: 'kill' | 'hold'; ids: number[]; atMs: number }; queue?: string; queueTasks?: Task[] }
 
 const handoff = atom({ plugin: 'session-band', key: 'handoff' } as const, { tasks: [], available: true } satisfies HandoffState)
 const progress = atom({ plugin: 'session-band', key: 'progress' } as const, {} as Record<number, PiProgress>)
@@ -75,7 +75,7 @@ async function poll($: EngineInterface) {
     // Merge inside the update so a task the tracker added meanwhile is not overwritten.
     await update($, handoff, value => {
       const tasks = mergeTasks(value.tasks, fresh, nowMs, snapshotMs)
-      return { ...value, tasks, available: true, queue: queueBadge(daemon, hasLiveTrackedTask(tasks)) }
+      return { ...value, tasks, available: true, queue: queueBadge(daemon, hasLiveTrackedTask(tasks)), queueTasks: fresh }
     })
     const { tasks } = await read($, handoff)
     const home = await $.env.get('HOME')

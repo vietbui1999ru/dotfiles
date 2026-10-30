@@ -228,21 +228,16 @@ test('a non-composer clear refuses on failure instead of asking', async ($, on) 
   expect(world.askQuestion).toBeUndefined()
 })
 
-test('a task worktree writes the claimed state file', async ($, on) => {
+test('a leftover .agent-task-id no longer redirects the save to .agents/claimed', async ($, on) => {
+  // Commandr's task bus is retired (pueue queue, SPEC AC-13): every save goes through agent-session.
   const world = setup(on, { taskId: 'TASK-7', common: '/main/.git' })
 
   await edit($)
-  const result = await $.command.run(clear())
+  await $.command.run(clear())
 
-  expect(result.text).toBe('Session saved: /main/.agents/claimed/TASK-7.state.md')
   expect(world.clearRan).toBe(1)
-  expect(world.writes).toHaveLength(1)
-  expect(world.writes[0]?.path).toBe('/main/.agents/claimed/TASK-7.state.md')
-  expect(world.writes[0]?.text).toContain('status: active')
-  expect(world.writes[0]?.text).toContain('agent_task: TASK-7')
-  expect(world.writes[0]?.text).toContain('## Completed')
-  expect(result.text).toBe('Session saved: /main/.agents/claimed/TASK-7.state.md')
-  expect(world.saveStdin).toBeUndefined()
+  expect(world.writes.some(write => write.path.includes('.agents/claimed'))).toBe(false)
+  expect(world.saveStdin).toBeDefined()
 })
 
 test('four prompts count as real work', async ($, on) => {

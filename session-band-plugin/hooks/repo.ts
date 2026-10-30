@@ -1,15 +1,10 @@
-export type RepoInfo = { taskId?: string; statePath?: string }
+export type RepoInfo = { statePath?: string }
 
-// Mirrors the shell hook: an agent worktree carries .agent-task-id, and its
-// state lives in the main repo's .agents/claimed/, else .claude/session-state.md.
+// The session state file lives in the main repo's .claude/session-state.md.
+// (Commandr's per-task state files are retired: the pueue queue replaced its task bus.)
 // `common` is the absolute git-common-dir; its dirname is the main repo.
-export const toRepoInfo = (common: string, taskId: string | undefined): RepoInfo => {
+export const toRepoInfo = (common: string): RepoInfo => {
   const mainRepo = common.slice(0, common.lastIndexOf('/'))
 
-  return {
-    taskId,
-    statePath: taskId
-      ? `${mainRepo}/.agents/claimed/${taskId}.state.md`
-      : `${mainRepo}/.claude/session-state.md`,
-  }
+  return { statePath: `${mainRepo}/.claude/session-state.md` }
 }
