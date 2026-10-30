@@ -8,8 +8,9 @@ import os
 import subprocess
 
 import random
+import unittest.mock
 
-from scripts.bench_lib import anonymize, arms, cli_log, collect, events, loop, prepare, report, review
+from scripts.bench_lib import anonymize, arms, cli_log, collect, compare, events, loop, prepare, report, review
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 BENCH = ROOT / "scripts" / "bench"
@@ -414,6 +415,51 @@ class Report(unittest.TestCase):
             self.assertIn("rubric (human)", text)
             self.assertIn("rubric (judge)", text)
             self.assertIn("real=1", text)
+
+
+class Compare(unittest.TestCase):
+    RUNS = {"d-council-1": True, "d-single-gpt-1": True, "d-send-it-1": False}
+
+    def _runs(self, tmp):
+        runs = Path(tmp) / "runs"
+        for rid, has_file in self.RUNS.items():
+            wt = Path(tmp) / "wt" / rid
+            (wt / "src").mkdir(parents=True)
+            if has_file:
+                (wt / "src" / "app.py").write_text("def handle(x):\n    return x\n")
+            (runs / rid).mkdir(parents=True)
+            meta = {"task": "d", "arm": rid[2:-2], "run_id": rid, "worktree": str(wt)}
+            (runs / rid / "meta.json").write_text(json.dumps(meta))
+        return runs
+
+    def test_blind_copies(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = compare.compare("d", "src/app.py", runs=self._runs(tmp), out_root=Path(tmp) / "cmp")
+            out_dir = Path(out["dir"])
+            copies = sorted(p for p in out_dir.iterdir() if not p.name.startswith("."))
+            self.assertEqual(len(copies), 2)
+            self.assertEqual(len(out["absent"]), 1)
+            sealed = json.loads((out_dir / ".sealed-map.json").read_text())
+            self.assertEqual(set(sealed), {p.stem for p in copies} | set(out["absent"]))
+            for p in copies:
+                for rid in self.RUNS:
+                    self.assertNotIn(rid, str(p.relative_to(tmp)) + p.read_text())
+                self.assertIn(str(p), out["command"])
+            self.assertTrue(out["command"].startswith("nvim -O "))
+            for rid in self.RUNS:
+                self.assertNotIn(rid, out["command"])
+
+    def test_ids_distinct_from_grading(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            grading_map = Path(tmp) / "grading-map.json"
+            grading_map.write_text(json.dumps({"aaaa0001": "d-council-1"}))
+            ids = iter(["aaaa0001", "bbbb0002", "cccc0003", "dddd0004"])
+            with unittest.mock.patch.object(compare.secrets, "token_hex", lambda n: next(ids)):
+                out = compare.compare("d", "src/app.py", runs=self._runs(tmp),
+                                      out_root=Path(tmp) / "cmp", grading_map=grading_map)
+            sealed = json.loads((Path(out["dir"]) / ".sealed-map.json").read_text())
+            self.assertNotIn("aaaa0001", sealed)
+            self.assertEqual(len(sealed), 3)
 
 
 if __name__ == "__main__":

@@ -100,6 +100,18 @@ Run these once every run in the pilot is collected.
    scripts/bench report
    ```
 
+## Side-by-side view
+
+`bench compare` copies one file from every run of a task under fresh random ids, unrelated to the
+grading ids, and prints an `nvim -O` command that opens the copies in vertical splits, in shuffled order.
+`--grep` opens every pane at the first match, for comparing one function. Runs without the file are
+listed as absent. The id-to-run map is in the copies directory's `.sealed-map.json`; read it only when
+done. A rerun for the same path replaces the earlier copies and map.
+
+```sh
+scripts/bench compare safety-block-log scripts/safety-log --grep 'def mark'
+```
+
 ## Confounds to keep in mind
 
 - `send-it` builds with a Claude Haiku worker, not Pi, and its review and auto-merge run outside the

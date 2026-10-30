@@ -9,12 +9,12 @@ from pathlib import Path
 def _libs():
     """Import the harness modules from the repo root. Deferred so the path is set first."""
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from scripts.bench_lib import anonymize, cli_log, collect, events, judge_call, prepare, report, review
-    return anonymize, cli_log, collect, events, judge_call, prepare, report, review
+    from scripts.bench_lib import anonymize, cli_log, collect, compare, events, judge_call, prepare, report, review
+    return anonymize, cli_log, collect, compare, events, judge_call, prepare, report, review
 
 
 def main(argv=None):
-    anonymize, cli_log, collect, events, judge_call, prepare, report, review = _libs()
+    anonymize, cli_log, collect, compare, events, judge_call, prepare, report, review = _libs()
     p = argparse.ArgumentParser(prog="bench")
     sub = p.add_subparsers(dest="cmd", required=True)
     lg = sub.add_parser("log", help="append a manual event to a run")
@@ -32,6 +32,10 @@ def main(argv=None):
     sub.add_parser("anonymize", help="write blind grading items and the sealed id map")
     sub.add_parser("judge", help="fill the judge grades with the judge model")
     sub.add_parser("report", help="print the per-arm summary (refuses until both graders have graded)")
+    cm = sub.add_parser("compare", help="blind side-by-side copies of one file across a task's runs")
+    cm.add_argument("task")
+    cm.add_argument("path")
+    cm.add_argument("--grep", help="open every pane at the first match")
     args = p.parse_args(argv)
     if hasattr(args, "run_id"):
         try:
@@ -79,6 +83,13 @@ def main(argv=None):
         except report.NotGraded as exc:
             sys.stderr.write(f"bench report: {exc}\n")
             return 2
+        return 0
+    if args.cmd == "compare":
+        out = compare.compare(args.task, args.path, grep=args.grep)
+        print(f"copies:  {out['dir']}")
+        if out["absent"]:
+            print(f"absent:  {' '.join(out['absent'])}")
+        print(out["command"])
         return 0
     return 2
 
