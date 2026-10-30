@@ -10,6 +10,11 @@ set -euo pipefail
 mkdir -p "$HOME/repos" "$HOME/.local/bin"
 echo "✓ ~/repos"
 
+# pueue stores the full environment of every `pueue add` in its state file. The wrapper,
+# ahead of Homebrew's pueue on PATH, drops secret variables before `add` reaches pueue.
+ln -sfn "$(cd "$(dirname "$0")" && pwd)/pueue-safe" "$HOME/.local/bin/pueue"
+echo "✓ ~/.local/bin/pueue → scripts/pueue-safe"
+
 # Firecrawl, CLI first: the CLI's own skills (curated in shared/firecrawl-skills.txt) are the
 # default for every harness, and the key-loading shim is linked. The research-tool routing
 # (Context7 vs Ketch vs Firecrawl) lives in shared/research-tool-routing.md, not in a skill copy.

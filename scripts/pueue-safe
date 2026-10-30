@@ -1,0 +1,53 @@
+#!/usr/bin/env zsh
+# pueue-safe — pueue, except that `pueue add` never sees the secrets in this environment.
+#
+# pueue stores the full environment of each `pueue add` with the task, in state.json, for
+# good. Linked as ~/.local/bin/pueue, ahead of Homebrew's on PATH, this wrapper sits in
+# front of every dispatch: for `add` it drops secret variables by name, then runs the real
+# pueue. It keeps only variable names from the secrets file, never values. A task that
+# needs a secret loads it itself when it runs (scripts/pi-view does).
+#
+# Overrides: PUEUE_SAFE_REAL (the real binary), PUEUE_SAFE_SECRETS (the secrets file).
+emulate -L zsh
+setopt no_unset pipe_fail
+
+# The real pueue: the first one on PATH that is not this wrapper (`-ef` follows links).
+real=${PUEUE_SAFE_REAL:-}
+if [[ -z $real ]]; then
+  for cand in ${(f)"$(whence -ap pueue)"}; do
+    [[ $cand -ef $0 ]] && continue
+    real=$cand
+    break
+  done
+fi
+if [[ -z $real ]]; then
+  print -u2 -- 'pueue-safe: no real pueue on PATH (or set PUEUE_SAFE_REAL)'
+  exit 127
+fi
+
+[[ ${1:-} == add ]] || exec $real "$@"
+
+# Variable names the secrets file defines (`NAME=value` or `export NAME=value`).
+listed=()
+secrets=${PUEUE_SAFE_SECRETS:-$HOME/secrets/.env}
+if [[ -r $secrets ]]; then
+  for line in ${(f)"$(<$secrets)"}; do
+    [[ $line =~ '^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=' ]] && listed+=($match[2])
+  done
+fi
+
+# Whether a variable name looks like a secret even when the secrets file does not list it.
+# Returns 0 (true) to drop the variable from what pueue stores, 1 to keep it.
+is_secret() {
+  local name=$1
+  [[ $name == *_TOKEN || $name == *_KEY  || $name == GITHUB_* || $name == *_API_KEY_PI_QUEUES || $name == *_API_KEY_LIGHTRAG || $name == *_PASSWORD || $name == *_SECRET || $name == *_CREDENTIALS ]] && return 0
+  return 1
+}
+
+drop=()
+for name in ${(k)parameters[(R)*export*]}; do
+  if (( ${listed[(Ie)$name]} )) || is_secret $name; then
+    drop+=(-u $name)
+  fi
+done
+exec env $drop $real "$@"
