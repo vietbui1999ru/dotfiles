@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { confirmedStale, continueArgv, continueModel, continuePath, hasMonitorRows, monitorText, selectedProgress, selectedTask, transcriptLines } from './pane.tsx'
+import { confirmedStale, continueArgv, continueModel, continuePath, hasMonitorRows, monitorText, outcomeLabel, selectedProgress, selectedTask, transcriptLines } from './pane.tsx'
 import { controlArgv } from './controls'
 import { selectStale, type MonitorRow, type TrackedTask } from './handoff'
 import { emptyProgress } from './pisession'
@@ -29,7 +29,7 @@ test('shows the Monitor only for tracked rows and follows the selected task tran
 })
 
 test('narrow monitor rows drop cost and tokens, then truncate activity, and always keep the model', () => {
-  const row: MonitorRow = { id: 7, state: 'Running', glyph: '▶', modelEffort: 'openai/gpt:high', elapsed: '1m0s', activity: 'bash this is a long command that needs truncating', tokens: '1.5k tok', cost: '$0.20' }
+  const row: MonitorRow = { id: 7, state: 'Running', glyph: '▶', outcome: 'running', tone: 'muted', reviewWaiting: false, modelEffort: 'openai/gpt:high', elapsed: '1m0s', activity: 'bash this is a long command that needs truncating', tokens: '1.5k tok', cost: '$0.20' }
   const full = monitorText(row, 200)
   const noCost = monitorText(row, full.length - 1)
   const noTokens = monitorText(row, noCost.length - 1)
@@ -44,6 +44,13 @@ test('narrow monitor rows drop cost and tokens, then truncate activity, and alwa
   expect(narrow).toContain('▶ #7')
   expect(narrow).toContain('1m0s')
   expect(narrow).toContain('…')
+})
+
+test('a row shows the outcome, its round, and the review marker', () => {
+  const row: MonitorRow = { id: 7, state: 'Running', glyph: '▶', outcome: 'fixing', tone: 'yellow', round: 2, reviewWaiting: false, elapsed: '1m0s', activity: 'edit a.ts', tokens: '1.5k tok', cost: '$0.20' }
+  expect(outcomeLabel(row)).toBe('fixing 2/3')
+  expect(outcomeLabel({ ...row, outcome: 'checks passed', round: undefined })).toBe('checks passed')
+  expect(outcomeLabel({ ...row, outcome: 'finished', round: undefined, reviewWaiting: true })).toBe('finished · review')
 })
 
 test('two quick Continues create distinct prompt paths', () => {

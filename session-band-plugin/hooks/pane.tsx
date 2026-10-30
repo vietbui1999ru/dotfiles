@@ -1,14 +1,15 @@
 import { atom, read, update, type EngineInterface, type Register } from 'claude-code'
 
-import { dispatchCommand, isTuiDispatch, parseAddResult, parsePiCommand, parseStatus } from './pueue'
+import { dispatchCommand, isTuiDispatch, parseAddResult, parsePiCommand, parseStatus, type Task } from './pueue'
 import { controlArgv, eligible, holdArgv, parsePiArgs, PS_ARGV, releaseArgv, resolveTargets, signalGroupArgv, stopArgvs, strayGroups, type ControlAction, type Targets } from './controls'
-import { monitorRows, selectStale, type MonitorRow, type StaleSelection, type TrackedTask } from './handoff'
+import { monitorRows, runningPendingFor, selectStale, type MonitorRow, type StaleSelection, type TrackedTask } from './handoff'
 import type { HandoffState } from './handoff.tsx'
 import { focusRing, moveTo, type Motion } from './motion'
 import { FOCUS_ACTION, FOCUS_REFUSED, JUMP_KEYS, nextPane, PANE_TITLES, switchSteps } from './pane-nav'
 import { PALETTE } from './palette'
 import type { PiProgress, TranscriptEntry } from './pisession'
 import { parsePending, pendingRecordFor, type PendingReview } from './review'
+import { diffHash, STUCK_MS, type CheckRecord, type OutcomeInputs } from './outcome'
 import { editRefusal, killNote, parseEdit, readdArgv } from './lifecycle'
 
 const handoff = atom({ plugin: 'session-band', key: 'handoff' } as const, { tasks: [] as TrackedTask[], available: true } satisfies HandoffState)
@@ -68,6 +69,10 @@ export const selectedProgress = (tasks: readonly TrackedTask[], selectedId: numb
 }
 
 export const hasMonitorRows = (rows: readonly MonitorRow[]): boolean => rows.length > 0
+
+/** What the row says about the run itself: the outcome, its round, and the review marker. */
+export const outcomeLabel = (row: MonitorRow): string =>
+  `${row.outcome}${row.round === undefined ? '' : ` ${row.round}/3`}${row.reviewWaiting ? ' · review' : ''}`
 
 async function open($: EngineInterface) {
   await $.ui.open({ id: 'pi-handoff', title: 'Pi hand-off', focus: true })
@@ -336,8 +341,8 @@ async function reviewRoot($: EngineInterface, cwd: string): Promise<string> {
   return result?.exitCode === 0 && result.stdout.trim() ? result.stdout.trim() : cwd
 }
 
-async function pendingFor($: EngineInterface, task: TrackedTask): Promise<PendingReview | undefined> {
-  const dir = `${await reviewRoot($, task.cwd)}/.pi/agent-review/pending`
+async function pendingRecordsFor($: EngineInterface, root: string): Promise<PendingReview[]> {
+  const dir = `${root}/.pi/agent-review/pending`
   const files = await $.fs.list(dir).catch(() => [])
   const records = [] as PendingReview[]
   for (const file of files) {
@@ -345,7 +350,94 @@ async function pendingFor($: EngineInterface, task: TrackedTask): Promise<Pendin
     const pending = parsePending(await $.fs.read(`${dir}/${file.name}`).catch(() => ''))
     if (pending) records.push(pending)
   }
-  return pendingRecordFor(task, records)
+  return records
+}
+
+async function pendingFor($: EngineInterface, task: TrackedTask): Promise<PendingReview | undefined> {
+  return pendingRecordFor(task, await pendingRecordsFor($, await reviewRoot($, task.cwd)))
+}
+
+/** The saved check record `pi-checks` writes per dispatch. */
+async function checkRecord($: EngineInterface, home: string, sessionId: string | undefined): Promise<CheckRecord | undefined> {
+  if (!sessionId) return undefined
+  const raw = await $.fs.read(`${home}/.local/state/pi-checks/${sessionId}.json`).catch(() => '')
+  try {
+    const value = JSON.parse(raw) as Partial<CheckRecord>
+    return typeof value.phase === 'string' && typeof value.commit === 'string' && typeof value.diffHash === 'string'
+      && typeof value.specStatus === 'string' && typeof value.round === 'number' && typeof value.steered === 'boolean'
+      ? value as CheckRecord : undefined
+  } catch { return undefined }
+}
+
+/** HEAD and a hash of the uncommitted diff: the two facts that make a saved result current. */
+async function headOf($: EngineInterface, cwd: string): Promise<{ commit: string; diffHash: string } | undefined> {
+  const commit = await $.process.run(['git', 'rev-parse', 'HEAD'], { cwd }).catch(() => undefined)
+  if (!commit || commit.exitCode !== 0) return undefined
+  const diff = await $.process.run(['git', 'diff', 'HEAD'], { cwd }).catch(() => undefined)
+  if (!diff || diff.exitCode !== 0) return undefined
+  return { commit: commit.stdout.trim(), diffHash: diffHash(diff.stdout) }
+}
+
+/** A running `--tui` run's herdr agent status; no pane, or a closed one, is `undefined`. */
+async function agentStatus($: EngineInterface, sessionId: string | undefined): Promise<string | undefined> {
+  if (!sessionId) return undefined
+  let tmp = '/tmp'
+  try { tmp = await $.env.get('TMPDIR') ?? '/tmp' } catch { /* no environment in some harnesses */ }
+  const pane = (await $.fs.read(tuiPanePath(tmp, sessionId)).catch(() => '')).trim().split('\n')[0]
+  if (!pane) return undefined
+  const got = await $.process.run(['herdr', 'pane', 'get', pane]).catch(() => undefined)
+  if (!got || got.exitCode !== 0) return undefined
+  try { return (JSON.parse(got.stdout) as { result?: { pane?: { agent_status?: string } } }).result?.pane?.agent_status } catch { return undefined }
+}
+
+/**
+ * What `deriveOutcome` needs from beyond pueue's own state, per tracked task. The costly
+ * calls happen only when they can change the answer: git for a saved record, herdr after
+ * ten silent minutes.
+ */
+async function outcomeInputsFor(
+  $: EngineInterface,
+  tracked: readonly TrackedTask[],
+  tasks: readonly Task[],
+  progress: Readonly<Record<number, PiProgress | undefined>>,
+  nowMs: number,
+): Promise<Record<number, Omit<OutcomeInputs, 'pueue'>>> {
+  const current = new Map(tasks.map(task => [task.id, task]))
+  let home: string | undefined
+  try { home = await $.env.get('HOME') } catch { /* no environment in some harnesses */ }
+  const inputs: Record<number, Omit<OutcomeInputs, 'pueue'>> = {}
+  // Several runs can share one worktree, so its pending directory is read once per redraw.
+  const pendingByRoot = new Map<string, PendingReview[]>()
+  const pendingIn = async (root: string) => {
+    const known = pendingByRoot.get(root)
+    if (known) return known
+    const records = await pendingRecordsFor($, root)
+    pendingByRoot.set(root, records)
+    return records
+  }
+  for (const item of tracked) {
+    const task = current.get(item.id) ?? item.task
+    if (!task) continue
+    // A --tui run keeps Running while its review waits, so a running run's own record counts too.
+    const records = await pendingIn(await reviewRoot($, task.cwd))
+    const ended = task.state === 'Done' || task.state === 'Failed' || task.state === 'Killed'
+    const pending = ended ? pendingRecordFor({ ...item, task }, records) : runningPendingFor(item, records)
+    const value: Omit<OutcomeInputs, 'pueue'> = { reviewPending: pending !== undefined }
+    const lastEventMs = progress[item.id]?.lastEventMs
+    if (lastEventMs !== undefined) value.logAgeMs = Math.max(0, nowMs - lastEventMs)
+    const check = home ? await checkRecord($, home, item.sessionId) : undefined
+    if (check) {
+      value.check = check
+      const head = await headOf($, task.cwd)
+      if (head) value.head = head
+    }
+    if (task.state === 'Running' && value.logAgeMs !== undefined && value.logAgeMs >= STUCK_MS) {
+      const status = await agentStatus($, item.sessionId)
+      if (status !== undefined) value.agentStatus = status
+    }
+    inputs[item.id] = value
+  }
+  return inputs
 }
 
 export const matchingSocket = (repo: string, sockets: readonly { path: string; cwd: string }[]): string | undefined =>
@@ -542,14 +634,16 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: 'pi-handoff' }, async ($, e, _next) => {
     const { Box, Text, Button, Input } = $.ui.resolve(e)
     const [state, allProgress, nowMs] = await Promise.all([read($, handoff), read($, progress), $.clock.now()])
-    const base = monitorRows(state.tasks, allProgress, state.tasks.flatMap(item => item.task ? [item.task] : []), nowMs)
+    const taskList = state.tasks.flatMap(item => item.task ? [item.task] : [])
+    const inputs = await outcomeInputsFor($, state.tasks, taskList, allProgress, nowMs)
+    const base = monitorRows(state.tasks, allProgress, taskList, nowMs, undefined, inputs)
     const rowIds = base.map(row => row.id)
     const task = selectedTask(state.tasks, state.selectedId, rowIds)
     // Only the selected run's pane is asked about, so a redraw costs no herdr calls for the rest.
     const pane = task ? await tuiPane($, task) : undefined
     const where = pane ? await tuiWhere($, pane) : undefined
     let rows = base
-    if (where && task) rows = monitorRows(state.tasks, allProgress, state.tasks.flatMap(item => item.task ? [item.task] : []), nowMs, { [task.id]: where })
+    if (where && task) rows = monitorRows(state.tasks, allProgress, taskList, nowMs, { [task.id]: where }, inputs)
     const pending = task ? await pendingFor($, task) : undefined
     const pi = selectedProgress(state.tasks, state.selectedId, allProgress, rowIds)
     const transcript = pi?.entries.slice(-200) ?? []
@@ -595,10 +689,12 @@ export const register: Register = on => {
         {rows.map(row => {
           const selected = row.id === task?.id
           const idle = row.idle?.text
-          const columns = e.props.bodyColumns - (idle ? idle.length + 1 : 0) - 2
+          const outcome = ` ${outcomeLabel(row)}`
+          const columns = e.props.bodyColumns - (idle ? idle.length + 1 : 0) - 2 - outcome.length
           // The row is its only focus stop, so ↑↓ move one row; x/p act on the selected row.
           return <Box key={`pi-monitor-${row.id}`} flexDirection="row">
             <Button key={`pi-row-${row.id}`} plain label={`${selected ? '› ' : '  '}${monitorText(row, columns)}`} onPress={() => void update($, handoff, value => ({ ...value, selectedId: row.id }))} />
+            <Text color={PALETTE[row.tone]}>{outcome}</Text>
             {idle && <Text color={PALETTE[row.idle!.tone]}>{` ${idle}`}</Text>}
           </Box>
         })}

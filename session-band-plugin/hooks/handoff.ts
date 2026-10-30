@@ -1,6 +1,8 @@
 import type { PiProgress } from './pisession'
 import { parsePiCommand, type PueueState, type Task } from './pueue'
 import type { ReviewState } from './review'
+import { leftReviewExit } from './history'
+import { deriveOutcome, type Outcome, type OutcomeInputs, type OutcomeTone } from './outcome'
 
 export type TrackedTask = {
   id: number
@@ -18,6 +20,12 @@ export type MonitorRow = {
   id: number
   state: PueueState
   glyph: string
+  /** The run's one honest outcome, from `deriveOutcome`; its tone colours the row. */
+  outcome: Outcome
+  tone: OutcomeTone
+  /** The automatic check round, when the outcome is `fixing`. */
+  round?: number
+  reviewWaiting: boolean
   modelEffort?: string
   elapsed: string
   activity: string
@@ -60,7 +68,11 @@ const monitorVisible = (item: TrackedTask, nowMs: number) => {
   const state = item.task?.state
   return !item.dismissed && (live(state) || state === 'Failed' || state === 'Killed' || (state === 'Done' && linger(item, nowMs)))
 }
-const monitorOrder = (state: PueueState) => state === 'Failed' || state === 'Killed' ? 0 : state === 'Running' ? 1 : state === 'Queued' || state === 'Paused' ? 2 : state === 'Done' ? 3 : 4
+const monitorOrder = (state: PueueState, outcome: Outcome) =>
+  state === 'Killed' || outcome === 'failed' ? 0
+    : outcome === 'running' || outcome === 'stuck' || outcome === 'checking' || outcome === 'fixing' ? 1
+      : state === 'Queued' || state === 'Paused' ? 2
+        : 3
 
 export const formatElapsed = (ms: number): string => {
   const seconds = Math.max(0, Math.floor(ms / 1000))
@@ -88,7 +100,9 @@ export const idleAge = (progress: PiProgress | undefined, task: Task | undefined
   if (!progress?.lastEventMs || finished(task?.state)) return undefined
   const age = nowMs - progress.lastEventMs
   if (age <= 30_000) return undefined
-  return { text: `idle ${formatElapsed(age)}`, tone: age > 300_000 ? 'red' : age > 120_000 ? 'yellow' : 'muted' }
+  const tone = age > 300_000 ? 'red' : age > 120_000 ? 'yellow' : 'muted'
+  // `stuck` carries the red for a running task, so its idle timer stops at yellow.
+  return { text: `idle ${formatElapsed(age)}`, tone: tone === 'red' && task?.state === 'Running' ? 'yellow' : tone }
 }
 
 export const monitorRows = (
@@ -97,18 +111,28 @@ export const monitorRows = (
   tasks: readonly Task[],
   nowMs: number,
   paneWhere?: Readonly<Record<number, string | undefined>>,
+  outcomeInputs?: Readonly<Record<number, Omit<OutcomeInputs, 'pueue'>>>,
 ): MonitorRow[] => {
   const current = new Map(tasks.map(task => [task.id, task]))
   return tracked
     .map(item => ({ item, task: current.get(item.id) ?? item.task }))
     .filter(({ item, task }) => monitorVisible({ ...item, task }, nowMs))
+    .map(({ item, task }) => {
+      const state = task?.state ?? 'Other'
+      const inputs = outcomeInputs?.[item.id]
+      const outcome = deriveOutcome({
+        ...(inputs ?? { reviewPending: false }),
+        pueue: { state, ...(task?.exit !== undefined ? { exit: task.exit } : {}) },
+      })
+      return { item, task, outcome }
+    })
     .sort((left, right) => {
-      const stateOrder = monitorOrder(left.task?.state ?? 'Other') - monitorOrder(right.task?.state ?? 'Other')
+      const stateOrder = monitorOrder(left.task?.state ?? 'Other', left.outcome.outcome) - monitorOrder(right.task?.state ?? 'Other', right.outcome.outcome)
       if (stateOrder !== 0) return stateOrder
       if (left.task?.state === 'Done' && right.task?.state === 'Done') return (right.task.endMs ?? right.item.finishedMs ?? right.item.addedMs) - (left.task.endMs ?? left.item.finishedMs ?? left.item.addedMs)
       return 0
     })
-    .map(({ item, task }) => {
+    .map(({ item, task, outcome }) => {
       const state = task?.state ?? 'Other'
       const pi = progress[item.id]
       const parsed = task ? parsePiCommand(task.command) : undefined
@@ -120,6 +144,10 @@ export const monitorRows = (
         id: item.id,
         state,
         glyph: monitorGlyph(state),
+        outcome: outcome.outcome,
+        tone: outcome.tone,
+        ...(outcome.round !== undefined ? { round: outcome.round } : {}),
+        reviewWaiting: outcome.reviewWaiting,
         ...(modelEffort ? { modelEffort } : {}),
         elapsed: formatElapsed(ended - started),
         activity: item.sessionId ? activityLabel(pi) : 'n/a',
@@ -132,8 +160,11 @@ export const monitorRows = (
     })
 }
 
+// Lives in review.ts so scripts/pi-outcome can use it without the plugin runtime.
+export { runningPendingFor } from './review'
+
 const isReviewResult = (item: TrackedTask, review: ReviewState) =>
-  item.task?.state === 'Failed' && item.task.exit === 1 && review !== undefined
+  item.task?.state === 'Failed' && leftReviewExit(item.task.exit) && review !== undefined
 
 const visible = (item: TrackedTask, review: ReviewState, nowMs: number) => {
   const state = item.task?.state

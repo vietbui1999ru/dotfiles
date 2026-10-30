@@ -7,6 +7,7 @@ import contextlib
 import importlib.machinery
 import importlib.util
 import io
+import json
 import os
 import re
 import shutil
@@ -767,6 +768,42 @@ class SpecLoopCases(Fixture):
         c = self.run_acrun("status", "SPEC.md")
         self.assertEqual(c.returncode, 3, c.stdout + c.stderr)
         self.assertIn("stale (spec changed since approval; approve again)", c.stdout)
+
+    def read_record(self, path):
+        return json.loads(Path(path).read_text())
+
+    def test_check_record_written_on_pass(self):
+        self.approved([(1, "true", True), (2, "manual: look at it")])
+        out = self.tmp / "rec-pass.json"
+        c = self.check("--record", str(out))
+        self.assertEqual(c.returncode, 0, c.stdout + c.stderr)
+        rec = self.read_record(out)
+        self.assertEqual(rec["exit"], 0)
+        self.assertEqual(rec["spec"], "SPEC.md")
+        self.assertEqual(rec["branch"], "feat/x")
+        self.assertTrue(rec["specHash"])
+        self.assertEqual(rec["acs"]["AC-1"]["result"], "pass")
+        self.assertEqual(rec["acs"]["AC-2"]["result"], "manual")
+
+    def test_check_record_written_on_fail(self):
+        self.approved([(1, "test -f impl.txt")])
+        out = self.tmp / "rec-fail.json"
+        c = self.check("--record", str(out))
+        self.assertEqual(c.returncode, 1, c.stdout + c.stderr)
+        rec = self.read_record(out)
+        self.assertEqual(rec["exit"], 1)
+        self.assertEqual(rec["acs"]["AC-1"]["result"], "fail")
+        self.assertIsInstance(rec["acs"]["AC-1"]["tail"], str)
+
+    def test_check_record_without_approval(self):
+        self.init_repo()
+        self.write_spec([(1, "true")])
+        out = self.tmp / "nested" / "rec-none.json"
+        c = self.check("--record", str(out))
+        self.assertEqual(c.returncode, 3, c.stdout + c.stderr)
+        rec = self.read_record(out)
+        self.assertEqual(rec["exit"], 3)
+        self.assertEqual(rec["acs"], {})
 
 
 if __name__ == "__main__":

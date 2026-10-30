@@ -176,9 +176,13 @@ export function notePrintMode(ctx: { mode?: string }) {
 	}
 }
 
-export function reportPrintFailure(message: string) {
+// Print-mode exit when the run is waiting for review: non-zero, so an unattended run
+// never looks accepted, but distinct from 1 so callers can tell it from a crash.
+export const REVIEW_WAITING_EXIT = 3;
+
+export function reportPrintFailure(message: string, code = 1) {
 	if (!printMode) return;
-	process.exitCode = 1;
+	process.exitCode = code;
 	process.stderr.write(`${message}\n`);
 }
 
@@ -408,6 +412,7 @@ export default function agentReview(pi: ExtensionAPI) {
 			reportPrintFailure(
 				`agent-review: run ${record.name} (${run.runId}) changed ${files.length} file(s) and is awaiting review. ` +
 					`Nothing has been accepted. Review it in Neovim with :AgentReview`,
+				REVIEW_WAITING_EXIT,
 			);
 			try {
 				ctx.ui.setStatus("agent-review", "review pending — :AgentReview in nvim");
@@ -552,6 +557,7 @@ export default function agentReview(pi: ExtensionAPI) {
 			reportPrintFailure(
 				`agent-review: input refused, review ${label(blocked[0])} (${blocked[0].runId}) is pending. ` +
 					`Resolve it in Neovim, or run: /review skip ${label(blocked[0])}`,
+				REVIEW_WAITING_EXIT,
 			);
 			return { action: "handled" as const };
 		}

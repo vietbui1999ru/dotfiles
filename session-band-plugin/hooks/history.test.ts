@@ -12,6 +12,7 @@ const task = (id: number, state: Task['state'], endMs: number, command = 'pi --m
 test('styles successful, review-pending, failed, and killed Pi tasks', () => {
   expect(resultStyle(task(1, 'Done', now), false)).toEqual({ glyph: '✓', result: 'success', tone: 'green' })
   expect(resultStyle({ ...task(2, 'Failed', now), exit: 1 }, true)).toEqual({ glyph: '✓', result: 'review', tone: 'yellow' })
+  expect(resultStyle({ ...task(5, 'Failed', now), exit: 3 }, true)).toEqual({ glyph: '✓', result: 'review', tone: 'yellow' })
   expect(resultStyle(task(3, 'Failed', now), false)).toEqual({ glyph: '✗', result: 'exit 3', tone: 'red' })
   expect(resultStyle(task(4, 'Killed', now), false)).toEqual({ glyph: '✗', result: 'killed', tone: 'mauve' })
 })

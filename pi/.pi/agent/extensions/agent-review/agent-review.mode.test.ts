@@ -235,7 +235,7 @@ test("a print run that leaves a review exits non-zero", async () => {
     assert.equal(pending(root).length, 1);
     return process.exitCode;
   });
-  assert.equal(code, 1, "print mode reported success for unreviewed work");
+  assert.equal(code, 3, "print mode reported success for unreviewed work");
 });
 
 test("a print run blocked by a pending review exits non-zero", async () => {
@@ -254,7 +254,7 @@ test("a print run blocked by a pending review exits non-zero", async () => {
     assert.deepEqual(await next.emit("input", { text: "carry on", source: "interactive" }), { action: "handled" });
     return process.exitCode;
   });
-  assert.equal(code, 1, "blocked input reported success");
+  assert.equal(code, 3, "blocked input reported success");
 });
 
 test("an interactive run leaves the exit code alone", async () => {

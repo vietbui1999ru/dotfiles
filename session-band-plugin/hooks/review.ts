@@ -1,5 +1,14 @@
-export type PendingReview = { runId: string; repo?: string; files: { file: string }[]; startedAt?: number; endedAt?: number; error?: true }
+export type PendingReview = { runId: string; repo?: string; session?: string; files: { file: string }[]; startedAt?: number; endedAt?: number; error?: true }
 export type ReviewState = 'pending' | 'decided, waiting for the next Pi run in this repo' | 'approved' | 'changes requested' | undefined
+
+/** The pending review a still-running run left: the record its own Pi session wrote. */
+export const runningPendingFor = (
+  task: { sessionId?: string; runId?: string },
+  records: readonly PendingReview[],
+): PendingReview | undefined =>
+  task.runId
+    ? records.find(record => record.runId === task.runId)
+    : records.find(record => record.session !== undefined && record.session === task.sessionId)
 
 type Record = { [key: string]: unknown }
 const object = (value: unknown): Record | undefined => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record : undefined
@@ -17,6 +26,8 @@ export const parsePending = (json: string): PendingReview | undefined => {
     return {
       runId: value.runId,
       ...(typeof value.repo === 'string' ? { repo: value.repo } : {}),
+      // The Pi session that wrote it: how a still-running `--tui` run finds its own review.
+      ...(typeof value.session === 'string' && value.session ? { session: value.session } : {}),
       files,
       ...(started !== undefined && !Number.isNaN(started) ? { startedAt: started } : {}),
       ...(ended !== undefined && !Number.isNaN(ended) ? { endedAt: ended } : {}),

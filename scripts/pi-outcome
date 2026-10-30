@@ -1,0 +1,187 @@
+#!/usr/bin/env bun
+/**
+ * pi-outcome — print one Pi run's honest outcome, as the `/pi` Monitor shows it.
+ *
+ *   pi-outcome <task-id> [--json] [--check]
+ *
+ * Gathers pueue's state, the run's saved check record, its worktree's HEAD and
+ * uncommitted diff, the pending review, herdr's agent status and its session
+ * log's silence, then asks `deriveOutcome` — the same function the Monitor uses,
+ * so the two cannot disagree.
+ *
+ * `--json` prints `{id, outcome, round, tone, reviewWaiting}` instead of a line.
+ * `--check` runs `scripts/pi-checks` for the run first, without steering.
+ *
+ * Exit 0 when the run is found, 2 for an unknown task id.
+ */
+import { spawnSync } from "node:child_process";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+import { deriveOutcome, diffHash, STUCK_MS, type OutcomeInputs } from "../session-band-plugin/hooks/outcome.ts";
+import { parsePiCommand, parseStatus } from "../session-band-plugin/hooks/pueue.ts";
+import { parsePending, pendingRecordFor, runningPendingFor } from "../session-band-plugin/hooks/review.ts";
+
+const scriptDir = dirname(fileURLToPath(import.meta.url));
+/** spawnSync's 1 MB default is smaller than pueue's status and than a large diff. */
+const BIG_OUTPUT = 256 * 1024 * 1024;
+
+const git = (cwd, args) => {
+	const result = spawnSync("git", args, { cwd, encoding: "utf8", maxBuffer: BIG_OUTPUT });
+	return result.status === 0 ? result.stdout : undefined;
+};
+
+const checkRecord = (state, sessionId) => {
+	if (!state || !sessionId) return undefined;
+	try {
+		const value = JSON.parse(readFileSync(join(state, `${sessionId}.json`), "utf8"));
+		return typeof value?.phase === "string" && typeof value?.commit === "string" && typeof value?.diffHash === "string"
+			&& typeof value?.specStatus === "string" && typeof value?.round === "number" && typeof value?.steered === "boolean"
+			? value : undefined;
+	} catch {
+		return undefined;
+	}
+};
+
+/** Newest session JSONL named for this dispatch; its write time is Pi's last sign of life. */
+const newestLogMs = (home, sessionId) => {
+	const root = join(home, ".pi", "agent", "sessions");
+	const suffix = `_${sessionId}.jsonl`;
+	let newest;
+	const walk = (dir, depth) => {
+		let entries;
+		try {
+			entries = readdirSync(dir, { withFileTypes: true });
+		} catch {
+			return;
+		}
+		for (const entry of entries) {
+			const path = join(dir, entry.name);
+			if (entry.isDirectory()) {
+				if (depth < 4) walk(path, depth + 1);
+			} else if (entry.name.endsWith(suffix)) {
+				try {
+					const mtime = statSync(path).mtimeMs;
+					if (newest === undefined || mtime > newest) newest = mtime;
+				} catch {
+					// A log removed between listing and stat is simply not the newest.
+				}
+			}
+		}
+	};
+	walk(root, 0);
+	return newest;
+};
+
+const reviewPending = (root, task, sessionId) => {
+	const dir = join(root, ".pi", "agent-review", "pending");
+	let names;
+	try {
+		names = readdirSync(dir);
+	} catch {
+		return false;
+	}
+	const records = names.filter((name) => name.endsWith(".json")).flatMap((name) => {
+		try {
+			const record = parsePending(readFileSync(join(dir, name), "utf8"));
+			return record ? [record] : [];
+		} catch {
+			return [];
+		}
+	});
+	// A --tui run stays Running while its review waits, so it is found by its Pi session, as the Monitor does.
+	if (task.state === "Running") return runningPendingFor({ sessionId }, records) !== undefined;
+	return pendingRecordFor({ task: { state: task.state } }, records) !== undefined;
+};
+
+const agentStatus = (runDir, sessionId) => {
+	let pane;
+	try {
+		pane = readFileSync(join(runDir, `${sessionId}.pane`), "utf8").trim().split("\n")[0];
+	} catch {
+		return undefined;
+	}
+	if (!pane) return undefined;
+	const got = spawnSync(process.env.HERDR_BIN_PATH || "herdr", ["pane", "get", pane], { encoding: "utf8" });
+	if (got.status !== 0) return undefined;
+	try {
+		return JSON.parse(got.stdout)?.result?.pane?.agent_status;
+	} catch {
+		return undefined;
+	}
+};
+
+const inputsFor = (task, sessionId, nowMs) => {
+	const state = process.env.PI_CHECKS_STATE || join(homedir(), ".local", "state", "pi-checks");
+	const runDir = process.env.PI_VIEW_RUN_DIR || join(process.env.TMPDIR || "/tmp", "pi-view");
+	const inputs: Omit<OutcomeInputs, "pueue"> = { reviewPending: false };
+	if (!task.cwd) return inputs;
+	const root = (git(task.cwd, ["rev-parse", "--show-toplevel"]) ?? task.cwd).trim();
+	inputs.reviewPending = reviewPending(root, task, sessionId);
+	const newest = sessionId ? newestLogMs(homedir(), sessionId) : undefined;
+	if (newest !== undefined) inputs.logAgeMs = Math.max(0, nowMs - newest);
+	const check = checkRecord(state, sessionId);
+	if (check) {
+		inputs.check = check;
+		const commit = git(task.cwd, ["rev-parse", "HEAD"]);
+		const diff = git(task.cwd, ["diff", "HEAD"]);
+		if (commit !== undefined && diff !== undefined) inputs.head = { commit: commit.trim(), diffHash: diffHash(diff) };
+	}
+	if (task.state === "Running" && inputs.logAgeMs !== undefined && inputs.logAgeMs >= STUCK_MS) {
+		const status = agentStatus(runDir, sessionId);
+		if (status !== undefined) inputs.agentStatus = status;
+	}
+	return inputs;
+};
+
+const main = (argv) => {
+	const args = argv.filter((arg) => !arg.startsWith("--"));
+	const flags = argv.filter((arg) => arg.startsWith("--"));
+	const id = Number(args[0]);
+	if (!Number.isInteger(id) || flags.some((flag) => flag !== "--json" && flag !== "--check")) {
+		process.stderr.write("usage: pi-outcome <task-id> [--json] [--check]\n");
+		return 2;
+	}
+	// pueue keeps every task's environment, so its status runs to megabytes, and it holds API keys:
+	// read it with room to spare, and on failure name only the cause, never the output.
+	const status = spawnSync(process.env.PUEUE_BIN || "pueue", ["status", "--json"], { encoding: "utf8", maxBuffer: BIG_OUTPUT });
+	if (status.status !== 0) {
+		const cause = status.error ? status.error.code ?? status.error.message : `exit ${status.status ?? status.signal}`;
+		process.stderr.write(`pi-outcome: could not read pueue status (${cause})\n`);
+		return 1;
+	}
+	const task = parseStatus(status.stdout).find((item) => item.id === id);
+	if (!task) {
+		process.stderr.write(`pi-outcome: no pueue task ${id}\n`);
+		return 2;
+	}
+	const parsed = parsePiCommand(task.command);
+	const sessionId = parsed.sessionId ?? (task.label ? `pueue-${task.label}` : undefined);
+	if (flags.includes("--check") && sessionId) spawnSync(process.execPath, [join(scriptDir, "pi-checks.mjs"), task.cwd, sessionId, "--no-steer"], { encoding: "utf8" });
+
+	const inputs = inputsFor(task, sessionId, Date.now());
+	const derived = deriveOutcome({ ...inputs, pueue: { state: task.state, ...(task.exit !== undefined ? { exit: task.exit } : {}) } });
+	if (flags.includes("--json")) {
+		process.stdout.write(`${JSON.stringify({
+			id: task.id,
+			outcome: derived.outcome,
+			...(derived.round !== undefined ? { round: derived.round } : {}),
+			tone: derived.tone,
+			reviewWaiting: derived.reviewWaiting,
+		})}\n`);
+		return 0;
+	}
+	process.stdout.write(`pi#${task.id} ${derived.outcome}${derived.round === undefined ? "" : ` ${derived.round}/3`}${derived.reviewWaiting ? " · review waiting" : ""}\n`);
+	return 0;
+};
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+	try {
+		process.exitCode = main(process.argv.slice(2));
+	} catch (error) {
+		process.stderr.write(`pi-outcome: ${error instanceof Error ? error.message : String(error)}\n`);
+		process.exitCode = 1;
+	}
+}

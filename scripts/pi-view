@@ -267,20 +267,26 @@ if (( tui )); then
   # just before that instead of reporting the vanished pane as a failure.
   # Meanwhile a run that settles - agent_status idle or done, unchecked by the
   # person - moves into the verdict tab, so its slot beside Claude frees up. It
-  # moves at most once, and a run already in verdict stays there.
-  verdict_moved=0 idle_since=""
+  # moves at most once, and a run already in verdict stays there. The same settle
+  # starts the spec checks; each settle gets one run, and pi-checks itself skips
+  # an unchanged commit and a held lock, so a quiet run costs one check.
+  verdict_moved=0 checks_started=0 idle_since=""
   while [[ ! -e $exit_file ]]; do
     if ! info=$(herdr_json pane get "$pane"); then
       [[ -e $exit_file ]] || exit 1
       break
     fi
-    if (( verdict_moved == 0 )); then
-      # `status` is read-only in zsh, so the two fields get their own name.
-      fields=$(jq -r '[.result.pane.agent_status // "", .result.pane.focused // false] | @tsv' <<< "$info")
-      state=${fields%%$'\t'*} focused=${fields##*$'\t'}
-      if [[ $focused == false && ( $state == idle || $state == done ) ]]; then
-        [[ -n $idle_since ]] || idle_since=$(now_seconds)
-        if (( $(now_seconds) - idle_since >= 15 )); then
+    # `status` is read-only in zsh, so the two fields get their own name.
+    fields=$(jq -r '[.result.pane.agent_status // "", .result.pane.focused // false] | @tsv' <<< "$info")
+    state=${fields%%$'\t'*} focused=${fields##*$'\t'}
+    if [[ $focused == false && ( $state == idle || $state == done ) ]]; then
+      [[ -n $idle_since ]] || idle_since=$(now_seconds)
+      if (( $(now_seconds) - idle_since >= 15 )); then
+        if (( checks_started == 0 )); then
+          checks_started=1
+          node ${(q)script_dir}/pi-checks.mjs ${(q)PWD} ${(q)session_id} &!
+        fi
+        if (( verdict_moved == 0 )); then
           if move_to_verdict "$pane" "${HERDR_WORKSPACE_ID:-}"; then
             verdict_moved=1
             forget_pane "$pane"
@@ -289,14 +295,16 @@ if (( tui )); then
             herdr_json notification show "$notice ready for verdict" >/dev/null
           fi
         fi
-      else
-        idle_since=""
       fi
+    else
+      idle_since="" checks_started=0
     fi
     sleep 2
   done
   rc=$(<$exit_file)
   rm -f -- $exit_file
+  # One last check for what Pi left behind; nobody is left to steer.
+  node ${(q)script_dir}/pi-checks.mjs ${(q)PWD} ${(q)session_id} --no-steer
   exit ${rc:-1}
 fi
 
@@ -332,13 +340,19 @@ else
 fi
 
 # A reported `idle` is what herdr's sidebar shows as done; `done` is not a reportable state.
+# Exit 3 is the review gate asking for a person, not a crash, so it reads idle too.
 if [[ -n $pane ]]; then
   if (( rc == 0 )); then
     report_state "$pane" idle 'exit 0' 2
+  elif (( rc == 3 )); then
+    report_state "$pane" idle 'review waiting' 2
   else
     report_state "$pane" blocked "exit ${rc}" 2
   fi
 fi
+
+# The checks run on what Pi left behind; their result never changes the task's exit code.
+[[ -n $session_id ]] && node ${(q)script_dir}/pi-checks.mjs ${(q)PWD} ${(q)session_id} --no-steer
 
 rm -f -- $pane_file
 

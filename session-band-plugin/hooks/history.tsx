@@ -1,7 +1,7 @@
 import { atom, read, update, type EngineInterface, type Register } from 'claude-code'
 
 import type { HistoryState, PiProgress } from '../types'
-import { finalMessage, historyRowsPage, leftReview, type HistoryFilter, type HistoryUsage, truncateCommand } from './history'
+import { finalMessage, historyRowsPage, leftReview, leftReviewExit, type HistoryFilter, type HistoryUsage, truncateCommand } from './history'
 import { focusRing, moveTo, type Motion } from './motion'
 import { FOCUS_ACTION, FOCUS_REFUSED, JUMP_KEYS, nextPane, PANE_TITLES, switchSteps } from './pane-nav'
 import { emptyProgress, fold, sessionDir, sessionFileName } from './pisession'
@@ -97,7 +97,7 @@ async function refresh($: EngineInterface) {
     const trackedById = new Map(tracked.tasks.map(task => [task.id, task]))
     const reviews = Object.fromEntries(await Promise.all(tasks.map(async task => [task.id, await reviewFor($, task, trackedById.get(task.id))] as const)))
     const known = (await read($, history)).leftReviews
-    const unchecked = tasks.filter(task => task.state === 'Failed' && task.exit === 1 && known[logKey(task)] === undefined)
+    const unchecked = tasks.filter(task => task.state === 'Failed' && leftReviewExit(task.exit) && known[logKey(task)] === undefined)
     const checked = (await Promise.all(unchecked.map(async task => [logKey(task), await logLeftReview($, task)] as const)))
       .filter((entry): entry is readonly [string, boolean] => entry[1] !== undefined)
     await update($, history, state => ({ ...state, tasks, reviews, leftReviews: { ...state.leftReviews, ...Object.fromEntries(checked) }, available: true }))
