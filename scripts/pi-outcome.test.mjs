@@ -11,9 +11,10 @@ import { diffHash } from "../session-band-plugin/hooks/outcome.ts";
 const CLI = new URL("./pi-outcome", import.meta.url).pathname;
 
 const PUEUE_STUB = `#!/usr/bin/env node
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 appendFileSync(process.env.STUB_LOG ?? "/dev/null", JSON.stringify(process.argv.slice(2)) + "\\n");
-process.stdout.write(process.env.STUB_PUEUE_JSON ?? "{}");
+process.stdout.write(process.env.STUB_PUEUE_FILE ? readFileSync(process.env.STUB_PUEUE_FILE, "utf8") : process.env.STUB_PUEUE_JSON ?? "{}");
+process.exitCode = Number(process.env.STUB_PUEUE_EXIT ?? "0");
 `;
 
 const done = { Done: { enqueued_at: "2026-10-29T00:00:00Z", start: "2026-10-29T00:00:01Z", end: "2026-10-29T00:00:02Z", result: "Success" } };
@@ -86,6 +87,40 @@ test("--json carries round and reviewWaiting", () => {
 	const run = box.run(["--json"]);
 	assert.equal(run.status, 0);
 	assert.deepEqual(JSON.parse(run.stdout), { id: 7, outcome: "fixing", round: 2, tone: "yellow", reviewWaiting: true });
+});
+
+test("reads a pueue status larger than 1 MB", () => {
+	// pueue keeps every task's environment, so the real status is often over spawnSync's 1 MB default.
+	const box = sandbox();
+	box.record({ phase: "done", commit: box.head, diffHash: box.currentDiffHash(), specStatus: "approved", passed: true, round: 0, steered: false });
+	const status = JSON.parse(box.pueueStatus());
+	status.tasks["7"].envs = { PADDING: "x".repeat(2 * 1024 * 1024) };
+	const file = join(box.worktree, "..", "status.json");
+	writeFileSync(file, JSON.stringify(status));
+	const run = box.run([], { STUB_PUEUE_FILE: file });
+	assert.equal(run.status, 0, run.stderr.slice(0, 200));
+	assert.equal(run.stdout, "pi#7 checks passed\n");
+});
+
+test("a failing pueue never echoes its output", () => {
+	// The output holds every task's environment, API keys included.
+	const box = sandbox();
+	const run = box.run([], { STUB_PUEUE_JSON: '{"envs":{"API_KEY":"SECRET-TOKEN"}}', STUB_PUEUE_EXIT: "1" });
+	assert.equal(run.status, 1);
+	assert.match(run.stderr, /pi-outcome: could not read pueue status/);
+	assert.doesNotMatch(run.stderr, /SECRET-TOKEN/);
+});
+
+test("a running --tui run shows its own pending review", () => {
+	// A --tui run stays Running in pueue while its review waits; its record names its Pi session.
+	const box = sandbox();
+	box.record({ phase: "done", commit: box.head, diffHash: box.currentDiffHash(), specStatus: "approved", passed: true, round: 0, steered: false });
+	box.pending({ runId: "run-1", session: "pueue-x", files: [{ file: "a.txt" }] });
+	const status = JSON.parse(box.pueueStatus());
+	status.tasks["7"].status = { Running: { enqueued_at: "2026-10-29T00:00:00Z", start: "2026-10-29T00:00:01Z" } };
+	const run = box.run(["--json"], { STUB_PUEUE_JSON: JSON.stringify(status) });
+	assert.equal(run.status, 0, run.stderr);
+	assert.equal(JSON.parse(run.stdout).reviewWaiting, true);
 });
 
 test("unknown task exits 2", () => {

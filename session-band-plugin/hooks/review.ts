@@ -1,6 +1,15 @@
 export type PendingReview = { runId: string; repo?: string; session?: string; files: { file: string }[]; startedAt?: number; endedAt?: number; error?: true }
 export type ReviewState = 'pending' | 'decided, waiting for the next Pi run in this repo' | 'approved' | 'changes requested' | undefined
 
+/** The pending review a still-running run left: the record its own Pi session wrote. */
+export const runningPendingFor = (
+  task: { sessionId?: string; runId?: string },
+  records: readonly PendingReview[],
+): PendingReview | undefined =>
+  task.runId
+    ? records.find(record => record.runId === task.runId)
+    : records.find(record => record.session !== undefined && record.session === task.sessionId)
+
 type Record = { [key: string]: unknown }
 const object = (value: unknown): Record | undefined => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record : undefined
 

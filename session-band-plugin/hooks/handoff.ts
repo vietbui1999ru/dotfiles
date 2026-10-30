@@ -1,6 +1,6 @@
 import type { PiProgress } from './pisession'
 import { parsePiCommand, type PueueState, type Task } from './pueue'
-import type { PendingReview, ReviewState } from './review'
+import type { ReviewState } from './review'
 import { leftReviewExit } from './history'
 import { deriveOutcome, type Outcome, type OutcomeInputs, type OutcomeTone } from './outcome'
 
@@ -160,14 +160,8 @@ export const monitorRows = (
     })
 }
 
-/** The pending review a still-running run left: the record its own Pi session wrote. */
-export const runningPendingFor = (
-  task: Pick<TrackedTask, 'sessionId' | 'runId'>,
-  records: readonly PendingReview[],
-): PendingReview | undefined =>
-  task.runId
-    ? records.find(record => record.runId === task.runId)
-    : records.find(record => record.session !== undefined && record.session === task.sessionId)
+// Lives in review.ts so scripts/pi-outcome can use it without the plugin runtime.
+export { runningPendingFor } from './review'
 
 const isReviewResult = (item: TrackedTask, review: ReviewState) =>
   item.task?.state === 'Failed' && leftReviewExit(item.task.exit) && review !== undefined

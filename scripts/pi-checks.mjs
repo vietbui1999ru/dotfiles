@@ -46,7 +46,8 @@ const git = (cwd, args) => {
 };
 
 const diffHashOf = (cwd) => {
-	const result = spawnSync("git", ["diff", "HEAD"], { cwd });
+	// spawnSync's 1 MB default would make a large uncommitted diff skip the checks.
+	const result = spawnSync("git", ["diff", "HEAD"], { cwd, maxBuffer: 256 * 1024 * 1024 });
 	if (result.status !== 0) throw new Error(`git diff HEAD failed: ${(result.stderr ?? "").toString().trim()}`);
 	return diffHash((result.stdout ?? Buffer.alloc(0)).toString("utf8"));
 };

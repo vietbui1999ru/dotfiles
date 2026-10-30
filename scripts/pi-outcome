@@ -22,12 +22,14 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { deriveOutcome, diffHash, STUCK_MS, type OutcomeInputs } from "../session-band-plugin/hooks/outcome.ts";
 import { parsePiCommand, parseStatus } from "../session-band-plugin/hooks/pueue.ts";
-import { parsePending, pendingRecordFor } from "../session-band-plugin/hooks/review.ts";
+import { parsePending, pendingRecordFor, runningPendingFor } from "../session-band-plugin/hooks/review.ts";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
+/** spawnSync's 1 MB default is smaller than pueue's status and than a large diff. */
+const BIG_OUTPUT = 256 * 1024 * 1024;
 
 const git = (cwd, args) => {
-	const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+	const result = spawnSync("git", args, { cwd, encoding: "utf8", maxBuffer: BIG_OUTPUT });
 	return result.status === 0 ? result.stdout : undefined;
 };
 
@@ -73,7 +75,7 @@ const newestLogMs = (home, sessionId) => {
 	return newest;
 };
 
-const reviewPending = (root, task) => {
+const reviewPending = (root, task, sessionId) => {
 	const dir = join(root, ".pi", "agent-review", "pending");
 	let names;
 	try {
@@ -89,6 +91,8 @@ const reviewPending = (root, task) => {
 			return [];
 		}
 	});
+	// A --tui run stays Running while its review waits, so it is found by its Pi session, as the Monitor does.
+	if (task.state === "Running") return runningPendingFor({ sessionId }, records) !== undefined;
 	return pendingRecordFor({ task: { state: task.state } }, records) !== undefined;
 };
 
@@ -115,7 +119,7 @@ const inputsFor = (task, sessionId, nowMs) => {
 	const inputs: Omit<OutcomeInputs, "pueue"> = { reviewPending: false };
 	if (!task.cwd) return inputs;
 	const root = (git(task.cwd, ["rev-parse", "--show-toplevel"]) ?? task.cwd).trim();
-	inputs.reviewPending = reviewPending(root, task);
+	inputs.reviewPending = reviewPending(root, task, sessionId);
 	const newest = sessionId ? newestLogMs(homedir(), sessionId) : undefined;
 	if (newest !== undefined) inputs.logAgeMs = Math.max(0, nowMs - newest);
 	const check = checkRecord(state, sessionId);
@@ -140,9 +144,12 @@ const main = (argv) => {
 		process.stderr.write("usage: pi-outcome <task-id> [--json] [--check]\n");
 		return 2;
 	}
-	const status = spawnSync(process.env.PUEUE_BIN || "pueue", ["status", "--json"], { encoding: "utf8" });
+	// pueue keeps every task's environment, so its status runs to megabytes, and it holds API keys:
+	// read it with room to spare, and on failure name only the cause, never the output.
+	const status = spawnSync(process.env.PUEUE_BIN || "pueue", ["status", "--json"], { encoding: "utf8", maxBuffer: BIG_OUTPUT });
 	if (status.status !== 0) {
-		process.stderr.write(`pi-outcome: could not read pueue status: ${(status.stderr || status.stdout || "").trim()}\n`);
+		const cause = status.error ? status.error.code ?? status.error.message : `exit ${status.status ?? status.signal}`;
+		process.stderr.write(`pi-outcome: could not read pueue status (${cause})\n`);
 		return 1;
 	}
 	const task = parseStatus(status.stdout).find((item) => item.id === id);
