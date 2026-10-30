@@ -224,6 +224,18 @@ test("failing checks steer the live pane once and set round 1", () => {
 	assert.match(message, /AC-1 failed: `false`/);
 	assert.match(message, /boom/);
 	assert.match(message, /Fix these, commit, and stop\.$/);
+	// The review gate refuses plain input while a review is pending; a queued review batch
+	// for the same session is the one input it absorbs into a new run.
+	const header = /^\[review-batch ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]$/.exec(message.split("\n")[0]);
+	assert.ok(header, `no review-batch header in: ${message.split("\n")[0]}`);
+	const queue = readFileSync(join(box.worktree, ".pi", "agent-review", "threads", "queue.jsonl"), "utf8")
+		.trim().split("\n").map((line) => JSON.parse(line));
+	const row = queue.find((entry) => entry.id === header[1]);
+	assert.ok(row, "the batch is not in the review queue");
+	assert.equal(row.state, "delivered");
+	assert.equal(row.agent, "pi:pueue-test");
+	assert.deepEqual(row.entryIds, []);
+	assert.equal(typeof row.queuedAt, "string");
 });
 
 test("skips when commit and diff are unchanged", () => {

@@ -22,7 +22,8 @@
  * HERDR_BIN_PATH, PI_CHECKS_STATE, PI_VIEW_RUN_DIR.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -118,6 +119,23 @@ const livePane = (sessionId) => {
 	if (!pane) return undefined;
 	const got = spawnSync(herdrBin(), ["pane", "get", pane], { encoding: "utf8" });
 	return got.status === 0 ? pane : undefined;
+};
+
+/**
+ * The review gate refuses plain input while the run's review is pending, and absorbs
+ * a review batch for the same session into a new run instead (agent-review's
+ * `absorbable` and `queuedBatch`). So the failures go in as one: a `delivered` row in
+ * the worktree's review queue, then the text with the batch header as its first line.
+ * Nothing is accepted on the way; the new run's review covers the old changes too.
+ */
+const queueBatch = (worktree, sessionId) => {
+	const id = randomUUID();
+	const at = new Date().toISOString();
+	const queue = join(worktree, ".pi", "agent-review", "threads", "queue.jsonl");
+	mkdirSync(dirname(queue), { recursive: true });
+	const row = { id, agent: `pi:${sessionId}`, entryIds: [], state: "delivered", queuedAt: at, deliveredAt: at };
+	appendFileSync(queue, `${JSON.stringify(row)}\n`);
+	return id;
 };
 
 /** The same two calls the mod's Continue makes for a `--tui` run. */
@@ -266,7 +284,8 @@ async function main(argv) {
 				const pane = noSteer || !advanced ? undefined : livePane(sessionId);
 				if (pane && candidate <= MAX_ROUNDS) {
 					const verify = specText === undefined ? {} : verifyLines(specText);
-					if (steer(pane, steerMessage(acs, verify, floorGuard))) {
+					const batch = queueBatch(worktree, sessionId);
+					if (steer(pane, `[review-batch ${batch}]\n${steerMessage(acs, verify, floorGuard)}`)) {
 						steered = true;
 						round = candidate;
 					}
