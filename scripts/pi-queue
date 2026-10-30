@@ -415,8 +415,11 @@ def read_brief(step):
         return None
 
 
-def running_in_worktree(worktree):
-    """The pueue task already running in this worktree, if any."""
+def running_in_worktree(worktree, own_step_file=None):
+    """The pueue task already running in this worktree, if any.
+
+    The step calling this is itself a running pueue task (`pi-queue run-step <file>`),
+    often started from the same worktree, so its own task never counts as busy."""
     result = run([pueue_bin(), "status", "--json"])
     if result.returncode != 0:
         raise QueueError(f"pueue status --json failed: {result.stderr.strip()}")
@@ -425,7 +428,10 @@ def running_in_worktree(worktree):
     except ValueError:
         raise QueueError("pueue status --json printed no JSON")
     target = os.path.realpath(worktree)
+    own = f"run-step {own_step_file}" if own_step_file else None
     for task in tasks.values():
+        if own and (task.get("command") or "").endswith(own):
+            continue
         if "Running" in (task.get("status") or {}) and os.path.realpath(task.get("path", "")) == target:
             return task
     return None
@@ -442,10 +448,10 @@ def run_shell(step):
     return True, "commands ran"
 
 
-def run_pi(step):
+def run_pi(step, step_file=None):
     worktree = step.get("worktree", "")
     try:
-        busy = running_in_worktree(worktree)
+        busy = running_in_worktree(worktree, step_file)
     except QueueError as error:
         return False, f"refusing to dispatch: {error}"
     if busy is not None:
@@ -537,7 +543,7 @@ def command_run_step(args):
     if executor == "shell":
         ok, detail = run_shell(step)
     elif executor == "pi":
-        ok, detail = run_pi(step)
+        ok, detail = run_pi(step, args.step_file)
     elif executor == "claude":
         ok, detail = run_claude(step, fields)
     else:

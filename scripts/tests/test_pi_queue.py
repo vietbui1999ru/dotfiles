@@ -421,6 +421,19 @@ class PiQueue(unittest.TestCase):
         self.assertIn("implement the plan", argv)
         self.assert_event("done", executor="pi", step="dispatch")
 
+        # The step is itself a running pueue task, often started from the same worktree:
+        # its own task (pi-queue run-step <this step file>) must not count as busy.
+        step = self.pi_step()
+        own = self.write_step(step)
+        self.fixture("tasks.json", {"6": {"id": 6, "label": step["label"], "path": str(self.tmp / "wt"),
+                                         "group": "default",
+                                         "command": f"{sys.executable} pi-queue run-step {own}",
+                                         "status": {"Running": {"start": "2026-10-30T00:00:00Z"}}}})
+        before = len(self.calls("pi-view"))
+        result = self.run_step(step)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.calls("pi-view")), before + 1)
+
     # --- AC-10 -------------------------------------------------------------
 
     def test_unknown_template_refused(self):
