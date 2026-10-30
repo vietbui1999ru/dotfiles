@@ -376,8 +376,9 @@ ai-ml (training-pipeline/feature-stores/model-serving/A-B-testing/drift-monitori
 
 ## Pi-first session and provider workflow
 
-**Adopted architecture:** Pi is the only supported agent harness. Commandr is
-the task service; DiffView is the review service; Obsidian is the human UI.
+**Adopted architecture:** Pi is the only supported agent harness. pueue is
+the task queue (`scripts/pi-queue`, `scripts/pi-wait`); DiffView is the review
+service; Obsidian is the human UI.
 Claude Code, Codex, and OpenCode are not parallel workflow targets.
 
 Provider adapters are selected inside Pi:

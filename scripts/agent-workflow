@@ -71,7 +71,7 @@ def ensure_user_config() -> None:
 
 def default_config() -> dict[str, Any]:
     return {
-        "commandr": True,
+        "commandr": False,
         "preCommitGate": True,
         "opencodeAdapters": True,
         "claudeHooks": False,

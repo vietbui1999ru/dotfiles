@@ -56,15 +56,3 @@ grep "^status:" .claude/session-state.md 2>/dev/null
 | No output (file missing) | Silent skip. |
 
 **Override:** user says "ignore session state" or "start fresh" → skip regardless of status.
-
-### Agent state files (multi-agent harness)
-
-```bash
-MAIN_REPO=$(cd "$(dirname "$(git rev-parse --git-common-dir)")" && pwd 2>/dev/null)
-grep -l "^status: active" "${MAIN_REPO}/.agents/claimed/"*.state.md 2>/dev/null
-```
-
-| Result | Action |
-|---|---|
-| One or more `.state.md` with `status: active` | For each: read `agent_task:` and `## In Progress`. Tell user: "Agent TASK-XXX has saved state — in progress: [summary]." |
-| No matches | Silent skip. |
