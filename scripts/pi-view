@@ -45,6 +45,15 @@ fi
 [[ ${1:-} == -h || ${1:-} == --help ]] && { usage; exit 0 }
 [[ $# -gt 0 ]] || { usage; exit 2 }
 
+# Keys come in here, at run time, never through `pueue add`: scripts/pueue-safe strips them
+# there so pueue's state file never stores them. Only this process and its children see them.
+secrets_file=${PI_VIEW_SECRETS:-$HOME/secrets/.env}
+if [[ -r $secrets_file ]]; then
+  set -a
+  source $secrets_file
+  set +a
+fi
+
 # The session id decides what the pane tails, so find it before deciding anything else.
 session_id=""
 argv=("$@")
