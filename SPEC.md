@@ -1,5 +1,5 @@
 ---
-status: approved
+status: draft
 branch: worktree-wfbench
 ---
 # SPEC: Benchmark harness for three review workflows (pilot)
@@ -20,6 +20,7 @@ Background and sources: `docs/plans/2026-10-29-workflow-bench-research.md`.
 - D8: Grading. `bench anonymize` gives each run's final diff and findings a random id, shuffles the order and writes the id-to-run map to a sealed file that `bench report` reads only after grades exist. The human grades a rubric (correctness against ACs, readability, unrequested scope, over-defensive additions) and classifies each finding as `real`, `nit`, `stale` or `wrong`. `opencode-go/qwen3.8-max` grades the same items through `pi -p --no-session --no-extensions --no-skills`.
 - D9: `bench report` prints, per arm: mean and spread of steer, review_round, test_iteration and reject counts; finding classification counts; mean rubric scores from both graders; tokens per run where the Pi session records them.
 - D10: `scripts/bench` is Python, standard library only, tested in `scripts/tests/test_bench.py`.
+- D11: `bench compare <task> <path> [--grep <pattern>]` gives the human an anonymized side-by-side view of one file across a task's runs. It copies `<path>` from each run's worktree to `bench/grading/compare/<slug>/<id><ext>` with fresh random ids, unrelated to the D8 ids, in shuffled order, and writes the id-to-run map only to that directory's `.sealed-map.json`. A run without the file is listed as absent by id. It prints an `nvim -O` command over the copies; with `--grep`, each pane opens at the first match. Copy paths and contents carry no arm name, model name or run id.
 
 ## Acceptance Criteria
 - AC-1: `bench prepare <task> <arm> <run>` creates a worktree at the task's base commit with the archived SPEC.md at its root and an empty events log
@@ -47,6 +48,8 @@ Background and sources: `docs/plans/2026-10-29-workflow-bench-research.md`.
   baseline: pass
 - AC-12: The pilot's 16 runs complete with an events log and two graders' grades each
   verify: manual - the runs need a human steering live
+- AC-13: `bench compare` writes one anonymized copy per run that has the file, lists absent runs by id, keeps the map only in the sealed file, uses ids distinct from the D8 grading ids, and prints an `nvim -O` command over the copies
+  verify: `python3 -m unittest scripts.tests.test_bench.Compare.test_blind_copies scripts.tests.test_bench.Compare.test_ids_distinct_from_grading`
 
 ## Boundaries
 ### Always
