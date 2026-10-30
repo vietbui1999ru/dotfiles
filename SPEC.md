@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 branch: feat/pi-queue
 ---
 # SPEC: A predicted work queue in pueue, released by mechanical waits
