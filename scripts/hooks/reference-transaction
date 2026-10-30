@@ -16,6 +16,30 @@ top=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 case "$top" in */.claude/worktrees/*) ;; *) exit 0 ;; esac
 [ "${COMMIT_FUNNEL:-}" = 1 ] && exit 0
 
+# pack-refs (which gc and auto-maintenance run as `git pack-refs`) only moves refs from loose
+# files into packed-refs and never changes a branch's value, but its two transactions look like
+# a create and a delete of every branch. So recognise the process: the hook's parent is that git.
+# Only the git subcommand counts, after git's own options (`git -c k=v -C dir pack-refs`), so
+# text such as `update-ref -m pack-refs` does not. Anything unparsable is not pack-refs.
+parent_subcommand() {
+  set -f
+  # shellcheck disable=SC2046 # word splitting of the parent's arguments is the point
+  set -- $(ps -o args= -p "$PPID" 2>/dev/null)
+  case "${1:-}" in git | */git) shift ;; *) return 1 ;; esac
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -c | -C | --git-dir | --work-tree | --namespace | --exec-path | --config-env)
+        [ $# -ge 2 ] || return 1
+        shift 2
+        ;;
+      -*) shift ;;
+      *) printf '%s\n' "$1"; return 0 ;;
+    esac
+  done
+  return 1
+}
+[ "$(parent_subcommand)" = pack-refs ] && exit 0
+
 # The old id on stdin is not enough: `git update-ref <ref> <sha>` and `git branch -f` pass the
 # all-zero old id even when the branch exists. In the prepared phase the ref still holds its old
 # value, so existence is the test: an existing branch is refused, a new one is allowed.

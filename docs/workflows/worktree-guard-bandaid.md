@@ -89,6 +89,7 @@ What it does, inside a checkout whose top-level path contains `/.claude/worktree
 
 - Refuses (exit 1, message on stderr naming `commit-funnel`) any update that moves or deletes an existing `refs/heads/*` branch. The check is whether the branch exists, not the old id git passes, because `update-ref <ref> <sha>` and `branch -f` pass the all-zero old id for an existing branch.
 - Allows creating a new branch, and every non-branch ref: `HEAD`, tags, `refs/remotes/*`. `fetch`, `status` and `switch -c` work.
+- Allows `git pack-refs`, which `gc` and auto-maintenance run: it moves refs from loose files into `packed-refs` without changing any branch's value, but its transactions look like a create and a delete of every branch. The hook recognises it by its parent process's git subcommand (after git's own options), so `update-ref -m pack-refs` is still refused.
 - Allows everything in the main checkout, and in any repo outside `.claude/worktrees/`.
 - `scripts/commit-funnel` sets `COMMIT_FUNNEL=1` only for its own `git commit` subprocess (git mode), which lets that one ref update through.
 
