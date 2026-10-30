@@ -1,0 +1,12 @@
+{
+  "safety-block-log": {
+    "spec": "docs/specs/2026-10-21-safety-block-log.md",
+    "base": "18a6b81^",
+    "reference": ["18a6b81"]
+  },
+  "nvim-review-dashboard": {
+    "spec": "docs/specs/2026-10-20-nvim-review-dashboard.md",
+    "base": "88abc37^",
+    "reference": ["88abc37", "9bbb8c3"]
+  }
+}
