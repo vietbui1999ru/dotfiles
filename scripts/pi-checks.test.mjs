@@ -46,7 +46,22 @@ if (args[0] === "pane" && args[1] === "get") {
 process.exit(0);
 `;
 
-const STUB_SOURCE = { acRun: AC_RUN_STUB, floorGuard: FLOOR_GUARD_STUB, herdr: HERDR_STUB };
+// Delegates to the real git unless STUB_GIT_FAIL names the subcommand to break.
+const GIT_STUB = `#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+const args = process.argv.slice(2);
+appendFileSync(process.env.STUB_LOG, JSON.stringify(["git", ...args]) + "\\n");
+if (process.env.STUB_GIT_FAIL && args.join(" ").includes(process.env.STUB_GIT_FAIL)) process.exit(1);
+const real = spawnSync(process.env.REAL_GIT, args, { encoding: "utf8" });
+process.stdout.write(real.stdout ?? "");
+process.stderr.write(real.stderr ?? "");
+process.exit(real.status ?? 1);
+`;
+
+const STUB_SOURCE = { acRun: AC_RUN_STUB, floorGuard: FLOOR_GUARD_STUB, herdr: HERDR_STUB, git: GIT_STUB };
+
+const REAL_GIT = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
 
 const spec = (branch = "main", verify = "`true`") => `---
 status: approved
@@ -92,7 +107,8 @@ function sandbox() {
 	mkdirSync(bins);
 	const stubs = {};
 	for (const [key, source] of Object.entries(STUB_SOURCE)) {
-		const path = join(bins, `${key}.mjs`);
+		// The git stub is reached through PATH, so it keeps git's own name and no extension.
+		const path = join(bins, key === "git" ? "git" : `${key}.mjs`);
 		writeFileSync(path, source);
 		chmodSync(path, 0o755);
 		stubs[key] = path;
@@ -108,6 +124,7 @@ function sandbox() {
 		worktree,
 		state,
 		runs,
+		bins,
 		stubs,
 		writeSpec: (branch, verify) => writeFileSync(join(worktree, "SPEC.md"), spec(branch, verify)),
 		pane: (id = "pane-1") => {
@@ -277,4 +294,54 @@ test("--no-steer never steers", () => {
 	assert.equal(box.record().steered, false);
 	assert.equal(box.calls().some((call) => call[1] === "send-text"), false);
 	assert.equal(box.calls().some((call) => call[1] === "notification"), false);
+});
+
+test("two failing runs at the same HEAD with different uncommitted edits steer once", () => {
+	const box = sandbox();
+	box.writeSpec("main", "`false`");
+	box.pane();
+	const env = { STUB_AC_RECORD: failing(), STUB_AC_EXIT: "1" };
+	assert.equal(box.run(env).status, 0);
+	assert.equal(box.record().steered, true);
+	assert.equal(box.record().round, 1);
+
+	// Pi edits without committing: the diff hash is new, HEAD is not.
+	writeFileSync(join(box.worktree, "a.txt"), "edited, not committed\n");
+	const before = box.calls().length;
+	assert.equal(box.run(env).status, 0);
+	assert.equal(box.record().steered, false);
+	assert.equal(box.record().round, 1);
+	const after = box.calls().slice(before);
+	assert.equal(after.some((call) => call[2] === "send-text"), false);
+	assert.equal(after.some((call) => call[1] === "notification"), false);
+});
+
+test("an error after the checking record leaves no checking record", () => {
+	const box = sandbox();
+	box.writeSpec();
+	const env = { PATH: `${box.bins}:${process.env.PATH}`, REAL_GIT, STUB_GIT_FAIL: "branch" };
+	const failed = box.run(env);
+	assert.equal(failed.status, 0);
+	assert.match(failed.stderr, /pi-checks: git branch --show-current failed/);
+	assert.equal(box.hasRecord(), false);
+
+	// A result from before the failed run is restored, never left on `checking`.
+	mkdirSync(box.state, { recursive: true });
+	const previous = { phase: "done", commit: "older", diffHash: "x", specStatus: "approved", passed: true, round: 1, steered: false, time: "then" };
+	writeFileSync(join(box.state, "pueue-test.json"), `${JSON.stringify(previous)}\n`);
+	assert.equal(box.run(env).status, 0);
+	assert.deepEqual(box.record(), previous);
+});
+
+test("a lock with a dead pid is taken over", () => {
+	const box = sandbox();
+	box.writeSpec();
+	const lock = join(box.state, "pueue-test.lock");
+	mkdirSync(lock, { recursive: true });
+	const dead = spawnSync(process.execPath, ["-e", ""]).pid;
+	writeFileSync(join(lock, "pid"), `${dead}\n`);
+	const run = box.run({ STUB_AC_RECORD: record({ "AC-1": { result: "pass" } }) });
+	assert.equal(run.status, 0);
+	assert.equal(box.record().phase, "done");
+	assert.equal(existsSync(lock), false);
 });

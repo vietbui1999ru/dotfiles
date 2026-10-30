@@ -2,7 +2,7 @@ import { atom, read, update, type EngineInterface, type Register } from 'claude-
 
 import { dispatchCommand, isTuiDispatch, parseAddResult, parsePiCommand, parseStatus, type Task } from './pueue'
 import { controlArgv, eligible, holdArgv, parsePiArgs, PS_ARGV, releaseArgv, resolveTargets, signalGroupArgv, stopArgvs, strayGroups, type ControlAction, type Targets } from './controls'
-import { monitorRows, selectStale, type MonitorRow, type StaleSelection, type TrackedTask } from './handoff'
+import { monitorRows, runningPendingFor, selectStale, type MonitorRow, type StaleSelection, type TrackedTask } from './handoff'
 import type { HandoffState } from './handoff.tsx'
 import { focusRing, moveTo, type Motion } from './motion'
 import { FOCUS_ACTION, FOCUS_REFUSED, JUMP_KEYS, nextPane, PANE_TITLES, switchSteps } from './pane-nav'
@@ -341,8 +341,8 @@ async function reviewRoot($: EngineInterface, cwd: string): Promise<string> {
   return result?.exitCode === 0 && result.stdout.trim() ? result.stdout.trim() : cwd
 }
 
-async function pendingFor($: EngineInterface, task: TrackedTask): Promise<PendingReview | undefined> {
-  const dir = `${await reviewRoot($, task.cwd)}/.pi/agent-review/pending`
+async function pendingRecordsFor($: EngineInterface, root: string): Promise<PendingReview[]> {
+  const dir = `${root}/.pi/agent-review/pending`
   const files = await $.fs.list(dir).catch(() => [])
   const records = [] as PendingReview[]
   for (const file of files) {
@@ -350,7 +350,11 @@ async function pendingFor($: EngineInterface, task: TrackedTask): Promise<Pendin
     const pending = parsePending(await $.fs.read(`${dir}/${file.name}`).catch(() => ''))
     if (pending) records.push(pending)
   }
-  return pendingRecordFor(task, records)
+  return records
+}
+
+async function pendingFor($: EngineInterface, task: TrackedTask): Promise<PendingReview | undefined> {
+  return pendingRecordFor(task, await pendingRecordsFor($, await reviewRoot($, task.cwd)))
 }
 
 /** The saved check record `pi-checks` writes per dispatch. */
@@ -402,12 +406,23 @@ async function outcomeInputsFor(
   let home: string | undefined
   try { home = await $.env.get('HOME') } catch { /* no environment in some harnesses */ }
   const inputs: Record<number, Omit<OutcomeInputs, 'pueue'>> = {}
+  // Several runs can share one worktree, so its pending directory is read once per redraw.
+  const pendingByRoot = new Map<string, PendingReview[]>()
+  const pendingIn = async (root: string) => {
+    const known = pendingByRoot.get(root)
+    if (known) return known
+    const records = await pendingRecordsFor($, root)
+    pendingByRoot.set(root, records)
+    return records
+  }
   for (const item of tracked) {
     const task = current.get(item.id) ?? item.task
     if (!task) continue
-    // Only a run that has ended can have left a review of its own.
+    // A --tui run keeps Running while its review waits, so a running run's own record counts too.
+    const records = await pendingIn(await reviewRoot($, task.cwd))
     const ended = task.state === 'Done' || task.state === 'Failed' || task.state === 'Killed'
-    const value: Omit<OutcomeInputs, 'pueue'> = { reviewPending: ended ? (await pendingFor($, item)) !== undefined : false }
+    const pending = ended ? pendingRecordFor({ ...item, task }, records) : runningPendingFor(item, records)
+    const value: Omit<OutcomeInputs, 'pueue'> = { reviewPending: pending !== undefined }
     const lastEventMs = progress[item.id]?.lastEventMs
     if (lastEventMs !== undefined) value.logAgeMs = Math.max(0, nowMs - lastEventMs)
     const check = home ? await checkRecord($, home, item.sessionId) : undefined

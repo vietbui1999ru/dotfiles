@@ -22,7 +22,7 @@
  * HERDR_BIN_PATH, PI_CHECKS_STATE, PI_VIEW_RUN_DIR.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -134,6 +134,57 @@ const notifyFailed = () => {
 	spawnSync(herdrBin(), ["notification", "show", `pi#${task} checks failed, needs you`], { encoding: "utf8" });
 };
 
+/** A lock outlives a check only when its process is gone or it is ten minutes old. */
+const LOCK_STALE_MS = 600_000;
+
+const pidAlive = (pid) => {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		// EPERM means the process exists but belongs to another user.
+		return error?.code === "EPERM";
+	}
+};
+
+const staleLock = (lockPath) => {
+	let age;
+	try {
+		age = Date.now() - statSync(lockPath).mtimeMs;
+	} catch {
+		return true;
+	}
+	if (age > LOCK_STALE_MS) return true;
+	let pid;
+	try {
+		pid = Number(readFileSync(join(lockPath, "pid"), "utf8").trim());
+	} catch {
+		// No pid yet: a lock another check just made is respected.
+		return false;
+	}
+	return Number.isInteger(pid) && pid > 0 ? !pidAlive(pid) : false;
+};
+
+/** Take the per-dispatch lock; false means another check holds it. */
+const takeLock = (lockPath) => {
+	try {
+		mkdirSync(lockPath);
+	} catch (error) {
+		if (error.code !== "EEXIST") throw error;
+		if (!staleLock(lockPath)) return false;
+		// A killed run's leftover must not block this dispatch for ever.
+		rmSync(lockPath, { recursive: true, force: true });
+		try {
+			mkdirSync(lockPath);
+		} catch (race) {
+			if (race.code === "EEXIST") return false;
+			throw race;
+		}
+	}
+	writeFileSync(join(lockPath, "pid"), `${process.pid}\n`);
+	return true;
+};
+
 async function main(argv) {
 	const [worktreeArg, sessionId, ...rest] = argv;
 	if (!worktreeArg || !sessionId) {
@@ -147,13 +198,8 @@ async function main(argv) {
 	const lockPath = join(state, `${sessionId}.lock`);
 
 	mkdirSync(state, { recursive: true });
-	try {
-		mkdirSync(lockPath);
-	} catch (error) {
-		// A check is already running for this dispatch; the settle that finds it does nothing.
-		if (error.code === "EEXIST") return 0;
-		throw error;
-	}
+	// A check is already running for this dispatch; the settle that finds it does nothing.
+	if (!takeLock(lockPath)) return 0;
 
 	try {
 		const commit = git(worktree, ["rev-parse", "HEAD"]);
@@ -168,79 +214,88 @@ async function main(argv) {
 			round: previous?.round ?? 0, steered: false,
 		});
 
-		const branch = git(worktree, ["branch", "--show-current"]);
-		const specFile = join(worktree, "SPEC.md");
-		const specText = existsSync(specFile) ? readFileSync(specFile, "utf8") : undefined;
-		const forBranch = specText !== undefined && frontmatterBranch(specText) === branch;
+		try {
+			const branch = git(worktree, ["branch", "--show-current"]);
+			const specFile = join(worktree, "SPEC.md");
+			const specText = existsSync(specFile) ? readFileSync(specFile, "utf8") : undefined;
+			const forBranch = specText !== undefined && frontmatterBranch(specText) === branch;
 
-		let specStatus = "none";
-		let passed;
-		let acs = {};
-		let floorGuard;
-		let spec;
-		if (forBranch) {
-			spec = "SPEC.md";
-			const tmp = mkdtempSync(join(tmpdir(), "pi-checks-"));
-			const saved = join(tmp, "check.json");
-			try {
-				const result = spawnSync(acRunBin(), ["check", "--record", saved, "SPEC.md"], { cwd: worktree, encoding: "utf8" });
-				const exit = result.status;
-				const check = exit === 3 ? undefined : readJson(saved);
-				if (exit === 3) {
-					// No approval record: the spec is not approved, so pass/fail does not apply.
-					specStatus = "none";
-				} else if (!check) {
-					// ac-run could not run this spec (for example a lint failure): not an approved spec.
-					process.stderr.write(`pi-checks: ac-run check exited ${exit ?? "?"} without a record\n`);
-					specStatus = "none";
-				} else {
-					acs = check.acs ?? {};
-					const rows = Object.values(acs);
-					specStatus = rows.length > 0 && rows.every((row) => row?.result === "manual") ? "manual-only" : "approved";
-				}
-				if (specStatus === "approved") {
-					const guard = spawnSync(floorGuardBin(), [], { cwd: worktree, encoding: "utf8" });
-					floorGuard = { passed: guard.status === 0, output: `${guard.stdout ?? ""}${guard.stderr ?? ""}`.trim() };
-					passed = exit === 0 && floorGuard.passed;
-				}
-			} finally {
-				rmSync(tmp, { recursive: true, force: true });
-			}
-		}
-
-		// A round is spent only when a steer actually reaches a live Pi.
-		const previousRound = previous?.round ?? 0;
-		const candidate = commit !== previous?.commit ? previousRound + 1 : previousRound;
-		let round = previousRound;
-		let steered = false;
-		if (passed === false) {
-			const pane = noSteer ? undefined : livePane(sessionId);
-			if (pane && candidate <= MAX_ROUNDS) {
-				const verify = specText === undefined ? {} : verifyLines(specText);
-				if (steer(pane, steerMessage(acs, verify, floorGuard))) {
-					steered = true;
-					round = candidate;
+			let specStatus = "none";
+			let passed;
+			let acs = {};
+			let floorGuard;
+			let spec;
+			if (forBranch) {
+				spec = "SPEC.md";
+				const tmp = mkdtempSync(join(tmpdir(), "pi-checks-"));
+				const saved = join(tmp, "check.json");
+				try {
+					const result = spawnSync(acRunBin(), ["check", "--record", saved, "SPEC.md"], { cwd: worktree, encoding: "utf8" });
+					const exit = result.status;
+					const check = exit === 3 ? undefined : readJson(saved);
+					if (exit === 3) {
+						// No approval record: the spec is not approved, so pass/fail does not apply.
+						specStatus = "none";
+					} else if (!check) {
+						// ac-run could not run this spec (for example a lint failure): not an approved spec.
+						process.stderr.write(`pi-checks: ac-run check exited ${exit ?? "?"} without a record\n`);
+						specStatus = "none";
+					} else {
+						acs = check.acs ?? {};
+						const rows = Object.values(acs);
+						specStatus = rows.length > 0 && rows.every((row) => row?.result === "manual") ? "manual-only" : "approved";
+					}
+					if (specStatus === "approved") {
+						const guard = spawnSync(floorGuardBin(), [], { cwd: worktree, encoding: "utf8" });
+						floorGuard = { passed: guard.status === 0, output: `${guard.stdout ?? ""}${guard.stderr ?? ""}`.trim() };
+						passed = exit === 0 && floorGuard.passed;
+					}
+				} finally {
+					rmSync(tmp, { recursive: true, force: true });
 				}
 			}
-			if (!steered && candidate >= MAX_ROUNDS) notifyFailed();
-		}
 
-		writeRecord(recordPath, {
-			worktree,
-			phase: "done",
-			commit,
-			diffHash: hash,
-			specStatus,
-			...(passed !== undefined ? { passed } : {}),
-			round,
-			steered,
-			...(spec ? { spec } : {}),
-			branch,
-			time: now(),
-			acs,
-			...(floorGuard ? { floorGuard } : {}),
-		});
-		return 0;
+			// A round is spent only on a new commit, and only when the steer reaches a live Pi.
+			// A diff-only change records its result but must not spend a round or steer again.
+			const previousRound = previous?.round ?? 0;
+			const candidate = commit !== previous?.commit ? previousRound + 1 : previousRound;
+			const advanced = candidate > previousRound;
+			let round = previousRound;
+			let steered = false;
+			if (passed === false) {
+				const pane = noSteer || !advanced ? undefined : livePane(sessionId);
+				if (pane && candidate <= MAX_ROUNDS) {
+					const verify = specText === undefined ? {} : verifyLines(specText);
+					if (steer(pane, steerMessage(acs, verify, floorGuard))) {
+						steered = true;
+						round = candidate;
+					}
+				}
+				if (advanced && !steered && candidate >= MAX_ROUNDS) notifyFailed();
+			}
+
+			writeRecord(recordPath, {
+				worktree,
+				phase: "done",
+				commit,
+				diffHash: hash,
+				specStatus,
+				...(passed !== undefined ? { passed } : {}),
+				round,
+				steered,
+				...(spec ? { spec } : {}),
+				branch,
+				time: now(),
+				acs,
+				...(floorGuard ? { floorGuard } : {}),
+			});
+			return 0;
+		} catch (error) {
+			// A run that dies mid-check must not leave the row on `checking` for ever.
+			if (previous?.phase === "done") writeRecord(recordPath, previous);
+			else rmSync(recordPath, { force: true });
+			throw error;
+		}
 	} finally {
 		rmSync(lockPath, { recursive: true, force: true });
 	}

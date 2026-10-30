@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { activityLabel, formatElapsed, formatTokens, idleAge, monitorRows, selectStale, summarize, type TrackedTask } from './handoff'
+import { activityLabel, formatElapsed, formatTokens, idleAge, monitorRows, runningPendingFor, selectStale, summarize, type TrackedTask } from './handoff'
 import { STUCK_MS, type CheckRecord } from './outcome'
 import { trackedFrom } from './handoff.tsx'
 import { emptyProgress, fold } from './pisession'
@@ -168,12 +168,26 @@ test('a --tui pi-view dispatch keeps dispatch parsing and tracking intact', () =
 test('reads pending and accepted or changed review decisions', () => {
   const pending = parsePending(JSON.stringify({ runId: 'r', files: [{ file: 'a.ts' }] }))
   expect(pending).toMatchObject({ runId: 'r' })
+  expect(parsePending(JSON.stringify({ runId: 'r', session: 'pueue-x', files: [] }))).toMatchObject({ session: 'pueue-x' })
   const approved = { files: [{ file: 'a.ts', status: 'accepted' }], notes: [], patch: '' }
   expect(reviewState(pending, undefined)).toBe('pending')
   expect(reviewState(pending, approved)).toBe('decided, waiting for the next Pi run in this repo')
   expect(reviewState(undefined, approved)).toBe('approved')
   expect(reviewState(undefined, { files: [{ file: 'a.ts', status: 'changed' }], notes: ['fix'], patch: '' })).toBe('changes requested')
   expect(reviewState(undefined, { files: [{ file: 'a.ts', status: 'accepted' }], notes: [], patch: 'diff', skipped: true })).toBe('changes requested')
+})
+
+test('a running --tui task with a pending record shows the review marker', () => {
+  const mine = parsePending(JSON.stringify({ runId: 'mine', session: 'pueue-task-5', files: [{ file: 'a.ts' }] }))
+  const other = parsePending(JSON.stringify({ runId: 'other', session: 'pueue-task-6', files: [{ file: 'b.ts' }] }))
+  const records = [mine!, other!]
+  // A running run is bound to the record its own Pi session wrote, never another run's.
+  expect(runningPendingFor({ sessionId: 'pueue-task-5' }, records)?.runId).toBe('mine')
+  expect(runningPendingFor({ sessionId: 'pueue-none' }, records)).toBeUndefined()
+  expect(runningPendingFor({ sessionId: 'pueue-task-5', runId: 'gone' }, records)).toBeUndefined()
+  const item = running(5)
+  const [row] = monitorRows([item], {}, [item.task!], 5_000, undefined, { 5: { reviewPending: true } })
+  expect(row).toMatchObject({ outcome: 'running', reviewWaiting: true })
 })
 
 test('summarizes lifecycle states, failures, rollups, and stale scoped files', () => {
