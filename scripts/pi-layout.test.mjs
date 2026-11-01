@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { AUTO_SIDE_WIDTH, inputsFromLayout, placePane, resolveLayout } from "./pi-layout.mjs";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+import { AUTO_SIDE_WIDTH, inputsFromLayout, placePane, rebalancePlan, resolveLayout } from "./pi-layout.mjs";
+
+const CLI = fileURLToPath(new URL("./pi-layout.mjs", import.meta.url));
 
 const pane = (id, width, height) => ({ pane_id: id, width, height });
 const area = { width: 200, height: 60 };
@@ -111,4 +116,40 @@ test("layout input keeps the opened order and drops panes that left the tab", ()
 		],
 	});
 	assert.equal(inputsFromLayout(layout, "elsewhere", []), undefined);
+});
+
+// --- rebalance ---------------------------------------------------------------
+
+const split = (direction, ratio, first, second) => ({ type: "split", direction, ratio, first, second });
+const leaf = id => ({ type: "pane", pane_id: id });
+
+test("rebalance ratios even out a right chain of three columns", () => {
+	// right(A, right(B, C)) with ratios 0.5 / 0.5 gives A 50%; even is 1/3.
+	const root = split("right", 0.5, leaf("A"), split("right", 0.5, leaf("B"), leaf("C")));
+	assert.deepEqual(rebalancePlan(root), [{ path: [], ratio: 1 / 3 }]);
+});
+
+test("rebalance ratios treat a perpendicular subtree as one tile", () => {
+	// right(down(A, B), C): two columns, so the root is 0.5 and the column is 0.5.
+	const root = split("right", 0.3, split("down", 0.8, leaf("A"), leaf("B")), leaf("C"));
+	assert.deepEqual(rebalancePlan(root), [{ path: [], ratio: 0.5 }, { path: [false], ratio: 0.5 }]);
+});
+
+test("rebalance ratios leave splits that hold a kept pane alone", () => {
+	// Claude's 60% split stays; only the agents' column is evened.
+	const root = split("right", 0.6, leaf("claude"), split("down", 0.7, leaf("g1"), leaf("g2")));
+	assert.deepEqual(rebalancePlan(root, new Set(["claude"])), [{ path: [true], ratio: 0.5 }]);
+});
+
+test("rebalance ratios skip splits already within 0.01 of even", () => {
+	assert.deepEqual(rebalancePlan(split("down", 0.505, leaf("A"), leaf("B"))), []);
+});
+
+test("rebalance without a socket exits 1 and prints nothing", () => {
+	const result = spawnSync(process.execPath, [CLI, "rebalance", "wB:t1"], {
+		encoding: "utf8",
+		env: { ...process.env, HERDR_SOCKET_PATH: "" },
+	});
+	assert.equal(result.status, 1);
+	assert.equal(result.stdout, "");
 });

@@ -11,6 +11,7 @@
  * pane 40%.
  */
 import { execFileSync } from "node:child_process";
+import { connect } from "node:net";
 import { pathToFileURL } from "node:url";
 
 /** An agent pane never gets smaller than this, and Claude never gives up more than the rest. */
@@ -25,6 +26,9 @@ export const MAX_AGENTS = 3;
 const ANCHOR_SHARE = 0.6;
 /** Two panes that share a split get equal halves. */
 const EVEN_SHARE = 0.5;
+
+/** A split within this much of its even share is left alone, so a rebalance is quiet when nothing moved. */
+const RATIO_EPSILON = 0.01;
 
 const TAB = { kind: "tab" };
 
@@ -94,6 +98,108 @@ const readLayout = paneId => {
 	}
 };
 
+/**
+ * Weight of a subtree along a split direction: a split in that direction adds its
+ * children; anything else is one tile. Tiles in a perpendicular subtree count once.
+ */
+const weightAlong = (node, direction) => {
+	if (node.type !== "split" || node.direction !== direction) return 1;
+	return weightAlong(node.first, direction) + weightAlong(node.second, direction);
+};
+
+/** Whether the subtree holds a pane in `keep`. */
+const holdsKept = (node, keep) =>
+	node.type === "pane" ? keep.has(node.pane_id) : holdsKept(node.first, keep) || holdsKept(node.second, keep);
+
+/**
+ * The `layout.set_split_ratio` calls that make every tile of a split tree even.
+ * Each split's ratio is its first child's share of the tiles along its own direction.
+ * A split holding a kept pane is left as it is, but its children are still visited.
+ * @param {object} root a `layout.export` root node
+ * @param {ReadonlySet<string>} [keep] pane ids whose splits must not change
+ * @returns {{ path: boolean[], ratio: number }[]}
+ */
+export const rebalancePlan = (root, keep = new Set()) => {
+	const plan = [];
+	const visit = (node, path) => {
+		if (node.type !== "split") return;
+		if (!holdsKept(node, keep)) {
+			const before = weightAlong(node.first, node.direction);
+			const after = weightAlong(node.second, node.direction);
+			const target = before / (before + after);
+			if (Math.abs(node.ratio - target) > RATIO_EPSILON) plan.push({ path, ratio: target });
+		}
+		visit(node.first, [...path, false]);
+		visit(node.second, [...path, true]);
+	};
+	visit(root, []);
+	return plan;
+};
+
+const SOCKET_TIMEOUT_MS = 3000;
+
+/**
+ * One herdr socket request: a JSON line out, the first line back. Resolves the
+ * `result`, or undefined on an `error`, a missing or refusing socket, or a timeout.
+ */
+export const herdrRequest = (method, params) =>
+	new Promise(resolve => {
+		const path = process.env.HERDR_SOCKET_PATH;
+		if (!path) return resolve(undefined);
+		let buffer = "";
+		let settled = false;
+		const finish = value => {
+			if (settled) return;
+			settled = true;
+			socket.destroy();
+			resolve(value);
+		};
+		const socket = connect(path);
+		socket.setTimeout(SOCKET_TIMEOUT_MS, () => finish(undefined));
+		socket.on("error", () => finish(undefined));
+		socket.on("connect", () => socket.write(`${JSON.stringify({ id: "1", method, params })}\n`));
+		socket.on("data", chunk => {
+			buffer += chunk.toString("utf8");
+			const newline = buffer.indexOf("\n");
+			if (newline === -1) return;
+			try {
+				const reply = JSON.parse(buffer.slice(0, newline));
+				finish(reply.error ? undefined : reply.result);
+			} catch {
+				finish(undefined);
+			}
+		});
+	});
+
+/** Tabs `rebalance` may touch: the pi and verdict series only. */
+const GRID_LABEL = /^(pi|verdict)(-\d+)?$/;
+
+/** Evens one tab's split tree over the socket. Returns false when herdr cannot answer. */
+const rebalanceTab = async (tabId, keep) => {
+	const exported = await herdrRequest("layout.export", { tab_id: tabId });
+	if (!exported?.layout?.root) return false;
+	for (const { path, ratio } of rebalancePlan(exported.layout.root, keep)) {
+		await herdrRequest("layout.set_split_ratio", { tab_id: tabId, path, ratio });
+	}
+	return true;
+};
+
+/** `pi-layout rebalance <tab id> | --focused [--keep <pane id>…]`: evens a grid tab. */
+const rebalanceMain = async argv => {
+	const keepAt = argv.indexOf("--keep");
+	const keepIds = keepAt === -1 ? [] : argv.slice(keepAt + 1);
+	const args = keepAt === -1 ? argv : argv.slice(0, keepAt);
+	const keep = new Set(keepIds);
+	if (!args[0]) return 2;
+	const tabs = (await herdrRequest("tab.list", {}))?.tabs;
+	if (!tabs) return 1;
+	const tab = args[0] === "--focused" ? tabs.find(candidate => candidate.focused) : tabs.find(candidate => candidate.tab_id === args[0]);
+	if (!tab) return 1;
+	// Only the pi and verdict series are grid tabs; anything else is left alone.
+	if (!GRID_LABEL.test(tab.label ?? "")) return 0;
+	return (await rebalanceTab(tab.tab_id, keep)) ? 0 : 1;
+};
+
 /** `pi-layout <layout> <anchor pane id> <agent pane ids…>` prints the decision, or fails silently. */
 const main = argv => {
 	const [template, anchorId, ...agentIds] = argv;
@@ -109,10 +215,14 @@ const main = argv => {
 };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-	try {
-		process.exitCode = main(process.argv.slice(2));
-	} catch {
-		// Any herdr failure is the caller's cue to use the `pi` tab.
-		process.exitCode = 1;
-	}
+	const [command, ...rest] = process.argv.slice(2);
+	const run = command === "rebalance" ? rebalanceMain(rest) : Promise.resolve(main(process.argv.slice(2)));
+	run
+		.then(code => {
+			process.exitCode = code;
+		})
+		.catch(() => {
+			// Any herdr failure is the caller's cue to use the `pi` tab.
+			process.exitCode = 1;
+		});
 }
