@@ -21,7 +21,11 @@ export const MIN_ANCHOR_WIDTH = 60;
 export const MIN_ANCHOR_HEIGHT = 12;
 /** A tab at least this wide fits a side column; narrower ones put the agents below. */
 export const AUTO_SIDE_WIDTH = 160;
-export const MAX_AGENTS = 3;
+export const MAX_AGENTS = 2;
+/** A grid tab holds at most this many tiles; the next one opens `pi-2`, `verdict-2`, and so on. */
+export const GRID_MAX = 6;
+/** Grid columns never exceed this, however wide the tab. */
+const GRID_MAX_COLUMNS = 3;
 /** The anchor keeps this share when the first agent splits it. */
 const ANCHOR_SHARE = 0.6;
 /** Two panes that share a split get equal halves. */
@@ -80,6 +84,75 @@ export const inputsFromLayout = (layout, anchorId, agentIds) => {
 			return pane ? [{ pane_id: id, ...pane.rect }] : [];
 		}),
 	};
+};
+
+/** Columns a grid tab of this width holds: as many as fit at MIN_AGENT_WIDTH, from 1 to 3. */
+export const gridColumns = width => Math.max(1, Math.min(GRID_MAX_COLUMNS, Math.floor(width / MIN_AGENT_WIDTH)));
+
+/** The leaves of a subtree, left to right, top to bottom. */
+const leavesOf = node => (node.type === "pane" ? [node] : [...leavesOf(node.first), ...leavesOf(node.second)]);
+
+/**
+ * The columns of a grid tab: the leaves of its root `right` chain, each as a list of
+ * tiles. A root that is not a `right` chain is one column.
+ */
+const columnsOf = root => {
+	const columns = [];
+	let node = root;
+	while (node.type === "split" && node.direction === "right") {
+		columns.unshift(node.second);
+		node = node.first;
+	}
+	columns.unshift(node);
+	return columns.map(leavesOf);
+};
+
+/**
+ * Where the next tile of a grid tab goes, filled row-major: a new column while there are
+ * fewer than `gridColumns(width)` and the rightmost column is a single tile, otherwise the
+ * bottom tile of the shortest column (leftmost on a tie). Full at GRID_MAX tiles, or when
+ * the next tile would fall under MIN_AGENT_HEIGHT rows.
+ * @param {object} root a `layout.export` root node
+ * @param {{ width: number, height: number }} area
+ * @returns {{ kind: "split", target: string, direction: "right" | "down" } | { kind: "full" }}
+ */
+export const planGridAdd = (root, area) => {
+	const columns = columnsOf(root);
+	const tiles = columns.reduce((sum, column) => sum + column.length, 0);
+	if (tiles >= GRID_MAX) return { kind: "full" };
+	const shortest = columns.reduce((best, column, index) => (column.length < columns[best].length ? index : best), 0);
+	const rows = columns[shortest].length + 1;
+	const rowHeight = Math.floor(area.height / rows);
+	if (columns.length < gridColumns(area.width) && columns[columns.length - 1].length === 1) {
+		// A new column next to the rightmost tile: each tile gets the full height.
+		if (Math.floor(area.width / (columns.length + 1)) < MIN_AGENT_WIDTH) return { kind: "full" };
+		return { kind: "split", target: columns[columns.length - 1][0].pane_id, direction: "right" };
+	}
+	if (rowHeight < MIN_AGENT_HEIGHT) return { kind: "full" };
+	const bottom = columns[shortest][columns[shortest].length - 1];
+	return { kind: "split", target: bottom.pane_id, direction: "down" };
+};
+
+/** `pi`, `pi-2`, … for n ≥ 2, and the bare series name for the first tab. */
+export const seriesLabel = (series, n) => (n <= 1 ? series : `${series}-${n}`);
+
+/**
+ * The grid tab a new tile goes into: the first tab of the series with room, or the next
+ * missing label. `tabs` holds the series tabs already in the workspace, each with its
+ * layout root and area.
+ * @param {"pi" | "verdict"} series
+ * @param {{ tab_id: string, label: string, root: object, area: { width: number, height: number } }[]} tabs
+ * @returns {{ kind: "split", tab_id: string, target: string, direction: "right" | "down" } | { kind: "new-tab", label: string }}
+ */
+export const pickGridTab = (series, tabs) => {
+	for (let n = 1; n <= tabs.length + 1; n++) {
+		const label = seriesLabel(series, n);
+		const tab = tabs.find(candidate => candidate.label === label);
+		if (!tab) return { kind: "new-tab", label };
+		const plan = planGridAdd(tab.root, tab.area);
+		if (plan.kind === "split") return { kind: "split", tab_id: tab.tab_id, target: plan.target, direction: plan.direction };
+	}
+	return { kind: "new-tab", label: seriesLabel(series, tabs.length + 1) };
 };
 
 const herdrBin = () => process.env.HERDR_BIN_PATH || "herdr";
@@ -200,6 +273,53 @@ const rebalanceMain = async argv => {
 	return (await rebalanceTab(tab.tab_id, keep)) ? 0 : 1;
 };
 
+/**
+ * A tab's area in columns and rows. herdr's socket `layout.export` carries only the split
+ * tree, so the area comes from `pane layout`, read through any pane of the tab.
+ */
+const areaOfTab = (tabId, workspaceId) => {
+	try {
+		const listing = execFileSync(herdrBin(), ["pane", "list", "--workspace", workspaceId], {
+			encoding: "utf8",
+			maxBuffer: 8 * 1024 * 1024,
+			stdio: ["ignore", "pipe", "ignore"],
+		});
+		const paneId = JSON.parse(listing).result.panes?.find(pane => pane.tab_id === tabId)?.pane_id;
+		if (!paneId) return undefined;
+		const layout = JSON.parse(execFileSync(herdrBin(), ["pane", "layout", "--pane", paneId], {
+			encoding: "utf8",
+			maxBuffer: 8 * 1024 * 1024,
+			stdio: ["ignore", "pipe", "ignore"],
+		})).result.layout;
+		return layout.area;
+	} catch {
+		return undefined;
+	}
+};
+
+/**
+ * `pi-layout grid <pi|verdict> <workspace id>`: prints where the next grid tile goes, as
+ * the pickGridTab decision. Fails (exit 1) when herdr cannot list the workspace's tabs or
+ * read one of their layouts, so the caller keeps today's `pi`-tab fallback.
+ */
+const gridMain = async argv => {
+	const [series, workspace] = argv;
+	if ((series !== "pi" && series !== "verdict") || !workspace) return 2;
+	const listed = (await herdrRequest("tab.list", { workspace_id: workspace }))?.tabs;
+	if (!listed) return 1;
+	const seriesTabs = listed.filter(tab => tab.workspace_id === workspace && GRID_LABEL.test(tab.label ?? "") && tab.label.startsWith(series));
+	const tabs = [];
+	for (const tab of seriesTabs) {
+		const exported = await herdrRequest("layout.export", { tab_id: tab.tab_id });
+		if (!exported?.layout?.root) return 1;
+		const area = areaOfTab(tab.tab_id, workspace);
+		if (!area) return 1;
+		tabs.push({ tab_id: tab.tab_id, label: tab.label, root: exported.layout.root, area });
+	}
+	process.stdout.write(`${JSON.stringify(pickGridTab(series, tabs))}\n`);
+	return 0;
+};
+
 /** `pi-layout <layout> <anchor pane id> <agent pane ids…>` prints the decision, or fails silently. */
 const main = argv => {
 	const [template, anchorId, ...agentIds] = argv;
@@ -216,7 +336,10 @@ const main = argv => {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
 	const [command, ...rest] = process.argv.slice(2);
-	const run = command === "rebalance" ? rebalanceMain(rest) : Promise.resolve(main(process.argv.slice(2)));
+	const run =
+		command === "rebalance" ? rebalanceMain(rest)
+		: command === "grid" ? gridMain(rest)
+		: Promise.resolve(main(process.argv.slice(2)));
 	run
 		.then(code => {
 			process.exitCode = code;

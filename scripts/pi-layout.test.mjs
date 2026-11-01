@@ -4,7 +4,17 @@ import { test } from "node:test";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-import { AUTO_SIDE_WIDTH, inputsFromLayout, placePane, rebalancePlan, resolveLayout } from "./pi-layout.mjs";
+import {
+	AUTO_SIDE_WIDTH,
+	gridColumns,
+	inputsFromLayout,
+	planGridAdd,
+	pickGridTab,
+	placePane,
+	rebalancePlan,
+	resolveLayout,
+	seriesLabel,
+} from "./pi-layout.mjs";
 
 const CLI = fileURLToPath(new URL("./pi-layout.mjs", import.meta.url));
 
@@ -19,17 +29,13 @@ test("side: the first agent splits the anchor to the right, keeping Claude 60%",
 	});
 });
 
-test("side: later agents stack down the right column and the fourth overflows to the pi tab", () => {
+test("side: the second agent halves the column beside Claude and the third overflows to the pi tab", () => {
 	const first = pane("g1", 80, 60);
 	const second = pane("g2", 80, 30);
-	const third = pane("g3", 80, 15);
 	assert.deepEqual(placePane({ layout: "side", area, anchor, agents: [first] }), {
 		kind: "split", target: "g1", direction: "down", ratio: 0.5,
 	});
-	assert.deepEqual(placePane({ layout: "side", area, anchor, agents: [first, second] }), {
-		kind: "split", target: "g2", direction: "down", ratio: 0.5,
-	});
-	assert.deepEqual(placePane({ layout: "side", area, anchor, agents: [first, second, third] }), SPLIT_TAB);
+	assert.deepEqual(placePane({ layout: "side", area, anchor, agents: [first, second] }), SPLIT_TAB);
 });
 
 test("below: the first agent splits the anchor downward, keeping Claude 60%", () => {
@@ -38,17 +44,13 @@ test("below: the first agent splits the anchor downward, keeping Claude 60%", ()
 	});
 });
 
-test("below: later agents line up left to right and the fourth overflows to the pi tab", () => {
+test("below: the second agent halves the row beside Claude and the third overflows to the pi tab", () => {
 	const first = pane("g1", 200, 24);
 	const second = pane("g2", 100, 24);
-	const third = pane("g3", 50, 24);
 	assert.deepEqual(placePane({ layout: "below", area, anchor, agents: [first] }), {
 		kind: "split", target: "g1", direction: "right", ratio: 0.5,
 	});
-	assert.deepEqual(placePane({ layout: "below", area, anchor, agents: [first, second] }), {
-		kind: "split", target: "g2", direction: "right", ratio: 0.5,
-	});
-	assert.deepEqual(placePane({ layout: "below", area, anchor, agents: [first, second, third] }), SPLIT_TAB);
+	assert.deepEqual(placePane({ layout: "below", area, anchor, agents: [first, second] }), SPLIT_TAB);
 });
 
 test("a first agent that would fall below the minimum size overflows instead", () => {
@@ -92,9 +94,9 @@ test("an unknown layout falls back to the pi tab", () => {
 });
 
 test("the agent limit is the max, and it can be lowered", () => {
-	const agents = [pane("g1", 80, 60), pane("g2", 80, 30), pane("g3", 80, 15)];
-	assert.deepEqual(placePane({ layout: "side", area, anchor, agents: agents.slice(0, 2), max: 2 }), SPLIT_TAB);
-	assert.equal(placePane({ layout: "side", area, anchor, agents: agents.slice(0, 2) }).kind, "split");
+	const agents = [pane("g1", 80, 60), pane("g2", 80, 30)];
+	assert.deepEqual(placePane({ layout: "side", area, anchor, agents, max: 1 }), SPLIT_TAB);
+	assert.equal(placePane({ layout: "side", area, anchor, agents: agents.slice(0, 1) }).kind, "split");
 });
 
 test("layout input keeps the opened order and drops panes that left the tab", () => {
@@ -152,4 +154,86 @@ test("rebalance without a socket exits 1 and prints nothing", () => {
 	});
 	assert.equal(result.status, 1);
 	assert.equal(result.stdout, "");
+});
+
+// --- grid --------------------------------------------------------------------
+
+const g = id => pane(id, 80, 60);
+// A grid tab: a right chain of columns, each column a down chain of tiles.
+const column = (...ids) => ids.slice(1).reduce((node, id) => split("down", 0.5, node, leaf(id)), leaf(ids[0]));
+const columns = (...cols) => cols.slice(1).reduce((node, col) => split("right", 0.5, node, col), cols[0]);
+
+test("third run goes to the pi tab", () => {
+	const agents = [g("g1"), g("g2")]; // two agents already beside Claude
+	assert.deepEqual(placePane({ layout: "side", area, anchor, agents }), SPLIT_TAB);
+});
+
+test("side column is even", () => {
+	// The second agent halves the first one's column (0.5), and Claude's split is untouched.
+	assert.deepEqual(placePane({ layout: "side", area, anchor, agents: [g("g1")] }),
+		{ kind: "split", target: "g1", direction: "down", ratio: 0.5 });
+});
+
+test("grid plan uses min(3, width/40) columns", () => {
+	assert.equal(gridColumns(200), 3);
+	assert.equal(gridColumns(100), 2);
+	assert.equal(gridColumns(30), 1);
+	assert.equal(gridColumns(0), 1);
+});
+
+test("grid plan fills row-major: a new column first, then the shortest column, leftmost on a tie", () => {
+	const wide = { width: 200, height: 60 };
+	// 1 tile in a 200-wide tab: the first column is full, so the next tile splits right.
+	assert.deepEqual(planGridAdd(leaf("A"), wide), { kind: "split", target: "A", direction: "right" });
+	// 2 columns of 1 and 1, 3 columns allowed: a third column opens to the right.
+	assert.deepEqual(planGridAdd(columns(leaf("A"), leaf("B")), wide), { kind: "split", target: "B", direction: "right" });
+	// 3 single-tile columns: all columns full at 3, so the shortest (leftmost) column grows down.
+	assert.deepEqual(planGridAdd(columns(leaf("A"), leaf("B"), leaf("C")), wide), { kind: "split", target: "A", direction: "down" });
+	// Columns of 2, 2 and 1: the shortest column (3rd) grows down at its bottom pane.
+	assert.deepEqual(planGridAdd(columns(column("A", "B"), column("C", "D"), leaf("E")), wide),
+		{ kind: "split", target: "E", direction: "down" });
+});
+
+test("grid plan tolerates a tree that is not column-shaped", () => {
+	// A down split with a right split inside it still names an existing leaf.
+	const odd = split("down", 0.5, leaf("A"), split("right", 0.5, leaf("B"), leaf("C")));
+	const decision = planGridAdd(odd, { width: 200, height: 60 });
+	assert.equal(decision.kind, "split");
+	assert.ok(["A", "B", "C"].includes(decision.target));
+});
+
+test("grid plan is full at 6 tiles or when a tile would drop under MIN_AGENT_HEIGHT", () => {
+	const wide = { width: 200, height: 60 };
+	const six = columns(column("A", "B"), column("C", "D"), column("E", "F"));
+	assert.deepEqual(planGridAdd(six, wide), { kind: "full" });
+	// Tiles at 15 rows: the next down split would leave two tiles of 7 rows, below 8.
+	const tall = { width: 40, height: 15 };
+	assert.deepEqual(planGridAdd(leaf("A"), tall), { kind: "full" });
+	// Narrow tab: one column, so the next tile stacks down under it.
+	assert.deepEqual(planGridAdd(leaf("A"), { width: 40, height: 60 }), { kind: "split", target: "A", direction: "down" });
+});
+
+test("grid overflow names the next tab", () => {
+	assert.equal(seriesLabel("pi", 1), "pi");
+	assert.equal(seriesLabel("verdict", 2), "verdict-2");
+	const full = { tab_id: "w1:t2", label: "pi", root: columns(column("A", "B"), column("C", "D"), column("E", "F")), area: { width: 200, height: 60 } };
+	const room = { tab_id: "w1:t3", label: "pi-2", root: leaf("G"), area: { width: 200, height: 60 } };
+	// pi full, no pi-2: the next tab is pi-2.
+	assert.deepEqual(pickGridTab("pi", [full]), { kind: "new-tab", label: "pi-2" });
+	// pi full, pi-2 has room: split in pi-2.
+	assert.deepEqual(pickGridTab("pi", [full, room]), { kind: "split", tab_id: "w1:t3", target: "G", direction: "right" });
+	// verdict has no tab yet: a plain verdict tab.
+	assert.deepEqual(pickGridTab("verdict", []), { kind: "new-tab", label: "verdict" });
+});
+
+test("running panes stay put", () => {
+	// Every decision is a split of an existing leaf, the pi tab, or a new tab: never a move.
+	const wide = { width: 200, height: 60 };
+	const tree = columns(column("A", "B"), leaf("C"));
+	const decision = planGridAdd(tree, wide);
+	assert.equal(decision.kind, "split");
+	assert.ok(["A", "B", "C"].includes(decision.target));
+	// One agent beside Claude (a slot freed): the next dispatch splits beside Claude again.
+	assert.equal(placePane({ layout: "side", area, anchor, agents: [g("g1")] }).kind, "split");
+	assert.deepEqual(pickGridTab("pi", []), { kind: "new-tab", label: "pi" });
 });
