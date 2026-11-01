@@ -42,3 +42,14 @@ test("labels the pane with the task id and the slug", () => {
 	assert.equal(paneLabel(184, "pueue-pi-panes-958d"), "pi#184 pi-panes-958d");
 	assert.equal(paneLabel(12, "adhoc"), "pi#12 adhoc");
 });
+
+test("label falls back to the slug when the pueue lookup misses", () => {
+	// No Running task for the session: the pane still gets a name, never a blank or `pi#undefined`.
+	assert.equal(paneLabel(undefined, "pueue-grid-a3f9"), "grid-a3f9");
+	assert.equal(paneLabel(undefined, "adhoc"), "adhoc");
+});
+
+test("task id 0 is a real id, not a missing one", () => {
+	// pueue restarts task ids at 0 after `pueue clean`, so `pi#0 <slug>` is correct.
+	assert.equal(paneLabel(0, "pueue-x-1"), "pi#0 x-1");
+});

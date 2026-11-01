@@ -134,9 +134,16 @@ place_beside() {
 # Name the pane after its pueue task, so the person can tell the runs apart. A task
 # has no environment of its own, so its command is how the session id finds it.
 label_pane() {
-  local pane=$1 label
-  label=$(pueue status --json 2>/dev/null | node $script_dir/pi-pane-label.mjs "$session_id" 2>/dev/null) || return 0
-  [[ -n $label ]] || return 0
+  local pane=$1 label attempt
+  [[ -n $session_id ]] || return 0
+  # pueue may not show the task as Running the instant the pane opens, so retry
+  # briefly for the `pi#<id>` label. The slug is the fallback, never a blank name.
+  for (( attempt = 1; attempt <= 5; attempt++ )); do
+    label=$(pueue status --json 2>/dev/null | node $script_dir/pi-pane-label.mjs "$session_id" 2>/dev/null) || label=""
+    [[ $label == pi\#* ]] && break
+    sleep 1
+  done
+  [[ -n $label ]] || label=${session_id#pueue-}
   herdr_json pane rename "$pane" "$label" >/dev/null
   return 0
 }

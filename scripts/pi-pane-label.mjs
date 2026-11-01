@@ -6,8 +6,8 @@
  *
  *   pueue status --json | node scripts/pi-pane-label.mjs <session-id>
  *
- * Prints nothing and exits 1 when no Running task carries that session, which is
- * every failure mode this needs: the caller then leaves the pane's label alone.
+ * Prints the slug alone when no Running task carries that session yet (pueue may not have
+ * started it), so the pane always gets a name. `pi-view` retries until it has the id.
  */
 import { parseStatus } from "../session-band-plugin/hooks/pueue.ts";
 import { pathToFileURL } from "node:url";
@@ -23,8 +23,14 @@ export const taskIdFor = (statusJson, sessionId) => {
 	return parseStatus(statusJson).find(task => task.state === "Running" && flag.test(task.command))?.id;
 };
 
-/** `pi#184 pi-panes-958d` for session `pueue-pi-panes-958d`. */
-export const paneLabel = (taskId, sessionId) => `pi#${taskId} ${sessionId.replace(/^pueue-/, "")}`;
+/**
+ * `pi#184 pi-panes-958d` for session `pueue-pi-panes-958d`. With no task id (the pueue
+ * lookup missed) the slug alone, so the pane is never left blank. Task id 0 is real.
+ */
+export const paneLabel = (taskId, sessionId) => {
+	const slug = sessionId.replace(/^pueue-/, "");
+	return taskId === undefined ? slug : `pi#${taskId} ${slug}`;
+};
 
 const readStdin = async () => {
 	const chunks = [];
@@ -38,7 +44,6 @@ const main = async ([sessionId]) => {
 		return 2;
 	}
 	const id = taskIdFor(await readStdin(), sessionId);
-	if (id === undefined) return 1;
 	process.stdout.write(`${paneLabel(id, sessionId)}\n`);
 	return 0;
 };
