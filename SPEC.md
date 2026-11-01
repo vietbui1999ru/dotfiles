@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 branch: feat/pi-grid
 ---
 # SPEC: Even grid layout for Pi panes
