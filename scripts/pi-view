@@ -314,9 +314,13 @@ if (( tui )); then
     fi
   done
   rm -f -- $exit_file
+  # The run's secret: only a pane-run that reads it back from this file may write the exit file.
+  token_file=$run_dir/${session_id}.token
+  run_token=$(openssl rand -hex 8)
+  print -r -- "$run_token" >| $token_file
   print -r -- "$prompt" >| $prompt_file
   guard=$script_dir/pi-pane-run
-  herdr_json pane run "$pane" "${(q)guard} $$ ${(q)exit_file} ${(q)prompt_file} ${(j: :)${(q)tui_argv[@]}}" >/dev/null || exec "$@"
+  herdr_json pane run "$pane" "${(q)guard} ${(q)run_token} $$ ${(q)exit_file} ${(q)prompt_file} ${(j: :)${(q)tui_argv[@]}}" >/dev/null || exec "$@"
   # Wait for Pi to be quit. A pane closed with Pi still in it ends the task too,
   # but pi-pane-run closes its own pane on exit, so take the exit file it wrote
   # just before that instead of reporting the vanished pane as a failure.
@@ -357,7 +361,7 @@ if (( tui )); then
     sleep 2
   done
   rc=$(<$exit_file)
-  rm -f -- $exit_file
+  rm -f -- $exit_file $token_file
   # One last check for what Pi left behind; nobody is left to steer.
   node ${(q)script_dir}/pi-checks.mjs ${(q)PWD} ${(q)session_id} --no-steer
   exit ${rc:-1}
