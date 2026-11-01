@@ -46,3 +46,18 @@ test('no q: labels means no queue blocks', () => {
   expect(queueGroups([])).toEqual([])
   expect(queueGroups([task(1, 'edit-b', 'Done'), task(2, undefined, 'Failed')])).toEqual([])
 })
+
+test('queue rows follow template step order', () => {
+  // pr-merge's steps run wait-pr-merged, then pull, then post, whatever the task ids are.
+  const groups = queueGroups(
+    [
+      task(5, 'q:s1:pr-merge:pull'),
+      task(6, 'q:s1:pr-merge:post'),
+      task(9, 'q:s1:pr-merge:wait-pr-merged'),
+      // A step the template does not list sorts last, by task id.
+      task(2, 'q:s1:pr-merge:unlisted'),
+    ],
+    { 'pr-merge': ['wait-pr-merged', 'pull', 'post'] },
+  )
+  expect(groups[0]?.rows.map(row => row.id)).toEqual([9, 5, 6, 2])
+})

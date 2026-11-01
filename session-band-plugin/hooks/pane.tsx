@@ -72,7 +72,7 @@ export const hasMonitorRows = (rows: readonly MonitorRow[]): boolean => rows.len
 
 /** A queue row's state, with the Monitor's own glyphs. */
 const queueGlyph = (state: PueueState): string =>
-  state === 'Running' ? '▶' : state === 'Queued' ? '◌' : state === 'Paused' ? '⏸' : state === 'Done' ? '✓' : state === 'Failed' || state === 'Killed' ? '✗' : '?'
+  state === 'Running' ? '▶' : state === 'Queued' ? '◌' : state === 'Paused' ? '⏸' : state === 'Stashed' ? '◇' : state === 'Done' ? '✓' : state === 'Failed' || state === 'Killed' ? '✗' : '?'
 
 /** What the row says about the run itself: the outcome, its round, and the review marker. */
 export const outcomeLabel = (row: MonitorRow): string =>
@@ -649,7 +649,7 @@ export const register: Register = on => {
     let rows = base
     if (where && task) rows = monitorRows(state.tasks, allProgress, taskList, nowMs, { [task.id]: where }, inputs)
     // Queued waits and steps are not Pi dispatches, so they come from pueue's full status, not the tracked runs.
-    const groups = queueGroups(state.queueTasks ?? [])
+    const groups = queueGroups(state.queueTasks ?? [], state.queueStepOrder)
     const pending = task ? await pendingFor($, task) : undefined
     const pi = selectedProgress(state.tasks, state.selectedId, allProgress, rowIds)
     const transcript = pi?.entries.slice(-200) ?? []

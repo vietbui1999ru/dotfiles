@@ -10,7 +10,7 @@ export type Targets = { ids: number[]; refused: { id: number; reason: string }[]
 
 export const PI_USAGE = 'usage: /pi [kill|pause|resume|rm|hold] [ids|all], /pi release'
 const ACTIONS: readonly ControlAction[] = ['kill', 'pause', 'resume', 'rm', 'hold', 'release']
-const live = (state: PueueState) => state === 'Running' || state === 'Queued' || state === 'Paused'
+const live = (state: PueueState) => state === 'Running' || state === 'Queued' || state === 'Paused' || state === 'Stashed'
 
 export const parsePiArgs = (args: string): PiArgs => {
   const [verb, ...rest] = args.trim().split(/\s+/).filter(Boolean)

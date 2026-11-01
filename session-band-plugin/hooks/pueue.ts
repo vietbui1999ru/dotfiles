@@ -1,4 +1,4 @@
-export type PueueState = 'Queued' | 'Running' | 'Paused' | 'Done' | 'Failed' | 'Killed' | 'Other'
+export type PueueState = 'Queued' | 'Running' | 'Paused' | 'Stashed' | 'Done' | 'Failed' | 'Killed' | 'Other'
 
 export type Task = {
   id: number
@@ -31,6 +31,7 @@ const stateOf = (status: Record): Pick<Task, 'state' | 'exit'> => {
   if (status.Queued) return { state: 'Queued' }
   if (status.Running) return { state: 'Running' }
   if (status.Paused) return { state: 'Paused' }
+  if (status.Stashed) return { state: 'Stashed' }
   const done = object(status.Done)
   if (!done) return { state: 'Other' }
   const result = done.result

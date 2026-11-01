@@ -11,7 +11,7 @@ export type CheckRecord = {
 }
 
 export type OutcomeInputs = {
-  pueue: { state: 'Queued' | 'Running' | 'Paused' | 'Done' | 'Failed' | 'Killed' | 'Other'; exit?: number }
+  pueue: { state: 'Queued' | 'Running' | 'Paused' | 'Stashed' | 'Done' | 'Failed' | 'Killed' | 'Other'; exit?: number }
   /** herdr agent_status; undefined when there is no pane. */
   agentStatus?: string
   /** now minus the session log's last write. */
