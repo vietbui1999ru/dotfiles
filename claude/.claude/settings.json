@@ -291,7 +291,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ~/dotfiles/scripts/mistake-alert-hook.mjs"
+            "command": "f=\"$HOME/dotfiles/scripts/mistake-alert-hook.mjs\"; [ -f \"$f\" ] && command -v node >/dev/null || exit 0; node \"$f\""
           }
         ]
       },
