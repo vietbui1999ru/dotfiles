@@ -21,3 +21,8 @@ pane_history = true
 
 [ui.sound]
 enabled = false
+
+[[keys.command]]
+key = "prefix+="
+type = "shell"
+command = "node $HOME/dotfiles/scripts/pi-layout.mjs rebalance --focused"
