@@ -122,6 +122,12 @@ place_beside() {
   created=$(herdr_json pane split "$target" --direction "$direction" --ratio "$ratio" --no-focus --cwd "$PWD") || return 1
   pane=$(jq -r '.result.pane.pane_id // empty' <<< "$created")
   [[ -n $pane ]] || return 1
+  # The agents' column evens out, but Claude's split (the anchor) keeps its share.
+  local anchor_tab
+  anchor_tab=$(herdr_json pane get "$anchor" | jq -r '.result.pane.tab_id // empty')
+  if [[ -n $anchor_tab ]]; then
+    node $script_dir/pi-layout.mjs rebalance "$anchor_tab" --keep "$anchor" >/dev/null 2>&1 || true
+  fi
   print -r -- "$pane"
 }
 
@@ -149,22 +155,48 @@ forget_pane() {
   return 0
 }
 
-# Move a finished --tui pane into the workspace's `verdict` tab, creating it the
-# first time. Returns 1 when herdr refuses, so the run stays where it was.
-move_to_verdict() {
-  local pane=$1 workspace=$2 tab_id last
-  [[ -n $workspace ]] || return 1
-  tab_id=$(herdr_json tab list | jq -r --arg workspace "$workspace" \
-    '[.result.tabs[]? | select(.workspace_id == $workspace and .label == "verdict") | .tab_id] | first // empty')
-  if [[ -z $tab_id ]]; then
-    herdr_json pane move "$pane" --new-tab --workspace "$workspace" --label verdict --no-focus >/dev/null || return 1
+# Evens a grid tab's tiles after a pane came or went. Best effort: pi-layout leaves a
+# tab that is not a grid tab alone. Panes in `keep` (space-separated) keep their splits.
+rebalance_tab() {
+  local tab_id=$1 keep=${2:-}
+  [[ -n $tab_id ]] || return 0
+  if [[ -n $keep ]]; then
+    node $script_dir/pi-layout.mjs rebalance "$tab_id" --keep ${=keep} >/dev/null 2>&1 || true
   else
-    # The verdict tab stacks downward, newest run at the bottom.
-    last=$(herdr_json pane list | jq -r --arg tab "$tab_id" \
-      '[.result.panes[]? | select(.tab_id == $tab) | .pane_id] | last // empty')
-    [[ -n $last ]] || return 1
-    herdr_json pane move "$pane" --tab "$tab_id" --split down --target-pane "$last" --no-focus >/dev/null || return 1
+    node $script_dir/pi-layout.mjs rebalance "$tab_id" >/dev/null 2>&1 || true
   fi
+  return 0
+}
+
+# Move a finished --tui pane into the workspace's `verdict` grid, opening the next
+# verdict tab when the series is full. Returns 1 when herdr refuses, so the run stays
+# where it was. The source tab is rebalanced too, and the label is set again after the move.
+move_to_verdict() {
+  local pane=$1 workspace=$2 source_tab decision kind dest_tab label target direction
+  [[ -n $workspace ]] || return 1
+  source_tab=$(herdr_json pane get "$pane" | jq -r '.result.pane.tab_id // empty')
+  decision=$(node $script_dir/pi-layout.mjs grid verdict "$workspace" 2>/dev/null) || decision=""
+  kind=$(jq -r '.kind // empty' <<< "$decision" 2>/dev/null)
+  if [[ $kind == split ]]; then
+    dest_tab=$(jq -r '.tab_id // empty' <<< "$decision")
+    target=$(jq -r '.target // empty' <<< "$decision")
+    direction=$(jq -r '.direction // empty' <<< "$decision")
+    [[ -n $dest_tab && -n $target && -n $direction ]] || return 1
+    herdr_json pane move "$pane" --tab "$dest_tab" --split "$direction" --target-pane "$target" --no-focus >/dev/null || return 1
+  elif [[ $kind == new-tab ]]; then
+    label=$(jq -r '.label // empty' <<< "$decision")
+    [[ -n $label ]] || return 1
+    herdr_json pane move "$pane" --new-tab --workspace "$workspace" --label "$label" --no-focus >/dev/null || return 1
+    dest_tab=$(herdr_json pane get "$pane" | jq -r '.result.pane.tab_id // empty')
+  else
+    # The grid decision failed: the old stacked placement in the first verdict tab.
+    return 1
+  fi
+  rebalance_tab "$dest_tab"
+  if [[ -n $source_tab && $source_tab != "$dest_tab" ]]; then
+    rebalance_tab "$source_tab"
+  fi
+  label_pane "$pane"
   return 0
 }
 
@@ -211,6 +243,29 @@ open_pane() {
   fi
 
   if [[ -z $pane ]]; then
+    # The grid decides which pi tab (or new pi-N tab) takes the run, and its split.
+    # Inside the flock, so two runs never take the same slot.
+    local grid_decision grid_kind grid_tab grid_target grid_direction grid_label
+    grid_decision=$(node $script_dir/pi-layout.mjs grid pi "$workspace" 2>/dev/null) || grid_decision=""
+    grid_kind=$(jq -r '.kind // empty' <<< "$grid_decision" 2>/dev/null)
+    if [[ $grid_kind == split ]]; then
+      grid_tab=$(jq -r '.tab_id // empty' <<< "$grid_decision")
+      grid_target=$(jq -r '.target // empty' <<< "$grid_decision")
+      grid_direction=$(jq -r '.direction // empty' <<< "$grid_decision")
+      if [[ -n $grid_target && -n $grid_direction ]] && created=$(herdr_json pane split "$grid_target" --direction "$grid_direction" --no-focus --cwd "$PWD"); then
+        pane=$(jq -r '.result.pane.pane_id // empty' <<< "$created")
+        rebalance_tab "$grid_tab"
+      fi
+    elif [[ $grid_kind == new-tab ]]; then
+      grid_label=$(jq -r '.label // empty' <<< "$grid_decision")
+      if [[ -n $grid_label ]] && created=$(herdr_json tab create --workspace "$workspace" --label "$grid_label" --no-focus --cwd "$PWD"); then
+        pane=$(jq -r '.result.root_pane.pane_id // empty' <<< "$created")
+      fi
+    fi
+  fi
+
+  if [[ -z $pane ]]; then
+    # The grid is unavailable: the old stacked placement in the first pi tab.
     tab_id=$(herdr_json tab list | jq -r --arg workspace "$workspace" \
       '[.result.tabs[]? | select(.workspace_id == $workspace and .label == "pi") | .tab_id] | first // empty')
 
