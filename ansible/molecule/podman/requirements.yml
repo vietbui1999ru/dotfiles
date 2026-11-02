@@ -1,0 +1,6 @@
+---
+# The shared ../../requirements.yml plus the podman driver's collection, kept
+# here so the CI docker scenario does not download it.
+collections:
+  - name: community.general
+  - name: containers.podman
