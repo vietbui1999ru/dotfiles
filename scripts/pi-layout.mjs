@@ -94,18 +94,13 @@ const leavesOf = node => (node.type === "pane" ? [node] : [...leavesOf(node.firs
 
 /**
  * The columns of a grid tab: the leaves of its root `right` chain, each as a list of
- * tiles. A root that is not a `right` chain is one column.
+ * tiles. herdr nests the chain on either side (splitting the rightmost pane right
+ * nests it in `second`), so every `right` split is flattened, left to right. A root
+ * that is not a `right` split is one column.
  */
-const columnsOf = root => {
-	const columns = [];
-	let node = root;
-	while (node.type === "split" && node.direction === "right") {
-		columns.unshift(node.second);
-		node = node.first;
-	}
-	columns.unshift(node);
-	return columns.map(leavesOf);
-};
+const columnNodes = node =>
+	node.type === "split" && node.direction === "right" ? [...columnNodes(node.first), ...columnNodes(node.second)] : [node];
+const columnsOf = root => columnNodes(root).map(leavesOf);
 
 /**
  * Where the next tile of a grid tab goes, filled row-major: a new column while there are

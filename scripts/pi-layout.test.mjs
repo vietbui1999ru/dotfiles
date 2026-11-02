@@ -194,6 +194,17 @@ test("grid plan fills row-major: a new column first, then the shortest column, l
 		{ kind: "split", target: "E", direction: "down" });
 });
 
+test("grid plan reads herdr's right-nested column chain as separate columns", () => {
+	const wide = { width: 199, height: 62 };
+	// Splitting the rightmost pane right nests the chain on the right: right(A, right(B, C)).
+	// With column 1 at two tiles, the next tile goes under B (column 2), not under A again.
+	const tree = split("right", 0.333, split("down", 0.5, leaf("A"), leaf("A2")), split("right", 0.5, leaf("B"), leaf("C")));
+	assert.deepEqual(planGridAdd(tree, wide), { kind: "split", target: "B", direction: "down" });
+	// Three single tiles nested the same way: three columns are full, so A grows down.
+	assert.deepEqual(planGridAdd(split("right", 0.333, leaf("A"), split("right", 0.5, leaf("B"), leaf("C"))), wide),
+		{ kind: "split", target: "A", direction: "down" });
+});
+
 test("grid plan tolerates a tree that is not column-shaped", () => {
 	// A down split with a right split inside it still names an existing leaf.
 	const odd = split("down", 0.5, leaf("A"), split("right", 0.5, leaf("B"), leaf("C")));
