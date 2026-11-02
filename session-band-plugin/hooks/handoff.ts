@@ -64,7 +64,7 @@ export type QueueGroup = { session: string; rows: QueueRow[] }
  * label and ordered by task id, so a template's wait and steps read in queue order.
  * Non-queue tasks are ignored.
  */
-export const queueGroups = (tasks: readonly Task[]): QueueGroup[] => {
+export const queueGroups = (tasks: readonly Task[], stepOrder: Readonly<Record<string, readonly string[]>> = {}): QueueGroup[] => {
   const groups = new Map<string, QueueRow[]>()
   for (const task of [...tasks].sort((left, right) => left.id - right.id)) {
     const parsed = task.label ? /^q:([^:]+):([^:]+):(.+)$/.exec(task.label) : null
@@ -77,15 +77,23 @@ export const queueGroups = (tasks: readonly Task[]): QueueGroup[] => {
     rows.push({ id: task.id, template, step, state: task.state })
     groups.set(session, rows)
   }
-  return [...groups.entries()].map(([session, rows]) => ({ session, rows }))
+  // Each session's rows run in its template's step order; unknown steps sort last, by id.
+  const rank = (row: QueueRow) => {
+    const index = stepOrder[row.template]?.indexOf(row.step) ?? -1
+    return index === -1 ? Number.MAX_SAFE_INTEGER : index
+  }
+  return [...groups.entries()].map(([session, rows]) => ({
+    session,
+    rows: [...rows].sort((left, right) => rank(left) - rank(right) || left.id - right.id),
+  }))
 }
 
 const finished = (state: PueueState | undefined) => state === 'Done' || state === 'Failed' || state === 'Killed'
-const live = (state: PueueState | undefined) => state === 'Queued' || state === 'Running' || state === 'Paused'
-const glyph = (state: PueueState | undefined) => state === 'Running' ? '▶' : state === 'Queued' ? '…' : state === 'Paused' ? 'Ⅱ' : state === 'Done' ? '✓' : state === 'Failed' || state === 'Killed' ? '!' : '?'
+const live = (state: PueueState | undefined) => state === 'Queued' || state === 'Running' || state === 'Paused' || state === 'Stashed'
+const glyph = (state: PueueState | undefined) => state === 'Running' ? '▶' : state === 'Queued' ? '…' : state === 'Paused' ? 'Ⅱ' : state === 'Stashed' ? '…' : state === 'Done' ? '✓' : state === 'Failed' || state === 'Killed' ? '!' : '?'
 const cost = (value: number) => `$${value < 0.01 ? value.toFixed(3) : value.toFixed(2)}`
 // The band and monitor deliberately use different glyphs for queued, paused, and failed tasks.
-const monitorGlyph = (state: PueueState) => state === 'Running' ? '▶' : state === 'Queued' ? '◌' : state === 'Paused' ? '⏸' : state === 'Done' ? '✓' : state === 'Failed' || state === 'Killed' ? '✗' : '?'
+const monitorGlyph = (state: PueueState) => state === 'Running' ? '▶' : state === 'Queued' ? '◌' : state === 'Paused' ? '⏸' : state === 'Stashed' ? '◇' : state === 'Done' ? '✓' : state === 'Failed' || state === 'Killed' ? '✗' : '?'
 const linger = (item: TrackedTask, nowMs: number) =>
   nowMs - (item.finishedMs ?? item.task?.endMs ?? item.addedMs) <= 30_000
 const monitorVisible = (item: TrackedTask, nowMs: number) => {

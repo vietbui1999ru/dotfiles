@@ -1,37 +1,59 @@
 #!/usr/bin/env zsh
 # pi-pane-run — run interactive Pi in a herdr pane, for pi-view --tui.
 #
-#   pi-pane-run <watch-pid> <exit-file> <prompt-file> <pi command…>
+#   pi-pane-run <token> <watch-pid> <exit-file> <prompt-file> <pi command…>
 #
 # Runs the Pi command in the foreground, so its TUI owns the pane and the person
 # can steer it, with the prompt file's text as its first message. When Pi exits
 # its exit code goes to <exit-file>, which pi-view (inside the pueue task) waits
 # for. If <watch-pid> goes away first, as under pueue kill, Pi is ended too.
 #
+# The token is the run's secret from pi-view, written to <exit-file> with .exit
+# replaced by .token. Only a pane-run whose token still matches that file writes
+# the exit file, so a stray pane-run can never end a run it did not start.
+#
 # Once Pi exits normally the pane has done its job, so it closes itself and its
-# slot in the tab frees up for the next queued dispatch. The close is best effort
-# and comes after the exit file, so pi-view reads the code before the pane goes.
+# slot in the tab frees up for the next queued dispatch. Its tab is then evened
+# out, so the panes that stay do not keep the gap. The close is best effort and
+# comes after the exit file, so pi-view reads the code before the pane goes.
 set -u
 
-if (( $# < 4 )); then
-  print -u2 -- 'usage: pi-pane-run <watch-pid> <exit-file> <prompt-file> <pi command…>'
+if (( $# < 5 )); then
+  print -u2 -- 'usage: pi-pane-run <token> <watch-pid> <exit-file> <prompt-file> <pi command…>'
   exit 2
 fi
-watch=$1 exit_file=$2 prompt_file=$3
-shift 3
+token=$1 watch=$2 exit_file=$3 prompt_file=$4
+shift 4
 prompt=$(<$prompt_file)
 rm -f -- $prompt_file
 
-# This script is not interactive, so the watcher shares its process group:
-# signalling group 0 ends Pi and this script together, not the pane's shell.
-{ while kill -0 $watch 2>/dev/null; do sleep 2; done; kill -TERM 0 } &
-watcher=$!
+# The watcher ends Pi and this script together, but only when <watch-pid> goes away
+# while Pi is still running: it shares this process group, so signalling group 0 ends
+# both, not the pane's shell. A watch pid that is already gone must not end Pi, so the
+# watcher is only started for a live one, and Pi's own exit stops it.
+if kill -0 $watch 2>/dev/null; then
+  { while kill -0 $watch 2>/dev/null; do sleep 2; done; kill -TERM 0 } &
+  watcher=$!
+fi
 
 "$@" -- "$prompt"
 rc=$?
-kill $watcher 2>/dev/null
-print -r -- $rc >| $exit_file
+[[ -n ${watcher:-} ]] && kill $watcher 2>/dev/null
+
+# Only the run that pi-view started may write its exit file. A missing or changed
+# token file means this pane-run is not that run, so it leaves the file alone.
+token_file=${exit_file%.exit}.token
+if [[ -r $token_file && $(<$token_file) == $token ]]; then
+  print -r -- $rc >| $exit_file
+fi
+
 if [[ -n ${HERDR_PANE_ID:-} ]] && (( $+commands[herdr] )); then
+  # The tab is read before the close, since the pane is gone after it.
+  tab_id=$(herdr pane get "$HERDR_PANE_ID" 2>/dev/null | jq -r '.result.pane.tab_id // empty' 2>/dev/null)
   herdr pane close "$HERDR_PANE_ID" >/dev/null 2>&1
+  # Best effort: pi-layout leaves a tab that is not a grid tab alone.
+  if [[ -n $tab_id ]]; then
+    node ${0:A:h}/pi-layout.mjs rebalance "$tab_id" >/dev/null 2>&1 || true
+  fi
 fi
 exit $rc

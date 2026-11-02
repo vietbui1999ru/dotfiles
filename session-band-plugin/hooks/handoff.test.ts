@@ -211,3 +211,13 @@ test('summarizes lifecycle states, failures, rollups, and stale scoped files', (
   expect(formatElapsed(61_000)).toBe('1m1s')
   expect(formatTokens(1_500)).toBe('1.5k')
 })
+
+test('stashed tasks get their own glyph', () => {
+  // pueue reports a Stashed task under its own status, not as Queued or Other.
+  const json = JSON.stringify({ tasks: { '4': { id: 4, label: 'q', path: '/repo', command: 'pi --session-id pueue-s -p x', created_at: '2026-10-10T00:00:00Z', status: { Stashed: { enqueued_at: '2026-10-10T00:00:00Z' } } } } })
+  const [parsed] = parseStatus(json)
+  expect(parsed?.state).toBe('Stashed')
+  // Its monitor glyph is ◇, not the '?' an unknown state falls back to, and the band uses …
+  const row = monitorRows([{ id: 4, cwd: '/repo', addedMs: 0, sessionId: 'pueue-s', label: 'edit', task: parsed }], {}, [parsed!], 0)[0]
+  expect(row?.glyph).toBe('◇')
+})

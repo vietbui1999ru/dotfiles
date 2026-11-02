@@ -1,4 +1,4 @@
-export type PueueState = 'Queued' | 'Running' | 'Paused' | 'Done' | 'Failed' | 'Killed' | 'Other'
+export type PueueState = 'Queued' | 'Running' | 'Paused' | 'Stashed' | 'Done' | 'Failed' | 'Killed' | 'Other'
 
 export type PueueTask = {
   id: number
