@@ -7,19 +7,11 @@
     fail_msg: "agents role is for Linux boxes; macOS installs these through its own setup"
     quiet: true
 
-- name: Ensure ~/.local/bin and ~/.local/libexec/pueue exist
-  ansible.builtin.file:
-    path: "{{ item }}"
-    state: directory
-    mode: "0755"
-  loop:
-    - "{{ ansible_env.HOME }}/.local/bin"
-    - "{{ agents_pueue_libexec }}"
-
-# pueue (task queue). The real binaries go under ~/.local/libexec/pueue, not
-# ~/.local/bin: bootstrap-dirs.sh links ~/.local/bin/pueue to the secret-scrubbing
-# wrapper scripts/pueue-safe, which then finds this binary through PUEUE_SAFE_REAL.
-# Skipped on lite boxes. No service is installed; dispatch starts pueued.
+# pueue (task queue). The real binaries go in /usr/local/bin, mirroring Homebrew's
+# pueue on the Mac: bootstrap-dirs.sh links ~/.local/bin/pueue (earlier on PATH) to
+# the secret-scrubbing wrapper scripts/pueue-safe, which finds the real binary by
+# searching PATH past itself. Skipped on lite boxes. No service is installed;
+# dispatch starts pueued.
 - name: Fetch the latest pueue release tag
   ansible.builtin.uri:
     url: https://api.github.com/repos/Nukesor/pueue/releases/latest
@@ -30,19 +22,12 @@
 - name: Install pueue and pueued from the GitHub release
   ansible.builtin.get_url:
     url: "https://github.com/Nukesor/pueue/releases/download/{{ agents_pueue_release.json.tag_name }}/{{ item }}-{{ agents_linux_triple }}"
-    dest: "{{ agents_pueue_libexec }}/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
     mode: "0755"
+  become: true
   loop:
     - pueue
     - pueued
-  when: not agent_lite | bool
-
-- name: Expose the real pueue for the safe wrapper (PUEUE_SAFE_REAL)
-  ansible.builtin.debug:
-    msg: >-
-      pueue installed at {{ agents_pueue_libexec }}/pueue. The dotfiles
-      bootstrap links ~/.local/bin/pueue to scripts/pueue-safe, which reaches
-      the real binary through PUEUE_SAFE_REAL; export it in your shell rc.
   when: not agent_lite | bool
 
 # Pi (coding agent). Installed from npm with the mise-pinned node; the packages it
@@ -50,8 +35,9 @@
 - name: Install Pi coding agent (npm global)
   ansible.builtin.shell: |
     mise x -- npm install -g @earendil-works/pi-coding-agent
+    mise reshim
   args:
-    creates: "{{ ansible_env.HOME }}/.local/bin/pi"
+    creates: "{{ ansible_env.HOME }}/.local/share/mise/shims/pi"
   environment:
     PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.HOME }}/.local/share/mise/shims:{{ ansible_env.PATH }}"
   when: not agent_lite | bool
@@ -61,8 +47,9 @@
 - name: Install qmd (npm global)
   ansible.builtin.shell: |
     mise x -- npm install -g @tobilu/qmd
+    mise reshim
   args:
-    creates: "{{ ansible_env.HOME }}/.local/bin/qmd"
+    creates: "{{ ansible_env.HOME }}/.local/share/mise/shims/qmd"
   environment:
     PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.HOME }}/.local/share/mise/shims:{{ ansible_env.PATH }}"
 

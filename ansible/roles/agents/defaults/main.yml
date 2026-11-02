@@ -1,5 +1,4 @@
 ---
-agents_pueue_libexec: "{{ ansible_env.HOME }}/.local/libexec/pueue"
 # pueue release asset triple for the host arch (both musl builds are static).
 agents_linux_triple: >-
   {{ {'x86_64': 'x86_64-unknown-linux-musl', 'aarch64': 'aarch64-unknown-linux-musl'}[ansible_architecture] }}
