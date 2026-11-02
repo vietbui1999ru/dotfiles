@@ -83,10 +83,10 @@ Installed here: `eza`, `rg`, `bat`, `fd`, `delta`. Not installed: `sd`, `dust` â
 ## Spec loop
 
 1. If SPEC.md exists at the repo root and its `branch:` matches the current branch, read it before writing code. Work only toward its AC ids. Obey its Boundaries.
-2. Never run `~/dotfiles/scripts/ac-run approve`. Only the human approves a spec. (Approval can be forged by anyone with a shell; this rule is the defence.)
+2. Never run `~/dotfiles/scripts/spec approve`. Only the human approves a spec. (Approval can be forged by anyone with a shell; this rule is the defence.)
 3. When you are asked to write a spec in an unattended or pueue run, stop at a lint-clean SPEC.md with `status: draft`. Implementation is a separate run after approval. A run asked to implement an approved spec proceeds normally. A spec lives only on its feature branch: commit and push the draft there, but never merge a spec-only PR into `main`. The spec reaches `main` only as the rule 7 archive.
 4. Never edit a `verify:` line or a test to make a check pass. Report the failure.
-5. When rule 1 applies, before saying "done", run `~/dotfiles/scripts/ac-run check SPEC.md` and `~/dotfiles/scripts/floor-guard`. Paste both outputs.
+5. When rule 1 applies, before saying "done", run `~/dotfiles/scripts/spec check SPEC.md` and `~/dotfiles/scripts/floor-guard`. Paste both outputs.
 6. When rule 1 applies, if a check fails, fix and rerun. Stop after 3 tries and report the failing output.
 7. When rule 1 applies, after the rule 5 checks pass and before the PR is marked ready or merged, archive the spec as the branch's last commit: `git mv SPEC.md docs/specs/<YYYY-MM-DD>-<slug>.md`. `<YYYY-MM-DD>` is the date SPEC.md was first committed; `<slug>` is the branch name without its type prefix (`feat/multi-provider-usage` becomes `2026-10-20-multi-provider-usage.md`). Commit message: `docs(specs): archive the <slug> spec under docs/specs`. Approval records live outside the repo and are unaffected.
 <!-- spec-loop:end -->
@@ -134,7 +134,7 @@ Agents commit only through the funnel, in git and jj mode alike:
 file> <path>...`, with the session worktree spelled out literally. It tracks and
 commits only the listed paths, refuses `main`/`master` and a foreign checkout,
 and in jj mode moves the branch bookmark and reattaches git HEAD (`git switch`)
-for `ac-run` and the other git-based tools. In a `.claude/worktrees/` checkout a
+for `spec` and the other git-based tools. In a `.claude/worktrees/` checkout a
 plain `git commit` or `jj commit` is blocked, and git refuses any other move of
 an existing branch (reset, rebase, merge, `update-ref`, branch deletion); those
 are the user's call, so ask. Do not run `jj bookmark move`, `jj tug`, `jj
