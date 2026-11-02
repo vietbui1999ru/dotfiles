@@ -102,9 +102,12 @@ alias dokcer="docker"
 alias kubctl="kubectl"
 alias souce="exec zsh"
 
-# Claude Code through the Headroom compression proxy (only where Headroom is installed).
+# Claude Code and Codex through the opt-in Headroom proxy launchers (only where
+# Headroom is installed). Normal `claude` and `codex` stay direct; the workflow
+# script probes proxy identity and readiness before routing any traffic.
 # ~/.local/bin may not be on PATH yet when .zshrc sources this file, so test
 # the default uv tool location too.
 if command -v headroom >/dev/null || [[ -x $HOME/.local/bin/headroom ]]; then
-  alias hclaude="headroom wrap claude"
+  alias hclaude="$HOME/dotfiles/scripts/headroom-workflow claude"
+  alias hcodex="$HOME/dotfiles/scripts/headroom-workflow codex"
 fi

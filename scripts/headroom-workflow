@@ -1,0 +1,434 @@
+#!/usr/bin/env python3
+"""headroom-workflow — opt-in launchers for the shared Headroom proxy.
+
+Phase 1 of the shared Headroom pilot (SPEC.md, AC-1..AC-3). Nothing here writes
+user configuration: `claude` and `codex` get child-scoped routing only, and the
+proxy runs in the foreground in the operator's own terminal.
+
+    headroom-workflow proxy     start the loopback proxy (foreground)
+    headroom-workflow status    probe identity and readiness
+    headroom-workflow claude …  run claude through the proxy
+    headroom-workflow codex …   run codex through the proxy
+
+Normal `claude`, `codex` and `headroom` commands stay direct.
+"""
+import http.client
+import ipaddress
+import json
+import os
+import shutil
+import socket
+import sys
+from pathlib import Path
+from urllib.parse import urlsplit
+
+URL_ENV = "HEADROOM_WORKFLOW_URL"
+DEFAULT_URL = "http://127.0.0.1:8787"
+SERVICE = "headroom-proxy"
+PROBE_TIMEOUT = 2.0
+
+# Inherited settings that would enable a feature outside the pilot or send
+# traffic to a different upstream. Any value is refused for the routing vars;
+# only truthy values are refused for the boolean switches.
+FORBIDDEN_TRUTHY_ENV = ("HEADROOM_LOG_MESSAGES", "HEADROOM_INTERCEPT_ENABLED")
+FORBIDDEN_ANY_ENV = (
+    "HEADROOM_PROXY_EXTENSIONS",
+    "HEADROOM_ANTHROPIC_TARGET_API_URL",
+    "HEADROOM_OPENAI_TARGET_API_URL",
+    "HEADROOM_GEMINI_TARGET_API_URL",
+    "HEADROOM_CLOUDCODE_TARGET_API_URL",
+    "ANTHROPIC_TARGET_API_URL",
+    "ANTHROPIC_FOUNDRY_BASE_URL",
+    "OPENAI_TARGET_API_URL",
+    "GEMINI_TARGET_API_URL",
+    "CLOUDCODE_TARGET_API_URL",
+)
+
+USAGE = """usage: headroom-workflow <command> [args...]
+
+  proxy            start the loopback Headroom proxy in the foreground
+  status           report proxy identity and readiness
+  claude [args...] run claude with child-scoped proxy routing
+  codex  [args...] run codex with command-scoped proxy routing
+
+Proxy URL: HEADROOM_WORKFLOW_URL (default http://127.0.0.1:8787).
+"""
+
+
+class Address:
+    def __init__(self, host, port):
+        self.host = host
+        self.port = port
+
+    @property
+    def netloc(self):
+        return f"[{self.host}]" if ":" in self.host else self.host
+
+    @property
+    def base(self):
+        return f"http://{self.netloc}:{self.port}"
+
+    @property
+    def bind_host(self):
+        # localhost may resolve to ::1; the pilot proxy always binds IPv4.
+        return "127.0.0.1" if self.host == "localhost" else self.host
+
+
+class ProbeError(Exception):
+    """The configured URL does not answer as a ready Headroom proxy."""
+
+
+def fail(message):
+    print(f"headroom-workflow: {message}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def usage(message):
+    print(f"headroom-workflow: {message}", file=sys.stderr)
+    print(USAGE, file=sys.stderr)
+    raise SystemExit(2)
+
+
+def truthy(value):
+    return (value or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def normalize_url(value):
+    return value.strip().rstrip("/")
+
+
+def is_loopback(host):
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def resolve_address(env):
+    raw = env.get(URL_ENV, DEFAULT_URL)
+
+    def bad(reason):
+        fail(f"{URL_ENV} {raw!r} {reason}")
+
+    if raw != raw.strip():
+        bad("has surrounding whitespace")
+    parts = urlsplit(raw)
+    if parts.scheme != "http":
+        bad("must be a plain http:// URL (the pilot proxy serves loopback HTTP)")
+    if parts.username or parts.password:
+        bad("must not embed credentials")
+    if parts.query or parts.fragment:
+        bad("must not carry a query or fragment")
+    if parts.path not in ("", "/"):
+        bad("must not carry a path; use the bare origin")
+    try:
+        port = parts.port
+    except ValueError:
+        bad("has an invalid port")
+    if port is None:
+        bad("must include an explicit port")
+    host = (parts.hostname or "").lower()
+    if not host:
+        bad("has no host")
+    if not is_loopback(host):
+        bad("must point at a loopback host (127.0.0.1, ::1 or localhost)")
+    return Address(host, port)
+
+
+def http_json(address, path):
+    conn = http.client.HTTPConnection(address.bind_host, address.port,
+                                      timeout=PROBE_TIMEOUT)
+    try:
+        # http.client does not follow redirects, so a redirect cannot be
+        # mistaken for a healthy proxy.
+        conn.request("GET", path, headers={"Accept": "application/json"})
+        response = conn.getresponse()
+        body = response.read(1 << 20)
+        status = response.status
+    except (OSError, http.client.HTTPException) as exc:
+        raise ProbeError(f"{address.base}: {exc}") from exc
+    finally:
+        conn.close()
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        payload = None
+    return status, payload
+
+
+def describe(status, payload):
+    service = payload.get("service") if isinstance(payload, dict) else None
+    return f"HTTP {status}, service={service!r}"
+
+
+def probe(address):
+    """Return the /readyz payload, or raise ProbeError with a clear reason."""
+    try:
+        status, live = http_json(address, "/livez")
+    except ProbeError:
+        raise ProbeError(
+            f"no proxy listening at {address.base}: start it with: "
+            "headroom-workflow proxy"
+        ) from None
+    if status != 200 or not isinstance(live, dict) or live.get("service") != SERVICE:
+        raise ProbeError(
+            f"listener at {address.base} is not Headroom "
+            f"(GET /livez -> {describe(status, live)}); refusing to route "
+            "provider traffic to it"
+        )
+    status, ready = http_json(address, "/readyz")
+    if (status != 200 or not isinstance(ready, dict)
+            or ready.get("service") != SERVICE or ready.get("ready") is not True):
+        raise ProbeError(
+            f"Headroom proxy at {address.base} is not ready "
+            f"(GET /readyz -> {describe(status, ready)}); check its log"
+        )
+    return ready
+
+
+def require_ready(address):
+    try:
+        return probe(address)
+    except ProbeError as exc:
+        fail(str(exc))
+
+
+def require_binary(name, recovery):
+    path = shutil.which(name)
+    if not path:
+        fail(f"{name} not found on PATH; {recovery}")
+    return path
+
+
+def listener_present(address):
+    try:
+        with socket.create_connection((address.bind_host, address.port), timeout=1.0):
+            return True
+    except OSError:
+        return False
+
+
+def inherited_conflicts(env, names, expected=None):
+    conflicts = []
+    for name in names:
+        value = env.get(name)
+        if not value:
+            continue
+        if expected is not None and normalize_url(value) == normalize_url(expected):
+            continue
+        conflicts.append(f"{name} is already set to {value}")
+    return conflicts
+
+
+def claude_settings_conflict(env, address):
+    home = Path(env.get("HOME") or Path.home())
+    config_dir = Path(env.get("CLAUDE_CONFIG_DIR") or home / ".claude")
+    path = config_dir / "settings.json"
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return f"{path} cannot be read as JSON, so conflicting routing cannot be ruled out"
+    settings_env = data.get("env") if isinstance(data, dict) else None
+    value = settings_env.get("ANTHROPIC_BASE_URL") if isinstance(settings_env, dict) else None
+    if isinstance(value, str) and normalize_url(value) != normalize_url(address.base):
+        return f"{path} sets env.ANTHROPIC_BASE_URL to {value}"
+    return None
+
+
+def toml_value(raw):
+    if raw[:1] in ("'", '"'):
+        end = raw.find(raw[0], 1)
+        return raw[1:end] if end > 0 else raw[1:]
+    return raw.split("#", 1)[0].strip()
+
+
+def toml_scalars(text):
+    """Minimal top-level and section key scan; enough to spot routing keys."""
+    top, sections, current = {}, {}, None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith("[") and stripped.endswith("]"):
+            current = stripped.strip("[]").strip()
+            sections.setdefault(current, {})
+            continue
+        key, sep, value = stripped.partition("=")
+        if not sep:
+            continue
+        key = key.strip()
+        if current is None:
+            top[key] = toml_value(value.strip())
+        else:
+            sections[current][key] = toml_value(value.strip())
+    return top, sections
+
+
+def codex_config_conflicts(env, address):
+    home = Path(env.get("HOME") or Path.home())
+    codex_home = Path(env.get("CODEX_HOME") or home / ".codex")
+    path = codex_home / "config.toml"
+    if not path.is_file():
+        return []
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return [f"{path} cannot be read, so conflicting routing cannot be ruled out"]
+
+    expected = {
+        "openai_base_url": f"{address.base}/v1",
+        "chatgpt_base_url": f"{address.base}/backend-api/",
+    }
+    top, sections = toml_scalars(text)
+    conflicts = []
+    for key, wanted in expected.items():
+        value = top.get(key)
+        if value and normalize_url(value) != normalize_url(wanted):
+            conflicts.append(f"{path} sets {key} to {value}")
+    provider = top.get("model_provider")
+    if provider and provider != "openai":
+        conflicts.append(
+            f"{path} sets model_provider to {provider!r}, which would bypass "
+            "the built-in openai routing"
+        )
+    for section in ("model_providers.openai", "model_providers.headroom"):
+        base = sections.get(section, {}).get("base_url")
+        if base and normalize_url(base) not in (
+                normalize_url(expected["openai_base_url"]),
+                normalize_url(address.base)):
+            conflicts.append(f"{path} sets [{section}].base_url to {base}")
+    return conflicts
+
+
+def argv_routing_conflicts(argv, keys):
+    """Return user `-c key=value` overrides that would reroute the child."""
+    found = []
+    index = 0
+    while index < len(argv):
+        arg = argv[index]
+        value = None
+        if arg in ("-c", "--config") and index + 1 < len(argv):
+            value = argv[index + 1]
+            index += 2
+        elif arg.startswith("--config="):
+            value = arg.split("=", 1)[1]
+            index += 1
+        elif arg.startswith("-c") and len(arg) > 2:
+            value = arg[2:]
+            index += 1
+        else:
+            index += 1
+            continue
+        if value.partition("=")[0].strip() in keys:
+            found.append(f"{arg} {value}".strip())
+    return found
+
+
+def refuse_conflicts(binary, conflicts, address):
+    if not conflicts:
+        return
+    fail(
+        f"refusing to launch {binary} with conflicting routing: "
+        + "; ".join(conflicts)
+        + f". Point it at {address.base}, unset it, or run the direct "
+        f"`{binary}` command. If Codex was persistently wrapped, run "
+        "`headroom unwrap codex` first."
+    )
+
+
+def cmd_proxy(argv, env):
+    if argv:
+        usage("proxy takes no arguments; it runs the fixed pilot policy")
+    address = resolve_address(env)
+    for name in FORBIDDEN_TRUTHY_ENV:
+        if truthy(env.get(name)):
+            fail(f"refusing to start: {name} is set and would enable a feature "
+                 f"outside the pilot; unset it first: env -u {name} "
+                 "headroom-workflow proxy")
+    for name in FORBIDDEN_ANY_ENV:
+        if env.get(name):
+            fail(f"refusing to start: {name} is set and would route outside the "
+                 f"pilot; unset it first: env -u {name} headroom-workflow proxy")
+    if listener_present(address):
+        fail(f"something is already listening at {address.base}; refusing to "
+             "start a second proxy. Stop that listener or point "
+             f"{URL_ENV} at a free loopback port.")
+    binary = require_binary("headroom", "install it with: uv tool install headroom-ai")
+    os.execvpe(binary, [
+        binary, "proxy",
+        "--host", address.bind_host,
+        "--port", str(address.port),
+        "--mode", "cache",
+        "--workers", "1",
+        "--no-cache",
+        "--no-telemetry",
+    ], dict(env))
+
+
+def cmd_status(argv, env):
+    if argv:
+        usage("status takes no arguments")
+    address = resolve_address(env)
+    ready = require_ready(address)
+    version = ready.get("version") or "unknown version"
+    print(f"headroom-workflow: {SERVICE} {version} ready at {address.base}")
+
+
+def cmd_claude(argv, env):
+    address = resolve_address(env)
+    conflicts = inherited_conflicts(env, ("ANTHROPIC_BASE_URL",))
+    settings = claude_settings_conflict(env, address)
+    if settings:
+        conflicts.append(settings)
+    refuse_conflicts("claude", conflicts, address)
+    binary = require_binary("claude", "install Claude Code, then retry")
+    require_ready(address)
+    child_env = dict(env)
+    child_env["ANTHROPIC_BASE_URL"] = address.base
+    os.execvpe(binary, [binary, *argv], child_env)
+
+
+def cmd_codex(argv, env):
+    address = resolve_address(env)
+    conflicts = inherited_conflicts(
+        env, ("OPENAI_BASE_URL",), expected=f"{address.base}/v1")
+    conflicts.extend(codex_config_conflicts(env, address))
+    conflicts.extend(argv_routing_conflicts(
+        argv, ("openai_base_url", "chatgpt_base_url", "model_provider")))
+    refuse_conflicts("codex", conflicts, address)
+    binary = require_binary("codex", "install the Codex CLI, then retry")
+    require_ready(address)
+    os.execvpe(binary, [
+        binary,
+        "-c", f'openai_base_url="{address.base}/v1"',
+        "-c", f'chatgpt_base_url="{address.base}/backend-api/"',
+        *argv,
+    ], dict(env))
+
+
+COMMANDS = {
+    "proxy": cmd_proxy,
+    "status": cmd_status,
+    "claude": cmd_claude,
+    "codex": cmd_codex,
+}
+
+
+def main(argv, env):
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        print(USAGE, end="")
+        return 0
+    command, rest = argv[0], argv[1:]
+    handler = COMMANDS.get(command)
+    if handler is None:
+        usage(f"unknown command {command!r}")
+    handler(rest, env)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:], os.environ))
