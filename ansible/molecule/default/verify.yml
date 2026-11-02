@@ -1,7 +1,7 @@
 ---
 - name: Verify
   hosts: all
-  gather_facts: false
+  gather_facts: true  # later tasks read ansible_env
   vars:
     verify_bins:
       - zsh
@@ -24,12 +24,15 @@
       - .config/nvim
   tasks:
     - name: Check expected binaries are on PATH
-      ansible.builtin.shell: "command -v {{ item }}"
+      # PATH is built from the remote $HOME in the shell, which keeps the
+      # check independent of facts.
+      ansible.builtin.shell: >-
+        PATH="$HOME/.local/bin:$HOME/.cargo/bin:/usr/local/go/bin:$PATH"
+        command -v {{ item }}
       args:
         executable: /bin/bash
-      environment:
-        PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.HOME }}/.cargo/bin:/usr/local/go/bin:{{ ansible_env.PATH }}"
-      loop: "{{ verify_bins }}"
+      # The lite box has no rust toolchain by design.
+      loop: "{{ verify_bins | reject('equalto', 'cargo' if inventory_hostname == 'debian12-lite' else '') | list }}"
       register: verify_bin_check
       changed_when: false
 
@@ -51,7 +54,7 @@
 
 - name: Verify Linux agent box
   hosts: agent_linux
-  gather_facts: false
+  gather_facts: true  # later tasks read ansible_env
   vars:
     agent_bins_always:
       - qmd
