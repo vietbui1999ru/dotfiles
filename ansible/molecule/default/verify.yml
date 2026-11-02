@@ -48,3 +48,81 @@
       loop: "{{ verify_symlink_check.results }}"
       loop_control:
         label: "{{ item.item }}"
+
+- name: Verify Linux agent box
+  hosts: agent_linux
+  gather_facts: false
+  vars:
+    agent_bins_always:
+      - qmd
+      - rtk
+      - jj
+      - stow
+    agent_bins_full:
+      - pi
+      - pueue
+  tasks:
+    - name: Check always-on agent binaries resolve
+      ansible.builtin.shell: "command -v {{ item }}"
+      args:
+        executable: /bin/bash
+      environment:
+        PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.HOME }}/.local/share/mise/shims:{{ ansible_env.PATH }}"
+      loop: "{{ agent_bins_always }}"
+      register: agent_bin_check
+      changed_when: false
+
+    - name: Check no kitty link was stowed into HOME
+      ansible.builtin.stat:
+        path: "{{ ansible_env.HOME }}/.config/kitty"
+      register: agent_kitty
+
+    - name: Assert kitty is not stowed on agent boxes
+      ansible.builtin.assert:
+        that: not agent_kitty.stat.exists
+        fail_msg: "kitty config was stowed on an agent box; it must be excluded"
+        quiet: true
+
+    - name: Check pi and pueue on full agent boxes
+      ansible.builtin.shell: "command -v {{ item }}"
+      args:
+        executable: /bin/bash
+      environment:
+        PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.HOME }}/.local/share/mise/shims:{{ ansible_env.PATH }}"
+      loop: "{{ agent_bins_full }}"
+      register: agent_full_check
+      changed_when: false
+      failed_when: false
+      when: "'debian12-lite' != inventory_hostname"
+
+    - name: Assert pi and pueue present on full agent boxes
+      ansible.builtin.assert:
+        that: item.rc == 0
+        fail_msg: "{{ item.item }} is missing on a full agent box"
+        quiet: true
+      loop: "{{ agent_full_check.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item }}"
+      when: "'debian12-lite' != inventory_hostname"
+
+    - name: Check pi and pueue absent on lite boxes
+      ansible.builtin.shell: "command -v {{ item }}"
+      args:
+        executable: /bin/bash
+      environment:
+        PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.HOME }}/.local/share/mise/shims:{{ ansible_env.PATH }}"
+      loop: "{{ agent_bins_full }}"
+      register: agent_lite_check
+      changed_when: false
+      failed_when: false
+      when: "'debian12-lite' == inventory_hostname"
+
+    - name: Assert pi and pueue absent on lite boxes
+      ansible.builtin.assert:
+        that: item.rc != 0
+        fail_msg: "{{ item.item }} is installed on a lite box; it must be skipped"
+        quiet: true
+      loop: "{{ agent_lite_check.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item }}"
+      when: "'debian12-lite' == inventory_hostname"
