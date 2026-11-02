@@ -168,7 +168,7 @@
   when: ansible_os_family == "Debian"
 
 # Lite boxes (agent_lite) skip every cargo compile: bat, delta, zoxide and jj come
-# from mise (prebuilt, arm64 too), and eza comes from apt instead.
+# from mise (prebuilt, arm64 too), and eza from its GitHub release.
 - name: Install Rust-based tools via cargo (Debian)
   ansible.builtin.shell: |
     . "$HOME/.cargo/env"
@@ -190,11 +190,19 @@
     - ansible_os_family == "Debian"
     - not agent_lite | bool
 
-- name: Install eza from apt (Debian, lite)
-  ansible.builtin.apt:
-    name: eza
-    state: present
-  become: true
+# Debian 12 (and Raspberry Pi OS based on it) has no eza package, so lite boxes
+# take the prebuilt release binary instead of compiling it.
+- name: Install eza from GitHub release (Debian, lite)
+  ansible.builtin.shell: |
+    case "$(uname -m)" in
+      x86_64|amd64) triple=x86_64-unknown-linux-gnu ;;
+      aarch64|arm64) triple=aarch64-unknown-linux-gnu ;;
+      *) echo "Unsupported arch: $(uname -m)" >&2; exit 1 ;;
+    esac
+    base=https://github.com/eza-community/eza/releases/latest/download
+    curl -fsSL "$base/eza_${triple}.tar.gz" | tar -xz -C "$HOME/.local/bin"
+  args:
+    creates: "{{ ansible_env.HOME }}/.local/bin/eza"
   when:
     - ansible_os_family == "Debian"
     - agent_lite | bool
