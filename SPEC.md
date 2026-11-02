@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 branch: feat/ctx-cap
 ---
 # SPEC: Cap effective session context at 500K tokens
@@ -30,7 +30,7 @@ Keep Claude Code and Pi sessions under 500K tokens instead of the 1M model windo
 - AC-10: zsh records timestamps in history
   verify: `rg -q "EXTENDED_HISTORY" zsh/.zshrc`
 - AC-11: Existing hook tests still pass
-  verify: `bash claude/.claude/hooks/tests/design-on-write.test.sh && bash claude/.claude/hooks/tests/jj-colocate-worktree.test.sh`
+  verify: `bash claude/.claude/hooks/tests/design-on-write.test.sh match && bash claude/.claude/hooks/tests/design-on-write.test.sh non_ui && bash claude/.claude/hooks/tests/design-on-write.test.sh once_per_session && bash claude/.claude/hooks/tests/design-on-write.test.sh no_false_positives && bash claude/.claude/hooks/tests/jj-colocate-worktree.test.sh`
   baseline: pass
 - AC-12: In a live Claude session the band warns near 350K tokens and auto-compaction happens near 500K
   verify: manual - needs a real long session
