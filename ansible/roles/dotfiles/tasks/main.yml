@@ -39,14 +39,6 @@
   ansible.builtin.shell: |
     cd {{ ansible_env.HOME }}/dotfiles
     stow --target="{{ ansible_env.HOME }}" --restow {{ item }}
-  loop:
-    - zsh
-    - starship
-    - mise
-    - tmux
-    - kitty
-    - nvim
-    - git
-    - claude
+  loop: "{{ dotfiles_stow_packages }}"
   register: dotfiles_stow_result
   changed_when: dotfiles_stow_result.stdout != ""
