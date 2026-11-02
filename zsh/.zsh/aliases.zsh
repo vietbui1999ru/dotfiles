@@ -100,3 +100,6 @@ alias pytohn="python3"
 alias dokcer="docker"
 alias kubctl="kubectl"
 alias souce="exec zsh"
+
+# Claude Code through the Headroom compression proxy (only where Headroom is installed).
+command -v headroom >/dev/null && alias hclaude="headroom wrap claude"
