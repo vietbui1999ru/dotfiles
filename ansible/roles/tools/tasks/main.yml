@@ -88,8 +88,13 @@
     FZF_VERSION=$(curl -fsSL "$api" \
       | grep '"tag_name"' \
       | sed -E 's/.*"v([^"]+)".*/\1/')
+    case "$(uname -m)" in
+      x86_64|amd64) arch=amd64 ;;
+      aarch64|arm64) arch=arm64 ;;
+      *) echo "Unsupported arch: $(uname -m)" >&2; exit 1 ;;
+    esac
     url="https://github.com/junegunn/fzf/releases/download"
-    curl -fsSL "$url/v${FZF_VERSION}/fzf-${FZF_VERSION}-linux_amd64.tar.gz" \
+    curl -fsSL "$url/v${FZF_VERSION}/fzf-${FZF_VERSION}-linux_${arch}.tar.gz" \
       | tar -xz -C "$HOME/.local/bin"
   args:
     creates: "{{ ansible_env.HOME }}/.local/bin/fzf"
@@ -102,7 +107,12 @@
       | grep '"tag_name"' \
       | sed -E 's/.*"([^"]+)".*/\1/')
     url=https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}
-    archive=ripgrep-${RG_VERSION}-x86_64-unknown-linux-musl
+    case "$(uname -m)" in
+      x86_64|amd64) triple=x86_64-unknown-linux-musl ;;
+      aarch64|arm64) triple=aarch64-unknown-linux-gnu ;;
+      *) echo "Unsupported arch: $(uname -m)" >&2; exit 1 ;;
+    esac
+    archive=ripgrep-${RG_VERSION}-${triple}
     curl -fsSL "$url/${archive}.tar.gz" \
       | tar -xz --strip-components=1 -C "$HOME/.local/bin" \
         "$archive/rg"
@@ -157,6 +167,8 @@
     state: link
   when: ansible_os_family == "Debian"
 
+# Lite boxes (agent_lite) skip every cargo compile: bat, delta, zoxide and jj come
+# from mise (prebuilt, arm64 too), and eza from its GitHub release.
 - name: Install Rust-based tools via cargo (Debian)
   ansible.builtin.shell: |
     . "$HOME/.cargo/env"
@@ -174,7 +186,26 @@
       bin: jj
   args:
     creates: "{{ ansible_env.HOME }}/.cargo/bin/{{ item.bin }}"
-  when: ansible_os_family == "Debian"
+  when:
+    - ansible_os_family == "Debian"
+    - not agent_lite | bool
+
+# Debian 12 (and Raspberry Pi OS based on it) has no eza package, so lite boxes
+# take the prebuilt release binary instead of compiling it.
+- name: Install eza from GitHub release (Debian, lite)
+  ansible.builtin.shell: |
+    case "$(uname -m)" in
+      x86_64|amd64) triple=x86_64-unknown-linux-gnu ;;
+      aarch64|arm64) triple=aarch64-unknown-linux-gnu ;;
+      *) echo "Unsupported arch: $(uname -m)" >&2; exit 1 ;;
+    esac
+    base=https://github.com/eza-community/eza/releases/latest/download
+    curl -fsSL "$base/eza_${triple}.tar.gz" | tar -xz -C "$HOME/.local/bin"
+  args:
+    creates: "{{ ansible_env.HOME }}/.local/bin/eza"
+  when:
+    - ansible_os_family == "Debian"
+    - agent_lite | bool
 
 - name: Install lazygit (Debian)
   ansible.builtin.shell: |
@@ -183,7 +214,12 @@
       | grep '"tag_name"' \
       | sed -E 's/.*"v*([^"]+)".*/\1/')
     base=https://github.com/jesseduffield/lazygit/releases/latest/download
-    archive=lazygit_${LAZYGIT_VERSION}_Linux_x86_64.tar.gz
+    case "$(uname -m)" in
+      x86_64|amd64) arch=x86_64 ;;
+      aarch64|arm64) arch=arm64 ;;
+      *) echo "Unsupported arch: $(uname -m)" >&2; exit 1 ;;
+    esac
+    archive=lazygit_${LAZYGIT_VERSION}_Linux_${arch}.tar.gz
     curl -Lo /tmp/lazygit.tar.gz "$base/$archive"
     tar xf /tmp/lazygit.tar.gz -C /tmp lazygit
     install /tmp/lazygit /usr/local/bin
@@ -194,9 +230,10 @@
 
 - name: Install opencode (Debian)
   ansible.builtin.shell: |
-    XDG_BIN_DIR="$HOME/.local/bin" curl -fsSL https://opencode.ai/install | bash
+    curl -fsSL https://opencode.ai/install | bash
   args:
-    creates: "{{ ansible_env.HOME }}/.local/bin/opencode"
+    # The installer always uses ~/.opencode/bin (already on PATH via .zshrc).
+    creates: "{{ ansible_env.HOME }}/.opencode/bin/opencode"
   when: ansible_os_family == "Debian"
 
 # ── RedHat/Fedora ──────────────────────────────────────────────────────
@@ -238,7 +275,12 @@
       | grep '"tag_name"' \
       | sed -E 's/.*"v*([^"]+)".*/\1/')
     base=https://github.com/jesseduffield/lazygit/releases/latest/download
-    archive=lazygit_${LAZYGIT_VERSION}_Linux_x86_64.tar.gz
+    case "$(uname -m)" in
+      x86_64|amd64) arch=x86_64 ;;
+      aarch64|arm64) arch=arm64 ;;
+      *) echo "Unsupported arch: $(uname -m)" >&2; exit 1 ;;
+    esac
+    archive=lazygit_${LAZYGIT_VERSION}_Linux_${arch}.tar.gz
     curl -Lo /tmp/lazygit.tar.gz "$base/$archive"
     tar xf /tmp/lazygit.tar.gz -C /tmp lazygit
     install /tmp/lazygit /usr/local/bin

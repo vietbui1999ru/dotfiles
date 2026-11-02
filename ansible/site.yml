@@ -33,6 +33,17 @@
       loop_control:
         loop_var: bootstrap_role_name
 
+- name: Bootstrap Linux agent box
+  hosts: agent_linux
+  gather_facts: true
+  tasks:
+    - name: Apply bootstrap roles
+      ansible.builtin.include_role:
+        name: "{{ bootstrap_role_name }}"
+      loop: "{{ bootstrap_roles }}"
+      loop_control:
+        loop_var: bootstrap_role_name
+
 - name: Bootstrap RedHat servers
   hosts: admin_redhat
   gather_facts: true

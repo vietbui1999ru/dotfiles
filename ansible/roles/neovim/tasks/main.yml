@@ -128,6 +128,10 @@
 - name: Install MCP Hub globally for Neovim
   ansible.builtin.shell: |
     bun install -g mcp-hub@latest
+  args:
+    # The --version check above can fail without node on PATH even when
+    # mcp-hub is installed, so the binary itself is the idempotence guard.
+    creates: "{{ ansible_env.HOME }}/.local/bin/mcp-hub"
   environment:
     PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.PATH }}"
     BUN_INSTALL: "{{ ansible_env.HOME }}/.local"

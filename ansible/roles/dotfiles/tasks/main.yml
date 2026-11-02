@@ -35,18 +35,29 @@
     cmd: "{{ ansible_env.HOME }}/dotfiles/scripts/bootstrap-dirs.sh"
   changed_when: false
 
+# bootstrap-dirs.sh renders opencode.json as a real file when it is absent, which
+# blocks stowing the opencode package on a fresh box. The Mac links the template
+# instead, so move the rendered copy aside (never delete it) and let stow link it.
+- name: Check for a rendered opencode.json
+  ansible.builtin.stat:
+    path: "{{ ansible_env.HOME }}/.config/opencode/opencode.json"
+  register: dotfiles_opencode_json
+  when: "'opencode' in dotfiles_stow_packages"
+
+- name: Move the rendered opencode.json aside so stow can link the template
+  ansible.builtin.command: >-
+    mv {{ ansible_env.HOME }}/.config/opencode/opencode.json
+    {{ ansible_env.HOME }}/.config/opencode/opencode.json.pre-stow
+  changed_when: true
+  when:
+    - "'opencode' in dotfiles_stow_packages"
+    - dotfiles_opencode_json.stat.exists | default(false)
+    - dotfiles_opencode_json.stat.isreg | default(false)
+
 - name: Stow all packages
   ansible.builtin.shell: |
     cd {{ ansible_env.HOME }}/dotfiles
     stow --target="{{ ansible_env.HOME }}" --restow {{ item }}
-  loop:
-    - zsh
-    - starship
-    - mise
-    - tmux
-    - kitty
-    - nvim
-    - git
-    - claude
+  loop: "{{ dotfiles_stow_packages }}"
   register: dotfiles_stow_result
   changed_when: dotfiles_stow_result.stdout != ""

@@ -65,11 +65,12 @@
     cargo install sheldon --locked
   args:
     creates: "{{ ansible_env.HOME }}/.cargo/bin/sheldon"
-  when: ansible_os_family != "Darwin"
+  # Lite boxes have no rust toolchain; sheldon comes from mise there.
+  when: ansible_os_family != "Darwin" and not (agent_lite | default(false) | bool)
 
 - name: Lock sheldon plugins
   ansible.builtin.shell: |
-    export PATH="{{ ansible_env.HOME }}/.cargo/bin:$PATH"
+    export PATH="{{ ansible_env.HOME }}/.cargo/bin:{{ ansible_env.HOME }}/.local/share/mise/shims:$PATH"
     sheldon lock
   args:
     creates: "{{ ansible_env.XDG_DATA_HOME | default(ansible_env.HOME + '/.local/share') }}/sheldon/plugins.lock"
