@@ -107,3 +107,12 @@ Automated verification: 89 tests passed (10 inbox identity/index, 13 takeover,
 Python syntax compilation, bootstrap shell syntax, both skill validators, agent
 TOML parsing and documentation links passed. Final independent review found
 no remaining material issue after task-ID reindex and worktree-filter fixes.
+
+## Local activation (2026-11-02)
+
+Merged into main with user approval. agent-session and agent-project resolve
+to main's scripts through ~/.local/bin; context-switch/repo-docs are linked
+into shared, Claude and Codex skill directories. Codex scout/worker copies
+select gpt-6-luna, and global Codex guidance includes the continuity exception.
+Targeted activation preserved existing local hooks/config edits. No full
+bootstrap or remote push ran. New sessions can load the activated definitions.

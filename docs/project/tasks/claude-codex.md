@@ -1,7 +1,7 @@
 ---
 id: claude-codex
 title: Claude to Codex continuity
-status: review
+status: done
 updated: 2026-11-02
 tags: [project, task]
 ---
@@ -32,3 +32,12 @@ Desktop/Claude interactive pilot before claiming full parity.
 ## Implementation guide
 
 - [Commands and verification](../../workflows/claude-codex-takeover.md)
+
+## Merge and activation (2026-11-02)
+
+Merged locally into main by explicit user approval, then activated command
+links, shared skills and Codex worker models through targeted changes. Existing
+local edits and hooks were preserved. All 89 post-merge regression tests and
+installed-command checkpoint/claim/release/view smoke checks passed. No remote
+push or worktree deletion performed. Interactive Desktop/Claude return and
+Obsidian/host rendering remain unverified.

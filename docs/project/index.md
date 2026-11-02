@@ -14,8 +14,8 @@ in-docs navigation but cannot resolve those source-artifact links.
 
 ## Current work
 
-- [Claude/Codex continuity](tasks/claude-codex.md): implemented; fixture checks and read-only live Codex pilot passed; interactive parity unverified.
-- [Documentation companion](tasks/repo-docs.md): skill/templates and on-demand local view implemented; hosted renderer and visual pilot remain pending.
+- [Claude/Codex continuity](tasks/claude-codex.md): merged and locally activated; regression tests and installed-command smoke passed; interactive parity unverified.
+- [Documentation companion](tasks/repo-docs.md): merged and locally activated; on-demand local view available; hosted renderer and visual pilot remain pending.
 
 ## Reading this repository
 

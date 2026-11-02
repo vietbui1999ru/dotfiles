@@ -1,7 +1,7 @@
 ---
 id: repo-docs
 title: Documentation companion and durable project view
-status: review
+status: done
 updated: 2026-11-02
 tags: [project, task]
 ---
@@ -37,3 +37,12 @@ the repo-root vault for this pilot. No vault configuration is installed.
 A bounded Pi Luna draft produced the takeover guide, then planner reviewed and
 corrected it. Review the implementation and select a host renderer for a real
 site. Obsidian visual verification awaits an explicitly opened repo-root vault.
+
+## Merge and activation (2026-11-02)
+
+Merged locally into main by explicit user approval, then activated command
+links, shared skills and Codex worker models through targeted changes. Existing
+local edits and hooks were preserved. All 89 post-merge regression tests and
+installed-command checkpoint/claim/release/view smoke checks passed. No remote
+push or worktree deletion performed. Interactive Desktop/Claude return and
+Obsidian/host rendering remain unverified.
