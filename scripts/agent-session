@@ -9,12 +9,15 @@ index.json as the universal inbox any agent can read.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -52,6 +55,25 @@ def git_main_root(path: Path) -> Path:
     if not cp.is_absolute():
         cp = (path / cp).resolve()
     return cp.parent.resolve()
+
+
+def resolve_context(path: Path) -> dict[str, Any]:
+    """Resolve shared inbox root separately from the selected checkout."""
+    worktree = path.expanduser().resolve()
+    repo_root = git_main_root(worktree)
+    top = run(["git", "-C", str(worktree), "rev-parse", "--show-toplevel"])
+    if top.returncode != 0:
+        die(f"cannot resolve worktree: {worktree}")
+    worktree = Path(top.stdout.strip()).resolve()
+    head_proc = run(["git", "-C", str(worktree), "rev-parse", "HEAD"])
+    if head_proc.returncode != 0:
+        die(f"cannot resolve HEAD for worktree: {worktree}")
+    return {
+        "repo_root": repo_root,
+        "worktree": worktree,
+        "branch": current_branch(worktree),
+        "head": head_proc.stdout.strip(),
+    }
 
 
 def sessions_dir(root: Path) -> Path:
@@ -117,21 +139,41 @@ def current_branch(root: Path) -> str:
 
 def read_index(root: Path) -> dict[str, Any]:
     p = index_path(root)
-    if not p.exists():
-        return {"sessions": []}
+    if os.path.lexists(p) and p.is_symlink():
+        die(f"cannot read existing session index {p}: index is a symlink")
     try:
         with p.open() as f:
-            return json.load(f)
-    except Exception:
+            index = json.load(f)
+    except FileNotFoundError:
         return {"sessions": []}
+    except (OSError, json.JSONDecodeError) as exc:
+        die(f"cannot read existing session index {p}: {exc}")
+    if not isinstance(index, dict) or not isinstance(index.get("sessions"), list):
+        die(f"invalid session index structure: {p}")
+    return index
+
+
+@contextmanager
+def index_lock(root: Path):
+    d = sessions_dir(root)
+    d.mkdir(parents=True, exist_ok=True)
+    lock_path = d / ".index.lock"
+    with lock_path.open("a+") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
 def write_index(root: Path, index: dict[str, Any]) -> None:
     d = sessions_dir(root)
     d.mkdir(parents=True, exist_ok=True)
-    tmp = index_path(root).with_suffix(".tmp")
-    tmp.write_text(json.dumps(index, indent=2, sort_keys=True) + "\n")
-    tmp.replace(index_path(root))
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=d,
+                                     prefix=".index-", suffix=".tmp", delete=False) as tmp:
+        tmp.write(json.dumps(index, indent=2, sort_keys=True) + "\n")
+        tmp_path = Path(tmp.name)
+    tmp_path.replace(index_path(root))
 
 
 def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
@@ -154,7 +196,7 @@ def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
 
 def build_frontmatter(meta: dict[str, Any]) -> str:
     lines = ["---"]
-    for k in ["kind", "harness", "work_type", "status", "goal", "saved_at", "updated", "branch", "task", "tags"]:
+    for k in ["kind", "harness", "work_type", "status", "goal", "saved_at", "updated", "branch", "task", "tags", "worktree", "head", "source_session", "parent_checkpoint", "reason", "target_harness", "summary_missing"]:
         v = meta.get(k)
         if v is not None and v != "":
             if isinstance(v, list):
@@ -172,21 +214,22 @@ def write_legacy_pointer(root: Path, harness: str, session_file: str) -> None:
 
 
 def cmd_save(args: argparse.Namespace) -> None:
-    root = git_main_root(Path(args.repo if args.repo else "."))
+    context = resolve_context(Path(args.repo if args.repo else "."))
+    root = context["repo_root"]
+    worktree = context["worktree"]
     sdir = sessions_dir(root)
     sdir.mkdir(parents=True, exist_ok=True)
 
     harness = args.harness or detect_harness()
-    work_type = args.work_type or detect_work_type(root)
+    work_type = args.work_type or detect_work_type(worktree)
     kind = args.kind
     task = args.task or os.environ.get("AGENTS_TASK_ID", "")
     goal = args.goal or ""
     slug = args.slug or slugify(goal) if goal else "session"
-    branch = current_branch(root)
+    branch = context["branch"]
 
     ts = now_ts()
     fname = f"{ts}_{harness}_{work_type}_{slug}.md"
-    fpath = sdir / fname
 
     # Build content
     if kind != "session" and args.template is not False:
@@ -197,6 +240,21 @@ def cmd_save(args: argparse.Namespace) -> None:
             content = content.replace("{{branch}}", branch)
         else:
             content = f"# {kind.upper()}: {goal}\n\n(No template found)\n"
+        optional_meta = {}
+        for key in ("source_session", "parent_checkpoint", "reason", "target_harness", "summary_missing"):
+            value = getattr(args, key, None)
+            if value is not None:
+                optional_meta[key] = value
+        metadata = {"worktree": str(context["worktree"]), "head": context["head"], **optional_meta}
+        if content.startswith("---\n") and "\n---\n" in content[4:]:
+            lines = []
+            for key, value in metadata.items():
+                if value is not None and value != "":
+                    lines.append(f'{key}: "{value}"')
+            if lines:
+                content = content.replace("\n---\n", "\n" + "\n".join(lines) + "\n---\n", 1)
+        else:
+            content = build_frontmatter(metadata) + "\n" + content
     else:
         # Session state
         meta = {
@@ -207,39 +265,58 @@ def cmd_save(args: argparse.Namespace) -> None:
             "saved_at": now_iso(),
             "updated": now_human(),
             "branch": branch,
+            "worktree": str(context["worktree"]),
+            "head": context["head"],
             "goal": goal,
         }
-        body = args.body if args.body else _default_session_body(root, goal)
+        for key in ("source_session", "parent_checkpoint", "reason", "target_harness", "summary_missing"):
+            value = getattr(args, key, None)
+            if value is not None:
+                meta[key] = value
+        body = args.body if args.body else _default_session_body(worktree, goal)
         content = build_frontmatter(meta) + "\n" + body
 
     # If a body was passed via stdin
     if args.body == "-" or args.stdin:
         stdin_text = sys.stdin.read()
         if stdin_text.strip():
-            content = build_frontmatter({
+            meta = {
                 "kind": kind, "harness": harness, "work_type": work_type,
                 "status": "active", "saved_at": now_iso(), "updated": now_human(),
                 "branch": branch, "goal": goal,
-            }) + "\n" + stdin_text
-
-    fpath.write_text(content)
-    write_legacy_pointer(root, harness, fname)
-
-    # Update index
-    index = read_index(root)
-    fm, _ = parse_frontmatter(content)
-    index["sessions"].append({
-        "file": fname,
-        "kind": fm.get("kind", kind),
-        "harness": fm.get("harness", harness),
-        "work_type": fm.get("work_type", work_type),
-        "status": fm.get("status", "active"),
-        "goal": fm.get("goal", goal),
-        "saved_at": fm.get("saved_at", now_iso()),
-        "branch": fm.get("branch", branch),
-        "task": fm.get("task", task),
-    })
-    write_index(root, index)
+                "worktree": str(context["worktree"]), "head": context["head"],
+            }
+            for key in ("source_session", "parent_checkpoint", "reason", "target_harness", "summary_missing"):
+                value = getattr(args, key, None)
+                if value is not None:
+                    meta[key] = value
+            content = build_frontmatter(meta) + "\n" + stdin_text
+    with index_lock(root):
+        index = read_index(root)
+        # Keep old timestamp-based names where available; suffix collisions safely.
+        fpath = sdir / fname
+        suffix = 1
+        while fpath.exists():
+            fpath = sdir / f"{Path(fname).stem}-{suffix}{Path(fname).suffix}"
+            suffix += 1
+        fname = fpath.name
+        fpath.write_text(content)
+        write_legacy_pointer(root, harness, fname)
+        fm, _ = parse_frontmatter(content)
+        row = {
+            "file": fname, "kind": fm.get("kind", kind),
+            "harness": fm.get("harness", harness),
+            "work_type": fm.get("work_type", work_type),
+            "status": fm.get("status", "active"), "goal": fm.get("goal", goal),
+            "saved_at": fm.get("saved_at", now_iso()),
+            "branch": fm.get("branch", branch), "task": fm.get("task", task),
+            "worktree": str(context["worktree"]), "head": context["head"],
+        }
+        for key in ("source_session", "parent_checkpoint", "reason", "target_harness", "summary_missing"):
+            if key in fm:
+                row[key] = fm[key]
+        index["sessions"].append(row)
+        write_index(root, index)
     print(f"✓ Saved: .agents/sessions/{fname}")
 
 
@@ -330,48 +407,53 @@ def cmd_idle(args: argparse.Namespace) -> None:
         repo = file_arg
         file_arg = None
     root = git_main_root(Path(repo if repo else "."))
-    if file_arg:
-        fpath = sessions_dir(root) / args.file
-    else:
+    with index_lock(root):
         index = read_index(root)
-        active = [s for s in index.get("sessions", []) if s.get("status") == "active"]
-        if not active:
-            print("✓ no active sessions")
-            return
-        fpath = sessions_dir(root) / active[-1]["file"]
-    if not fpath.exists():
-        die(f"session file not found: {fpath}")
-    content = fpath.read_text()
-    content = content.replace("status: active", "status: idle", 1)
-    fpath.write_text(content)
-    # Update index
-    index = read_index(root)
-    for s in index.get("sessions", []):
-        if s["file"] == fpath.name:
-            s["status"] = "idle"
-    write_index(root, index)
+        if file_arg:
+            fpath = sessions_dir(root) / args.file
+        else:
+            active = [s for s in index.get("sessions", []) if s.get("status") == "active"]
+            if not active:
+                print("✓ no active sessions")
+                return
+            fpath = sessions_dir(root) / active[-1]["file"]
+        if not fpath.exists():
+            die(f"session file not found: {fpath}")
+        content = fpath.read_text()
+        content, count = re.subn(r'(?m)^status:\s*(?:"active"|\'active\')\s*$', "status: idle", content, count=1)
+        if not count:
+            content, _ = re.subn(r'(?m)^status: active\s*$', "status: idle", content, count=1)
+        fpath.write_text(content)
+        for row in index.get("sessions", []):
+            if row.get("file") == fpath.name:
+                row["status"] = "idle"
+        write_index(root, index)
     print(f"✓ Marked idle: .agents/sessions/{fpath.name}")
 
 
 def cmd_index(args: argparse.Namespace) -> None:
     root = git_main_root(Path(args.repo if args.repo else "."))
     sdir = sessions_dir(root)
-    sessions = []
-    if sdir.is_dir():
-        for f in sorted(sdir.glob("*.md")):
-            fm, _ = parse_frontmatter(f.read_text())
-            sessions.append({
-                "file": f.name,
-                "kind": fm.get("kind", "session"),
-                "harness": fm.get("harness", "unknown"),
-                "work_type": fm.get("work_type", "general"),
-                "status": fm.get("status", "unknown"),
-                "goal": fm.get("goal", ""),
-                "saved_at": fm.get("saved_at", ""),
-                "branch": fm.get("branch", ""),
-                "task": fm.get("task", ""),
-            })
-    write_index(root, {"sessions": sessions})
+    with index_lock(root):
+        # Reindex may rebuild records, but must not conceal an unreadable index.
+        read_index(root)
+        sessions = []
+        if sdir.is_dir():
+            for f in sorted(sdir.glob("*.md")):
+                fm, _ = parse_frontmatter(f.read_text())
+                row = {
+                    "file": f.name, "kind": fm.get("kind", "session"),
+                    "harness": fm.get("harness", "unknown"),
+                    "work_type": fm.get("work_type", "general"),
+                    "status": fm.get("status", "unknown"), "goal": fm.get("goal", ""),
+                    "saved_at": fm.get("saved_at", ""), "branch": fm.get("branch", ""),
+                    "task": fm.get("task", ""),
+                }
+                for key in ("worktree", "head", "source_session", "parent_checkpoint", "reason", "target_harness", "summary_missing"):
+                    if key in fm:
+                        row[key] = fm[key]
+                sessions.append(row)
+        write_index(root, {"sessions": sessions})
     print(f"✓ Index rebuilt: {len(sessions)} sessions")
 
 
