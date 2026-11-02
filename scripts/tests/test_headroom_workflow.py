@@ -54,7 +54,7 @@ class Fixture:
         self.requests = []
 
         class Handler(BaseHTTPRequestHandler):
-            def do_GET(self):  # noqa: N802 - stdlib naming
+            def do_GET(self):
                 path = self.path.split("?", 1)[0]
                 fixture.requests.append(path)
                 status, body = routes.get(path, (404, {"error": "not found"}))
@@ -65,7 +65,7 @@ class Fixture:
                 self.end_headers()
                 self.wfile.write(raw)
 
-            def log_message(self, format, *args):  # noqa: A002 - stdlib signature
+            def log_message(self, format, *args):
                 pass
 
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
