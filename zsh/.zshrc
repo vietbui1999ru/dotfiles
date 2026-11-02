@@ -6,6 +6,8 @@ HISTFILE="$HOME/.zsh_history"
 HISTSIZE=50000
 SAVEHIST=50000
 setopt HIST_IGNORE_DUPS HIST_IGNORE_SPACE SHARE_HISTORY INC_APPEND_HISTORY
+# Timestamps and durations per entry, so the automation miner can group commands by session.
+setopt EXTENDED_HISTORY
 
 # ── Completions ───────────────────────────────────────────────────────
 : "${XDG_CACHE_HOME:=$HOME/.cache}"
