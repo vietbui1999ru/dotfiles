@@ -98,6 +98,18 @@
       'qmd embed' yourself on a full box for vector search (about 2 GB of models).
   when: not agent_lite | bool
 
+# Headroom CLI, proxy and MCP server (`[all]`), as a uv tool on Python 3.13.
+# Install only: run `headroom proxy --port 8787` on the server and point clients
+# at it with ANTHROPIC_BASE_URL / OPENAI_BASE_URL.
+- name: Install Headroom (uv tool, servers only)
+  ansible.builtin.command: >-
+    mise x -- uv tool install --python 3.13 "headroom-ai[all]"
+  args:
+    creates: "{{ ansible_env.HOME }}/.local/bin/headroom"
+  environment:
+    PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.HOME }}/.local/share/mise/shims:{{ ansible_env.PATH }}"
+  when: agents_headroom_enabled | bool
+
 - name: Ensure ~/secrets exists (owner-only)
   ansible.builtin.file:
     path: "{{ ansible_env.HOME }}/secrets"
