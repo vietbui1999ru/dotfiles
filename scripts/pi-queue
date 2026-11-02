@@ -114,7 +114,7 @@ def fact_pr_merged(args):
 
 
 def fact_spec_approved(args):
-    result = run([binary("PI_QUEUE_AC_RUN", "ac-run"), "status", args[0]])
+    result = run([binary("PI_QUEUE_AC_RUN", "spec"), "status", args[0]])
     printed = result.stdout.strip().splitlines()
     first = printed[0] if printed else ""
     if result.returncode == 0 and first.startswith("approved"):
