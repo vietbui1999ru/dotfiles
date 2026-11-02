@@ -1,6 +1,6 @@
 ---
 name: verify-spec
-description: Verify implemented code against a spec's acceptance criteria. Runs the spec's verify commands first (ac-run check), then a diff scan for gamed tests and suppressions (floor-guard), with a bounded fix loop of at most 3 reruns, then archives SPEC.md under docs/specs as the branch's last commit. Reads code only for manual ACs. Invoke after implementation, before PR.
+description: Verify implemented code against a spec's acceptance criteria. Runs the spec's verify commands first (spec check), then a diff scan for gamed tests and suppressions (floor-guard), with a bounded fix loop of at most 3 reruns, then archives SPEC.md under docs/specs as the branch's last commit. Reads code only for manual ACs. Invoke after implementation, before PR.
 allowed-tools: "Bash,Read,Write,Edit,Agent"
 ---
 
@@ -41,7 +41,7 @@ Steps 1 and 2 need SPEC.md (0a). For an issue or PRD spec, extract the acceptanc
 ## Step 1: Run the acceptance criteria (primary)
 
 ```bash
-~/dotfiles/scripts/ac-run check SPEC.md
+~/dotfiles/scripts/spec check SPEC.md
 ```
 
 It runs every `verify:` command and prints a table `| AC | Result | Exit | Seconds |`. Results: PASS, FAIL, TIMEOUT, PRE-SATISFIED (the AC was already true before the change), MANUAL. Exit 0 means all PASS or MANUAL; 1 means a FAIL, TIMEOUT or PRE-SATISFIED; 2 is a usage, parse or branch error; 3 means the spec has no approval record and nothing ran. On exit 3, stop and tell the user the spec needs their approval; never approve it yourself.
@@ -80,10 +80,10 @@ it('AC-N: <AC text>', () => {
 
 ## Step 4: Report
 
-Paste the full output of `ac-run check` and `floor-guard`, then:
+Paste the full output of `spec check` and `floor-guard`, then:
 ```
 Spec: <source>
-ac-run check exit: <code>    floor-guard exit: <code>
+spec check exit: <code>    floor-guard exit: <code>
 MANUAL ACs: <id: PASS | FAIL | UNVERIFIABLE, evidence>
 Fix attempts used: <n> of 3
 Test stubs written: <n files>

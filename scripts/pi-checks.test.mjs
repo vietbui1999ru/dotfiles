@@ -11,11 +11,11 @@ const PI_CHECKS = new URL("./pi-checks.mjs", import.meta.url).pathname;
 const gitc = (cwd, args) => execFileSync("git", ["-c", "user.email=t@example.com", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...args], { cwd, stdio: "pipe" });
 
 // Each stub logs its argv to STUB_LOG and exits with the code its environment names.
-const AC_RUN_STUB = `#!/usr/bin/env node
+const SPEC_STUB = `#!/usr/bin/env node
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 const args = process.argv.slice(2);
-appendFileSync(process.env.STUB_LOG, JSON.stringify(["ac-run", ...args]) + "\\n");
+appendFileSync(process.env.STUB_LOG, JSON.stringify(["spec", ...args]) + "\\n");
 const exit = Number(process.env.STUB_AC_EXIT ?? "0");
 const at = args.indexOf("--record");
 if (at >= 0) {
@@ -59,7 +59,7 @@ process.stderr.write(real.stderr ?? "");
 process.exit(real.status ?? 1);
 `;
 
-const STUB_SOURCE = { acRun: AC_RUN_STUB, floorGuard: FLOOR_GUARD_STUB, herdr: HERDR_STUB, git: GIT_STUB };
+const STUB_SOURCE = { spec: SPEC_STUB, floorGuard: FLOOR_GUARD_STUB, herdr: HERDR_STUB, git: GIT_STUB };
 
 const REAL_GIT = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
 
@@ -141,7 +141,7 @@ function sandbox() {
 				...process.env,
 				PI_CHECKS_STATE: state,
 				PI_VIEW_RUN_DIR: runs,
-				AC_RUN_BIN: stubs.acRun,
+				SPEC_BIN: stubs.spec,
 				FLOOR_GUARD_BIN: stubs.floorGuard,
 				HERDR_BIN_PATH: stubs.herdr,
 				STUB_LOG: log,
@@ -155,7 +155,7 @@ function sandbox() {
 	};
 }
 
-test("no SPEC.md records specStatus none and does not run ac-run", () => {
+test("no SPEC.md records specStatus none and does not run spec", () => {
 	const box = sandbox();
 	const run = box.run();
 	assert.equal(run.status, 0);
@@ -170,10 +170,10 @@ test("spec for another branch records none", () => {
 	const run = box.run();
 	assert.equal(run.status, 0);
 	assert.equal(box.record().specStatus, "none");
-	assert.equal(box.calls().some((call) => call[0] === "ac-run"), false);
+	assert.equal(box.calls().some((call) => call[0] === "spec"), false);
 });
 
-test("ac-run exit 3 records none", () => {
+test("spec exit 3 records none", () => {
 	const box = sandbox();
 	box.writeSpec();
 	const run = box.run({ STUB_AC_EXIT: "3", STUB_AC_RECORD: JSON.stringify({ exit: 3, acs: {} }) });
@@ -245,10 +245,10 @@ test("skips when commit and diff are unchanged", () => {
 	const env = { STUB_AC_RECORD: record({ "AC-1": { result: "pass" } }) };
 	assert.equal(box.run(env).status, 0);
 	const first = box.record();
-	const ran = box.calls().filter((call) => call[0] === "ac-run").length;
+	const ran = box.calls().filter((call) => call[0] === "spec").length;
 	assert.equal(box.run(env).status, 0);
 	assert.equal(box.record().time, first.time);
-	assert.equal(box.calls().filter((call) => call[0] === "ac-run").length, ran);
+	assert.equal(box.calls().filter((call) => call[0] === "spec").length, ran);
 });
 
 test("a held lock makes a second run exit without writing", () => {

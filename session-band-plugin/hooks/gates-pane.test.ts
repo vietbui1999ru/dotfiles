@@ -32,7 +32,7 @@ const setup = (on: Parameters<Parameters<typeof test>[1]>[1], state = 'draft', h
   on('process.run', async (_$, e) => {
     calls.push({ argv: [...e.argv], cwd: e.init?.cwd, timeoutMs: e.init?.timeoutMs })
     if (e.argv[0] === 'git') return { value: { ...OK, stdout: 'worktree /r/w\nHEAD abc\nbranch refs/heads/feat/w\n\nworktree /r\nHEAD def\nbranch refs/heads/main\n' } } as never
-    if (e.argv[0]?.endsWith('/ac-run')) {
+    if (e.argv[0]?.endsWith('/spec')) {
       if (e.argv[1] === 'status') {
         const status = e.init?.cwd === '/r' ? 'approved' : state
         return { value: { exitCode: status === 'approved' ? 0 : status === 'invalid' ? 2 : 3, stdout: status, stderr: status === 'invalid' ? 'bad spec' : '' } } as never
@@ -153,7 +153,7 @@ test('gates approve runs in the spec worktree with baseline timeout', async ($, 
   const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
   await ui.press({ key: 'gates-approve' })
   await clock.settle()
-  expect(calls.filter(call => call.argv[1] === 'approve')).toEqual([{ argv: ['/h/dotfiles/scripts/ac-run', 'approve', '/r/w/SPEC.md'], cwd: '/r/w', timeoutMs: 345000 }])
+  expect(calls.filter(call => call.argv[1] === 'approve')).toEqual([{ argv: ['/h/dotfiles/scripts/spec', 'approve', '/r/w/SPEC.md'], cwd: '/r/w', timeoutMs: 345000 }])
 })
 
 test('gates second approve while one runs starts no second process', async ($, on) => {
@@ -191,7 +191,7 @@ test('gates reject needs a second press', async ($, on) => {
   expect(calls.filter(call => call.argv[1] === 'reject')).toEqual([])
   await ui.press({ key: 'gates-reject' })
   await clock.settle()
-  expect(calls.filter(call => call.argv[1] === 'reject')).toEqual([{ argv: ['/h/dotfiles/scripts/ac-run', 'reject', '/r/w/SPEC.md'], cwd: '/r/w', timeoutMs: undefined }])
+  expect(calls.filter(call => call.argv[1] === 'reject')).toEqual([{ argv: ['/h/dotfiles/scripts/spec', 'reject', '/r/w/SPEC.md'], cwd: '/r/w', timeoutMs: undefined }])
 })
 
 test('gates edit uses the owner socket and all pane keys are bound', async ($, on) => {

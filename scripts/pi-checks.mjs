@@ -5,7 +5,7 @@
  *   pi-checks <worktree> <session-id> [--no-steer]
  *
  * Called by `scripts/pi-view` when a run settles or exits. It runs
- * `ac-run check --record` and, for an approved spec, `floor-guard`, then saves one
+ * `spec check --record` and, for an approved spec, `floor-guard`, then saves one
  * record per dispatch under `~/.local/state/pi-checks/<session-id>.json`. The
  * `/pi` Monitor and `scripts/pi-outcome` read that record through the rules in
  * `session-band-plugin/hooks/outcome.ts`.
@@ -18,7 +18,7 @@
  * changed by the checks. Missing arguments are a usage error (2); an internal
  * error writes nothing, reports on stderr, and still exits 0.
  *
- * Tests override the binaries and paths: AC_RUN_BIN, FLOOR_GUARD_BIN,
+ * Tests override the binaries and paths: SPEC_BIN (preferred) or AC_RUN_BIN, FLOOR_GUARD_BIN,
  * HERDR_BIN_PATH, PI_CHECKS_STATE, PI_VIEW_RUN_DIR.
  */
 import { spawnSync } from "node:child_process";
@@ -35,7 +35,7 @@ export const MAX_ROUNDS = 3;
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const stateDir = () => process.env.PI_CHECKS_STATE || join(homedir(), ".local", "state", "pi-checks");
 const runDir = () => process.env.PI_VIEW_RUN_DIR || join(tmpdir(), "pi-view");
-const acRunBin = () => process.env.AC_RUN_BIN || join(scriptDir, "ac-run");
+const specBin = () => process.env.SPEC_BIN || process.env.AC_RUN_BIN || join(scriptDir, "spec");
 const floorGuardBin = () => process.env.FLOOR_GUARD_BIN || join(scriptDir, "floor-guard");
 const herdrBin = () => process.env.HERDR_BIN_PATH || "herdr";
 
@@ -249,15 +249,15 @@ async function main(argv) {
 				const tmp = mkdtempSync(join(tmpdir(), "pi-checks-"));
 				const saved = join(tmp, "check.json");
 				try {
-					const result = spawnSync(acRunBin(), ["check", "--record", saved, "SPEC.md"], { cwd: worktree, encoding: "utf8" });
+					const result = spawnSync(specBin(), ["check", "--record", saved, "SPEC.md"], { cwd: worktree, encoding: "utf8" });
 					const exit = result.status;
 					const check = exit === 3 ? undefined : readJson(saved);
 					if (exit === 3) {
 						// No approval record: the spec is not approved, so pass/fail does not apply.
 						specStatus = "none";
 					} else if (!check) {
-						// ac-run could not run this spec (for example a lint failure): not an approved spec.
-						process.stderr.write(`pi-checks: ac-run check exited ${exit ?? "?"} without a record\n`);
+						// spec could not run this spec (for example a lint failure): not an approved spec.
+						process.stderr.write(`pi-checks: spec check exited ${exit ?? "?"} without a record\n`);
 						specStatus = "none";
 					} else {
 						acs = check.acs ?? {};
