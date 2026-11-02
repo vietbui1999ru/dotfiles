@@ -53,17 +53,32 @@
   environment:
     PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.HOME }}/.local/share/mise/shims:{{ ansible_env.PATH }}"
 
+- name: Check that the llm-wiki checkout exists
+  ansible.builtin.stat:
+    path: "{{ ansible_env.HOME }}/repos/llm-wiki"
+  register: agents_wiki_dir
+
+- name: Note that the qmd collection is skipped without the wiki
+  ansible.builtin.debug:
+    msg: >-
+      ~/repos/llm-wiki is missing, so no qmd collection was registered. Check out
+      the llm-wiki submodule (or clone it there) and rerun this role.
+  when: not agents_wiki_dir.stat.exists
+
 - name: List registered qmd collections
   ansible.builtin.command: qmd collection list
   register: agents_qmd_collections
   changed_when: false
+  when: agents_wiki_dir.stat.exists
   environment:
     PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.HOME }}/.local/share/mise/shims:{{ ansible_env.PATH }}"
 
 - name: Register the llm-wiki qmd collection
   ansible.builtin.command: >-
     qmd collection add {{ ansible_env.HOME }}/repos/llm-wiki --name wiki
-  when: "'wiki (' not in agents_qmd_collections.stdout"
+  when:
+    - agents_wiki_dir.stat.exists
+    - "'wiki (' not in agents_qmd_collections.stdout"
   environment:
     PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.HOME }}/.local/share/mise/shims:{{ ansible_env.PATH }}"
 
@@ -72,6 +87,7 @@
 - name: Refresh qmd index (keyword only)
   ansible.builtin.command: qmd update
   changed_when: false
+  when: agents_wiki_dir.stat.exists
   environment:
     PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.HOME }}/.local/share/mise/shims:{{ ansible_env.PATH }}"
 
