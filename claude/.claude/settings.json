@@ -263,7 +263,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash '/Users/vietquocbui/.claude/hooks/herdr-agent-state.sh' session",
+            "command": "f=\"$HOME/.claude/hooks/herdr-agent-state.sh\"; [ -f \"$f\" ] || exit 0; bash \"$f\" session",
             "timeout": 10
           }
         ]
@@ -321,7 +321,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ~/dotfiles/scripts/mistake-alert-hook.mjs"
+            "command": "f=\"$HOME/dotfiles/scripts/mistake-alert-hook.mjs\"; [ -f \"$f\" ] && command -v node >/dev/null || exit 0; node \"$f\""
           }
         ]
       },

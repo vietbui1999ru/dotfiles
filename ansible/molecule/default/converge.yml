@@ -5,6 +5,18 @@
   vars_files:
     - ../../group_vars/all/roles.yml
   tasks:
+    # Lite is per host, so it is set here rather than in an inventory file.
+    - name: Mark the lite agent platform
+      ansible.builtin.set_fact:
+        agent_lite: "{{ inventory_hostname == 'debian12-lite' }}"
+      when: "'agent_linux' in group_names"
+
+    # The agent_linux play uses its own role list and stow packages; molecule
+    # converges the same role list the playbook would.
+    - name: Load agent_linux group vars on agent platforms
+      ansible.builtin.include_vars: ../../group_vars/agent_linux.yml
+      when: "'agent_linux' in group_names"
+
     - name: Apply bootstrap roles
       ansible.builtin.include_role:
         name: "{{ bootstrap_role_name }}"

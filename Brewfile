@@ -40,3 +40,4 @@ brew "htop"
 brew "btop"
 brew "fastfetch"
 brew "ansible"
+brew "podman"           # molecule's podman scenario (ansible/molecule/podman)

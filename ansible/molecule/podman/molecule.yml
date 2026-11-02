@@ -1,0 +1,58 @@
+---
+# Local twin of the default (docker) scenario, for machines that run podman
+# instead of Docker. It reuses the default scenario's prepare, converge and
+# verify playbooks, so group_vars next to them apply here too. CI keeps the
+# docker scenario. On an Apple Silicon Mac the podman VM is arm64, so these
+# containers exercise the Raspberry Pi architecture natively.
+#
+#   podman machine start
+#   cd ansible && molecule test -s podman -p debian12-lite
+dependency:
+  name: galaxy
+  options:
+    requirements-file: requirements.yml
+driver:
+  name: podman
+platforms:
+  - name: debian12
+    image: docker.io/library/debian:12-slim
+    command: sleep infinity
+    pre_build_image: false
+    groups:
+      - debian
+  - name: ubuntu2604
+    image: docker.io/library/ubuntu:26.04
+    command: sleep infinity
+    pre_build_image: false
+    groups:
+      - debian
+  - name: rockylinux9
+    image: docker.io/rockylinux/rockylinux:9-minimal
+    command: sleep infinity
+    pre_build_image: false
+    groups:
+      - redhat
+  - name: ubuntu2604-agent
+    image: docker.io/library/ubuntu:26.04
+    command: sleep infinity
+    pre_build_image: false
+    groups:
+      - debian
+      - agent_linux
+  - name: debian12-lite
+    image: docker.io/library/debian:12-slim
+    command: sleep infinity
+    pre_build_image: false
+    groups:
+      - debian
+      - agent_linux
+provisioner:
+  name: ansible
+  env:
+    ANSIBLE_ROLES_PATH: ../../roles
+  playbooks:
+    prepare: ../default/prepare.yml
+    converge: ../default/converge.yml
+    verify: ../default/verify.yml
+verifier:
+  name: ansible
