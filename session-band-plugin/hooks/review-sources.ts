@@ -1,6 +1,6 @@
 import type { EngineInterface } from 'claude-code'
 
-import { acRunArgv, parseReviewList, REVIEW_LIST_ARGV, specRows } from './gates'
+import { specArgv, parseReviewList, REVIEW_LIST_ARGV, specRows } from './gates'
 import { statePath, type SessionReview } from './review-touch'
 import type { AgentKey } from './review-thread'
 
@@ -165,7 +165,7 @@ export async function specAgents($: EngineInterface, worktree: string, home?: st
   const agents: ReviewAgent[] = []
   for (const row of rows) {
     if (home) {
-      const status = await $.process.run(acRunArgv(home, 'status', row.path), { cwd: worktree }).catch(() => undefined)
+      const status = await $.process.run(specArgv(home, 'status', row.path), { cwd: worktree }).catch(() => undefined)
       // 0 is approved; anything else (draft, stale, invalid, unavailable) still wants review.
       if (status?.exitCode === 0) continue
     }
@@ -299,22 +299,22 @@ export const editPatch = (file: string, hunk: Hunk, typed: string): string => {
   ].join('\n') + '\n'
 }
 
-/** A spec tab's acceptance criteria and verify commands, from `ac-run show`. */
+/** A spec tab's acceptance criteria and verify commands, from `spec show`. */
 export async function specShow($: EngineInterface, worktree: string, specPath: string): Promise<string> {
   const home = await $.env.get('HOME')
   if (!home) return ''
-  const result = await $.process.run(acRunArgv(home, 'show', specPath), { cwd: worktree }).catch(() => undefined)
+  const result = await $.process.run(specArgv(home, 'show', specPath), { cwd: worktree }).catch(() => undefined)
   return result && result.exitCode === 0 ? result.stdout.trim() : ''
 }
 
 /** The spec's last check run in this pane is stored in the atom; `C` runs it and records the table. */
 export async function specCheck($: EngineInterface, worktree: string, specPath: string): Promise<string> {
   const home = await $.env.get('HOME')
-  if (!home) return 'ac-run unavailable'
-  const runnable = await $.process.run(acRunArgv(home, 'show', specPath), { cwd: worktree }).catch(() => undefined)
+  if (!home) return 'spec unavailable'
+  const runnable = await $.process.run(specArgv(home, 'show', specPath), { cwd: worktree }).catch(() => undefined)
   const count = runnable?.stdout.split('\n').filter(line => line.trimStart().startsWith('runs:')).length ?? 0
-  const result = await $.process.run(acRunArgv(home, 'check', specPath), { cwd: worktree, timeoutMs: Math.min((75 + 120 * count + 30) * 1000, 600_000) }).catch(() => undefined)
-  return result === undefined ? 'ac-run check unavailable' : (result.stdout.trim() || result.stderr.trim() || `check exited ${result.exitCode}`)
+  const result = await $.process.run(specArgv(home, 'check', specPath), { cwd: worktree, timeoutMs: Math.min((75 + 120 * count + 30) * 1000, 600_000) }).catch(() => undefined)
+  return result === undefined ? 'spec check unavailable' : (result.stdout.trim() || result.stderr.trim() || `check exited ${result.exitCode}`)
 }
 
 export type FloorFinding = { file: string; line: number; text: string }
