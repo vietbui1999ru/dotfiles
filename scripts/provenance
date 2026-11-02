@@ -91,17 +91,12 @@ def maybe_prune(path, now=None):
     now = time.time() if now is None else now
     directory = os.path.dirname(path)
     stamp = os.path.join(directory, ".pruned")
-    try:
-        if now - os.path.getmtime(stamp) < PRUNE_INTERVAL_SECONDS:
-            return
-    except OSError:
-        pass
+    last = os.path.getmtime(stamp) if os.path.exists(stamp) else 0.0
+    if now - last < PRUNE_INTERVAL_SECONDS:
+        return
     prune(path, now)
-    try:
-        os.makedirs(directory, exist_ok=True)
-        with open(stamp, "w"):
-            pass
-    except OSError:
+    os.makedirs(directory, exist_ok=True)
+    with open(stamp, "w", encoding="utf-8"):
         pass
 
 
@@ -345,5 +340,5 @@ if __name__ == "__main__":
     try:
         main(sys.argv[1:])
     except Exception:
-        pass
+        sys.exit(0)
     sys.exit(0)
