@@ -1,0 +1,36 @@
+---
+id: repo-docs
+title: Documentation companion and durable project view
+status: active
+updated: 2026-11-02
+tags: [project, task]
+---
+
+# Documentation companion and durable project view
+
+Maintain linked documentation alongside code, with hostable reading and an
+Obsidian-friendly repo-local view. Git shares curated history; runtime stays local
+(user decision, 2026-11-02).
+
+## Current observation
+
+Repo-docs skill, layout guidance and five reusable templates are prepared in
+this branch. Existing worker is sufficient; no new agent roster required.
+Bootstrap discovery is configured but has not been deployed to live tools.
+No hosted framework, public deployment, projection daemon or pruning hook added.
+
+## Artifacts
+
+The integration plan and task links below work inside a docs-only vault. Skill
+and layout source links require a repo-root vault, Git viewer or editor; use
+the repo-root vault for this pilot. No vault configuration is installed.
+
+- [Skill](../../../shared/skills/repo-docs/SKILL.md)
+- [Layout contract](../../../shared/skills/repo-docs/references/layout.md)
+- [Remaining integration plan](../../superpowers/plans/2026-11-02-repo-docs.md)
+- [Related takeover task](claude-codex.md)
+
+## Next action
+
+Pilot skill against one real feature; then implement durable-artifact capture
+and a read-only local projection as separately reviewed bounded tasks.
