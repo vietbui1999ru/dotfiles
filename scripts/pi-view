@@ -223,21 +223,29 @@ move_to_verdict() {
 
 now_seconds() { print -r -- ${EPOCHSECONDS:-$(date +%s)} }
 
+# Every read-decide-split (or move) of a layout is serialized across pi-view runs:
+# two runs placed or moved together would read the same layout and both split the
+# same column, or both create the same tab. The lock is best effort: if it cannot
+# be taken the step still runs, at worst unevenly or in a second tab.
+layout_lock_fd=""
+layout_lock() {
+  local lock_file=${TMPDIR:-/tmp}/pi-view-${UID}.lock
+  if zmodload zsh/system 2>/dev/null && exec {layout_lock_fd}>"$lock_file" 2>/dev/null; then
+    zsystem flock -t 10 -f layout_lock_fd "$lock_file" 2>/dev/null || true
+  else
+    layout_lock_fd=""
+  fi
+}
+layout_unlock() {
+  [[ -n $layout_lock_fd ]] && exec {layout_lock_fd}>&-
+  layout_lock_fd=""
+}
+
 # Echo the pane id of a fresh pane, or nothing when the herdr calls fail.
 open_pane() {
   local workspace=${HERDR_WORKSPACE_ID:-}
   [[ -n $workspace ]] || return 1
-
-  # Two dispatches started together would both find no `pi` tab and each create
-  # one, or both take the same free slot beside Claude, so the whole
-  # decide-and-split step is serialized. The lock is best effort: if it cannot be
-  # taken the pane still opens, at worst in a second tab.
-  local lock_file=${TMPDIR:-/tmp}/pi-view-${UID}.lock lock_fd=""
-  if zmodload zsh/system 2>/dev/null && exec {lock_fd}>"$lock_file" 2>/dev/null; then
-    zsystem flock -t 10 -f lock_fd "$lock_file" 2>/dev/null || true
-  else
-    lock_fd=""
-  fi
+  layout_lock
 
   local tab_id pane created previous record agents
   # Beside the dispatcher first, in the template PI_VIEW_LAYOUT names.
@@ -304,7 +312,7 @@ open_pane() {
     fi
   fi
 
-  [[ -n $lock_fd ]] && exec {lock_fd}>&-
+  layout_unlock
   [[ -n $pane ]] || return 1
   print -r -- "$pane"
 }
@@ -367,7 +375,11 @@ if (( tui )); then
           node ${(q)script_dir}/pi-checks.mjs ${(q)PWD} ${(q)session_id} &!
         fi
         if (( verdict_moved == 0 )); then
-          if move_to_verdict "$pane" "${HERDR_WORKSPACE_ID:-}"; then
+          layout_lock
+          move_to_verdict "$pane" "${HERDR_WORKSPACE_ID:-}"
+          moved=$?
+          layout_unlock
+          if (( moved == 0 )); then
             verdict_moved=1
             forget_pane "$pane"
             notice=${PUEUE_TASK_ID:+pi#$PUEUE_TASK_ID}
