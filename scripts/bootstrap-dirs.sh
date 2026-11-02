@@ -159,6 +159,16 @@ else
 	echo "⚠ opencode template missing — skipping opencode.json"
 fi
 
+# Seed Pi's settings (model routing, packages) once. Not stowed: Pi writes
+# machine state such as deviceId into this file (see pi/.stow-local-ignore).
+PI_SETTINGS_SEED="$HOME/dotfiles/pi/.pi/agent/settings.json"
+PI_SETTINGS="$HOME/.pi/agent/settings.json"
+if [ ! -e "$PI_SETTINGS" ] && [ -f "$PI_SETTINGS_SEED" ]; then
+	mkdir -p "$(dirname "$PI_SETTINGS")"
+	cp "$PI_SETTINGS_SEED" "$PI_SETTINGS"
+	echo "✓ ~/.pi/agent/settings.json (seeded from dotfiles)"
+fi
+
 # Materialize agent-workflow config from dotfiles default.
 AGENT_WORKFLOW_TEMPLATE="$HOME/dotfiles/shared/agent-workflow.default.json"
 AGENT_WORKFLOW_CONFIG="$HOME/.config/agent-workflow/config.json"
