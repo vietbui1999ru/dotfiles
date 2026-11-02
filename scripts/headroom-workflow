@@ -8,9 +8,15 @@ proxy runs in the foreground in the operator's own terminal.
     headroom-workflow proxy     start the loopback proxy (foreground)
     headroom-workflow status    probe identity and readiness
     headroom-workflow claude …  run claude through the proxy
-    headroom-workflow codex …   run codex through the proxy
+    headroom-workflow codex …   run codex through the proxy (subscription auth)
+    headroom-workflow pi …      run pi through the proxy (extension opt-in)
 
-Normal `claude`, `codex` and `headroom` commands stay direct.
+Normal `claude`, `codex`, `pi` and `headroom` commands stay direct.
+
+The proxy pins its OpenAI-shaped upstream to OpenCode Go, so Pi's opencode-go
+provider and the llm-wiki scripts reach OpenCode while Claude keeps the Anthropic
+upstream and both Codex clients reach chatgpt.com (headroom routes those by auth
+shape, not by that setting).
 """
 import http.client
 import ipaddress
@@ -27,9 +33,18 @@ DEFAULT_URL = "http://127.0.0.1:8787"
 SERVICE = "headroom-proxy"
 PROBE_TIMEOUT = 2.0
 
-# Inherited settings that would enable a feature outside the pilot or send
-# traffic to a different upstream. Any value is refused for the routing vars;
-# only truthy values are refused for the boolean switches.
+# One proxy serves three providers: Anthropic stays on its default upstream, both
+# Codex clients are routed to chatgpt.com by auth shape, and this pinned target
+# serves everything OpenAI-shaped that is not ChatGPT-authenticated — Pi's
+# opencode-go provider and the llm-wiki scripts. It is pinned rather than
+# inherited: an operator-supplied value that differs would silently move provider
+# traffic to another vendor.
+PINNED_OPENAI_TARGET = "https://opencode.ai/zen/go/v1"
+
+# Inherited settings that would enable a feature outside the pilot. Any value is
+# refused for the remaining routing vars; only truthy values are refused for the
+# boolean switches. OPENAI_TARGET_API_URL is deliberately absent: the pilot owns
+# it (PINNED_OPENAI_TARGET) and refuses only a differing inherited value.
 FORBIDDEN_TRUTHY_ENV = ("HEADROOM_LOG_MESSAGES", "HEADROOM_INTERCEPT_ENABLED")
 FORBIDDEN_ANY_ENV = (
     "HEADROOM_PROXY_EXTENSIONS",
@@ -39,7 +54,6 @@ FORBIDDEN_ANY_ENV = (
     "HEADROOM_CLOUDCODE_TARGET_API_URL",
     "ANTHROPIC_TARGET_API_URL",
     "ANTHROPIC_FOUNDRY_BASE_URL",
-    "OPENAI_TARGET_API_URL",
     "GEMINI_TARGET_API_URL",
     "CLOUDCODE_TARGET_API_URL",
 )
@@ -49,9 +63,11 @@ USAGE = """usage: headroom-workflow <command> [args...]
   proxy            start the loopback Headroom proxy in the foreground
   status           report proxy identity and readiness
   claude [args...] run claude with child-scoped proxy routing
-  codex  [args...] run codex with command-scoped proxy routing
+  codex  [args...] run codex with command-scoped proxy routing (subscription auth)
+  pi     [args...] run pi with the routing extension loaded
 
 Proxy URL: HEADROOM_WORKFLOW_URL (default http://127.0.0.1:8787).
+Proxy OpenAI target is pinned to """ + PINNED_OPENAI_TARGET + """.
 """
 
 
@@ -269,6 +285,14 @@ def toml_scalars(text):
 
 
 def codex_config_conflicts(env, address):
+    """Report Codex config that would route outside the pilot's subscription path.
+
+    Only the subscription surface is routed (`chatgpt_base_url`). `openai_base_url`
+    is the API-key path and is deliberately left alone — except when it still points
+    at the proxy, which is a leftover from an earlier phase where the OpenAI path was
+    routed too. Under the pinned target that leftover would hand OpenAI credentials
+    to OpenCode Go.
+    """
     home = Path(env.get("HOME") or Path.home())
     codex_home = Path(env.get("CODEX_HOME") or home / ".codex")
     path = codex_home / "config.toml"
@@ -279,28 +303,29 @@ def codex_config_conflicts(env, address):
     except OSError:
         return [f"{path} cannot be read, so conflicting routing cannot be ruled out"]
 
-    expected = {
-        "openai_base_url": f"{address.base}/v1",
-        "chatgpt_base_url": f"{address.base}/backend-api/",
-    }
+    expected_chatgpt = f"{address.base}/backend-api/"
+    stale_openai = f"{address.base}/v1"
     top, sections = toml_scalars(text)
     conflicts = []
-    for key, wanted in expected.items():
-        value = top.get(key)
-        if value and normalize_url(value) != normalize_url(wanted):
-            conflicts.append(f"{path} sets {key} to {value}")
+
+    chatgpt = top.get("chatgpt_base_url")
+    if chatgpt and normalize_url(chatgpt) != normalize_url(expected_chatgpt):
+        conflicts.append(f"{path} sets chatgpt_base_url to {chatgpt}")
+    openai_base = top.get("openai_base_url")
+    if openai_base and normalize_url(openai_base) == normalize_url(stale_openai):
+        conflicts.append(
+            f"{path} still routes openai_base_url through the proxy ({openai_base}); "
+            "remove it so API-key traffic never reaches the pinned target")
     provider = top.get("model_provider")
     if provider and provider != "openai":
         conflicts.append(
             f"{path} sets model_provider to {provider!r}, which would bypass "
-            "the built-in openai routing"
-        )
-    for section in ("model_providers.openai", "model_providers.headroom"):
-        base = sections.get(section, {}).get("base_url")
-        if base and normalize_url(base) not in (
-                normalize_url(expected["openai_base_url"]),
-                normalize_url(address.base)):
-            conflicts.append(f"{path} sets [{section}].base_url to {base}")
+            "the built-in openai routing")
+    for section, values in sections.items():
+        base = values.get("base_url")
+        if base and normalize_url(base) == normalize_url(stale_openai):
+            conflicts.append(
+                f"{path} still routes [{section}].base_url through the proxy ({base})")
     return conflicts
 
 
@@ -328,16 +353,24 @@ def argv_routing_conflicts(argv, keys):
     return found
 
 
-def refuse_conflicts(binary, conflicts, address):
+def refuse_conflicts(binary, conflicts, address, hint=None):
     if not conflicts:
         return
     fail(
         f"refusing to launch {binary} with conflicting routing: "
         + "; ".join(conflicts)
-        + f". Point it at {address.base}, unset it, or run the direct "
-        f"`{binary}` command. If Codex was persistently wrapped, run "
-        "`headroom unwrap codex` first."
+        + f". {hint or f'Point it at {address.base}, unset it, or run the direct `{binary}` command.'}"
+        + " If Codex was persistently wrapped, run `headroom unwrap codex` first."
     )
+
+
+def stale_openai_routing(env, address):
+    """Catch an OPENAI_BASE_URL left pointing at the proxy by an earlier phase."""
+    value = env.get("OPENAI_BASE_URL")
+    if value and normalize_url(value) in (
+            normalize_url(f"{address.base}/v1"), normalize_url(address.base)):
+        return [f"OPENAI_BASE_URL is still pointed at the proxy ({value})"]
+    return []
 
 
 def cmd_proxy(argv, env):
@@ -358,6 +391,13 @@ def cmd_proxy(argv, env):
              "start a second proxy. Stop that listener or point "
              f"{URL_ENV} at a free loopback port.")
     binary = require_binary("headroom", "install it with: uv tool install headroom-ai")
+    inherited_target = env.get("OPENAI_TARGET_API_URL")
+    if inherited_target and normalize_url(inherited_target) != normalize_url(PINNED_OPENAI_TARGET):
+        fail("refusing to start: OPENAI_TARGET_API_URL is already set to "
+             f"{inherited_target}, but this pilot pins it to {PINNED_OPENAI_TARGET}. "
+             "Unset it first: env -u OPENAI_TARGET_API_URL headroom-workflow proxy")
+    child_env = dict(env)
+    child_env["OPENAI_TARGET_API_URL"] = PINNED_OPENAI_TARGET
     os.execvpe(binary, [
         binary, "proxy",
         "--host", address.bind_host,
@@ -366,7 +406,7 @@ def cmd_proxy(argv, env):
         "--workers", "1",
         "--no-cache",
         "--no-telemetry",
-    ], dict(env))
+    ], child_env)
 
 
 def cmd_status(argv, env):
@@ -394,20 +434,59 @@ def cmd_claude(argv, env):
 
 def cmd_codex(argv, env):
     address = resolve_address(env)
-    conflicts = inherited_conflicts(
-        env, ("OPENAI_BASE_URL",), expected=f"{address.base}/v1")
+    conflicts = stale_openai_routing(env, address)
     conflicts.extend(codex_config_conflicts(env, address))
     conflicts.extend(argv_routing_conflicts(
         argv, ("openai_base_url", "chatgpt_base_url", "model_provider")))
-    refuse_conflicts("codex", conflicts, address)
+    refuse_conflicts(
+        "codex", conflicts, address,
+        hint="Only Codex subscription traffic is supported through the proxy, so the "
+             "OpenAI API-key path is left direct; run plain `codex` for that.")
     binary = require_binary("codex", "install the Codex CLI, then retry")
     require_ready(address)
+    # Subscription surface only. openai_base_url is intentionally not pinned: under
+    # the pilot's pinned target an API-key Codex run would otherwise be sent to
+    # OpenCode Go with OpenAI credentials attached.
     os.execvpe(binary, [
         binary,
-        "-c", f'openai_base_url="{address.base}/v1"',
         "-c", f'chatgpt_base_url="{address.base}/backend-api/"',
         *argv,
     ], dict(env))
+
+
+def pi_extension(env):
+    """Return (source path, already_installed) for the routing extension.
+
+    Pi loads every file in ~/.pi/agent/extensions, so a stow-installed copy is
+    already active; passing --extension as well would load it twice.
+    """
+    source = Path(__file__).resolve().parent.parent / "pi/.pi/agent/extensions/headroom.ts"
+    if not source.is_file():
+        fail(f"Pi routing extension not found at {source}; run this from a dotfiles checkout")
+    home = Path(env.get("HOME") or Path.home())
+    installed = home / ".pi/agent/extensions/headroom.ts"
+    try:
+        already = installed.is_file() and installed.resolve() == source.resolve()
+    except OSError:
+        already = False
+    return source, already
+
+
+def cmd_pi(argv, env):
+    address = resolve_address(env)
+    conflicts = inherited_conflicts(env, ("PI_HEADROOM_URL",), expected=address.base)
+    refuse_conflicts(
+        "pi", conflicts, address,
+        hint="The launcher supplies PI_HEADROOM and PI_HEADROOM_URL itself, so an "
+             "inherited value would describe a different proxy.")
+    binary = require_binary("pi", "install Pi, then retry")
+    source, already_installed = pi_extension(env)
+    require_ready(address)
+    child_env = dict(env)
+    child_env["PI_HEADROOM"] = "1"
+    child_env["PI_HEADROOM_URL"] = address.base
+    args = [binary] if already_installed else [binary, "--extension", str(source)]
+    os.execvpe(binary, [*args, *argv], child_env)
 
 
 COMMANDS = {
@@ -415,6 +494,7 @@ COMMANDS = {
     "status": cmd_status,
     "claude": cmd_claude,
     "codex": cmd_codex,
+    "pi": cmd_pi,
 }
 
 

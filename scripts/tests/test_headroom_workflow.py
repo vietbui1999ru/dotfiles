@@ -36,7 +36,8 @@ UNREADY = {
 
 STUB = '''#!/usr/bin/env python3
 import json, os, sys
-watched = ("ANTHROPIC_BASE_URL", "OPENAI_BASE_URL", "HOME", "CODEX_HOME")
+watched = ("ANTHROPIC_BASE_URL", "OPENAI_BASE_URL", "HOME", "CODEX_HOME",
+           "OPENAI_TARGET_API_URL", "PI_HEADROOM", "PI_HEADROOM_URL")
 payload = {"argv": sys.argv[1:],
            "env": {k: os.environ.get(k) for k in watched},
            "present": sorted(k for k in os.environ if k.startswith(("HEADROOM_", "ANTHROPIC_", "OPENAI_")))}
@@ -188,6 +189,36 @@ class HeadroomWorkflow(unittest.TestCase):
         self.assertFalse(self.stub_out.exists())
         self.assertEqual(self.snapshot(), before)
 
+    # -- AC-1 (amended): the OpenAI-shaped target is pinned, not inherited --
+    def test_proxy_pins_openai_target(self):
+        self.stub("headroom")
+        r = self.run_cli("proxy")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.stub_payload()["env"]["OPENAI_TARGET_API_URL"],
+                         "https://opencode.ai/zen/go/v1")
+
+        # The same value inherited from the operator is accepted, not duplicated.
+        self.stub_out.unlink()
+        r = self.run_cli("proxy", env={
+            "OPENAI_TARGET_API_URL": "https://opencode.ai/zen/go/v1/"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.stub_payload()["env"]["OPENAI_TARGET_API_URL"],
+                         "https://opencode.ai/zen/go/v1")
+
+        # A different value would move provider traffic to another vendor: refused.
+        self.stub_out.unlink()
+        for value in ("https://api.openai.com", "http://127.0.0.1:11434/v1"):
+            r = self.run_cli("proxy", env={"OPENAI_TARGET_API_URL": value})
+            self.assertEqual(r.returncode, 1, value)
+            self.assertIn("OPENAI_TARGET_API_URL", r.stderr)
+            self.assertIn("pins it to", r.stderr)
+            self.assertFalse(self.stub_out.exists())
+
+        # The proxy-scoped spelling is still refused outright.
+        r = self.run_cli("proxy", env={"HEADROOM_OPENAI_TARGET_API_URL": "https://x.example"})
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("HEADROOM_OPENAI_TARGET_API_URL", r.stderr)
+
     # -- AC-2: provider launchers ---------------------------------------
     def test_provider_launchers(self):
         fixture = self.fixture(HEALTHY)
@@ -210,16 +241,35 @@ class HeadroomWorkflow(unittest.TestCase):
                          env={"HEADROOM_WORKFLOW_URL": url}, stub_exit=5)
         self.assertEqual(r.returncode, 5, r.stderr)
         payload = self.stub_payload()
+        # Subscription surface only: openai_base_url is never pinned, because the
+        # proxy's OpenAI-shaped target is pinned to OpenCode Go.
         self.assertEqual(payload["argv"], [
-            "-c", f'openai_base_url="{url}/v1"',
             "-c", f'chatgpt_base_url="{url}/backend-api/"',
             "exec", "fix it", "--model", "gpt-5",
         ])
         self.assertEqual(payload["env"]["HOME"], str(self.home))
         self.assertEqual(self.snapshot(), before)
 
-        # Conflicting inherited routing is refused, never silently bypassed.
+        # An inherited API-key routing value belongs to the direct path: passthrough.
         self.stub_out.unlink()
+        r = self.run_cli("codex", "hi",
+                         env={"HEADROOM_WORKFLOW_URL": url,
+                              "OPENAI_BASE_URL": "https://api.openai.com/v1"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.stub_payload()["env"]["OPENAI_BASE_URL"],
+                         "https://api.openai.com/v1")
+
+        # A proxy-pointed leftover would hand OpenAI credentials to OpenCode: refused.
+        self.stub_out.unlink(missing_ok=True)
+        for value in (f"{url}/v1", url):
+            r = self.run_cli("codex", "hi",
+                             env={"HEADROOM_WORKFLOW_URL": url, "OPENAI_BASE_URL": value})
+            self.assertEqual(r.returncode, 1, value)
+            self.assertIn("OPENAI_BASE_URL", r.stderr)
+            self.assertFalse(self.stub_out.exists())
+
+        # Conflicting inherited routing is refused, never silently bypassed.
+        self.stub_out.unlink(missing_ok=True)
         r = self.run_cli("claude", "hi",
                          env={"HEADROOM_WORKFLOW_URL": url,
                               "ANTHROPIC_BASE_URL": "https://api.anthropic.com"})
@@ -227,20 +277,20 @@ class HeadroomWorkflow(unittest.TestCase):
         self.assertIn("ANTHROPIC_BASE_URL", r.stderr)
         self.assertFalse(self.stub_out.exists())
 
-        r = self.run_cli("codex", "hi",
-                         env={"HEADROOM_WORKFLOW_URL": url,
-                              "OPENAI_BASE_URL": "https://api.openai.com/v1"})
-        self.assertEqual(r.returncode, 1)
-        self.assertIn("OPENAI_BASE_URL", r.stderr)
-        self.assertFalse(self.stub_out.exists())
-
         # Conflicting Codex config bytes are reported, not edited.
         codex_dir = self.home / ".codex"
         codex_dir.mkdir()
         config = codex_dir / "config.toml"
+        # An API-key upstream in the file is the direct path: left alone.
         config.write_text('model = "gpt-5"\n'
                           'openai_base_url = "https://api.openai.com/v1"\n',
                           encoding="utf-8")
+        r = self.run_cli("codex", "hi", env={"HEADROOM_WORKFLOW_URL": url})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.stub_out.unlink()
+
+        # A proxy-pointed leftover is a conflict.
+        config.write_text(f'openai_base_url = "{url}/v1"\n', encoding="utf-8")
         before = self.snapshot()
         r = self.run_cli("codex", "hi", env={"HEADROOM_WORKFLOW_URL": url})
         self.assertEqual(r.returncode, 1)
@@ -334,6 +384,75 @@ class HeadroomWorkflow(unittest.TestCase):
             r = self.run_cli("status", env={"HEADROOM_WORKFLOW_URL": bad})
             self.assertEqual(r.returncode, 1, f"{bad} was accepted")
             self.assertIn("HEADROOM_WORKFLOW_URL", r.stderr)
+
+    # -- AC-5: pi dispatch ----------------------------------------------
+    def test_pi_dispatch(self):
+        fixture = self.fixture(HEALTHY)
+        url = fixture.url
+        before = self.snapshot()
+
+        self.stub("pi")
+        r = self.run_cli("pi", "--model", "opencode-go/deepseek-v4.1-flash", "-p", "hi",
+                         env={"HEADROOM_WORKFLOW_URL": url}, stub_exit=4)
+        self.assertEqual(r.returncode, 4, r.stderr)
+        payload = self.stub_payload()
+        # Loaded explicitly, once, by absolute path; user argv preserved verbatim.
+        self.assertEqual(payload["argv"][0], "--extension")
+        extension = Path(payload["argv"][1])
+        self.assertTrue(extension.is_file(), extension)
+        self.assertEqual(extension.name, "headroom.ts")
+        self.assertEqual(payload["argv"][2:],
+                         ["--model", "opencode-go/deepseek-v4.1-flash", "-p", "hi"])
+        self.assertEqual(payload["env"]["PI_HEADROOM"], "1")
+        self.assertEqual(payload["env"]["PI_HEADROOM_URL"], url)
+        self.assertEqual(payload["env"]["HOME"], str(self.home))
+        self.assertEqual(self.snapshot(), before)
+
+        # A stow-installed copy is loaded by pi already: no duplicate --extension.
+        self.stub_out.unlink()
+        installed = self.home / ".pi/agent/extensions"
+        installed.mkdir(parents=True)
+        source = Path(__file__).resolve().parents[2] / "pi/.pi/agent/extensions/headroom.ts"
+        (installed / "headroom.ts").symlink_to(source)
+        r = self.run_cli("pi", "hi", env={"HEADROOM_WORKFLOW_URL": url})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.stub_payload()["argv"], ["hi"])
+        self.assertEqual(self.stub_payload()["env"]["PI_HEADROOM"], "1")
+
+        # An inherited proxy URL is refused rather than silently overriding this one.
+        self.stub_out.unlink()
+        r = self.run_cli("pi", "hi", env={"HEADROOM_WORKFLOW_URL": url,
+                                          "PI_HEADROOM_URL": "http://127.0.0.1:9"})
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("PI_HEADROOM_URL", r.stderr)
+        self.assertFalse(self.stub_out.exists())
+
+        # No credential value reaches the child environment or the recorded argv.
+        r = self.run_cli("pi", "hi", env={"HEADROOM_WORKFLOW_URL": url})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        recorded = json.dumps(self.stub_payload())
+        for marker in ("sk-", "Bearer", "api_key", "OPENCODE_GO_API_KEY"):
+            self.assertNotIn(marker, recorded)
+
+    def test_pi_refuses_when_unready(self):
+        self.stub("pi")
+        dead = free_port()
+        r = self.run_cli("pi", "hi", env={"HEADROOM_WORKFLOW_URL": f"http://127.0.0.1:{dead}"})
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("headroom-workflow proxy", r.stderr)
+        self.assertFalse(self.stub_out.exists())
+
+        unready = self.fixture(UNREADY)
+        r = self.run_cli("pi", "hi", env={"HEADROOM_WORKFLOW_URL": unready.url})
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("not ready", r.stderr)
+        self.assertFalse(self.stub_out.exists())
+
+        other = self.fixture(UNRELATED)
+        r = self.run_cli("pi", "hi", env={"HEADROOM_WORKFLOW_URL": other.url})
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("not Headroom", r.stderr)
+        self.assertFalse(self.stub_out.exists())
 
 
 if __name__ == "__main__":
