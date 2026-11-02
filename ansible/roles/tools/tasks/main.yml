@@ -167,6 +167,8 @@
     state: link
   when: ansible_os_family == "Debian"
 
+# Lite boxes (agent_lite) skip every cargo compile: bat, delta, zoxide and jj come
+# from mise (prebuilt, arm64 too), and eza comes from apt instead.
 - name: Install Rust-based tools via cargo (Debian)
   ansible.builtin.shell: |
     . "$HOME/.cargo/env"
@@ -184,7 +186,18 @@
       bin: jj
   args:
     creates: "{{ ansible_env.HOME }}/.cargo/bin/{{ item.bin }}"
-  when: ansible_os_family == "Debian"
+  when:
+    - ansible_os_family == "Debian"
+    - not agent_lite | bool
+
+- name: Install eza from apt (Debian, lite)
+  ansible.builtin.apt:
+    name: eza
+    state: present
+  become: true
+  when:
+    - ansible_os_family == "Debian"
+    - agent_lite | bool
 
 - name: Install lazygit (Debian)
   ansible.builtin.shell: |
