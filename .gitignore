@@ -41,3 +41,7 @@ __pycache__/
 # Installed dependencies. nvim/.gitignore covers its own copy; this catches the
 # rest, including pi extension packages whose tests need a real install.
 node_modules/
+
+# Orca writes its status plugins into the stowed opencode plugins folder on
+# each machine; they are generated, so keep them out of the repo.
+opencode/.config/opencode/plugins/orca-*
