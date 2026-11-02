@@ -313,5 +313,148 @@ class Fixture(unittest.TestCase):
                 self.assertEqual(r.returncode, 0, command)
 
 
+    # --- provenance trailers (AC-5, AC-6) ---
+
+    def ledger(self, rows):
+        path = self.tmp / "ledger.jsonl"
+        path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+        self.env["PROVENANCE_LEDGER"] = str(path)
+        return path
+
+    def row(self, path, model="anthropic/claude-opus-5-5", cwd=None, **extra):
+        base = {"ts": "2099-01-01T00:00:00Z", "harness": "claude", "harness_version": "2.1",
+                "model": model, "effort": "high", "role": "main", "session": "s1",
+                "cwd": cwd or str(self.repo), "path": path, "op": "edit"}
+        base.update(extra)
+        return base
+
+    def trailer_values(self, key):
+        return self.git("log", "-1", f"--format=%(trailers:key={key},valueonly)").strip()
+
+    def test_provenance_git_writes_one_trailer_per_model(self):
+        self.init_repo()
+        self.put("a.txt", "a\n")
+        self.put("b.txt", "b\n")
+        rp = str(self.repo)
+        self.ledger([
+            self.row(f"{rp}/a.txt", model="anthropic/claude-opus-5-5"),
+            self.row(f"{rp}/b.txt", model="anthropic/claude-haiku-5-5", role="worker"),
+        ])
+        r = self.run_funnel("-F", str(self.msg), "a.txt", "b.txt")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        agent = self.trailer_values("Agent").splitlines()
+        self.assertEqual(len(agent), 2)
+        self.assertTrue(any(v.startswith("anthropic/claude-opus-5-5 effort=high role=main")
+                            and "paths=1" in v for v in agent), agent)
+        self.assertTrue(any(v.startswith("anthropic/claude-haiku-5-5") for v in agent))
+        paths = self.trailer_values("Agent-Paths").splitlines()
+        self.assertIn("anthropic/claude-opus-5-5 a.txt", paths)
+        self.assertIn("anthropic/claude-haiku-5-5 b.txt", paths)
+        body = self.git("log", "-1", "--format=%B")
+        self.assertTrue(body.startswith("add a and b\n\nbody line"))
+
+    def test_provenance_pi_run_row_covers_worktree_paths(self):
+        self.init_repo()
+        self.put("a.txt", "a\n")
+        self.put("sub/c.txt", "c\n")
+        self.ledger([self.row("*", model="openai-codex/gpt-6.1-sol", harness="pi", op="run",
+                              role="dispatch", effort="high")])
+        r = self.run_funnel("-F", str(self.msg), "a.txt", "sub/c.txt")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        agent = self.trailer_values("Agent")
+        self.assertIn("openai-codex/gpt-6.1-sol effort=high role=dispatch harness=pi", agent)
+        self.assertIn("paths=2", agent)
+        self.assertIn("openai-codex/gpt-6.1-sol a.txt, sub/c.txt",
+                      self.trailer_values("Agent-Paths"))
+
+    def test_provenance_pi_run_outside_worktree_is_not_counted(self):
+        self.init_repo()
+        self.put("a.txt", "a\n")
+        self.ledger([self.row("*", model="openai/x", harness="pi", op="run",
+                              cwd=str(self.tmp / "elsewhere"))])
+        r = self.run_funnel("-F", str(self.msg), "a.txt")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer_values("Agent"), "")
+
+    def test_provenance_keeps_co_authored_by(self):
+        self.init_repo()
+        self.put("a.txt", "a\n")
+        self.ledger([self.row(f"{self.repo}/a.txt")])
+        self.msg.write_text("add a\n\nbody\n\nCo-Authored-By: Someone <s@example.com>\n")
+        r = self.run_funnel("-F", str(self.msg), "a.txt")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        body = self.git("log", "-1", "--format=%B")
+        self.assertIn("Co-Authored-By: Someone <s@example.com>", body)
+        self.assertIn("Agent: anthropic/claude-opus-5-5", body)
+        self.assertTrue(body.startswith("add a\n\nbody\n"))
+
+    def test_provenance_directory_compresses_large_commit(self):
+        self.init_repo()
+        files = [f"docs/page{i}.md" for i in range(12)]
+        for f in files:
+            self.put(f, "x\n")
+        self.ledger([self.row(f"{self.repo}/{f}") for f in files])
+        r = self.run_funnel("-F", str(self.msg), *files)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        paths = self.trailer_values("Agent-Paths")
+        self.assertEqual(paths, "anthropic/claude-opus-5-5 docs/")
+        self.assertIn("paths=12", self.trailer_values("Agent"))
+
+    def test_provenance_jj_mode_writes_trailers(self):
+        self.init_repo()
+        self.jj_colocated()
+        self.put("a.txt", "a\n")
+        self.ledger([self.row(f"{self.repo}/a.txt", model="anthropic/claude-sonnet-5-5")])
+        r = self.run_funnel("-F", str(self.msg), "a.txt")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Agent: anthropic/claude-sonnet-5-5", self.jj("log", "--no-graph", "-r", "@-", "-T", "description").stdout)
+        self.assertIn("Agent-Paths: anthropic/claude-sonnet-5-5 a.txt", self.jj("log", "--no-graph", "-r", "@-", "-T", "description").stdout)
+
+    def test_provenance_jj_squash_keeps_one_trailer(self):
+        self.init_repo()
+        self.jj_colocated()
+        self.put("a.txt", "a\n")
+        self.ledger([self.row(f"{self.repo}/a.txt")])
+        r = self.run_funnel("-F", str(self.msg), "a.txt")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.put("a.txt", "a2\n")
+        self.ledger([self.row(f"{self.repo}/a.txt")])
+        self.msg.write_text("second change\n")
+        r = self.run_funnel("-F", str(self.msg), "a.txt")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        # Fold the second funnel commit into the first: jj merges both descriptions.
+        self.jj("squash", "--from", "@-", "--into", "@--", "--use-destination-message")
+        desc = self.jj("log", "--no-graph", "-r", "@-", "-T", "description").stdout
+        self.assertEqual(desc.count("Agent: anthropic/claude-opus-5-5"), 1, desc)
+
+    def test_no_ledger_adds_no_trailers_and_notes_it(self):
+        self.init_repo()
+        self.put("a.txt", "a\n")
+        self.ledger([])
+        r = self.run_funnel("-F", str(self.msg), "a.txt")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("no provenance ledger rows for the committed paths; no Agent: trailers added",
+                      r.stderr)
+        self.assertNotIn("Agent:", self.git("log", "-1", "--format=%B"))
+        self.assertEqual(self.git("log", "-1", "--format=%B").strip(), "add a and b\n\nbody line")
+
+    def test_no_ledger_rows_for_other_paths_adds_nothing(self):
+        self.init_repo()
+        self.put("a.txt", "a\n")
+        self.ledger([self.row(f"{self.repo}/other.txt")])
+        r = self.run_funnel("-F", str(self.msg), "a.txt")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("no Agent: trailers added", r.stderr)
+        self.assertNotIn("Agent:", self.git("log", "-1", "--format=%B"))
+
+    def test_no_ledger_file_is_handled(self):
+        self.init_repo()
+        self.put("a.txt", "a\n")
+        self.env["PROVENANCE_LEDGER"] = str(self.tmp / "missing.jsonl")
+        r = self.run_funnel("-F", str(self.msg), "a.txt")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("no Agent: trailers added", r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
