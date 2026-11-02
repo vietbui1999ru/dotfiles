@@ -63,6 +63,11 @@ done
 
 # `$0` names the function inside one, so resolve the script directory once here.
 script_dir=${${0:A}:h}
+# Record one run-level provenance row; never changes or delays the run's argv.
+"$script_dir/provenance" pi-run --cwd "$PWD" -- "$@" >/dev/null 2>&1 || true
+# commit-funnel reads this to keep the run's row (stamped at start) for every commit in the run.
+[[ -n $session_id ]] && export PROVENANCE_SESSION=$session_id
+
 driver=$script_dir/pi-live.mjs
 input_path=${TMPDIR:-/tmp}
 input_path=${input_path%/}/pi-view/${session_id}.in

@@ -7,17 +7,25 @@ Commits only the listed paths, with the message text from the file, in git mode
 (no `.jj` at the work-tree root) or in colocated jj mode (`.jj` present, where it
 moves the branch bookmark and reattaches git HEAD). Prints `<short-sha>
 <subject>` of the new commit. It never pushes, amends, adds unlisted paths or
-rewrites the message text.
+rewrites the message text: it only appends Agent trailers, one per model whose
+provenance-ledger rows cover the committed paths (see scripts/provenance).
 
 Exit codes: 0 committed, 2 refused (numbered steps on stderr), 1 git or jj failed.
 """
 import argparse
+import json
 import os
 import subprocess
 import sys
+import tempfile
+from collections import OrderedDict
+from datetime import datetime, timezone
 
 MESSAGE_LINE_LIMIT = 72
 PROTECTED = ("main", "master")
+AGENT_PATHS_LIMIT = 10
+LEDGER_NOTICE = ("commit-funnel: no provenance ledger rows for the committed paths; "
+                 "no Agent: trailers added")
 # Where the funnel is and where it was told the session lives; shown on every refusal.
 WHERE = {"work-tree root": "", "branch": "", "--worktree": "", "paths": ""}
 
@@ -192,11 +200,168 @@ def stage_git(rels):
         git("rm", "--cached", "-q", "--", *removals)
 
 
-def commit_git(rels, message_path):
+def ledger_path():
+    return os.environ.get("PROVENANCE_LEDGER") or os.path.join(
+        os.path.expanduser("~"), ".local", "state", "provenance", "ledger.jsonl")
+
+
+def parse_ts(text):
+    try:
+        return datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        return None
+
+
+def last_commit_time(rel):
+    """Committer date of the last commit touching `rel`, or None when it was never committed."""
+    r = git("log", "-1", "--format=%cI", "--", rel, check=False)
+    if r.returncode != 0 or not r.stdout.strip():
+        return None
+    try:
+        return datetime.fromisoformat(r.stdout.strip()).astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
+def read_ledger():
+    """Every well-formed ledger row with a parseable ts; malformed lines are skipped."""
+    try:
+        with open(ledger_path(), encoding="utf-8") as fh:
+            lines = fh.readlines()
+    except OSError:
+        return []
+    rows = []
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(row, dict):
+            continue
+        when = parse_ts(row.get("ts"))
+        if when is None:
+            continue
+        rows.append((when, row))
+    return rows
+
+
+def real(path):
+    return os.path.realpath(path)
+
+
+def covering_rows(rows, root, rels):
+    """Map each committed path to the ledger rows that cover it.
+
+    A row counts for a path only when it is newer than that path's last commit, so an
+    edit stays attributable until its own path is committed. A run row (path "*") covers
+    every path under its cwd; inside a live Pi run (PROVENANCE_SESSION, exported by
+    pi-view) that run's row counts for every commit, because it is stamped at run start.
+    """
+    covered = {rel: [] for rel in rels}
+    since = {rel: last_commit_time(rel) for rel in rels}
+    live_run = os.environ.get("PROVENANCE_SESSION")
+    file_index = {os.path.join(root, rel): rel for rel in rels}
+
+    def fresh(when, rel):
+        return since[rel] is None or when > since[rel]
+
+    for when, row in rows:
+        cwd = row.get("cwd")
+        if not isinstance(cwd, str) or cwd == "unknown":
+            continue
+        cwd_real = real(cwd)
+        if row.get("path") == "*":
+            if cwd_real != root and not cwd_real.startswith(root + os.sep):
+                continue
+            in_run = bool(live_run) and row.get("session") == live_run
+            for rel in rels:
+                if in_run or fresh(when, rel):
+                    covered[rel].append(row)
+            continue
+        path = row.get("path")
+        if not isinstance(path, str):
+            continue
+        target = real(path if os.path.isabs(path) else os.path.join(cwd_real, path))
+        rel = file_index.get(target)
+        if rel is not None and fresh(when, rel):
+            covered[rel].append(row)
+    return covered
+
+
+def compress_paths(paths):
+    """Return the path list for an Agent-Paths trailer, collapsing to directories past the limit."""
+    paths = sorted(paths)
+    if len(paths) <= AGENT_PATHS_LIMIT:
+        return paths
+    dirs = sorted({os.path.dirname(p) + "/" if "/" in p else p for p in paths})
+    if len(dirs) <= AGENT_PATHS_LIMIT:
+        return dirs
+    return sorted({p.split("/", 1)[0] + "/" if "/" in p else p for p in paths})
+
+
+def provenance_trailers(root, rels):
+    """Return a list of (key, value) trailers for the committed paths, one set per model."""
+    covered = covering_rows(read_ledger(), root, rels)
+    per_model = OrderedDict()
+    for rel in rels:
+        for row in covered[rel]:
+            model = row.get("model") or "unknown"
+            slot = per_model.setdefault(model, {"paths": set(), "rows": []})
+            slot["paths"].add(rel)
+            slot["rows"].append(row)
+    trailers = []
+    for model, slot in per_model.items():
+        rows = slot["rows"]
+
+        def distinct(field):
+            values = sorted({str(r.get(field) or "unknown") for r in rows})
+            return ",".join(values)
+
+        head = (f"{model} effort={distinct('effort')} role={distinct('role')} "
+                f"harness={distinct('harness')}/{distinct('harness_version')} "
+                f"session={distinct('session')} paths={len(slot['paths'])}")
+        trailers.append(("Agent", head))
+        trailers.append(("Agent-Paths", model + " " + ", ".join(compress_paths(slot["paths"]))))
+    return trailers
+
+
+def with_trailers(text, trailers):
+    """Append trailers with git interpret-trailers, which keeps existing ones and de-duplicates."""
+    args = ["git", "interpret-trailers", "--if-exists", "addIfDifferent"]
+    for key, value in trailers:
+        args += ["--trailer", f"{key}: {value}"]
+    r = subprocess.run(args, input=text, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise Failure(r.stderr.strip() or "git interpret-trailers failed")
+    return r.stdout
+
+
+def message_with_trailers(root, rels, text):
+    """Return the message text with provenance trailers, or None when no rows cover the paths."""
+    trailers = provenance_trailers(root, rels)
+    if not trailers:
+        return None
+    return with_trailers(text, trailers)
+
+
+def commit_git(rels, message_path, text, root):
     check_git_index(rels)
     stage_git(rels)
-    # COMMIT_FUNNEL=1 lets the reference-transaction hook allow this one ref update.
-    git("commit", "-F", message_path, env={**os.environ, "COMMIT_FUNNEL": "1"})
+    final = message_with_trailers(root, rels, text)
+    if final is None:
+        print(LEDGER_NOTICE, file=sys.stderr)
+        final = text
+    commit_path = message_path
+    if final != text:
+        fd, commit_path = tempfile.mkstemp(prefix="commit-funnel-", suffix=".msg")
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(final)
+    try:
+        # COMMIT_FUNNEL=1 lets the reference-transaction hook allow this one ref update.
+        git("commit", "-F", commit_path, env={**os.environ, "COMMIT_FUNNEL": "1"})
+    finally:
+        if commit_path != message_path:
+            os.unlink(commit_path)
     subject = git("log", "-1", "--format=%h %s").stdout.strip()
     print(subject)
 
@@ -210,7 +375,7 @@ def jj_in_parent(rel):
     return bool(jj("file", "list", "-r", "@-", fileset(rel)).stdout.strip())
 
 
-def commit_jj(rels, text, branch):
+def commit_jj(rels, text, branch, root):
     sets = [fileset(r) for r in rels]
     # jj snapshots deletions of tracked files itself: track only what is on disk.
     for rel in rels:
@@ -219,7 +384,11 @@ def commit_jj(rels, text, branch):
     on_disk = [fileset(r) for r in rels if os.path.lexists(r)]
     if on_disk:
         jj("file", "track", *on_disk)
-    jj("commit", "-m", text, *sets)
+    final = message_with_trailers(root, rels, text)
+    if final is None:
+        print(LEDGER_NOTICE, file=sys.stderr)
+        final = text
+    jj("commit", "-m", final, *sets)
     jj("bookmark", "move", branch, "--to", "@-")
     git("switch", branch)
     subject = jj("log", "--no-graph", "-r", "@-", "-T",
@@ -268,9 +437,9 @@ def run(args):
     rels = check_paths(args.paths, cwd, root)
     message_path, text = read_message(args.message_file, cwd)
     if jj_mode:
-        commit_jj(rels, text, branch)
+        commit_jj(rels, text, branch, root)
     else:
-        commit_git(rels, message_path)
+        commit_git(rels, message_path, text, root)
 
 
 def main():

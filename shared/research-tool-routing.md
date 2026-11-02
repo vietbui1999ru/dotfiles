@@ -149,6 +149,13 @@ forms pass the guard. Never move or push
 `main`/`master`, never pass `--ignore-immutable`, and never rewrite a branch that
 another worktree has checked out.
 
+Agent provenance is recorded by tools, never by the model. Each agent write is logged
+to a local ledger outside the repo (`scripts/provenance`), and `commit-funnel` appends one
+`Agent:` and one `Agent-Paths:` trailer per model that wrote the committed paths, so
+`scripts/provenance-report` can compare model quality over time. Do not write these
+trailers yourself and do not add model or effort stamps to files. `Co-Authored-By` lines
+stay for GitHub display but are not authoritative: the `Agent:` trailers are the record.
+
 ## Repo tooling: mise
 
 mise is the default for a repo's tools, environment, tasks and pins. Before
