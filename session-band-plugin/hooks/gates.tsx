@@ -1,6 +1,6 @@
 import { atom, read, update, type EngineInterface, type Register } from 'claude-code'
 
-import { acRunArgv, approveTimeoutMs, editRemoteArgv, parseSpecStatus, specRows, REVIEW_LIST_ARGV, parseReviewList, reviewFocus, reviewRows, skipArgv, type GateRow, type SpecRow, type ReviewRow } from './gates'
+import { specArgv, approveTimeoutMs, editRemoteArgv, parseSpecStatus, specRows, REVIEW_LIST_ARGV, parseReviewList, reviewFocus, reviewRows, skipArgv, type GateRow, type SpecRow, type ReviewRow } from './gates'
 import { requestReviewFocus } from './review-focus'
 import { approveArgv, approvalAction, matchingSocket, needsRejectConfirm, rejectToast, reviewRemoteArgv, reviewPaneRunArgv, reviewSplitArgv } from './pane.tsx'
 import { FOCUS_ACTION, FOCUS_REFUSED, JUMP_KEYS, nextPane, PANE_TITLES, switchSteps } from './pane-nav'
@@ -15,7 +15,7 @@ const visible = (state: GatesState): GateRow[] => state.hideOrphans ? state.rows
 const show = async ($: EngineInterface, row: SpecRow): Promise<string | undefined> => {
   const home = await $.env.get('HOME')
   if (!home) return undefined
-  const result = await $.process.run(acRunArgv(home, 'show', row.path), { cwd: row.worktree }).catch(() => undefined)
+  const result = await $.process.run(specArgv(home, 'show', row.path), { cwd: row.worktree }).catch(() => undefined)
   const detail = result?.exitCode === 0 ? result.stdout : undefined
   await update($, view, state => state.selected === row.key ? { ...state, detail } : state)
   return detail
@@ -34,8 +34,8 @@ const refresh = async ($: EngineInterface, manual = false) => {
     const rels = ['SPEC.md', ...nested.filter(file => file.kind === 'file' && file.name.endsWith('.md')).map(file => `specs/${file.name}`)]
     const files = await Promise.all(rels.map(async rel => ({ rel, text: await $.fs.read(`${tree.path}/${rel}`).catch(() => '') })))
     return Promise.all(specRows(tree, files).map(async row => {
-      const status = home ? await $.process.run(acRunArgv(home, 'status', row.path), { cwd: tree.path }).catch(() => undefined) : undefined
-      return { ...row, ...parseSpecStatus(status ?? { exitCode: 2, stdout: '', stderr: 'ac-run unavailable' }) }
+      const status = home ? await $.process.run(specArgv(home, 'status', row.path), { cwd: tree.path }).catch(() => undefined) : undefined
+      return { ...row, ...parseSpecStatus(status ?? { exitCode: 2, stdout: '', stderr: 'spec unavailable' }) }
     }))
   }))).flat()
   const reviews = home ? await $.process.run(REVIEW_LIST_ARGV(home), { cwd }).catch(() => undefined) : undefined
@@ -156,7 +156,7 @@ const approve = async ($: EngineInterface, row: GateRow | undefined) => {
     return { ...state, busy: [...state.busy, row.key], confirm: undefined }
   })
   if (!claimed) return
-  let message = 'ac-run unavailable'
+  let message = 'spec unavailable'
   try {
     if (row.kind === 'review') {
       await approveReview($, row)
@@ -166,7 +166,7 @@ const approve = async ($: EngineInterface, row: GateRow | undefined) => {
       const detail = await show($, row)
       if (home && detail !== undefined) {
         const count = detail.split('\n').filter(line => line.trimStart().startsWith('runs:')).length
-        const result = await $.process.run(acRunArgv(home, 'approve', row.path), { cwd: row.worktree, timeoutMs: approveTimeoutMs(count) })
+        const result = await $.process.run(specArgv(home, 'approve', row.path), { cwd: row.worktree, timeoutMs: approveTimeoutMs(count) })
         message = (result.stdout.trim() || result.stderr.trim()).split('\n').filter(Boolean).pop() ?? 'not approved'
       }
     }
@@ -205,8 +205,8 @@ const reject = async ($: EngineInterface, row: GateRow | undefined) => {
     } catch { await $.ui.toast(row.entry.orphan || row.entry.decided ? 'Could not skip review.' : rejectToast(1)) }
   } else {
     const home = await $.env.get('HOME')
-    if (!home) { await $.ui.toast('ac-run unavailable'); return }
-    const result = await $.process.run(acRunArgv(home, 'reject', row.path), { cwd: row.worktree }).catch(() => undefined)
+    if (!home) { await $.ui.toast('spec unavailable'); return }
+    const result = await $.process.run(specArgv(home, 'reject', row.path), { cwd: row.worktree }).catch(() => undefined)
     const message = (result?.stdout.trim() || result?.stderr.trim() || 'Reject unavailable').split('\n').pop() ?? 'Reject unavailable'
     await update($, view, value => ({ ...value, last: { ...value.last, [row.key]: message } }))
   }

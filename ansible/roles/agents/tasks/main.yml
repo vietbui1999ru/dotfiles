@@ -1,0 +1,124 @@
+---
+# The agents role is Linux-only. macOS already gets pueue, Pi and qmd from Homebrew
+# and the Mac's own setup, so the whole role is skipped there.
+- name: Check agents role runs on Linux only
+  ansible.builtin.assert:
+    that: ansible_os_family != "Darwin"
+    fail_msg: "agents role is for Linux boxes; macOS installs these through its own setup"
+    quiet: true
+
+# pueue (task queue). The real binaries go in /usr/local/bin, mirroring Homebrew's
+# pueue on the Mac: bootstrap-dirs.sh links ~/.local/bin/pueue (earlier on PATH) to
+# the secret-scrubbing wrapper scripts/pueue-safe, which finds the real binary by
+# searching PATH past itself. Skipped on lite boxes. No service is installed;
+# dispatch starts pueued.
+- name: Fetch the latest pueue release tag
+  ansible.builtin.uri:
+    url: https://api.github.com/repos/Nukesor/pueue/releases/latest
+    return_content: true
+  register: agents_pueue_release
+  when: not agent_lite | bool
+
+- name: Install pueue and pueued from the GitHub release
+  ansible.builtin.get_url:
+    url: "https://github.com/Nukesor/pueue/releases/download/{{ agents_pueue_release.json.tag_name }}/{{ item }}-{{ agents_linux_triple }}"
+    dest: "/usr/local/bin/{{ item }}"
+    mode: "0755"
+  become: true
+  loop:
+    - pueue
+    - pueued
+  when: not agent_lite | bool
+
+# Pi (coding agent). Installed from npm with the mise-pinned node; the packages it
+# uses (pi-lens, context-mode) are pulled by Pi itself from its settings.json.
+- name: Install Pi coding agent (npm global)
+  ansible.builtin.shell: |
+    mise x -- npm install -g @earendil-works/pi-coding-agent
+    mise reshim
+  args:
+    creates: "{{ ansible_env.HOME }}/.local/share/mise/shims/pi"
+  environment:
+    PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.HOME }}/.local/share/mise/shims:{{ ansible_env.PATH }}"
+  when: not agent_lite | bool
+
+# qmd (local markdown search). Installed on every box, lite included. Keyword
+# search (qmd search) works without models; vector search needs `qmd embed`.
+- name: Install qmd (npm global)
+  ansible.builtin.shell: |
+    mise x -- npm install -g @tobilu/qmd
+    mise reshim
+  args:
+    creates: "{{ ansible_env.HOME }}/.local/share/mise/shims/qmd"
+  environment:
+    PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.HOME }}/.local/share/mise/shims:{{ ansible_env.PATH }}"
+
+- name: Check that the llm-wiki checkout exists
+  ansible.builtin.stat:
+    path: "{{ ansible_env.HOME }}/repos/llm-wiki"
+  register: agents_wiki_dir
+
+- name: Note that the qmd collection is skipped without the wiki
+  ansible.builtin.debug:
+    msg: >-
+      ~/repos/llm-wiki is missing, so no qmd collection was registered. Check out
+      the llm-wiki submodule (or clone it there) and rerun this role.
+  when: not agents_wiki_dir.stat.exists
+
+- name: List registered qmd collections
+  ansible.builtin.command: qmd collection list
+  register: agents_qmd_collections
+  changed_when: false
+  when: agents_wiki_dir.stat.exists
+  environment:
+    PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.HOME }}/.local/share/mise/shims:{{ ansible_env.PATH }}"
+
+- name: Register the llm-wiki qmd collection
+  ansible.builtin.command: >-
+    qmd collection add {{ ansible_env.HOME }}/repos/llm-wiki --name wiki
+  when:
+    - agents_wiki_dir.stat.exists
+    - "'wiki (' not in agents_qmd_collections.stdout"
+  environment:
+    PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.HOME }}/.local/share/mise/shims:{{ ansible_env.PATH }}"
+
+# Index only. `qmd embed` downloads ~2 GB of models and is never run here: on lite
+# boxes it is disabled outright, and on full boxes it is the user's call.
+- name: Refresh qmd index (keyword only)
+  ansible.builtin.command: qmd update
+  changed_when: false
+  when: agents_wiki_dir.stat.exists
+  environment:
+    PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.HOME }}/.local/share/mise/shims:{{ ansible_env.PATH }}"
+
+- name: Note that vector embeddings are not built
+  ansible.builtin.debug:
+    msg: >-
+      qmd embed is not run by this role. Keyword search works now; run
+      'qmd embed' yourself on a full box for vector search (about 2 GB of models).
+  when: not agent_lite | bool
+
+# Headroom CLI, proxy and MCP server (`[all]`), as a uv tool on Python 3.13.
+# Install only: run `headroom proxy --port 8787` on the server and point clients
+# at it with ANTHROPIC_BASE_URL / OPENAI_BASE_URL.
+- name: Install Headroom (uv tool, servers only)
+  ansible.builtin.command: >-
+    mise x -- uv tool install --python 3.13 "headroom-ai[all]"
+  args:
+    creates: "{{ ansible_env.HOME }}/.local/bin/headroom"
+  environment:
+    PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.HOME }}/.local/share/mise/shims:{{ ansible_env.PATH }}"
+  when: agents_headroom_enabled | bool
+
+- name: Ensure ~/secrets exists (owner-only)
+  ansible.builtin.file:
+    path: "{{ ansible_env.HOME }}/secrets"
+    state: directory
+    mode: "0700"
+
+# Secrets are never copied by the playbook.
+- name: Remind to copy secrets by hand
+  ansible.builtin.debug:
+    msg: >-
+      Copy these by hand; the playbook never handles secrets:
+      ~/secrets/.env and ~/.pi/agent/auth.json.

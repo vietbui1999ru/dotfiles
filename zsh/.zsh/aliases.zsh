@@ -52,6 +52,7 @@ alias pi-cp='pi -e "$HOME/.pi/agent/extensions-available/pi-control-plane.ts"'
 alias inbox=' cd "/Volumes/100.100.100.100/buiquocviet99@gmail.com/proxmox/inbox" '
 
 # Spec loop (alias, not PATH: scripts/ also holds a firecrawl wrapper that would shadow the real CLI)
+alias spec="$HOME/dotfiles/scripts/spec"
 alias ac-run="$HOME/dotfiles/scripts/ac-run"
 alias floor-guard="$HOME/dotfiles/scripts/floor-guard"
 alias agent-review="$HOME/dotfiles/scripts/agent-review"
@@ -100,3 +101,10 @@ alias pytohn="python3"
 alias dokcer="docker"
 alias kubctl="kubectl"
 alias souce="exec zsh"
+
+# Claude Code through the Headroom compression proxy (only where Headroom is installed).
+# ~/.local/bin may not be on PATH yet when .zshrc sources this file, so test
+# the default uv tool location too.
+if command -v headroom >/dev/null || [[ -x $HOME/.local/bin/headroom ]]; then
+  alias hclaude="headroom wrap claude"
+fi

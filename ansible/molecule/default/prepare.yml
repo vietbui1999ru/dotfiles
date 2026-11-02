@@ -4,7 +4,8 @@
   gather_facts: false
   tasks:
     - name: Install python3/sudo/tar (Debian, via raw)
-      ansible.builtin.raw: apt-get update && apt-get install -y python3 sudo tar
+      # Explicit sh -c: the podman connection runs raw commands without a shell.
+      ansible.builtin.raw: sh -c 'apt-get update && apt-get install -y python3 sudo tar'
       changed_when: true
 
 - name: Bootstrap Python (RedHat)
@@ -13,8 +14,8 @@
   tasks:
     - name: Install python3/sudo/tar/xz (RedHat, via raw)
       ansible.builtin.raw: >
-        (microdnf install -y python3 python3-dnf sudo tar xz ||
-         dnf install -y python3 python3-dnf sudo tar xz)
+        sh -c '(microdnf install -y python3 python3-dnf sudo tar xz ||
+         dnf install -y python3 python3-dnf sudo tar xz)'
       changed_when: true
 
 - name: Seed dotfiles checkout from the current working tree

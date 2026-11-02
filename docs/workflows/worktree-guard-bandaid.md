@@ -67,7 +67,7 @@ The message always comes from a file (`-F`, never `-m`), so prose never sits in 
 It commits in one of two modes, chosen by the work-tree root:
 
 - git mode (no `.jj` at the root): `git add -- <paths>`, then `git commit -F <file>`. Add records deletions too.
-- jj mode (colocated, `.jj` present): `jj file track`, `jj commit -m '<message text>' <paths>`, `jj bookmark move <branch> --to @-`, then `git switch <branch>` so `ac-run`, `floor-guard` and `agent-review` read the branch again. Unlisted working-copy changes stay in the new `@`, and the funnel prints the sha and subject of `@-`.
+- jj mode (colocated, `.jj` present): `jj file track`, `jj commit -m '<message text>' <paths>`, `jj bookmark move <branch> --to @-`, then `git switch <branch>` so `spec`, `floor-guard` and `agent-review` read the branch again. Unlisted working-copy changes stay in the new `@`, and the funnel prints the sha and subject of `@-`.
 
 It refuses with exit 2 and numbered steps, and commits nothing, when: no path is given; a path is `.`, `-A`, `--all` or resolves outside the work-tree root; the message file is missing, empty, or has a first line over 72 characters; the branch is `main` or `master`; no branch is unambiguous (detached HEAD in git mode, or detached HEAD with zero or several bookmarks on `@-` in jj mode); or, in git mode, a path outside the list is already staged.
 

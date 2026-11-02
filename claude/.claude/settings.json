@@ -126,7 +126,28 @@
   },
   "model": "opus",
   "hooks": {
+    "PostModelSwitch": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/dotfiles/scripts/provenance hook",
+            "async": true
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/dotfiles/scripts/provenance hook",
+            "async": true
+          }
+        ]
+      },
       {
         "matcher": "Bash",
         "hooks": [
@@ -224,6 +245,15 @@
         "hooks": [
           {
             "type": "command",
+            "command": "$HOME/dotfiles/scripts/provenance hook",
+            "async": true
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
             "command": "f='/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/claude-event-hook.sh'; [ -x \"$f\" ] && \"$f\" Idle || true # notchbar-agents-claude-hook"
           }
         ]
@@ -233,7 +263,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash '/Users/vietquocbui/.claude/hooks/herdr-agent-state.sh' session",
+            "command": "f=\"$HOME/.claude/hooks/herdr-agent-state.sh\"; [ -f \"$f\" ] || exit 0; bash \"$f\" session",
             "timeout": 10
           }
         ]
@@ -291,7 +321,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ~/dotfiles/scripts/mistake-alert-hook.mjs"
+            "command": "f=\"$HOME/dotfiles/scripts/mistake-alert-hook.mjs\"; [ -f \"$f\" ] && command -v node >/dev/null || exit 0; node \"$f\""
           }
         ]
       },

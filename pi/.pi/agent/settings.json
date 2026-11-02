@@ -1,0 +1,75 @@
+{
+  "defaultProvider": "opencode-go",
+  "defaultModel": "deepseek-v4.1-flash",
+  "defaultThinkingLevel": "medium",
+  "packages": [
+    {
+      "source": "npm:pi-lens",
+      "skills": [
+        "-skills/pi-lens-write-ast-grep-rule",
+        "-skills/pi-lens-write-tree-sitter-rule"
+      ]
+    },
+    {
+      "source": "npm:context-mode",
+      "skills": []
+    }
+  ],
+  "theme": "dark",
+  "showHardwareCursor": true,
+  "terminal": {
+    "showTerminalProgress": true
+  },
+  "steeringMode": "one-at-a-time",
+  "compaction": {
+    "enabled": true,
+    "modelOverrides": {
+      "opencode-go/claude-haiku-5-5": {
+        "reserveTokens": 500000
+      },
+      "opencode-go/deepseek-v4.1-flash": {
+        "reserveTokens": 500000
+      },
+      "opencode-go/deepseek-v4-pro": {
+        "reserveTokens": 500000
+      },
+      "opencode-go/glm-5.3": {
+        "reserveTokens": 500000
+      },
+      "opencode-go/kimi-k3": {
+        "reserveTokens": 548576
+      },
+      "opencode-go/qwen3.8-max": {
+        "reserveTokens": 500000
+      },
+      "opencode-go/minimax-m3": {
+        "reserveTokens": 500000
+      }
+    }
+  },
+  "editorPaddingX": 2,
+  "autocompleteMaxVisible": 7,
+  "transport": "auto",
+  "defaultProjectTrust": "ask",
+  "doubleEscapeAction": "tree",
+  "treeFilterMode": "all",
+  "warnings": {
+    "anthropicExtraUsage": true
+  },
+  "enabledModels": [
+    "openai-codex/gpt-6-astra",
+    "openai-codex/gpt-6-luna",
+    "openai-codex/gpt-6-sol",
+    "openai-codex/gpt-6.1-sol",
+    "openai-codex/gpt-5.6-terra",
+    "opencode-go/kimi-k3",
+    "opencode-go/glm-5.3",
+    "opencode-go/minimax-m3",
+    "opencode-go/qwen3.8-max",
+    "opencode-go/deepseek-v4.1-flash",
+    "opencode-go/deepseek-v4-pro",
+    "opencode-go/kimi-k2.7-code",
+    "opencode-go/grok-4.7",
+    "opencode-go/claude-haiku-5-5"
+  ]
+}

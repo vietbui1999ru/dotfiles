@@ -1,4 +1,4 @@
-"""Tests for scripts/ac-run and scripts/floor-guard (the spec loop).
+"""Tests for scripts/spec and scripts/floor-guard (the spec loop).
 
 Each test builds a throwaway git repo in a temp dir and runs the scripts with
 sys.executable, a temp HOME and GIT_CONFIG_NOSYSTEM=1. Stdlib only.
@@ -23,9 +23,10 @@ from unittest.mock import patch
 
 SCRIPTS = Path(__file__).resolve().parent.parent
 ROOT = SCRIPTS.parent
-ACRUN = SCRIPTS / "ac-run"
+SPEC_BIN = SCRIPTS / "spec"
+SHIM = SCRIPTS / "ac-run"
 FLOOR = SCRIPTS / "floor-guard"
-HUMAN = "HUMAN ONLY (agents must not run this): approve in the session-band /gates pane, or ~/dotfiles/scripts/ac-run approve SPEC.md"
+HUMAN = "HUMAN ONLY (agents must not run this): approve in the session-band /gates pane, or ~/dotfiles/scripts/spec approve SPEC.md"
 GITC = ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
 
 SPEC = """---
@@ -125,25 +126,31 @@ class Fixture(unittest.TestCase):
         return subprocess.run([sys.executable, str(script), *args], cwd=cwd or self.repo, env=env,
                               input=stdin, capture_output=True, text=True, timeout=timeout)
 
-    def run_acrun(self, *args, **kw):
-        return self.run_script(ACRUN, args, **kw)
+    def run_spec(self, *args, **kw):
+        return self.run_script(SPEC_BIN, args, **kw)
+
+    def run_shim(self, *args, **kw):
+        """Run scripts/ac-run the way a shell does: as an executable, not through python."""
+        env = dict(self.env, **(kw.get("extra_env") or {}))
+        return subprocess.run([str(SHIM), *args], cwd=kw.get("cwd") or self.repo, env=env,
+                              capture_output=True, text=True, timeout=60)
 
     def run_floor(self, *args, **kw):
         return self.run_script(FLOOR, args, **kw)
 
     def lint(self, **kw):
-        return self.run_acrun("lint", "SPEC.md", **kw)
+        return self.run_spec("lint", "SPEC.md", **kw)
 
     def check(self, *opts, **kw):
-        return self.run_acrun("check", *opts, "SPEC.md", **kw)
+        return self.run_spec("check", *opts, "SPEC.md", **kw)
 
     @contextlib.contextmanager
-    def acrun_module(self):
+    def spec_module(self):
         cwd, argv = os.getcwd(), sys.argv
         with patch.dict(os.environ, self.env, clear=True):
             try:
                 os.chdir(self.repo)
-                loader = importlib.machinery.SourceFileLoader("acrun_under_test", str(ACRUN))
+                loader = importlib.machinery.SourceFileLoader("spec_under_test", str(SPEC_BIN))
                 module_spec = importlib.util.spec_from_loader(loader.name, loader)
                 assert module_spec is not None
                 module = importlib.util.module_from_spec(module_spec)
@@ -155,8 +162,8 @@ class Fixture(unittest.TestCase):
 
     def approve_inproc(self, answer: bool, *opts):
         stdout, stderr = io.StringIO(), io.StringIO()
-        with self.acrun_module() as module:
-            sys.argv = ["ac-run", "approve", *opts, "SPEC.md"]
+        with self.spec_module() as module:
+            sys.argv = ["spec", "approve", *opts, "SPEC.md"]
             with patch.object(module, "confirm", lambda spec, runnable: answer, create=True), \
                     contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
                 code = module.main()
@@ -232,7 +239,7 @@ Stop one client from exhausting export workers. Success: >10 req/min from one ke
 
 ## Boundaries
 ### Always
-- Run `~/dotfiles/scripts/ac-run check SPEC.md` before claiming done
+- Run `~/dotfiles/scripts/spec check SPEC.md` before claiming done
 ### Ask first
 - New dependencies; schema changes
 ### Never
@@ -406,7 +413,7 @@ class SpecLoopCases(Fixture):
     def test_confirm_failure_is_refusal(self):
         self.init_repo()
         self.write_spec([(1, "true")])
-        with self.acrun_module() as module:
+        with self.spec_module() as module:
             spec = module.load("SPEC.md")
             for error in (OSError("no GUI"), subprocess.TimeoutExpired("osascript", 75)):
                 with self.subTest(error=error), patch.object(module.subprocess, "run", side_effect=error):
@@ -415,7 +422,7 @@ class SpecLoopCases(Fixture):
     def test_confirm_needs_approve_reply(self):
         self.init_repo()
         self.write_spec([(1, "true")])
-        with self.acrun_module() as module:
+        with self.spec_module() as module:
             spec = module.load("SPEC.md")
             for reply, expected in (("Cancel\n", False), ("Approve\n", True), ("\n", False)):
                 with patch.object(module.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout=reply)) as run:
@@ -432,7 +439,7 @@ class SpecLoopCases(Fixture):
         self.init_repo()
         self.write_spec([(1, "touch sentinel.txt")])
         before = (self.repo / "SPEC.md").read_bytes()
-        r = self.run_acrun("show", "SPEC.md")
+        r = self.run_spec("show", "SPEC.md")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("runs: touch sentinel.txt", r.stdout)
         self.assertFalse((self.repo / "sentinel.txt").exists())
@@ -566,7 +573,7 @@ class SpecLoopCases(Fixture):
         secret = {"FAKE_SECRET": "leak"}
         self.approved([(1, 'test -z "$FAKE_SECRET" && test -f SPEC.md')], dirty=True,
                       extra_env=secret)
-        c = self.run_acrun("check", "../SPEC.md", cwd=self.repo / "sub", extra_env=secret)
+        c = self.run_spec("check", "../SPEC.md", cwd=self.repo / "sub", extra_env=secret)
         self.assertEqual(self.result(c.stdout, "AC-1"), "PASS (no baseline)", c.stdout + c.stderr)
         self.assertEqual(c.returncode, 0, c.stdout + c.stderr)
 
@@ -720,7 +727,7 @@ class SpecLoopCases(Fixture):
     def test_lint_prints_reject_line(self):
         r = self.lint_text(spec_text([(1, "true")]))
         self.assert_clean_lint(r)
-        self.assertIn("~/dotfiles/scripts/ac-run reject SPEC.md", r.stdout)
+        self.assertIn("~/dotfiles/scripts/spec reject SPEC.md", r.stdout)
 
     def test_approve_summary(self):
         self.init_repo()
@@ -743,7 +750,7 @@ class SpecLoopCases(Fixture):
         (self.repo / "ran.txt").unlink(missing_ok=True)  # baseline ran it
         for want in ("removed record", "no approval record"):
             with self.subTest(want):
-                r = self.run_acrun("reject", "SPEC.md")
+                r = self.run_spec("reject", "SPEC.md")
                 out = r.stdout + r.stderr
                 self.assertEqual(r.returncode, 0, out)
                 self.assertEqual(len(r.stdout.strip().splitlines()), 1, out)
@@ -756,18 +763,31 @@ class SpecLoopCases(Fixture):
     def test_status(self):
         self.init_repo()
         self.write_spec([(1, "true")])
-        c = self.run_acrun("status", "SPEC.md")
+        c = self.run_spec("status", "SPEC.md")
         self.assertEqual(c.returncode, 3, c.stdout + c.stderr)
         self.assertIn("draft (no record)", c.stdout)
         self.approve("y\n")
-        c = self.run_acrun("status", "SPEC.md")
+        c = self.run_spec("status", "SPEC.md")
         self.assertEqual(c.returncode, 0, c.stdout + c.stderr)
         self.assertIn("approved (record matches)", c.stdout)
         spec = self.repo / "SPEC.md"
         spec.write_text(spec.read_text().replace("`true`", "`false`"))
-        c = self.run_acrun("status", "SPEC.md")
+        c = self.run_spec("status", "SPEC.md")
         self.assertEqual(c.returncode, 3, c.stdout + c.stderr)
         self.assertIn("stale (spec changed since approval; approve again)", c.stdout)
+
+    def test_status_defaults_to_spec_md(self):
+        self.approved([(1, "true")])
+        c = self.run_spec("status")
+        self.assertEqual(c.returncode, 0, c.stdout + c.stderr)
+        self.assertIn("approved (record matches)", c.stdout)
+
+    def test_compatibility_shim_matches_spec(self):
+        self.approved([(1, "true")])
+        direct = self.run_spec("status", "SPEC.md")
+        shim = self.run_shim("status", "SPEC.md")
+        self.assertEqual((shim.returncode, shim.stdout, shim.stderr),
+                         (direct.returncode, direct.stdout, direct.stderr))
 
     def read_record(self, path):
         return json.loads(Path(path).read_text())

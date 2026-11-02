@@ -1,7 +1,7 @@
 # Sourced for ALL zsh instances (login, non-login, scripts)
 # Keep minimal — only PATH and env vars needed before .zshrc
 
-. "$HOME/.cargo/env"
+[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
 
 export XDG_CONFIG_HOME="$HOME/.config"
 export XDG_DATA_HOME="$HOME/.local/share"

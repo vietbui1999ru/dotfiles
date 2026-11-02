@@ -81,15 +81,15 @@ const setup = (on: On, over: Partial<World> = {}): World => {
     const argv = e.argv
     if (argv[0]?.endsWith('/agent-review') && argv[1] === 'list') return { value: { ...OK, stdout: world.list } } as never
     if (argv[0]?.endsWith('/agent-review') && argv[1] === 'approve') return { value: world.approval } as never
-    if (argv[0]?.endsWith('/ac-run') && argv[1] === 'approve') return { value: { ...OK, stdout: 'approved: fixture record\n' } } as never
+    if (argv[0]?.endsWith('/spec') && argv[1] === 'approve') return { value: { ...OK, stdout: 'approved: fixture record\n' } } as never
     if (argv[0] === 'git' && (argv.includes('add') || argv.includes('rm'))) return { value: OK } as never
     if (argv[0] === 'git' && argv.includes('write-tree')) return { value: { ...OK, stdout: 'tree2\n' } } as never
     if (argv[0] === 'git' && argv.includes('apply')) return { value: world.applyCheck === 0 ? OK : { ...OK, exitCode: 1 } } as never
     if (argv[0]?.endsWith('/commit-funnel')) return { value: OK } as never
     if (argv[0] === 'pueue' && argv[1] === 'status') return { value: { ...OK, stdout: '{"tasks":{}}' } } as never
-    if (argv[0]?.endsWith('/ac-run') && argv[1] === 'status') return { value: { ...OK, exitCode: world.status, stdout: world.status === 0 ? 'approved' : 'draft' } } as never
-    if (argv[0]?.endsWith('/ac-run') && argv[1] === 'show') return { value: { ...OK, stdout: 'AC-1: draw the pane\n    runs: true\n' } } as never
-    if (argv[0]?.endsWith('/ac-run') && argv[1] === 'check') return { value: { ...OK, stdout: world.check } } as never
+    if (argv[0]?.endsWith('/spec') && argv[1] === 'status') return { value: { ...OK, exitCode: world.status, stdout: world.status === 0 ? 'approved' : 'draft' } } as never
+    if (argv[0]?.endsWith('/spec') && argv[1] === 'show') return { value: { ...OK, stdout: 'AC-1: draw the pane\n    runs: true\n' } } as never
+    if (argv[0]?.endsWith('/spec') && argv[1] === 'check') return { value: { ...OK, stdout: world.check } } as never
     if (argv.includes('rev-parse') && argv.includes('--show-toplevel')) return { value: { ...OK, stdout: '/work\n' } } as never
     if (argv.includes('rev-parse') && argv.includes('--abbrev-ref')) return { value: { ...OK, stdout: 'feat/x\n' } } as never
     if (argv[0] === 'git' && argv.includes('diff')) {
@@ -489,7 +489,7 @@ test('a spec tab shows its criteria and the last check table', async ($, on) => 
   expect(drawn).toContain('last check')
   expect(drawn).toContain('| AC-1 | PASS | 0 | 1.0 |')
   expect(world.calls.filter(call => call.argv[1] === 'check').map(call => call.argv)).toEqual([
-    ['/h/dotfiles/scripts/ac-run', 'check', '/work/SPEC.md'],
+    ['/h/dotfiles/scripts/spec', 'check', '/work/SPEC.md'],
   ])
 })
 

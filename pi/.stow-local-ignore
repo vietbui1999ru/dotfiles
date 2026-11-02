@@ -1,0 +1,9 @@
+# A package ignore file replaces stow's built-in list, so keep the defaults this
+# package relies on.
+README\..*
+\.gitignore
+
+# settings.json is a seed, not a link: Pi writes machine state (deviceId,
+# lastChangelogVersion) into it. scripts/bootstrap-dirs.sh copies it to
+# ~/.pi/agent/settings.json only when that file does not exist yet.
+^/\.pi/agent/settings\.json$

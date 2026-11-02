@@ -27,7 +27,7 @@ export PATH="$HOME/go/bin:$PATH"
 command -v mise &>/dev/null && eval "$(mise activate zsh)"
 
 # ── Sheldon (plugins) ─────────────────────────────────────────────────
-eval "$(sheldon source)"
+command -v sheldon >/dev/null && eval "$(sheldon source)"
 
 # ── Deja (autosuggestions, replaces zsh-autosuggestions) ──────────────
 # Never load alongside zsh-autosuggestions: deja stands down if it sees it.
@@ -51,7 +51,7 @@ if command -v deja &>/dev/null; then
 fi
 
 # ── Starship (prompt) ─────────────────────────────────────────────────
-eval "$(starship init zsh)"
+command -v starship >/dev/null && eval "$(starship init zsh)"
 
 # direnv (after mise so .envrc can reference mise-managed tools)
 command -v direnv &>/dev/null && eval "$(direnv hook zsh)"
@@ -77,9 +77,9 @@ if [[ $OSTYPE == darwin* ]]; then
 fi
 
 # ── Aliases + functions ───────────────────────────────────────────────
-source "$HOME/.zsh/aliases.zsh"
-source "$HOME/.zsh/functions.zsh"
-source "$HOME/.zsh/keybindings.zsh"
+[[ -f "$HOME/.zsh/aliases.zsh" ]] && source "$HOME/.zsh/aliases.zsh"
+[[ -f "$HOME/.zsh/functions.zsh" ]] && source "$HOME/.zsh/functions.zsh"
+[[ -f "$HOME/.zsh/keybindings.zsh" ]] && source "$HOME/.zsh/keybindings.zsh"
 
 # Reset terminal state on each prompt — prevents TUI apps from leaving mouse reporting
 # or keyboard protocol modes active after exit or tmux pane switch
@@ -113,7 +113,7 @@ fi
 [[ -f "$HOME/.zshrc.local" ]] && source "$HOME/.zshrc.local"
 
 # ── zoxide (must be last — interactive only) ──────────────────────────
-[[ -o interactive ]] && eval "$(zoxide init zsh --cmd cd)"
+[[ -o interactive ]] && command -v zoxide >/dev/null && eval "$(zoxide init zsh --cmd cd)"
 
 # opencode
 [[ -d "$HOME/.opencode/bin" ]] && export PATH="$HOME/.opencode/bin:$PATH"
@@ -125,4 +125,4 @@ fi
 export BUN_INSTALL="$HOME/.bun"
 export PATH="$BUN_INSTALL/bin:$PATH"
 
-. "$HOME/.local/share/../bin/env"
+if [ -f "$HOME/.local/bin/env" ]; then . "$HOME/.local/bin/env"; fi

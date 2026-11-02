@@ -13,3 +13,6 @@ bootstrap_roles:
   - tmux
   - neovim
   - kitty
+
+# Lite agent boxes (Raspberry Pi class) skip source builds; see agent_linux.yml.
+agent_lite: false

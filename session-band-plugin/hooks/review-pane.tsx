@@ -25,7 +25,7 @@ import {
 } from './review-sources'
 import { FOCUS_ACTION, FOCUS_REFUSED, JUMP_KEYS, MOD_PANES, PANE_TITLES, switchSteps } from './pane-nav'
 import { landPatch } from './review-land'
-import { acRunArgv } from './gates'
+import { specArgv } from './gates'
 import { approveArgv, approvalAction } from './pane.tsx'
 import { approveSession } from './review-touch'
 import { takeReviewFocus } from './review-focus'
@@ -400,7 +400,7 @@ async function approveCurrent($: EngineInterface, worktree: string, state: Revie
     return
   }
   if (tab.kind === 'spec') {
-    const result = await $.process.run(acRunArgv(home, 'approve', tab.specPath ?? tab.file), { cwd: worktree, timeoutMs: 600_000 }).catch(() => undefined)
+    const result = await $.process.run(specArgv(home, 'approve', tab.specPath ?? tab.file), { cwd: worktree, timeoutMs: 600_000 }).catch(() => undefined)
     const message = (result?.stdout.trim() || result?.stderr.trim() || 'not approved').split('\n').filter(Boolean).pop() ?? 'not approved'
     await $.ui.toast(message)
     await reload($, worktree)
@@ -454,7 +454,7 @@ async function approveForAll($: EngineInterface, worktree: string, state: Review
       if (!result || approvalAction(result.stdout) !== 'approved') missed.push(row.label)
     }
     if (row.kind === 'spec') {
-      const result = home ? await $.process.run(acRunArgv(home, 'approve', row.specPath ?? row.file), { cwd: worktree, timeoutMs: 600_000 }).catch(() => undefined) : undefined
+      const result = home ? await $.process.run(specArgv(home, 'approve', row.specPath ?? row.file), { cwd: worktree, timeoutMs: 600_000 }).catch(() => undefined) : undefined
       if (result?.exitCode !== 0) missed.push(row.label)
     }
   }

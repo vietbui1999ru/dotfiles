@@ -4,7 +4,7 @@ Run: python3 scripts/tests/test_pi_wait.py
 
 Every external command goes through a stub binary named by the plan's env seam
 (PI_QUEUE_PUEUE, PI_QUEUE_GH, PI_QUEUE_AC_RUN, PI_QUEUE_PI_OUTCOME, ...), so the
-tests never touch the real pueue daemon, GitHub, ac-run or a live review ledger.
+tests never touch the real pueue daemon, GitHub, spec or a live review ledger.
 """
 
 import json
@@ -49,8 +49,8 @@ sys.exit(fixture("gh.code", 0))
 """
 
 AC_RUN = """
-emit(fixture("ac-run.out", "draft (no record)"))
-sys.exit(fixture("ac-run.code", 3))
+emit(fixture("spec.out", "draft (no record)"))
+sys.exit(fixture("spec.code", 3))
 """
 
 PI_OUTCOME = """
@@ -72,7 +72,7 @@ class PiWait(unittest.TestCase):
         for name, body in (
             ("pueue", PUEUE),
             ("gh", GH),
-            ("ac-run", AC_RUN),
+            ("spec", AC_RUN),
             ("pi-outcome", PI_OUTCOME),
             ("herdr", "sys.exit(0)"),
             ("claude", "sys.exit(0)"),
@@ -86,7 +86,7 @@ class PiWait(unittest.TestCase):
             "HOME": str(self.home),
             "PI_QUEUE_PUEUE": str(self.bin / "pueue"),
             "PI_QUEUE_GH": str(self.bin / "gh"),
-            "PI_QUEUE_AC_RUN": str(self.bin / "ac-run"),
+            "PI_QUEUE_AC_RUN": str(self.bin / "spec"),
             "PI_QUEUE_PI_OUTCOME": str(self.bin / "pi-outcome"),
             "PI_QUEUE_HERDR": str(self.bin / "herdr"),
             "PI_QUEUE_CLAUDE": str(self.bin / "claude"),
@@ -161,23 +161,23 @@ class PiWait(unittest.TestCase):
 
     def test_spec_approved(self):
         # AC-2: an approved record releases; the wait only ever reads the gate's status.
-        self.fixture("ac-run.out", "approved (record matches)")
-        self.fixture("ac-run.code", 0)
+        self.fixture("spec.out", "approved (record matches)")
+        self.fixture("spec.code", 0)
         result = self.wait("spec-approved", "SPEC.md", "--release", "4")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.enqueued(), [4])
         self.assert_event("released", executor="wait")
-        for argv in self.calls("ac-run"):
+        for argv in self.calls("spec"):
             self.assertEqual(argv[0], "status", argv)
 
-        self.fixture("ac-run.out", "draft (no record)")
-        self.fixture("ac-run.code", 3)
+        self.fixture("spec.out", "draft (no record)")
+        self.fixture("spec.code", 3)
         (self.stub / "enqueued.log").unlink()
         result = self.wait("spec-approved", "SPEC.md", "--release", "4", "--timeout", "0.2", "--interval", "0.05")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.enqueued(), [])
         self.assert_event("failed", executor="wait")
-        for argv in self.calls("ac-run"):
+        for argv in self.calls("spec"):
             self.assertNotIn("approve", argv)
 
     def test_outcome(self):

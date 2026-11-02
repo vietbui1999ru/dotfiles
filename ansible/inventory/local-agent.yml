@@ -1,0 +1,8 @@
+---
+# As seen from the agent box itself, by scripts/bootstrap-ubuntu.sh --agent.
+# Named apart from `localhost` (macOS play) and `ubuntu-local` (desktop play).
+agent_linux:
+  hosts:
+    agent-local:
+      ansible_connection: local
+      ansible_python_interpreter: /usr/bin/python3

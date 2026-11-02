@@ -1,0 +1,8 @@
+---
+# Headroom (LLM context-compression proxy) is for always-on servers that front
+# the LLM providers, not for every agent box. Enable per run:
+#   scripts/bootstrap-ubuntu.sh --agent -e agents_headroom_enabled=true
+agents_headroom_enabled: false
+# pueue release asset triple for the host arch (both musl builds are static).
+agents_linux_triple: >-
+  {{ {'x86_64': 'x86_64-unknown-linux-musl', 'aarch64': 'aarch64-unknown-linux-musl'}[ansible_architecture] }}

@@ -1,10 +1,10 @@
 import { expect, test } from 'claude-code/testing'
 
 import { parseWorktrees } from './worktrees'
-import { specBranch, specRows, parseSpecStatus, acRunArgv, approveTimeoutMs, editRemoteArgv, parseReviewList, reviewRows, REVIEW_LIST_ARGV, skipArgv } from './gates'
+import { specBranch, specRows, parseSpecStatus, specArgv, approveTimeoutMs, editRemoteArgv, parseReviewList, reviewRows, REVIEW_LIST_ARGV, skipArgv } from './gates'
 
 test('gates builds spec argv, baseline timeout and space-safe Neovim edit argv', () => {
-  expect(acRunArgv('/h', 'status', '/r/SPEC.md')).toEqual(['/h/dotfiles/scripts/ac-run', 'status', '/r/SPEC.md'])
+  expect(specArgv('/h', 'status', '/r/SPEC.md')).toEqual(['/h/dotfiles/scripts/spec', 'status', '/r/SPEC.md'])
   expect(approveTimeoutMs(2)).toBe(345000)
   // $.process.run accepts ten minutes at most; more and the call rejects.
   expect(approveTimeoutMs(9)).toBe(600000)
@@ -45,7 +45,7 @@ test('gates keys same-relative-path specs by their absolute worktree path', () =
   expect(trees.flatMap(tree => specRows(tree, files.slice(0, 1))).map(row => row.key)).toEqual(['/r/SPEC.md', '/r/.claude/worktrees/w/SPEC.md'])
 })
 
-test('gates trusts ac-run status and shows the first stderr line for invalid specs', () => {
+test('gates trusts spec status and shows the first stderr line for invalid specs', () => {
   expect(parseSpecStatus({ exitCode: 0, stdout: 'approved (record matches)', stderr: '' })).toEqual({ state: 'approved' })
   expect(parseSpecStatus({ exitCode: 3, stdout: 'draft (no record)', stderr: '' })).toEqual({ state: 'draft' })
   expect(parseSpecStatus({ exitCode: 3, stdout: 'stale (spec changed)', stderr: '' })).toEqual({ state: 'stale' })
