@@ -1,0 +1,22 @@
+---
+# The Linux agent box: a Debian-family machine that runs the agent workflow.
+# Full (WSL2, homelab) runs everything; lite (Raspberry Pi) skips pueue, Pi and
+# every source build. Selected by scripts/bootstrap-ubuntu.sh --agent[-lite].
+bootstrap_roles: >-
+  {{ ['base', 'dotfiles', 'rust', 'golang', 'python', 'mise', 'agents', 'tools',
+      'zsh', 'starship', 'tmux', 'neovim']
+     | reject('equalto', 'rust' if agent_lite | bool else '') | list }}
+
+# No kitty (GUI terminal) and no codex (its hooks still hold /Users/ paths).
+dotfiles_stow_packages:
+  - zsh
+  - starship
+  - mise
+  - tmux
+  - tmuxinator
+  - nvim
+  - git
+  - jj
+  - claude
+  - pi
+  - opencode
