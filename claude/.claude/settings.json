@@ -126,7 +126,28 @@
   },
   "model": "opus",
   "hooks": {
+    "PostModelSwitch": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/dotfiles/scripts/provenance hook",
+            "async": true
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/dotfiles/scripts/provenance hook",
+            "async": true
+          }
+        ]
+      },
       {
         "matcher": "Bash",
         "hooks": [
@@ -220,6 +241,15 @@
       }
     ],
     "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/dotfiles/scripts/provenance hook",
+            "async": true
+          }
+        ]
+      },
       {
         "hooks": [
           {
