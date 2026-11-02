@@ -1,236 +1,44 @@
 # dotfiles
 
-Personal dotfiles managed with [GNU Stow](https://www.gnu.org/software/stow/). Ansible handles provisioning on new machines.
+Personal configuration for macOS and Linux, managed with [GNU Stow](https://www.gnu.org/software/stow/). Each top-level directory is a stow package that mirrors its layout under `$HOME`. Ansible provisions fresh Linux machines, mise pins the dev tools, and the repo also carries the agent workflow used for AI-assisted coding. Theme: Catppuccin Macchiato.
 
-**Theme:** Catppuccin Macchiato throughout.
-
-## Packages
-
-Provisioning uses three mechanisms — know which applies before editing a package:
-**stow** (symlink, edits round-trip to git), **materialized** (copied once from a template by
-`bootstrap-dirs.sh`, then drifts silently — edit the template, not the live file), and
-**sync-pushed** (one-way push by `sync-agent-rules.sh`, live edits are invisible to git).
-
-| Package | Stow target | Provisioning |
-|---|---|---|
-| `zsh/` | `~/.zshrc`, `~/.zprofile`, `~/.zsh/` | stow (autosuggestions via `deja` from Brewfile, replacing zsh-autosuggestions) |
-| `starship/` | `~/.config/starship.toml` | stow |
-| `mise/` | `~/.config/mise/config.toml` | stow — dev CLI + runtime pins; run `mise install` after restow |
-| `nvim/` | `~/.config/nvim/` | stow |
-| `tmux/` | `~/.tmux.conf`, `~/.local/bin/tmux-cht` | stow |
-| `tmuxinator/` | `~/.config/tmuxinator/dotfiles.yml` | stow |
-| `kitty/` | `~/.config/kitty/` | stow |
-| `git/` | `~/.gitconfig` | stow |
-| `jj/` | `~/.config/jj/config.toml` | stow |
-| `aerospace/` | `~/.aerospace.toml` | stow (macOS tiling WM) — not in the `stow` line above; add when used |
-| `mouseless/` | `~/Library/Application Support/Mouseless/configs/config.yaml` | stow (macOS Mouseless app) — not in the `stow` line above; back up the live file before first `stow mouseless`, restart the app after |
-| `sketchybar/` | `~/.config/sketchybar/` | stow (macOS status bar) — not in the `stow` line above; add when used; `sketchybar --reload` after edits |
-| `i3/` | `~/.config/i3/config` | Linux-only, applied via Ansible (not macOS stow) |
-| `claude/` | `~/.claude/` | stow (partial) — including `settings.json`; `skills/`+`agents/` mix dotfiles and `llm-wiki` sources |
-| `opencode/` | `~/.config/opencode/` | partial — `plugins/` stow; `opencode.json` materialized; `agents/`/`skills/` unmanaged |
-| `codex/` | `~/.codex/` | **no-op stub today** — Codex is sync-pushed via `sync-agent-rules.sh`, not stowed |
-| `pi/` | `~/.pi/` | stow (extensions only); `~/.pi/agent/` runtime state is unmanaged, except portable MCP entries sync-pushed to `mcp.json` |
-| `herdr/` | `~/.config/herdr/config.toml` | stow — not in the `stow` line above; back up the live file before first `stow herdr`; `~/.config/herdr/` logs/sockets/session-history are unmanaged runtime state; `herdr server reload-config` after edits |
-| `launchd/` | `~/Library/LaunchAgents/` | stow — user LaunchAgents such as the Herdr→Sketchybar bridge |
-
-## Quick start (macOS)
-
-```sh
-# 1. Clone (submodules required — llm-wiki is bundled as a submodule)
-git clone --recurse-submodules git@github.com:vietbui99/dotfiles.git ~/dotfiles
-
-# 2. Install Homebrew
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-
-# 3. Install packages
-cd ~/dotfiles && brew bundle
-
-# 4. Create expected directories (uses a standalone ~/repos/llm-wiki clone if present)
-./scripts/bootstrap-dirs.sh
-
-# 5. Symlink configs
-./scripts/restow.sh
-
-# 6. Install dev CLIs + runtimes (go, node, neovim, ripgrep, jq, ...) from mise.
-#    The list lives in mise/.config/mise/config.toml, stowed in step 5.
-#    Upgrade them with `mise up` — not `brew upgrade`.
-mise install
-
-# 7. Sync AI tool rules (AGENTS.md + MCP servers)
-./scripts/sync-agent-rules.sh
+```mermaid
+flowchart LR
+  repo["dotfiles repo"] --> stow["stow packages"]
+  stow --> home["$HOME configs"]
+  repo --> ans["Ansible"]
+  ans --> linux["Linux machines"]
+  subgraph agents["Agent loop"]
+    claude["Claude Code: plan"] --> pueue["pueue queue"]
+    pueue --> pi["Pi: build"]
+    pi --> review["agent-review gate"]
+    review --> commit["commit-funnel"]
+  end
+  home -. "claude/, pi/" .-> agents
 ```
 
-## Ansible (Linux / new machine)
+## Prerequisites
 
-Covers: base packages, Rust toolchain, modern CLI tools, zsh, starship, tmux, neovim. Kitty only on macOS/desktop.
+- git, with SSH access to GitHub (the `llm-wiki` submodule uses an SSH URL)
+- macOS: [Homebrew](https://brew.sh)
+- Linux: Ubuntu or Debian for the bootstrap script, or Ansible for other targets
+
+## Installation
+
+macOS:
 
 ```sh
-# Local machine
-ansible-playbook ansible/site.yml --limit localhost
-
-# Remote Debian dev server
-ansible-playbook ansible/site.yml --limit dev_debian -i ansible/inventory/hosts.yml
-
-# Remote RedHat admin server
-ansible-playbook ansible/site.yml --limit admin_redhat -i ansible/inventory/hosts.yml
+git clone --recurse-submodules git@github.com:vietbui1999ru/dotfiles.git ~/dotfiles
+cd ~/dotfiles && brew bundle      # Brewfile: stow, tmux, herdr, kitty, ...
+./scripts/bootstrap-dirs.sh       # create directories, materialize default configs
+./scripts/restow.sh               # symlink configs into $HOME
+mise install                      # dev CLIs and runtimes
 ```
 
-### Ubuntu 26.04 desktop
-
-Two routes, both running the `ubuntu_desktop` play.
-
-On the box itself — one script, no GitHub SSH key:
+Linux (Ubuntu desktop, from the box itself):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/vietbui1999ru/dotfiles/main/scripts/bootstrap-ubuntu.sh | bash
-
-# or, once the repo is cloned:
-scripts/bootstrap-ubuntu.sh
-```
-
-The script requires Ubuntu (`/etc/os-release`), warns if the version is not 26.04, installs `git ansible python3-apt`, clones `~/dotfiles` over HTTPS when it is missing, then runs the play locally with `-e dotfiles_git_transport=https`. Extra arguments pass through (`--check`, `--tags dotfiles`). It is safe to rerun: an existing `~/dotfiles` is left alone, not pulled.
-
-This route clones over HTTPS, so `origin` in `~/dotfiles` stays HTTPS. Once the box has an SSH key, switch it:
-
-```sh
-git -C ~/dotfiles remote set-url origin git@github.com:vietbui1999ru/dotfiles.git
-```
-
-From the Mac, over SSH (unchanged):
-
-```sh
-ansible-playbook ansible/site.yml --limit ubuntu_desktop -i ansible/inventory/hosts.yml -K
-```
-
-## Scripts
-
-| Script | Purpose |
-|---|---|
-| `scripts/bootstrap-dirs.sh` | Create directories, sync shared skills, and materialize default configs |
-| `scripts/restow.sh` | Restow all managed packages — single source of truth for the package list |
-| `scripts/sync-agent-rules.sh` | Sync `shared/AGENTS.md` and MCP servers to Claude Code, Codex, OpenCode |
-| `scripts/agent-workflow` | Attach/detach/status/doctor for per-repo Commandr/Pi/Neovim workflow |
-| `scripts/agent-session` | Legacy per-repo session inbox kept for migration compatibility |
-
-## Submodules
-
-`repos/llm-wiki` is a git submodule — the shared upstream for Claude Code agents, skills, and rules.
-
-```sh
-# Update llm-wiki pin to latest upstream commit
-git submodule update --remote repos/llm-wiki
-git add repos/llm-wiki && git commit -m "chore(submodule): bump llm-wiki"
-
-# After pulling a commit that moves the pin, check out the pinned commit
-git submodule update --init repos/llm-wiki
-```
-
-`~/repos/llm-wiki` and `~/dotfiles/repos/llm-wiki` are independent clones on this machine. `bootstrap-dirs.sh` creates a redirect to the submodule only when no standalone clone exists; it never replaces an existing clone. Many Claude rules and skills are symlinks into the standalone clone (check with `readlink`); the spec-loop rules and skills, and the rules model-routing, plan-handoff, skill-invocation and startup, live in this repo. Commit and push wiki changes from the standalone clone first, then bump the pin here so the submodule matches its `main`.
-
-## AI Agents
-
-| Tool | Install |
-|---|---|
-| `pi` (pi-coding-agent) | `bun add -g @earendil-works/pi-coding-agent` |
-| GitHub stacked PRs | `gh extension install github/gh-stack` (skill synced by `bootstrap-dirs.sh`) |
-| `omp` (oh-my-pi) | `curl -fsSL https://omp.sh/install \| sh` |
-| `rtk` (Rust Token Killer) | `mise install` (pinned in `mise/.config/mise/config.toml`) |
-
-`omp` binaries land in `~/.bun/bin/` — already on PATH via `.zprofile`.
-
-Pi runs headless only: dispatched through pueue with `pi -p`, and watched in
-the session-band pane or a herdr pane (`scripts/pi-view`) that opens beside
-Claude — `PI_VIEW_LAYOUT=auto|side|below|tab`, at most three panes, then the
-`pi` tab — labelled with its task and moved to the `verdict` tab once a `--tui`
-run settles. Extensions
-that only act in Pi's interactive TUI are not kept. The `pi/` stow package
-includes these Pi extensions:
-
-- `~/repos/DiffViewer/pi-extension` — Pi package for the measured review gate:
-  persistent `.pi/diff-review/` drafts and submitted decisions
-- `post-run-verifier.ts` — owns completed-run verification (format → lint →
-  typecheck → focused tests), inferred per-project config persisted under
-  `~/.pi/agent/verification/projects/`, max 3 automatic repair cycles;
-  `/verify`, `/verify-final`, `/verify-status`, `/verify-config`, `/verify-init`.
-- `rtk.ts` — transparently rewrites supported Bash commands through RTK to
-  reduce tool-output tokens; set `RTK_DISABLED=1` for passthrough
-
-`pi/.pi-lens/config.json` is the stow-provisioned global pi-lens config:
-pi-lens owns non-mutating turn-end static safety/context signals; its LSP,
-test, format, and autofix runners are disabled. `post-run-verifier.ts` alone
-owns format, lint, typecheck, and focused behavioral tests.
-
-Pi uses its built-in MCP client. `scripts/sync-agent-rules.sh` syncs the
-portable servers in `shared/mcp-servers.json` into `~/.pi/agent/mcp.json`,
-preserving machine-specific entries. Do not install `pi-mcp-adapter`.
-
-### Intentional generated/config forks
-
-- `shared/AGENTS.md` is one-way sync-pushed to OpenCode and Codex by
-  `scripts/sync-agent-rules.sh`; edit the shared source, never the generated
-  targets.
-- `~/.claude/plugins/known_marketplaces.json` is materialized once from the
-  llm-wiki template, then Claude Code manages it. Treat it as a deliberate
-  local fork.
-- `~/.config/agent-workflow/config.json` is materialized once from
-  `shared/agent-workflow.default.json`. Treat it as a deliberate local fork;
-  change the template for new machines and the local file for this machine.
-
-Claude Code uses the equivalent `rtk hook claude` `PreToolUse` hook from
-`claude/.claude/settings.json`, with usage instructions in `~/.claude/RTK.md`.
-
-### Research tool routing
-
-Research tools have exclusive primary scopes:
-
-- **Context7** — official library, framework, SDK, CLI, and API documentation
-- **Ketch** — public implementation examples through `ketch code` only
-- **Firecrawl** — general web search, URLs, news, crawling, and page extraction
-
-Fallback is allowed only when the primary tool lacks coverage. Canonical policy
-lives in `shared/research-tool-routing.md`.
-
-Firecrawl is CLI first, for every harness. `bootstrap-dirs.sh` calls
-`scripts/firecrawl-setup.sh`, which links two shims into `~/.local/bin`
-(`firecrawl` and `firecrawl-mcp`, both read `FIRECRAWL_API_KEY` from
-`~/secrets/.env` so a stale inherited key cannot win), installs the CLI with bun if
-it is missing, runs `firecrawl init` for the CLI's own skills, and keeps only the
-ones listed in `shared/firecrawl-skills.txt`. The rest are moved to
-`~/.agents/skills-disabled/`, not deleted. Add a name to that file and re-run
-bootstrap to bring one back; `scripts/firecrawl-setup.sh --refresh` re-installs.
-The same bootstrap links the shared personal skills (`gh-stack`, `grill-me`,
-`verify-spec` and others) into `~/.agents/skills` for Pi and other compatible
-harnesses. Codex needs a permission profile before its sandbox lets the
-Firecrawl CLI reach the network: see `docs/codex-permissions.md`.
-
-### Herdr agent flow
-
-Herdr owns the live `pi`, `claude`, and `codex` integration files; do **not**
-stow them. `scripts/bootstrap-dirs.sh` runs `herdr integration install` for
-all three. The persistent Herdr workspaces are `plan` (Claude) and `build`
-(Pi). `com.vietbui.herdr-sketchybar-bridge` subscribes to Herdr agent-state
-events and drives Sketchybar's `agents` pill; clicking it focuses Pi and opens
-AeroSpace workspace `T`.
-
-### Agent workflow automation
-
-Global defaults live in `shared/agent-workflow.default.json` and are copied to
-`~/.config/agent-workflow/config.json` by `scripts/bootstrap-dirs.sh`. Override
-per repo with `.agent-workflow.json` or machine-locally with ignored
-`.agent-workflow.local.json`.
-
-```sh
-# Check global install state (including RTK binary + Pi extension)
-scripts/agent-workflow doctor
-
-# Attach a repo to the Commandr bus + DiffViewer sidecars + approval gate
-scripts/agent-workflow attach ~/repos/example
-
-# Inspect current bus/board state
-scripts/agent-workflow status ~/repos/example
-
-# Remove only the managed hook; keep task history by default
-scripts/agent-workflow detach ~/repos/example
 ```
 
 ### Spec loop
@@ -257,15 +65,7 @@ layer through the existing review gate before committing it. Keep unrelated work
 in separate stacks.
 
 ```sh
-# From a clean trunk, create the first named layer (never invoke bare init).
-gh stack init feature/foundation
-# Commit its reviewed changes, then add the dependent layer.
-gh stack add feature/integration
-# Publish draft PRs without interactive prompts.
-gh stack submit --auto
-# Inspect or update the stack non-interactively.
-gh stack view --json
-gh stack sync --remote origin
+ansible-playbook ansible/site.yml --limit dev_debian -i ansible/inventory/hosts.yml
 ```
 
 Agent invocations must use named `init`/`add` branches, `submit --auto`, and
@@ -310,20 +110,19 @@ are model providers or explicit CLI bridges, not parallel harnesses.
 /review
 ```
 
-Legacy `scripts/agent-session` and `.agents/sessions/` remain compatibility
-surfaces. New workflow features should target Pi and Commandr, not add another
-harness-specific state store.
+After editing or adding a package, re-run `./scripts/restow.sh`. It is idempotent and is the source of truth for the packages it manages: `zsh starship mise nvim tmux tmuxinator kitty git jj claude opencode pi codex`. Packages not in that list (`aerospace`, `sketchybar`, `mouseless`, `herdr`, `launchd`, `i3`) are stowed by hand where used (`stow herdr`), and `i3` is applied by Ansible on Linux. Back up an existing live config before the first stow of a package.
 
-RTK is a rewrite-only optimization layer: it does not replace permission gates
-or context-mode. Inspect savings with `rtk gain` or `rtk gain --history`.
+Upgrade mise-managed tools with `mise up`, not `brew upgrade`. Machine-local shell overrides go in `~/.zshrc.local` (untracked). To refresh the wiki submodule pin: `git submodule update --remote repos/llm-wiki`.
 
-## Notes
+## What's inside
 
-- `opencode/plugins/commandr-checkpoint.js` and `diffviewer.js` are symlinks into `~/repos/Commandr` and `~/repos/DiffViewer`. Clone those repos first.
-- Machine-local overrides go in `~/.zshrc.local` (not tracked).
-- `nvim/.config/nvim/.claude/` is gitignored — Claude Code writes local state there.
-- `claude/` rule files: `learning.md` and `research.md` are niche-domain rules, available at `@~/.claude/rules/learning.md` but not auto-loaded. @-import them in project CLAUDE.md when working in those domains.
-- `opencode/opencode.json` uses hardcoded absolute paths for `skills.paths` and `instructions` — opencode does not expand `${env:HOME}` in those fields.
-- tmux `extended-keys` is disabled — it breaks readline Ctrl shortcuts (C-a/e/u/k/w/r/d) in zsh. Standard key sequences work correctly without it.
-- `zsh/.zsh/functions.zsh` wraps `nvim` to re-emit SGR reset, show-cursor, and bracketed-paste sequences after exit — nvim's terminal cleanup (rs2/RIS) wipes these and breaks Starship colors and fast-syntax-highlighting.
-- Language toolchains (Python, Node, Ruby) managed by **mise** — Ansible replaced pyenv/rbenv/nvm. Neovim detects interpreters dynamically via `vim.fn.exepath()`.
+- Shell and terminal: zsh, starship, kitty, tmux and tmuxinator, herdr
+- Editor: Neovim
+- Version control: git, jj (default VCS), `gh` with `gh-stack`
+- Tooling: mise for CLIs and runtimes, Homebrew for the rest
+- macOS desktop: aerospace, sketchybar, mouseless; Linux desktop: i3
+- Agents: Claude Code (`claude/`), Codex (`codex/`), OpenCode (`opencode/`), Pi coding agent (`pi/`)
+- Agent workflow in `scripts/`: `pueue-safe`, `pi-queue` and `pi-view` for dispatching Pi through pueue, `agent-review` as the review gate, `commit-funnel` for agent commits, and `ac-run` and `floor-guard` for the spec loop
+- Shared agent rules, skills and MCP server list in `shared/`, synced out by `scripts/sync-agent-rules.sh`
+- Docs: workflows in `docs/workflows/`, specs in `docs/specs/`
+- Submodule: `repos/llm-wiki`, the shared knowledge base and Claude rules/skills
