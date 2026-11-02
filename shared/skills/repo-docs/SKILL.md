@@ -43,7 +43,10 @@ not a lock or replacement for pueue/Pi/review state. Ignore .obsidian workspace
 and personal settings. Do not track session IDs, PIDs, local absolute paths,
 provider usage or transcripts in curated records.
 
-Before any authorized worktree pruning, inventory each SPEC, plan and handoff:
+Before any authorized worktree pruning, inventory each SPEC, plan and handoff.
+Run `agent-project check-artifacts <worktree> --artifact <path>` for every
+required committed artifact; repeat --artifact for multiple files. This command
+checks committed bytes, never prunes or preserves files for you. For each input:
 reference an already durable tracked file or preserve unique necessary content
 as a reviewed durable record on the feature branch. Record commit/path, stable
 ID, parent task and summary. Merely linking into .claude/worktrees or ignored

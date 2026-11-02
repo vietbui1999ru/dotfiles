@@ -42,9 +42,9 @@ Repo-local view: docs/project/index.md is stable navigation. Each person's
 ignored overlay lives at the main checkout's .agents/project-view/, never solely
 inside a disposable worktree. Overlay shows worktree, task IDs, observed-at,
 existing stream/review pointers and available handoffs. It is a view of current
-authorities and must show stale/unknown after a missing source. No new runtime
-writer/generator is provided by this skill; projection automation is a later
-bounded task. Leave existing ignores intact; add .agents/project-view/ only when
+authorities and must show stale/unknown after a missing source. Generate an on-demand overlay with `agent-project view <worktree> --task <id>`;
+optionally repeat --pi-task <id> to observe existing Pi outcomes. No background
+watcher or alternative task authority is installed. Leave existing ignores intact; add .agents/project-view/ only when
 creating a local overlay. Do not broadly ignore tracked docs or all .agents.
 
 Hosting default: publish guides, reference, architecture and selected changes
@@ -61,3 +61,10 @@ If a repo uses wikilinks, ensure its existing build resolves them and checks
 unresolved targets. No nested vault or .obsidian configuration is created by
 this skill. The human may open docs/ as a vault; code links outside docs/ still
 work in Git/site contexts but may need repo-root vault for Obsidian navigation.
+
+Publication gate: `agent-project publish-check <worktree> --manifest <repo-relative.json>`.
+Schema: `{"pages":["docs/guides/start.md"],"assets":["docs/assets/example.png"]}`.
+Pages/assets must match committed HEAD bytes. The portable Markdown gate checks
+inline links, reference definitions and safe autolinks; unsupported wikilinks/raw
+HTML fail with guidance. It is not a renderer or HTML sanitizer. Existing host
+build/link validation remains required, and deployment needs authorization.

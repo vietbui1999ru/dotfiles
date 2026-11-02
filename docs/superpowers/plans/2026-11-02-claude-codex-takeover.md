@@ -98,3 +98,13 @@ are references and conflict surfaces, not bundles to absorb. Each implementation
 worker gets this plan plus the design and its own bounded file list; separate
 writing tasks use separate worktrees. Stop when opt-in same-worktree continuity
 passes, with preserved code, existing Pi dispatch and unchanged review approvals.
+
+## Implementation record (2026-11-02)
+
+User approved both plans. Implemented on feat/cc-codex without merging other
+worktrees or altering live modified hooks. Task 1 identity/index locking, Task 2
+explicit handoff/claim/launch/return, and Task 3 shared skill/model/bootstrap
+configuration are complete. Task 4 fixtures and existing queue/funnel/verifier
+regressions pass; live read-only Codex Luna confirmed checkpoint goal/branch and
+released its claim. Manual Desktop/Claude return and live human review approval
+remain unverified. No claim of native hook/UI parity or global activation.

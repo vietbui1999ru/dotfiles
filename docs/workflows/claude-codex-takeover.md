@@ -40,7 +40,7 @@ writer before releasing only the matching claim:
 agent-session release TOKEN --owner-released WORKTREE
 ```
 
-Existing writers must stop before a handoff. An attestation cannot be inferred.
+Existing writers must stop before takeover; save the handoff before stopping. An attestation cannot be inferred.
 
 ## Return to Claude Code
 

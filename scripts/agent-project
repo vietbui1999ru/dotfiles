@@ -1,0 +1,382 @@
+#!/usr/bin/env python3
+"""Read-only helpers for curated repo documentation and local project views."""
+
+import argparse
+import fcntl
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import quote, unquote, urlsplit
+
+
+def fail(message):
+    print(f"agent-project: {message}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def git(repo, *args, binary=False):
+    result = subprocess.run(["git", "-C", str(repo), *args], capture_output=True)
+    if result.returncode:
+        fail(result.stderr.decode(errors="replace").strip() or "git command failed")
+    return result.stdout if binary else result.stdout.decode().strip()
+
+
+def roots(repo_arg):
+    worktree = Path(repo_arg).expanduser().resolve()
+    top = Path(git(worktree, "rev-parse", "--show-toplevel")).resolve()
+    common = Path(git(worktree, "rev-parse", "--git-common-dir"))
+    if not common.is_absolute():
+        common = (top / common).resolve()
+    return top, common.parent.resolve()
+
+
+def safe_repo_file(root, rel):
+    p = Path(rel)
+    if p.is_absolute() or not rel or ".." in p.parts:
+        fail(f"unsafe repository path: {rel}")
+    candidate = (root / p).resolve()
+    if not candidate.is_relative_to(root.resolve()):
+        fail(f"path escapes repository: {rel}")
+    return candidate
+
+
+def task_id_ok(value):
+    return re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", value) is not None
+
+
+def markdown_file_link(path, fragment=""):
+    return "file://" + quote(str(path), safe="/:@") + (f"#{fragment}" if fragment else "")
+
+
+def pi_outcomes(task_ids):
+    executable = os.environ.get("AGENT_PROJECT_PI_OUTCOME") or "pi-outcome"
+    results = []
+    for task_id in task_ids:
+        try:
+            result = subprocess.run([executable, task_id, "--json"], capture_output=True, text=True, timeout=10)
+            data = json.loads(result.stdout) if result.returncode == 0 else None
+            if (not isinstance(data, dict)
+                    or not isinstance(data.get("outcome"), str)
+                    or not isinstance(data.get("reviewWaiting"), bool)):
+                raise ValueError("invalid outcome")
+            results.append(f"- Pi task {task_id}: {data['outcome']}; review waiting={str(data['reviewWaiting']).lower()}")
+        except (OSError, subprocess.SubprocessError, ValueError, json.JSONDecodeError):
+            results.append(f"- Pi task {task_id}: unknown (outcome unavailable)")
+    return results
+
+
+def add_view_ignore(worktree):
+    common = Path(git(worktree, "rev-parse", "--git-common-dir"))
+    if not common.is_absolute():
+        common = (worktree / common).resolve()
+    exclude = common / "info/exclude"
+    exclude.parent.mkdir(parents=True, exist_ok=True)
+    with exclude.open("a+") as stream:
+        fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+        stream.seek(0)
+        contents = stream.read()
+        line = "/.agents/project-view/"
+        if line not in contents.splitlines():
+            stream.seek(0, os.SEEK_END)
+            if contents and not contents.endswith("\n"):
+                stream.write("\n")
+            stream.write(line + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+
+
+def ensure_view_output(main, digest):
+    main = main.resolve()
+    paths = [main / ".agents", main / ".agents/project-view", main / ".agents/project-view" / digest]
+    for path in paths:
+        if path.is_symlink():
+            fail(f"refusing symlink in project-view path: {path.name}")
+        resolved = path.resolve()
+        if not resolved.is_relative_to(main):
+            fail("project-view path escapes common repository root")
+        if path.exists() and not path.is_dir():
+            fail(f"project-view path is not a directory: {path.name}")
+        path.mkdir(exist_ok=True)
+    output = paths[-1]
+    target = output / "current.md"
+    if target.is_symlink():
+        fail("refusing symlink project-view current.md")
+    if target.exists() and not target.is_file():
+        fail("project-view current.md is not a regular file")
+    return output, target
+
+
+def cmd_view(args):
+    worktree, main = roots(args.repo)
+    if not task_id_ok(args.task):
+        fail("task ID must contain only letters, digits, dot, underscore or hyphen")
+    task_rel = f"docs/project/tasks/{args.task}.md"
+    task = safe_repo_file(worktree, task_rel)
+    if not task.is_file():
+        fail(f"task record missing: {task_rel}")
+    task_text = task.read_text(errors="replace")
+    pending = worktree / ".pi/agent-review/pending"
+    if not pending.is_dir():
+        review_state = "missing"
+    else:
+        reviews = sorted(p.name for p in pending.glob("*.json"))
+        review_state = ", ".join(reviews) if reviews else "present; no records"
+    index = main / ".agents/sessions/index.json"
+    index_state = "missing"
+    session_state = "unknown"
+    if index.is_file():
+        age = max(0, datetime.now(timezone.utc).timestamp() - index.stat().st_mtime)
+        freshness = "stale" if age > 86400 else "observed; recent"
+        try:
+            data = json.loads(index.read_text())
+            sessions = data.get("sessions") if isinstance(data, dict) else None
+            if not isinstance(sessions, list):
+                raise ValueError("invalid sessions")
+            matches = [s for s in sessions if isinstance(s, dict)
+                       and s.get("task") == args.task and s.get("branch") == git(worktree, "branch", "--show-current")]
+            legacy = any(not isinstance(s, dict) or "task" not in s or "branch" not in s for s in sessions)
+            session_state = f"{len(matches)} matching session(s)"
+            if legacy:
+                session_state += "; legacy/unknown entries present"
+            index_state = f"{freshness}; age {int(age)}s"
+        except (OSError, json.JSONDecodeError, ValueError):
+            index_state = "stale/invalid; contents unknown"
+    observed = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    digest = hashlib.sha256(str(worktree).encode()).hexdigest()[:16]
+    output_dir, target = ensure_view_output(main, digest)
+    add_view_ignore(worktree)
+    branch = git(worktree, "branch", "--show-current") or "unknown"
+    worktree_link = markdown_file_link(worktree)
+    task_link = markdown_file_link(task)
+    links = re.findall(r"\[[^]]*\]\(([^)]+)\)", task_text)
+    pointers = []
+    for link in links:
+        raw = link.strip().split()[0].strip("<>")
+        parsed = urlsplit(raw)
+        if parsed.scheme or parsed.netloc or not parsed.path:
+            pointers.append(f"- {raw}")
+            continue
+        pointer_target = (task.parent / unquote(parsed.path)).resolve()
+        if pointer_target.is_relative_to(worktree):
+            pointers.append(f"- [{pointer_target.name}]({markdown_file_link(pointer_target, parsed.fragment)})")
+        else:
+            pointers.append("- unknown (pointer escapes worktree)")
+    if not pointers:
+        pointers = ["- none declared"]
+    body = (f"# Project view: {args.task}\n\nObserved at: {observed}\n\n"
+            f"Worktree: [{branch}]({worktree_link})\n\nTask: [{args.task}]({task_link})\n\n"
+            "## Spec and plan pointers\n\n" + "\n".join(pointers) + "\n\n"
+            "## Observed runtime sources\n\n"
+            f"- Local pending reviews: {review_state}\n"
+            f"- Common session index: {index_state}; {session_state}\n"
+            + "\n".join(pi_outcomes(args.pi_task)) + "\n\n"
+            "These are observations only; missing or stale source data is not a task decision.\n")
+    if target.is_symlink() or not target.parent.resolve().is_relative_to(main.resolve()):
+        fail("refusing unsafe project-view destination")
+    fd, temp_name = tempfile.mkstemp(prefix=".current-", dir=output_dir)
+    try:
+        with os.fdopen(fd, "w") as stream:
+            stream.write(body)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if target.is_symlink():
+            fail("refusing symlink project-view current.md")
+        os.replace(temp_name, target)
+    finally:
+        if os.path.exists(temp_name):
+            os.unlink(temp_name)
+    print(target)
+
+
+def cmd_check_artifacts(args):
+    root, _ = roots(args.repo)
+    commit = git(root, "rev-parse", "HEAD")
+    for rel in args.artifact:
+        path = safe_repo_file(root, rel)
+        lexical = root / rel
+        current = lexical
+        while current == root or root in current.parents:
+            if current.is_symlink():
+                fail(f"artifact is a symlink: {rel}")
+            if current == root:
+                break
+            current = current.parent
+        if not path.is_file():
+            fail(f"artifact missing or not a regular file: {rel}")
+        tracked = subprocess.run(["git", "-C", str(root), "ls-files", "--error-unmatch", "--", rel], capture_output=True)
+        if tracked.returncode:
+            fail(f"artifact is untracked: {rel}")
+        head_bytes = git(root, "show", f"HEAD:{rel}", binary=True)
+        if path.read_bytes() != head_bytes:
+            fail(f"artifact differs from HEAD (staged or unstaged): {rel}")
+        print(f"{commit}:{rel}")
+
+
+PRIVATE = ("docs/project/", "docs/superpowers/", "docs/specs/", ".agents/", ".obsidian/")
+PUBLIC_ROOTS = ("docs/guides/", "docs/reference/", "docs/architecture/", "docs/changes/")
+PUBLIC_FILES = {"docs/index.md"}
+
+
+def safe_manifest_path(root, rel):
+    path = Path(rel)
+    if path.is_absolute() or not rel or ".." in path.parts or "\\" in rel:
+        fail(f"manifest page must be a safe repo-relative path: {rel}")
+    resolved = (root / path).resolve()
+    if not resolved.is_relative_to(root.resolve()):
+        fail(f"manifest page escapes repository: {rel}")
+    return resolved
+
+
+def is_public_page(rel):
+    return rel in PUBLIC_FILES or any(rel.startswith(prefix) for prefix in PUBLIC_ROOTS)
+
+
+def tracked_head_bytes(root, rel):
+    lexical = root / rel
+    current = lexical
+    while current == root or root in current.parents:
+        if current.is_symlink():
+            fail(f"published artifact is a symlink: {rel}")
+        if current == root:
+            break
+        current = current.parent
+    if not lexical.is_file():
+        fail(f"published artifact missing: {rel}")
+    tracked = subprocess.run(["git", "-C", str(root), "ls-files", "--error-unmatch", "--", rel], capture_output=True)
+    if tracked.returncode:
+        fail(f"published artifact is untracked: {rel}")
+    committed = git(root, "show", f"HEAD:{rel}", binary=True)
+    if lexical.read_bytes() != committed:
+        fail(f"published artifact differs from HEAD: {rel}")
+
+
+def strip_fenced_code(body):
+    lines = body.splitlines()
+    result = []
+    fence = None
+    for line in lines:
+        marker = re.match(r"^\s{0,3}(```+|~~~+)", line)
+        if marker:
+            token = marker.group(1)[0]
+            if fence is None:
+                fence = token
+            elif token == fence:
+                fence = None
+            continue
+        if fence is None:
+            result.append(line)
+    return "\n".join(result)
+
+
+def markdown_targets(body, rel):
+    text = strip_fenced_code(body)
+    if re.search(r"!?\[\[[^]]+\]\]", text):
+        fail(f"unsupported Obsidian wikilink syntax in {rel}; use Markdown links")
+    if re.search(r"<!--|<![A-Z]|<\/?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>", text, re.IGNORECASE):
+        fail(f"unsupported raw HTML in {rel}; use portable Markdown")
+    targets = []
+    definition = re.compile(r"^\s{0,3}\[[^]]+\]:\s*(<[^>]+>|\S+)", re.MULTILINE)
+    targets.extend(match.group(1).strip("<>") for match in definition.finditer(text))
+    inline = re.compile(r"!?\[[^]]*\]\((<[^>]+>|[^)]+)\)")
+    targets.extend(match.group(1).strip("<>").split()[0] for match in inline.finditer(text))
+    # Angle-bracket autolinks are supported only for safe web and mail schemes.
+    for match in re.finditer(r"<([^<>]+)>", text):
+        raw = match.group(1)
+        parsed = urlsplit(raw)
+        if parsed.scheme:
+            if parsed.scheme.lower() not in {"http", "https", "mailto"}:
+                fail(f"unsafe link scheme in {rel}: {raw}")
+            targets.append(raw)
+    return targets
+
+
+def cmd_publish_check(args):
+    root, _ = roots(args.repo)
+    manifest_arg = Path(args.manifest).expanduser()
+    if manifest_arg.is_absolute():
+        fail("manifest path must be relative to the repository")
+    manifest = safe_manifest_path(root, args.manifest)
+    try:
+        data = json.loads(manifest.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        fail(f"cannot read manifest JSON: {exc}")
+    pages = data.get("pages") if isinstance(data, dict) else None
+    assets = data.get("assets", []) if isinstance(data, dict) else None
+    if not isinstance(pages, list) or not pages or any(not isinstance(p, str) for p in pages):
+        fail('manifest must contain non-empty "pages" string array')
+    if not isinstance(assets, list) or any(not isinstance(p, str) for p in assets):
+        fail('manifest "assets" must be an array of repo-relative paths')
+    normalized_pages = set()
+    for rel in pages:
+        if Path(rel).suffix.lower() != ".md" or not is_public_page(rel):
+            fail(f"page is outside the public docs allowlist: {rel}")
+        path = safe_manifest_path(root, rel)
+        resolved_rel = path.relative_to(root.resolve()).as_posix()
+        if any(resolved_rel.startswith(prefix) for prefix in PRIVATE) or not is_public_page(resolved_rel):
+            fail(f"private or non-public page cannot be published: {rel}")
+        tracked_head_bytes(root, rel)
+        normalized_pages.add(resolved_rel)
+    normalized_assets = set()
+    for rel in assets:
+        if not rel.startswith("docs/assets/"):
+            fail(f"asset is outside docs/assets/: {rel}")
+        path = safe_manifest_path(root, rel)
+        resolved_rel = path.relative_to(root.resolve()).as_posix()
+        if not resolved_rel.startswith("docs/assets/"):
+            fail(f"asset resolves outside docs/assets/: {rel}")
+        tracked_head_bytes(root, rel)
+        normalized_assets.add(resolved_rel)
+    for rel in sorted(normalized_pages):
+        body = safe_manifest_path(root, rel).read_text(errors="replace")
+        for target in markdown_targets(body, rel):
+            parsed = urlsplit(target)
+            if parsed.scheme:
+                if parsed.scheme.lower() not in {"http", "https", "mailto"}:
+                    fail(f"unsafe link scheme from {rel}: {target}")
+                continue
+            if parsed.netloc:
+                fail(f"protocol-relative link is not allowed from {rel}: {target}")
+            if not parsed.path:
+                continue
+            raw_path = unquote(parsed.path)
+            link_path = Path(rel).parent / raw_path
+            lexical = Path(os.path.normpath(str(link_path))).as_posix()
+            if lexical.startswith("../") or lexical == ".." or lexical.startswith("/"):
+                fail(f"link escapes repository from {rel}: {target}")
+            resolved = safe_manifest_path(root, lexical)
+            resolved_rel = resolved.relative_to(root.resolve()).as_posix()
+            allowed = normalized_pages if Path(raw_path).suffix.lower() == ".md" else normalized_assets
+            if resolved_rel not in allowed:
+                fail(f"link target is not in publication allowlist: {rel} -> {resolved_rel}")
+    print(f"publish check passed: {len(normalized_pages)} page(s), {len(normalized_assets)} asset(s)")
+
+
+def main():
+    parser = argparse.ArgumentParser(prog="agent-project")
+    subs = parser.add_subparsers(dest="command", required=True)
+    view = subs.add_parser("view")
+    view.add_argument("repo", nargs="?", default=".")
+    view.add_argument("--task", required=True)
+    view.add_argument("--pi-task", action="append", default=[])
+    view.set_defaults(run=cmd_view)
+    artifacts = subs.add_parser("check-artifacts")
+    artifacts.add_argument("repo", nargs="?", default=".")
+    artifacts.add_argument("--artifact", action="append", required=True)
+    artifacts.set_defaults(run=cmd_check_artifacts)
+    publish = subs.add_parser("publish-check")
+    publish.add_argument("repo", nargs="?", default=".")
+    publish.add_argument("--manifest", required=True)
+    publish.set_defaults(run=cmd_publish_check)
+    args = parser.parse_args()
+    args.run(args)
+
+
+if __name__ == "__main__":
+    main()

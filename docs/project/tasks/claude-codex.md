@@ -1,7 +1,7 @@
 ---
 id: claude-codex
 title: Claude to Codex continuity
-status: proposed
+status: review
 updated: 2026-11-02
 tags: [project, task]
 ---
@@ -14,8 +14,9 @@ branch, dirty files, review state and existing Pi dispatch.
 ## Current observation
 
 Design/plan reviewed by independent planner; three contract gaps resolved.
-Runtime implementation awaits human design review. Planning commit: 920f6c8.
-No claim that takeover commands are implemented or installed.
+User approved implementation on 2026-11-02. Commands are implemented in feature
+history with fixture tests and a read-only live Codex Luna handoff. No global
+activation, push or merge performed. Desktop/Claude live return remains unverified.
 
 ## Artifacts
 
@@ -25,4 +26,9 @@ No claim that takeover commands are implemented or installed.
 
 ## Next action
 
-Review design, then implement bounded tasks through existing dispatch/review.
+Review implementation and integrate through normal workflow; run the optional
+Desktop/Claude interactive pilot before claiming full parity.
+
+## Implementation guide
+
+- [Commands and verification](../../workflows/claude-codex-takeover.md)

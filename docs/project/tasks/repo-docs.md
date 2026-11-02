@@ -1,7 +1,7 @@
 ---
 id: repo-docs
 title: Documentation companion and durable project view
-status: active
+status: review
 updated: 2026-11-02
 tags: [project, task]
 ---
@@ -17,7 +17,9 @@ Obsidian-friendly repo-local view. Git shares curated history; runtime stays loc
 Repo-docs skill, layout guidance and five reusable templates are prepared in
 this branch. Existing worker is sufficient; no new agent roster required.
 Bootstrap discovery is configured but has not been deployed to live tools.
-No hosted framework, public deployment, projection daemon or pruning hook added.
+On-demand agent-project view, committed-artifact preservation checks and public
+allowlist validation are implemented. No hosted framework, public deployment,
+projection daemon or automatic pruning hook added.
 
 ## Artifacts
 
@@ -32,5 +34,6 @@ the repo-root vault for this pilot. No vault configuration is installed.
 
 ## Next action
 
-Pilot skill against one real feature; then implement durable-artifact capture
-and a read-only local projection as separately reviewed bounded tasks.
+A bounded Pi Luna draft produced the takeover guide, then planner reviewed and
+corrected it. Review the implementation and select a host renderer for a real
+site. Obsidian visual verification awaits an explicitly opened repo-root vault.
