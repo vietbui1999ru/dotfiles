@@ -61,8 +61,17 @@ if [[ ${ID:-} == ubuntu && ${limit} == ubuntu_desktop && ${VERSION_ID:-} != "$TA
     "$TARGET_VERSION" "${VERSION_ID:-unknown}" >&2
 fi
 
-sudo apt-get update
-sudo apt-get install -y git ansible python3-apt
+# Root (common in a fresh LXC) has no sudo yet and needs no become password,
+# but Ansible's become still calls the sudo binary, so install it here.
+if [[ $EUID -eq 0 ]]; then
+  apt-get update
+  apt-get install -y git ansible python3-apt sudo
+  become_args=()
+else
+  sudo apt-get update
+  sudo apt-get install -y git ansible python3-apt
+  become_args=(--ask-become-pass)
+fi
 
 if [[ ! -d $DOTFILES_DIR ]]; then
   git clone "$REPO_URL" "$DOTFILES_DIR"
@@ -75,7 +84,7 @@ ansible-playbook \
   -i "$inventory" \
   ansible/site.yml \
   --limit "$limit" \
-  --ask-become-pass \
+  "${become_args[@]}" \
   -e dotfiles_git_transport=https \
   "${extra_vars[@]}" \
   "${passthrough[@]}"
