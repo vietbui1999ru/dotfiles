@@ -230,9 +230,10 @@
 
 - name: Install opencode (Debian)
   ansible.builtin.shell: |
-    XDG_BIN_DIR="$HOME/.local/bin" curl -fsSL https://opencode.ai/install | bash
+    curl -fsSL https://opencode.ai/install | bash
   args:
-    creates: "{{ ansible_env.HOME }}/.local/bin/opencode"
+    # The installer always uses ~/.opencode/bin (already on PATH via .zshrc).
+    creates: "{{ ansible_env.HOME }}/.opencode/bin/opencode"
   when: ansible_os_family == "Debian"
 
 # ── RedHat/Fedora ──────────────────────────────────────────────────────
