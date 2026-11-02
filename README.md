@@ -1,329 +1,67 @@
 # dotfiles
 
-Personal dotfiles managed with [GNU Stow](https://www.gnu.org/software/stow/). Ansible handles provisioning on new machines.
+Personal configuration for macOS and Linux, managed with [GNU Stow](https://www.gnu.org/software/stow/). Each top-level directory is a stow package that mirrors its layout under `$HOME`. Ansible provisions fresh Linux machines, mise pins the dev tools, and the repo also carries the agent workflow used for AI-assisted coding. Theme: Catppuccin Macchiato.
 
-**Theme:** Catppuccin Macchiato throughout.
-
-## Packages
-
-Provisioning uses three mechanisms — know which applies before editing a package:
-**stow** (symlink, edits round-trip to git), **materialized** (copied once from a template by
-`bootstrap-dirs.sh`, then drifts silently — edit the template, not the live file), and
-**sync-pushed** (one-way push by `sync-agent-rules.sh`, live edits are invisible to git).
-
-| Package | Stow target | Provisioning |
-|---|---|---|
-| `zsh/` | `~/.zshrc`, `~/.zprofile`, `~/.zsh/` | stow (autosuggestions via `deja` from Brewfile, replacing zsh-autosuggestions) |
-| `starship/` | `~/.config/starship.toml` | stow |
-| `mise/` | `~/.config/mise/config.toml` | stow — dev CLI + runtime pins; run `mise install` after restow |
-| `nvim/` | `~/.config/nvim/` | stow |
-| `tmux/` | `~/.tmux.conf`, `~/.local/bin/tmux-cht` | stow |
-| `tmuxinator/` | `~/.config/tmuxinator/dotfiles.yml` | stow |
-| `kitty/` | `~/.config/kitty/` | stow |
-| `git/` | `~/.gitconfig` | stow |
-| `jj/` | `~/.config/jj/config.toml` | stow |
-| `aerospace/` | `~/.aerospace.toml` | stow (macOS tiling WM) — not in the `stow` line above; add when used |
-| `mouseless/` | `~/Library/Application Support/Mouseless/configs/config.yaml` | stow (macOS Mouseless app) — not in the `stow` line above; back up the live file before first `stow mouseless`, restart the app after |
-| `sketchybar/` | `~/.config/sketchybar/` | stow (macOS status bar) — not in the `stow` line above; add when used; `sketchybar --reload` after edits |
-| `i3/` | `~/.config/i3/config` | Linux-only, applied via Ansible (not macOS stow) |
-| `claude/` | `~/.claude/` | stow (partial) — including `settings.json`; `skills/`+`agents/` mix dotfiles and `llm-wiki` sources |
-| `opencode/` | `~/.config/opencode/` | partial — `plugins/` stow; `opencode.json` materialized; `agents/`/`skills/` unmanaged |
-| `codex/` | `~/.codex/` | **no-op stub today** — Codex is sync-pushed via `sync-agent-rules.sh`, not stowed |
-| `pi/` | `~/.pi/` | stow (extensions only); `~/.pi/agent/` runtime state is unmanaged, except portable MCP entries sync-pushed to `mcp.json` |
-| `herdr/` | `~/.config/herdr/config.toml` | stow — not in the `stow` line above; back up the live file before first `stow herdr`; `~/.config/herdr/` logs/sockets/session-history are unmanaged runtime state; `herdr server reload-config` after edits |
-| `launchd/` | `~/Library/LaunchAgents/` | stow — user LaunchAgents such as the Herdr→Sketchybar bridge |
-
-## Quick start (macOS)
-
-```sh
-# 1. Clone (submodules required — llm-wiki is bundled as a submodule)
-git clone --recurse-submodules git@github.com:vietbui99/dotfiles.git ~/dotfiles
-
-# 2. Install Homebrew
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-
-# 3. Install packages
-cd ~/dotfiles && brew bundle
-
-# 4. Create expected directories (uses a standalone ~/repos/llm-wiki clone if present)
-./scripts/bootstrap-dirs.sh
-
-# 5. Symlink configs
-./scripts/restow.sh
-
-# 6. Install dev CLIs + runtimes (go, node, neovim, ripgrep, jq, ...) from mise.
-#    The list lives in mise/.config/mise/config.toml, stowed in step 5.
-#    Upgrade them with `mise up` — not `brew upgrade`.
-mise install
-
-# 7. Sync AI tool rules (AGENTS.md + MCP servers)
-./scripts/sync-agent-rules.sh
+```mermaid
+flowchart LR
+  repo["dotfiles repo"] --> stow["stow packages"]
+  stow --> home["$HOME configs"]
+  repo --> ans["Ansible"]
+  ans --> linux["Linux machines"]
+  subgraph agents["Agent loop"]
+    claude["Claude Code: plan"] --> pueue["pueue queue"]
+    pueue --> pi["Pi: build"]
+    pi --> review["agent-review gate"]
+    review --> commit["commit-funnel"]
+  end
+  home -. "claude/, pi/" .-> agents
 ```
 
-## Ansible (Linux / new machine)
+## Prerequisites
 
-Covers: base packages, Rust toolchain, modern CLI tools, zsh, starship, tmux, neovim. Kitty only on macOS/desktop.
+- git, with SSH access to GitHub (the `llm-wiki` submodule uses an SSH URL)
+- macOS: [Homebrew](https://brew.sh)
+- Linux: Ubuntu or Debian for the bootstrap script, or Ansible for other targets
+
+## Installation
+
+macOS:
 
 ```sh
-# Local machine
-ansible-playbook ansible/site.yml --limit localhost
-
-# Remote Debian dev server
-ansible-playbook ansible/site.yml --limit dev_debian -i ansible/inventory/hosts.yml
-
-# Remote RedHat admin server
-ansible-playbook ansible/site.yml --limit admin_redhat -i ansible/inventory/hosts.yml
+git clone --recurse-submodules git@github.com:vietbui1999ru/dotfiles.git ~/dotfiles
+cd ~/dotfiles && brew bundle      # Brewfile: stow, tmux, herdr, kitty, ...
+./scripts/bootstrap-dirs.sh       # create directories, materialize default configs
+./scripts/restow.sh               # symlink configs into $HOME
+mise install                      # dev CLIs and runtimes
 ```
 
-### Ubuntu 26.04 desktop
-
-Two routes, both running the `ubuntu_desktop` play.
-
-On the box itself — one script, no GitHub SSH key:
+Linux (Ubuntu desktop, from the box itself):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/vietbui1999ru/dotfiles/main/scripts/bootstrap-ubuntu.sh | bash
-
-# or, once the repo is cloned:
-scripts/bootstrap-ubuntu.sh
 ```
 
-The script requires Ubuntu (`/etc/os-release`), warns if the version is not 26.04, installs `git ansible python3-apt`, clones `~/dotfiles` over HTTPS when it is missing, then runs the play locally with `-e dotfiles_git_transport=https`. Extra arguments pass through (`--check`, `--tags dotfiles`). It is safe to rerun: an existing `~/dotfiles` is left alone, not pulled.
-
-This route clones over HTTPS, so `origin` in `~/dotfiles` stays HTTPS. Once the box has an SSH key, switch it:
+The script installs git and Ansible, clones the repo over HTTPS, and runs the `ubuntu_desktop` play. Other targets use `ansible/site.yml`, which has plays for macOS (`localhost`), `dev_debian`, `ubuntu_desktop` and `admin_redhat`:
 
 ```sh
-git -C ~/dotfiles remote set-url origin git@github.com:vietbui1999ru/dotfiles.git
+ansible-playbook ansible/site.yml --limit dev_debian -i ansible/inventory/hosts.yml
 ```
 
-From the Mac, over SSH (unchanged):
+## Setup and restow
 
-```sh
-ansible-playbook ansible/site.yml --limit ubuntu_desktop -i ansible/inventory/hosts.yml -K
-```
+After editing or adding a package, re-run `./scripts/restow.sh`. It is idempotent and is the source of truth for the packages it manages: `zsh starship mise nvim tmux tmuxinator kitty git jj claude opencode pi codex`. Packages not in that list (`aerospace`, `sketchybar`, `mouseless`, `herdr`, `launchd`, `i3`) are stowed by hand where used (`stow herdr`), and `i3` is applied by Ansible on Linux. Back up an existing live config before the first stow of a package.
 
-## Scripts
+Upgrade mise-managed tools with `mise up`, not `brew upgrade`. Machine-local shell overrides go in `~/.zshrc.local` (untracked). To refresh the wiki submodule pin: `git submodule update --remote repos/llm-wiki`.
 
-| Script | Purpose |
-|---|---|
-| `scripts/bootstrap-dirs.sh` | Create directories, sync shared skills, and materialize default configs |
-| `scripts/restow.sh` | Restow all managed packages — single source of truth for the package list |
-| `scripts/sync-agent-rules.sh` | Sync `shared/AGENTS.md` and MCP servers to Claude Code, Codex, OpenCode |
-| `scripts/agent-workflow` | Attach/detach/status/doctor for per-repo Commandr/Pi/Neovim workflow |
-| `scripts/agent-session` | Legacy per-repo session inbox kept for migration compatibility |
+## What's inside
 
-## Submodules
-
-`repos/llm-wiki` is a git submodule — the shared upstream for Claude Code agents, skills, and rules.
-
-```sh
-# Update llm-wiki pin to latest upstream commit
-git submodule update --remote repos/llm-wiki
-git add repos/llm-wiki && git commit -m "chore(submodule): bump llm-wiki"
-
-# After pulling a commit that moves the pin, check out the pinned commit
-git submodule update --init repos/llm-wiki
-```
-
-`~/repos/llm-wiki` and `~/dotfiles/repos/llm-wiki` are independent clones on this machine. `bootstrap-dirs.sh` creates a redirect to the submodule only when no standalone clone exists; it never replaces an existing clone. Many Claude rules and skills are symlinks into the standalone clone (check with `readlink`); the spec-loop rules and skills, and the rules model-routing, plan-handoff, skill-invocation and startup, live in this repo. Commit and push wiki changes from the standalone clone first, then bump the pin here so the submodule matches its `main`.
-
-## AI Agents
-
-| Tool | Install |
-|---|---|
-| `pi` (pi-coding-agent) | `bun add -g @earendil-works/pi-coding-agent` |
-| GitHub stacked PRs | `gh extension install github/gh-stack` (skill synced by `bootstrap-dirs.sh`) |
-| `omp` (oh-my-pi) | `curl -fsSL https://omp.sh/install \| sh` |
-| `rtk` (Rust Token Killer) | `mise install` (pinned in `mise/.config/mise/config.toml`) |
-
-`omp` binaries land in `~/.bun/bin/` — already on PATH via `.zprofile`.
-
-Pi runs headless only: dispatched through pueue with `pi -p`, and watched in
-the session-band pane or a herdr pane (`scripts/pi-view`) that opens beside
-Claude — `PI_VIEW_LAYOUT=auto|side|below|tab`, at most three panes, then the
-`pi` tab — labelled with its task and moved to the `verdict` tab once a `--tui`
-run settles. Extensions
-that only act in Pi's interactive TUI are not kept. The `pi/` stow package
-includes these Pi extensions:
-
-- `~/repos/DiffViewer/pi-extension` — Pi package for the measured review gate:
-  persistent `.pi/diff-review/` drafts and submitted decisions
-- `post-run-verifier.ts` — owns completed-run verification (format → lint →
-  typecheck → focused tests), inferred per-project config persisted under
-  `~/.pi/agent/verification/projects/`, max 3 automatic repair cycles;
-  `/verify`, `/verify-final`, `/verify-status`, `/verify-config`, `/verify-init`.
-- `rtk.ts` — transparently rewrites supported Bash commands through RTK to
-  reduce tool-output tokens; set `RTK_DISABLED=1` for passthrough
-
-`pi/.pi-lens/config.json` is the stow-provisioned global pi-lens config:
-pi-lens owns non-mutating turn-end static safety/context signals; its LSP,
-test, format, and autofix runners are disabled. `post-run-verifier.ts` alone
-owns format, lint, typecheck, and focused behavioral tests.
-
-Pi uses its built-in MCP client. `scripts/sync-agent-rules.sh` syncs the
-portable servers in `shared/mcp-servers.json` into `~/.pi/agent/mcp.json`,
-preserving machine-specific entries. Do not install `pi-mcp-adapter`.
-
-### Intentional generated/config forks
-
-- `shared/AGENTS.md` is one-way sync-pushed to OpenCode and Codex by
-  `scripts/sync-agent-rules.sh`; edit the shared source, never the generated
-  targets.
-- `~/.claude/plugins/known_marketplaces.json` is materialized once from the
-  llm-wiki template, then Claude Code manages it. Treat it as a deliberate
-  local fork.
-- `~/.config/agent-workflow/config.json` is materialized once from
-  `shared/agent-workflow.default.json`. Treat it as a deliberate local fork;
-  change the template for new machines and the local file for this machine.
-
-Claude Code uses the equivalent `rtk hook claude` `PreToolUse` hook from
-`claude/.claude/settings.json`, with usage instructions in `~/.claude/RTK.md`.
-
-### Research tool routing
-
-Research tools have exclusive primary scopes:
-
-- **Context7** — official library, framework, SDK, CLI, and API documentation
-- **Ketch** — public implementation examples through `ketch code` only
-- **Firecrawl** — general web search, URLs, news, crawling, and page extraction
-
-Fallback is allowed only when the primary tool lacks coverage. Canonical policy
-lives in `shared/research-tool-routing.md`.
-
-Firecrawl is CLI first, for every harness. `bootstrap-dirs.sh` calls
-`scripts/firecrawl-setup.sh`, which links two shims into `~/.local/bin`
-(`firecrawl` and `firecrawl-mcp`, both read `FIRECRAWL_API_KEY` from
-`~/secrets/.env` so a stale inherited key cannot win), installs the CLI with bun if
-it is missing, runs `firecrawl init` for the CLI's own skills, and keeps only the
-ones listed in `shared/firecrawl-skills.txt`. The rest are moved to
-`~/.agents/skills-disabled/`, not deleted. Add a name to that file and re-run
-bootstrap to bring one back; `scripts/firecrawl-setup.sh --refresh` re-installs.
-The same bootstrap links the shared personal skills (`gh-stack`, `grill-me`,
-`verify-spec` and others) into `~/.agents/skills` for Pi and other compatible
-harnesses. Codex needs a permission profile before its sandbox lets the
-Firecrawl CLI reach the network: see `docs/codex-permissions.md`.
-
-### Herdr agent flow
-
-Herdr owns the live `pi`, `claude`, and `codex` integration files; do **not**
-stow them. `scripts/bootstrap-dirs.sh` runs `herdr integration install` for
-all three. The persistent Herdr workspaces are `plan` (Claude) and `build`
-(Pi). `com.vietbui.herdr-sketchybar-bridge` subscribes to Herdr agent-state
-events and drives Sketchybar's `agents` pill; clicking it focuses Pi and opens
-AeroSpace workspace `T`.
-
-### Agent workflow automation
-
-Global defaults live in `shared/agent-workflow.default.json` and are copied to
-`~/.config/agent-workflow/config.json` by `scripts/bootstrap-dirs.sh`. Override
-per repo with `.agent-workflow.json` or machine-locally with ignored
-`.agent-workflow.local.json`.
-
-```sh
-# Check global install state (including RTK binary + Pi extension)
-scripts/agent-workflow doctor
-
-# Attach a repo to the Commandr bus + DiffViewer sidecars + approval gate
-scripts/agent-workflow attach ~/repos/example
-
-# Inspect current bus/board state
-scripts/agent-workflow status ~/repos/example
-
-# Remove only the managed hook; keep task history by default
-scripts/agent-workflow detach ~/repos/example
-```
-
-### Spec loop
-
-The spec loop is the seven numbered rules between the `<!-- spec-loop:start -->` and `<!-- spec-loop:end -->` markers in `shared/AGENTS.md`. The same block is mirrored in `shared/research-tool-routing.md`; the two copies must stay identical. The rules themselves are canonical in that block; this section describes the workflow they govern.
-
-Prerequisites: `python3` and `git`; approval also needs a macOS GUI session. The scripts are not on PATH, so call them as `~/dotfiles/scripts/ac-run` and `~/dotfiles/scripts/floor-guard`. Those paths point at the primary checkout, which may be on another branch; when developing the scripts in a feature worktree, call that worktree's `scripts/` copy instead. The session-band `/gates` pane always uses the canonical `~/dotfiles/scripts/` copies.
-
-1. **Grill.** The `grill-me` skill interviews you and writes `SPEC.md` at the repo root. `shared/templates/spec.md` is the starting template: copy it to the repo root as `SPEC.md` and set `branch:` to the current branch. Lint must pass: the sections Objective, Acceptance Criteria, Boundaries (Always / Ask first / Never) and Open Questions are required. The draft is committed on its feature branch only; rule 3 forbids merging a spec-only PR into `main`, because a root `SPEC.md` merged that way is never removed by the rule 7 archive.
-2. **Approve (human only).** Open the session-band `/gates` pane to find matching specs (`SPEC.md` and `specs/*.md`) and pending Pi reviews across the current repo's worktrees. Select a spec to read every AC and its full verify command, then press Approve. Alternatively, run `~/dotfiles/scripts/ac-run approve SPEC.md` yourself in its worktree. Both paths require a person to click Approve in a macOS dialog; Cancel is the default, and timeout or dialog failure refuses approval. There is no stdin or terminal fallback: piping `y` cannot approve. To read the same complete summary without running commands or changing anything, use `ac-run show SPEC.md`. Approval runs the non-manual commands once for a baseline only when three things hold: a merge-base against `origin/HEAD`, `main` or `master` exists, no non-spec changes have been committed since that merge-base, and the working tree is clean apart from `SPEC.md`. Otherwise the baseline is recorded as unknown, and `check` later reports a passing command as `PASS (no baseline)`. It stores a record under `~/.local/state/ac-run/`, named by a hash of normalized values: the spec path relative to the repo, the branch, the AC ids, and each AC's `verify:` and `baseline:` values with leading and trailing whitespace stripped. Changing one of those values voids the approval (`check` exits 3), but these are limits of the record: leading or trailing whitespace changes keep it, edits to the Objective, Boundaries or AC prose do not void it, and an identical relative spec on the same branch in another repo on the same machine can reuse it. It then writes `status: approved` into `SPEC.md`, but `check` never reads the status line, so the record alone authorizes execution. If `SPEC.md` is read-only, `approve` prints a warning and still exits 0 after writing the record. Agents never run `approve`. `ac-run reject SPEC.md` removes the record for the current verify lines and sets `status: draft`; it runs no command and exits 0 whether or not a record existed. `ac-run status SPEC.md` prints `approved (record matches)`, `draft (no record)` or `stale (spec changed since approval; approve again)`, and exits 0 only when approved.
-3. **Implement.** An agent reads `SPEC.md` when its `branch:` matches the current branch, works only toward its AC ids, and obeys its Boundaries.
-4. **Verify.** The `verify-spec` skill runs `~/dotfiles/scripts/ac-run check SPEC.md` and `~/dotfiles/scripts/floor-guard`. `check` exits 0 when every AC is PASS or MANUAL, 1 on FAIL, TIMEOUT or PRE-SATISFIED (an AC that was already true before the change), 2 on a lint or branch error, and 3 when no approval record exists. `floor-guard` is advisory: exit 0 clean, 1 findings, 2 error. It diffs against the merge-base with `origin/HEAD`, `main` or `master`; when none exists it exits 2 with `no base; pass --base <ref>`, so pass `--base <ref>` (a repo with no commits exits 2 even then). It flags added suppressions, skipped or deleted tests, removed assertions, and stubs or swallowed errors, and scans untracked files too. On exit 3 the agent stops and asks the human for approval; on FAIL, TIMEOUT or PRE-SATISFIED it fixes the code and reruns, and it reports `floor-guard` findings as they are, without rewording code to dodge them. Rule 6 says stop after 3 tries, while `verify-spec` allows 3 fix-and-rerun cycles after the first run; this README does not reconcile the two, and where they differ the rule governs. Rule 4 forbids editing a `verify:` line or a test to make a check pass, and `verify-spec` also forbids editing `baseline:` lines. `verify-spec` permits one narrower edit that rule 4 does not mention: replacing the placeholder body of a test stub the agent wrote for this spec with real assertions.
-5. **Review and PR.** Review the diff through the gate described in `docs/workflows/agent-review.md` before it is pushed or merged. The gate is a human workflow; neither script enforces it. Then push the branch and open a draft PR. Before the PR is marked ready or merged, rule 7 archives the spec as the branch's last commit (`git mv SPEC.md docs/specs/<YYYY-MM-DD>-<slug>.md`, `verify-spec` Step 5), so `main` never keeps a root `SPEC.md` and the next spec cannot collide with it. Run `check` and `floor-guard` before the archive; both expect `SPEC.md` at the root. The approval record is keyed outside the repo and is not touched.
-
-In `/gates`, `j`/`k` select a row, `a` approves, `x` rejects (press twice to confirm), `e` edits a spec in Neovim, `o` opens a Pi review, and `r` refreshes. Spec state comes from `ac-run status`: draft, approved, stale, or invalid (with the error and approval disabled). Review rows show landed, processing, error and orphan tags; rejecting an orphan skips its leftover refs. `b`/`f` cycle open mod panes, `w` opens Worktrees, and `q` closes Gates. Review approval still uses agent-review's own macOS dialog; detailed diff review stays in Neovim.
-
-Tests for both scripts: `python3 scripts/tests/test_spec_loop.py`. Pane tests: `cd session-band-plugin && claude plugin test .`.
-
-### Stacked pull requests
-
-Use GitHub's `gh stack` extension for a single feature split into dependent,
-reviewable layers. Plan layer boundaries before coding; review and approve each
-layer through the existing review gate before committing it. Keep unrelated work
-in separate stacks.
-
-```sh
-# From a clean trunk, create the first named layer (never invoke bare init).
-gh stack init feature/foundation
-# Commit its reviewed changes, then add the dependent layer.
-gh stack add feature/integration
-# Publish draft PRs without interactive prompts.
-gh stack submit --auto
-# Inspect or update the stack non-interactively.
-gh stack view --json
-gh stack sync --remote origin
-```
-
-Agent invocations must use named `init`/`add` branches, `submit --auto`, and
-`view --json`; see `docs/workflows/stacked-prs.md` for recovery and review
-rules.
-
-### jj (default VCS)
-
-`jj` (Jujutsu) is the default VCS for both the human and agent sessions. Each
-checkout or worktree is colocated with git (`jj git init --colocate`), so
-agent-review, `ac-run`, `floor-guard` and session-band keep reading git state.
-Agents commit only through `scripts/commit-funnel`, which in jj mode also tracks
-the paths, moves the bookmark and runs `git switch <branch>`; inside agent
-worktrees plain `git commit`/`jj commit` and other branch moves are blocked (see
-the "Git history" section of `shared/research-tool-routing.md` and
-`docs/workflows/worktree-guard-bandaid.md`). The workflows below are the human's. Claude's `settings.json` allows `jj` and denies
-pushing or moving `main`/`master`.
-
-Three workflows:
-
-- **Review Pi's commits by rewriting**, after its pueue task finishes:
-  `jj log -r 'main..feat/x'`, then `jj abandon` / `jj squash --from A --into B` /
-  `jj split -r C`, then `jj git push -b feat/x`. Undo with `jj op undo`.
-- **Sync a branch without merge commits:** `jj git fetch && jj rebase -b feat/x -d main@origin`.
-- **Quick tweak:** `jj new main`, edit, `jj file track <path>`,
-  `jj describe -m ...`, `jj bookmark create fix/x -r @`, `jj git push -b fix/x`,
-  `gh pr create`.
-
-After any jj operation git HEAD is detached, so run `git switch <branch>` before
-running agents or `ac-run`. Never rewrite a branch that a running Pi worktree has
-checked out.
-
-### Pi-first workflow
-
-Pi is the only supported agent harness. Commandr is the task service,
-DiffView is the review service, and Obsidian is the human UI. Other vendors
-are model providers or explicit CLI bridges, not parallel harnesses.
-
-```sh
-# Pi TUI
-/sessions
-/review
-```
-
-Legacy `scripts/agent-session` and `.agents/sessions/` remain compatibility
-surfaces. New workflow features should target Pi and Commandr, not add another
-harness-specific state store.
-
-RTK is a rewrite-only optimization layer: it does not replace permission gates
-or context-mode. Inspect savings with `rtk gain` or `rtk gain --history`.
-
-## Notes
-
-- `opencode/plugins/commandr-checkpoint.js` and `diffviewer.js` are symlinks into `~/repos/Commandr` and `~/repos/DiffViewer`. Clone those repos first.
-- Machine-local overrides go in `~/.zshrc.local` (not tracked).
-- `nvim/.config/nvim/.claude/` is gitignored — Claude Code writes local state there.
-- `claude/` rule files: `learning.md` and `research.md` are niche-domain rules, available at `@~/.claude/rules/learning.md` but not auto-loaded. @-import them in project CLAUDE.md when working in those domains.
-- `opencode/opencode.json` uses hardcoded absolute paths for `skills.paths` and `instructions` — opencode does not expand `${env:HOME}` in those fields.
-- tmux `extended-keys` is disabled — it breaks readline Ctrl shortcuts (C-a/e/u/k/w/r/d) in zsh. Standard key sequences work correctly without it.
-- `zsh/.zsh/functions.zsh` wraps `nvim` to re-emit SGR reset, show-cursor, and bracketed-paste sequences after exit — nvim's terminal cleanup (rs2/RIS) wipes these and breaks Starship colors and fast-syntax-highlighting.
-- Language toolchains (Python, Node, Ruby) managed by **mise** — Ansible replaced pyenv/rbenv/nvm. Neovim detects interpreters dynamically via `vim.fn.exepath()`.
+- Shell and terminal: zsh, starship, kitty, tmux and tmuxinator, herdr
+- Editor: Neovim
+- Version control: git, jj (default VCS), `gh` with `gh-stack`
+- Tooling: mise for CLIs and runtimes, Homebrew for the rest
+- macOS desktop: aerospace, sketchybar, mouseless; Linux desktop: i3
+- Agents: Claude Code (`claude/`), Codex (`codex/`), OpenCode (`opencode/`), Pi coding agent (`pi/`)
+- Agent workflow in `scripts/`: `pueue-safe`, `pi-queue` and `pi-view` for dispatching Pi through pueue, `agent-review` as the review gate, `commit-funnel` for agent commits, and `ac-run` and `floor-guard` for the spec loop
+- Shared agent rules, skills and MCP server list in `shared/`, synced out by `scripts/sync-agent-rules.sh`
+- Docs: workflows in `docs/workflows/`, specs in `docs/specs/`
+- Submodule: `repos/llm-wiki`, the shared knowledge base and Claude rules/skills
