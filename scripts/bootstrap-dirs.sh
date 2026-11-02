@@ -32,6 +32,12 @@ done
 # repo's common hooks folder by scripts/link-git-hooks.
 "${DOTFILES:-$HOME/dotfiles}/scripts/link-git-hooks"
 
+# Project-view CLI uses the same opt-in bootstrap path as agent-session.
+if [ -x "$HOME/dotfiles/scripts/agent-project" ]; then
+	ln -sf "$HOME/dotfiles/scripts/agent-project" "$HOME/.local/bin/agent-project"
+	echo "✓ ~/.local/bin/agent-project → ~/dotfiles/scripts/agent-project"
+fi
+
 # Shared personal skills are symlinked so Claude and Pi cannot drift. Never
 # overwrite a real existing destination: it may be a user-managed fork.
 # ~/.agents/skills is Pi's global skill directory too, so this loop is the list Pi
@@ -50,7 +56,7 @@ link_shared_skill() {
 	echo "✓ ~/.agents/skills/$name → shared/skills/$name"
 }
 
-for shared_skill in approval-workflow delegate-pi kanban-status grill-me verify-spec pele design-brief repo-docs; do
+for shared_skill in approval-workflow delegate-pi kanban-status grill-me verify-spec pele design-brief repo-docs context-switch; do
 	link_shared_skill "$shared_skill"
 done
 

@@ -35,3 +35,17 @@ are not ported: Codex lacks equivalent write events for the existing Claude
 scripts, and trial expiry is specific to Claude. Existing global Codex hooks
 are left under their current configuration because that file has local edits
 in progress. Plugin hooks require Codex trust review before they run.
+
+## Explicit Claude/Codex context continuity
+
+The additive [takeover workflow](workflows/claude-codex-takeover.md) uses the
+existing session inbox and same Git worktree. context-switch is a shared skill;
+repo-docs supplies documentation maintenance and curated project-view guidance.
+Bootstrap discovers both; no live bootstrap/config sync ran from this branch.
+Codex scout/worker configs pin gpt-6-luna (confirmed in installed model catalog);
+planning and consequential review retain the parent planner's chosen model.
+
+A CLI read-only live pilot passed; fixture tests cover manual Desktop claims
+and return checkpoints. That does not establish native Codex hook/UI parity or
+live Claude/Desktop round-trip behavior. Existing modified global hooks remain
+untouched. See the linked verification record for limits.

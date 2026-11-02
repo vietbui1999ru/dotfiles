@@ -1,4 +1,5 @@
 name = "scout"
+model = "gpt-6-luna"
 description = "Read-only reconnaissance for unfamiliar code: locate relevant files, behavior, existing checks, and risks before implementation."
 model_reasoning_effort = "low"
 developer_instructions = """
