@@ -1,4 +1,5 @@
 name = "worker"
+model = "gpt-6-luna"
 description = "Apply a bounded, fully specified code change when files, exact edits, and validation are already known."
 model_reasoning_effort = "medium"
 developer_instructions = """

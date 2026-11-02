@@ -172,3 +172,14 @@ Never run `mise trust` (trust lets a config run code), `mise use -g`/`--global`,
 `mise settings`, `mise self-update`, `mise implode`, `mise token` or `mise ssh`.
 They change the whole machine or expose credentials, so they are the human's
 call. Add a mise config to a repo that has none only when the task asks for it.
+
+## Claude/Codex planner continuity
+
+Claude Code, Codex, and OpenCode are not parallel workflow targets.
+
+Explicit continuity exception: Claude and Codex may act as successive planners
+for the same task/worktree when Claude usage is exhausted, using the
+context-switch skill and agent-session handoff/takeover. Stop the previous
+writer before takeover; preserve existing review and approval state. Pi/pueue
+remains the implementation dispatch lane. This is not automatic provider
+fallback or permission to run two writers in one checkout.
