@@ -188,7 +188,14 @@ def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
     for line in block.splitlines():
         if ":" in line:
             k, v = line.split(":", 1)
-            v = v.strip().strip('"').strip("'")
+            v = v.strip()
+            if v.startswith('"'):
+                try:
+                    v = json.loads(v)
+                except ValueError:
+                    v = v.strip('"')
+            else:
+                v = v.strip("'")
             if v:
                 fm[k.strip()] = v
     return fm, body
@@ -202,7 +209,7 @@ def build_frontmatter(meta: dict[str, Any]) -> str:
             if isinstance(v, list):
                 lines.append(f"{k}: [{', '.join(v)}]")
             else:
-                lines.append(f'{k}: "{v}"')
+                lines.append(f"{k}: {json.dumps(str(v), ensure_ascii=False)}")
     lines.append("---\n")
     return "\n".join(lines)
 
@@ -301,7 +308,8 @@ def cmd_save(args: argparse.Namespace) -> None:
             suffix += 1
         fname = fpath.name
         fpath.write_text(content)
-        write_legacy_pointer(root, harness, fname)
+        if not getattr(args, "skip_legacy_pointer", False):
+            write_legacy_pointer(root, harness, fname)
         fm, _ = parse_frontmatter(content)
         row = {
             "file": fname, "kind": fm.get("kind", kind),
@@ -542,6 +550,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--app", choices=["obsidian", "nvim"], default="obsidian")
     p.add_argument("repo", nargs="?")
     p.set_defaults(func=cmd_open)
+    from agent_handoff import register_commands
+    register_commands(sub, sys.modules[__name__])
     return parser
 
 
