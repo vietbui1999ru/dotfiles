@@ -1,0 +1,149 @@
+#!/usr/bin/env python3
+"""provenance-report: per model, effort and month, how much agent work was followed by fixes.
+
+Usage: provenance-report [--repo DIR]
+
+Reads git history only: commits carrying `Agent:` trailers (written by commit-funnel
+from the provenance ledger). For each (model, effort, month): commits, distinct files
+touched, and the share of those commits followed within 14 days by a revert of them or
+a later commit touching one of the same paths. Prints an aligned table on stdout.
+"""
+import argparse
+import os
+import subprocess
+import sys
+from collections import OrderedDict
+from datetime import datetime, timedelta
+
+FOLLOW_UP_DAYS = 14
+SEP = "\x00"
+RECORD = "\x1e"
+
+
+def git(repo, *args):
+    r = subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.strip() or f"git {' '.join(args)} failed")
+    return r.stdout
+
+
+def parse_date(text):
+    return datetime.fromisoformat(text)
+
+
+def read_commits(repo):
+    """Return commits newest-first as dicts: sha, when, subject, agents, files."""
+    # Fields per commit: sha, committer date, subject, body, Agent trailer values.
+    # git takes the separators as %x escapes: literal NULs cannot appear in argv.
+    fmt = ("%x1e%H%x00%cI%x00%s%x00%b%x00"
+           "%(trailers:key=Agent,valueonly,separator=%x01)%x00")
+    out = git(repo, "log", f"--format={fmt}", "--name-only", "HEAD")
+    commits = []
+    for chunk in out.split(RECORD):
+        if not chunk.strip():
+            continue
+        parts = chunk.split(SEP, 5)
+        if len(parts) < 6:
+            continue
+        sha, when, subject, body, agent_blob, rest = parts
+        files = [f for f in rest.splitlines() if f.strip()]
+        agents = [v.strip() for v in agent_blob.split("\x01") if v.strip()]
+        commits.append({"sha": sha.strip(), "when": parse_date(when.strip()),
+                        "subject": subject, "body": body, "agents": agents, "files": files})
+    return commits
+
+
+def agent_key(value):
+    """Split an `Agent:` value into (model, effort)."""
+    parts = value.split()
+    model = parts[0] if parts else "unknown"
+    effort = "unknown"
+    for part in parts[1:]:
+        if part.startswith("effort="):
+            effort = part[len("effort="):] or "unknown"
+    return model, effort
+
+
+def is_revert_of(commit, target_sha, target_subject):
+    return (f"This reverts commit {target_sha}" in commit.get("body", "")
+            or commit["subject"] == f'Revert "{target_subject}"')
+
+
+def follow_ups(commits):
+    """Return, per commit index, whether a later commit within 14 days reverts or re-touches it."""
+    flagged = {}
+    for i, c in enumerate(commits):
+        if not c["agents"]:
+            continue
+        window_end = c["when"] + timedelta(days=FOLLOW_UP_DAYS)
+        own = set(c["files"])
+        hit = False
+        # commits are newest-first: later commits are at indexes below i.
+        for j in range(i - 1, -1, -1):
+            later = commits[j]
+            if later["when"] > window_end:
+                break
+            if later["when"] < c["when"]:
+                continue
+            if is_revert_of(later, c["sha"], c["subject"]) or own & set(later["files"]):
+                hit = True
+                break
+        flagged[i] = hit
+    return flagged
+
+
+def tally(commits):
+    flagged = follow_ups(commits)
+    rows = OrderedDict()
+    for i, c in enumerate(commits):
+        if not c["agents"]:
+            continue
+        month = c["when"].strftime("%Y-%m")
+        seen = set()
+        for value in c["agents"]:
+            model, effort = agent_key(value)
+            key = (model, effort, month)
+            if key in seen:
+                continue
+            seen.add(key)
+            row = rows.setdefault(key, {"commits": 0, "files": set(), "followed": 0})
+            row["commits"] += 1
+            row["files"].update(c["files"])
+            if flagged.get(i):
+                row["followed"] += 1
+    return rows
+
+
+def render(rows):
+    header = ("model", "effort", "month", "commits", "files", "follow-up")
+    table = [header]
+    for (model, effort, month), row in sorted(rows.items()):
+        share = 100.0 * row["followed"] / row["commits"] if row["commits"] else 0.0
+        table.append((model, effort, month, str(row["commits"]), str(len(row["files"])),
+                      f"{share:.0f}%"))
+    widths = [max(len(r[i]) for r in table) for i in range(len(header))]
+    lines = []
+    for r in table:
+        lines.append("  ".join(cell.ljust(widths[i]) for i, cell in enumerate(r)).rstrip())
+    return "\n".join(lines)
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="provenance-report")
+    ap.add_argument("--repo", default=".", metavar="DIR", help="repository to report on")
+    args = ap.parse_args(argv)
+    try:
+        commits = read_commits(os.path.abspath(args.repo))
+    except RuntimeError as e:
+        print(f"provenance-report: {e}", file=sys.stderr)
+        return 1
+    rows = tally(commits)
+    if not rows:
+        print("no Agent: trailers found in history")
+        return 0
+    print(render(rows))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
