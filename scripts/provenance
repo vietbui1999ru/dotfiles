@@ -1,0 +1,349 @@
+#!/usr/bin/env python3
+"""provenance: the one writer of the model-provenance ledger.
+
+Usage:
+  provenance hook                      Claude Code hook JSON on stdin
+  provenance pi-run --cwd D -- ARGV    wrap a Pi run; ARGV is the pi command line
+  provenance codex                     Codex hook JSON on stdin; prints "model<TAB>effort"
+
+Every value that cannot be observed is written as "unknown". The command never
+prints to stdout (except `codex`, whose stdout the caller captures), never fails,
+and always exits 0. Ledger: $PROVENANCE_LEDGER, else
+~/.local/state/provenance/ledger.jsonl. Rows older than 30 days are pruned by the
+writer, at most once a day.
+"""
+import fcntl
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+
+FIELDS = ("ts", "harness", "harness_version", "model", "effort", "role",
+          "session", "cwd", "path", "op")
+UNKNOWN = "unknown"
+RETENTION_SECONDS = 30 * 24 * 3600
+PRUNE_INTERVAL_SECONDS = 24 * 3600
+VERSION_TIMEOUT = 2
+SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+
+
+def state_dir():
+    return os.path.join(os.path.expanduser("~"), ".local", "state", "provenance")
+
+
+def ledger_path():
+    return os.environ.get("PROVENANCE_LEDGER") or os.path.join(state_dir(), "ledger.jsonl")
+
+
+def session_state_path(session):
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", session or UNKNOWN)
+    return os.path.join(state_dir(), "sessions", safe + ".json")
+
+
+def utc_now():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def or_unknown(value):
+    if value is None:
+        return UNKNOWN
+    text = str(value).strip()
+    return text if text else UNKNOWN
+
+
+def tool_version(binary):
+    try:
+        r = subprocess.run([binary, "--version"], capture_output=True, text=True,
+                           timeout=VERSION_TIMEOUT)
+    except (OSError, subprocess.SubprocessError):
+        return UNKNOWN
+    words = (r.stdout or r.stderr or "").split()
+    for word in words:
+        if re.match(r"^v?\d+(\.\d+)+", word):
+            return word.lstrip("v")
+    return UNKNOWN
+
+
+def make_row(**values):
+    row = {field: or_unknown(values.get(field)) for field in FIELDS}
+    row["ts"] = values.get("ts") or utc_now()
+    return row
+
+
+def append_row(row):
+    """Append one full JSONL line with a single O_APPEND write, then maybe prune."""
+    path = ledger_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    line = (json.dumps(row, sort_keys=True) + "\n").encode("utf-8")
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    try:
+        os.write(fd, line)
+    finally:
+        os.close(fd)
+    maybe_prune(path)
+
+
+def maybe_prune(path, now=None):
+    """Drop rows older than RETENTION_SECONDS, at most once per PRUNE_INTERVAL_SECONDS."""
+    now = time.time() if now is None else now
+    directory = os.path.dirname(path)
+    stamp = os.path.join(directory, ".pruned")
+    try:
+        if now - os.path.getmtime(stamp) < PRUNE_INTERVAL_SECONDS:
+            return
+    except OSError:
+        pass
+    prune(path, now)
+    try:
+        os.makedirs(directory, exist_ok=True)
+        with open(stamp, "w"):
+            pass
+    except OSError:
+        pass
+
+
+def prune(path, now=None):
+    now = time.time() if now is None else now
+    cutoff = now - RETENTION_SECONDS
+    lock_path = path + ".lock"
+    with open(lock_path, "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            with open(path, encoding="utf-8") as fh:
+                lines = fh.readlines()
+        except OSError:
+            return
+        kept = []
+        for line in lines:
+            try:
+                ts = json.loads(line).get("ts", "")
+                when = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ").replace(
+                    tzinfo=timezone.utc).timestamp()
+            except (ValueError, AttributeError, TypeError):
+                kept.append(line)
+                continue
+            if when >= cutoff:
+                kept.append(line)
+        if len(kept) == len(lines):
+            return
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.writelines(kept)
+        os.replace(tmp, path)
+
+
+def load_state(session):
+    try:
+        with open(session_state_path(session), encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return {}
+
+
+def save_state(session, state):
+    path = session_state_path(session)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(state, fh)
+
+
+def claude_model(raw):
+    """Map a Claude model id to provider/id; `inherit` and empty values are unknown."""
+    if not raw or raw == "inherit":
+        return UNKNOWN
+    raw = str(raw).strip()
+    return raw if "/" in raw else "anthropic/" + raw
+
+
+def agents_dir():
+    return os.environ.get("PROVENANCE_AGENTS_DIR") or os.path.normpath(
+        os.path.join(SCRIPT_DIR, "..", "claude", ".claude", "agents"))
+
+
+def frontmatter_model(agent_type):
+    """Read `model:` from the agent definition's frontmatter; unknown if absent."""
+    if not agent_type or "/" in agent_type or agent_type.startswith("."):
+        return UNKNOWN
+    try:
+        with open(os.path.join(agents_dir(), agent_type + ".md"), encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return UNKNOWN
+    if not text.startswith("---"):
+        return UNKNOWN
+    end = text.find("\n---", 3)
+    block = text[3:end] if end != -1 else ""
+    for line in block.splitlines():
+        m = re.match(r"^model:\s*(.*?)\s*$", line)
+        if m:
+            return claude_model(m.group(1).strip("'\""))
+    return UNKNOWN
+
+
+def hook_claude(data):
+    maybe_prune(ledger_path())
+    event = data.get("hook_event_name", "")
+    session = data.get("session_id") or UNKNOWN
+    if event == "SessionStart":
+        save_state(session, {
+            "model": claude_model(data.get("model")),
+            "harness_version": tool_version("claude"),
+        })
+        return
+    if event == "PostModelSwitch":
+        state = load_state(session)
+        state["model"] = claude_model(data.get("to_model"))
+        save_state(session, state)
+        return
+    if event != "PostToolUse" or data.get("tool_name") not in ("Write", "Edit", "MultiEdit"):
+        return
+    tool_input = data.get("tool_input") or {}
+    path = tool_input.get("file_path")
+    if not path:
+        return
+    state = load_state(session)
+    agent_type = data.get("agent_type")
+    if agent_type:
+        model = frontmatter_model(agent_type)
+        role = agent_type
+    else:
+        model = state.get("model") or UNKNOWN
+        role = "main"
+    effort = (data.get("effort") or {}).get("level") or os.environ.get("CLAUDE_EFFORT")
+    append_row(make_row(
+        harness="claude", harness_version=state.get("harness_version"),
+        model=model, effort=effort, role=role, session=session,
+        cwd=data.get("cwd"), path=path, op=data.get("tool_name").lower(),
+    ))
+
+
+def pi_split(argv):
+    """Return (model, thinking, session) parsed from a Pi command line."""
+    model = thinking = session = None
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        nxt = argv[i + 1] if i + 1 < len(argv) else None
+        if arg == "--model" and nxt is not None:
+            model, _, thinking_part = nxt.partition(":")
+            thinking = thinking_part or None
+            i += 2
+            continue
+        if arg.startswith("--model="):
+            model, _, thinking_part = arg[len("--model="):].partition(":")
+            thinking = thinking_part or None
+        elif arg == "--session-id" and nxt is not None:
+            session = nxt
+            i += 2
+            continue
+        elif arg.startswith("--session-id="):
+            session = arg[len("--session-id="):]
+        i += 1
+    return model, thinking, session
+
+
+def pi_run(cwd, argv):
+    if argv and argv[0] == "--":
+        argv = argv[1:]
+    maybe_prune(ledger_path())
+    model, thinking, session = pi_split(argv)
+    try:
+        real_cwd = os.path.realpath(cwd)
+    except OSError:
+        real_cwd = cwd
+    append_row(make_row(
+        harness="pi", harness_version=tool_version("pi"), model=model,
+        effort=thinking, role="dispatch", session=session, cwd=real_cwd,
+        path="*", op="run",
+    ))
+
+
+def codex_config():
+    """Return (model, effort) from $CODEX_HOME/config.toml or ~/.codex/config.toml."""
+    try:
+        import tomllib
+    except ImportError:
+        return None, None
+    home = os.environ.get("CODEX_HOME") or os.path.join(os.path.expanduser("~"), ".codex")
+    try:
+        with open(os.path.join(home, "config.toml"), "rb") as fh:
+            cfg = tomllib.load(fh)
+    except (OSError, ValueError):
+        return None, None
+    model = cfg.get("model")
+    provider = cfg.get("model_provider") or "openai"
+    model_id = f"{provider}/{model}" if model else None
+    return model_id, cfg.get("model_reasoning_effort")
+
+
+def codex_patch_paths(command):
+    paths = []
+    for line in str(command).splitlines():
+        m = re.match(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$", line) or \
+            re.match(r"^\*\*\* Move to: (.+)$", line)
+        if m:
+            paths.append(m.group(1).strip())
+    return paths
+
+
+def hook_codex(data):
+    """Append rows for Codex edits and return (model, effort) for the caller."""
+    maybe_prune(ledger_path())
+    cfg_model, cfg_effort = codex_config()
+    model = data.get("model") or cfg_model
+    effort = data.get("effort") or data.get("reasoning_effort") or cfg_effort
+    model = claude_model_or_codex(model)
+    session = data.get("session_id") or UNKNOWN
+    cwd = data.get("cwd") or os.getcwd()
+    if data.get("tool_name") == "apply_patch":
+        command = (data.get("tool_input") or {}).get("command", "")
+        for rel in codex_patch_paths(command):
+            path = rel if os.path.isabs(rel) else os.path.normpath(os.path.join(cwd, rel))
+            append_row(make_row(
+                harness="codex", harness_version=UNKNOWN, model=model, effort=effort,
+                role="main", session=session, cwd=cwd, path=path, op="apply_patch",
+            ))
+    return model, effort
+
+
+def claude_model_or_codex(raw):
+    if not raw:
+        return UNKNOWN
+    raw = str(raw).strip()
+    return raw if "/" in raw else "openai/" + raw
+
+
+def main(argv):
+    if not argv:
+        return
+    cmd = argv[0]
+    if cmd == "hook":
+        data = json.load(sys.stdin)
+        if isinstance(data, dict):
+            hook_claude(data)
+    elif cmd == "pi-run":
+        rest = argv[1:]
+        cwd = os.getcwd()
+        if "--cwd" in rest:
+            i = rest.index("--cwd")
+            cwd = rest[i + 1]
+            rest = rest[:i] + rest[i + 2:]
+        if "--" in rest:
+            rest = rest[rest.index("--") + 1:]
+        pi_run(cwd, rest)
+    elif cmd == "codex":
+        data = json.load(sys.stdin)
+        if isinstance(data, dict):
+            model, effort = hook_codex(data)
+            sys.stdout.write(f"{or_unknown(model)}\t{or_unknown(effort)}\n")
+
+
+if __name__ == "__main__":
+    try:
+        main(sys.argv[1:])
+    except Exception:
+        pass
+    sys.exit(0)
