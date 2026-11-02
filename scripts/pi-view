@@ -122,11 +122,16 @@ place_beside() {
   created=$(herdr_json pane split "$target" --direction "$direction" --ratio "$ratio" --no-focus --cwd "$PWD") || return 1
   pane=$(jq -r '.result.pane.pane_id // empty' <<< "$created")
   [[ -n $pane ]] || return 1
-  # The agents' column evens out, but Claude's split (the anchor) keeps its share.
-  local anchor_tab
+  # The agents' column evens out. Every other pane in the tab - Claude's (the anchor)
+  # and any the person opened there - is kept, so their splits keep their share.
+  local anchor_tab id keep=() agents=(${(f)${2:-}})
   anchor_tab=$(herdr_json pane get "$anchor" | jq -r '.result.pane.tab_id // empty')
   if [[ -n $anchor_tab ]]; then
-    node $script_dir/pi-layout.mjs rebalance "$anchor_tab" --keep "$anchor" >/dev/null 2>&1 || true
+    for id in ${(f)"$(herdr_json pane layout --pane "$anchor" | jq -r '.result.layout.panes[]?.pane_id')"}; do
+      [[ $id == $pane ]] || (( ${agents[(Ie)$id]} )) || keep+=($id)
+    done
+    # No kept pane means the layout read failed: leave the tab as it is.
+    (( ${#keep} )) && { node $script_dir/pi-layout.mjs rebalance "$anchor_tab" --keep $keep >/dev/null 2>&1 || true }
   fi
   print -r -- "$pane"
 }
@@ -197,7 +202,16 @@ move_to_verdict() {
     dest_tab=$(herdr_json pane get "$pane" | jq -r '.result.pane.tab_id // empty')
   else
     # The grid decision failed: the old stacked placement in the first verdict tab.
-    return 1
+    dest_tab=$(herdr_json tab list | jq -r --arg workspace "$workspace" \
+      '[.result.tabs[]? | select(.workspace_id == $workspace and .label == "verdict") | .tab_id] | first // empty')
+    if [[ -z $dest_tab ]]; then
+      herdr_json pane move "$pane" --new-tab --workspace "$workspace" --label verdict --no-focus >/dev/null || return 1
+    else
+      target=$(herdr_json pane list | jq -r --arg tab "$dest_tab" \
+        '[.result.panes[]? | select(.tab_id == $tab) | .pane_id] | last // empty')
+      [[ -n $target ]] || return 1
+      herdr_json pane move "$pane" --tab "$dest_tab" --split down --target-pane "$target" --no-focus >/dev/null || return 1
+    fi
   fi
   rebalance_tab "$dest_tab"
   if [[ -n $source_tab && $source_tab != "$dest_tab" ]]; then
