@@ -257,7 +257,7 @@ def cmd_save(args: argparse.Namespace) -> None:
             lines = []
             for key, value in metadata.items():
                 if value is not None and value != "":
-                    lines.append(f'{key}: "{value}"')
+                    lines.append(f"{key}: {json.dumps(str(value), ensure_ascii=False)}")
             if lines:
                 content = content.replace("\n---\n", "\n" + "\n".join(lines) + "\n---\n", 1)
         else:
@@ -298,6 +298,18 @@ def cmd_save(args: argparse.Namespace) -> None:
                 if value is not None:
                     meta[key] = value
             content = build_frontmatter(meta) + "\n" + stdin_text
+    # The note is the rebuildable source; an index-only task ID would be lost.
+    task_line = f"task: {json.dumps(task, ensure_ascii=False)}"
+    if content.startswith("---\n") and "\n---\n" in content[4:]:
+        end = content.index("\n---\n", 4)
+        header = content[4:end]
+        if re.search(r"(?m)^task:", header):
+            header = re.sub(r"(?m)^task:.*$", lambda _: task_line, header)
+        else:
+            header += "\n" + task_line
+        content = "---\n" + header + content[end:]
+    else:
+        content = build_frontmatter({"task": task}) + "\n" + content
     with index_lock(root):
         index = read_index(root)
         # Keep old timestamp-based names where available; suffix collisions safely.

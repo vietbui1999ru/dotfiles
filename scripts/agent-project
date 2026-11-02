@@ -139,9 +139,12 @@ def cmd_view(args):
             sessions = data.get("sessions") if isinstance(data, dict) else None
             if not isinstance(sessions, list):
                 raise ValueError("invalid sessions")
+            branch = git(worktree, "branch", "--show-current")
             matches = [s for s in sessions if isinstance(s, dict)
-                       and s.get("task") == args.task and s.get("branch") == git(worktree, "branch", "--show-current")]
-            legacy = any(not isinstance(s, dict) or "task" not in s or "branch" not in s for s in sessions)
+                       and s.get("task") == args.task and s.get("branch") == branch
+                       and isinstance(s.get("worktree"), str)
+                       and Path(s["worktree"]).resolve() == worktree]
+            legacy = any(not isinstance(s, dict) or not all(k in s for k in ("task", "branch", "worktree")) for s in sessions)
             session_state = f"{len(matches)} matching session(s)"
             if legacy:
                 session_state += "; legacy/unknown entries present"

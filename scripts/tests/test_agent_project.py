@@ -97,7 +97,8 @@ class AgentProject(unittest.TestCase):
         index = self.main / ".agents/sessions/index.json"
         index.parent.mkdir(parents=True)
         index.write_text(json.dumps({"sessions": [
-            {"task": "alpha", "branch": "feat/example"},
+            {"task": "alpha", "branch": "feat/example", "worktree": str(self.wt.resolve())},
+            {"task": "alpha", "branch": "feat/example", "worktree": str(self.main.resolve())},
             {"task": "other", "branch": "feat/example"},
             {"task": "alpha", "branch": "feat/elsewhere"},
             {"task": "alpha"},

@@ -1,6 +1,7 @@
 # Claude to Codex takeover design
 
-Status: draft for human review. Planning only; no runtime changes authorized by this document.
+Status: approved for implementation by user on 2026-11-02.
+Implementation evidence and remaining manual pilots are recorded in the linked plan.
 
 ## Intent and boundaries
 

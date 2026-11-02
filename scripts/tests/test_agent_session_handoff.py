@@ -45,6 +45,17 @@ class AgentSessionHandoffTests(unittest.TestCase):
     def save(self, path, goal):
         return run("save", "--harness", "codex", "--goal", goal, path)
 
+    def test_task_identity_survives_all_save_forms_and_reindex(self):
+        for kind, stdin in [("session", False), ("spec", False), ("session", True)]:
+            with self.subTest(kind=kind, stdin=stdin):
+                args=["save", "--harness", "codex", "--task", "task-alpha", "--kind", kind]
+                if stdin: args.append("--stdin")
+                result=run(*args,self.feature,input="summary body" if stdin else None)
+                self.assertEqual(result.returncode,0,result.stderr)
+        result=run("index",self.feature)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual([row["task"] for row in self.index()["sessions"]],["task-alpha"]*3)
+
     def test_save_uses_worktree_identity_and_additive_metadata(self):
         (self.feature / "changed").write_text("feature state\n")
         result = self.save(self.feature, "feature goal")
