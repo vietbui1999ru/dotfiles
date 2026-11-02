@@ -367,6 +367,52 @@ class Fixture(unittest.TestCase):
         self.assertIn("openai-codex/gpt-6.1-sol a.txt, sub/c.txt",
                       self.trailer_values("Agent-Paths"))
 
+    def init_old_repo(self):
+        """A repo whose base commit is dated 2020, so 2021 ledger rows fall between it and now."""
+        self.env["GIT_COMMITTER_DATE"] = self.env["GIT_AUTHOR_DATE"] = "2020-01-01T00:00:00Z"
+        self.init_repo()
+        del self.env["GIT_COMMITTER_DATE"], self.env["GIT_AUTHOR_DATE"]
+
+    def test_provenance_edit_survives_an_earlier_commit_of_other_paths(self):
+        self.init_old_repo()
+        self.put("a.txt", "a\n")
+        self.put("b.txt", "b\n")
+        rp = str(self.repo)
+        self.ledger([self.row(f"{rp}/a.txt", ts="2021-01-01T00:00:00Z"),
+                     self.row(f"{rp}/b.txt", ts="2021-01-01T00:00:00Z")])
+        self.assertEqual(self.run_funnel("-F", str(self.msg), "a.txt").returncode, 0)
+        r = self.run_funnel("-F", str(self.msg), "b.txt")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("anthropic/claude-opus-5-5 b.txt", self.trailer_values("Agent-Paths"))
+
+    def test_provenance_edit_row_is_spent_once_its_path_is_committed(self):
+        self.init_old_repo()
+        self.put("a.txt", "a\n")
+        self.ledger([self.row(f"{self.repo}/a.txt", ts="2021-01-01T00:00:00Z")])
+        self.assertEqual(self.run_funnel("-F", str(self.msg), "a.txt").returncode, 0)
+        self.assertNotEqual(self.trailer_values("Agent"), "")
+        self.put("a.txt", "a2\n")
+        r = self.run_funnel("-F", str(self.msg), "a.txt")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.trailer_values("Agent"), "")
+
+    def test_provenance_pi_run_row_covers_every_commit_in_its_run(self):
+        self.init_old_repo()
+        self.ledger([self.row("*", model="opencode-go/x", harness="pi", op="run",
+                              session="pueue-run-1", ts="2021-01-01T00:00:00Z")])
+        for session, expect in (("pueue-run-1", True), (None, False)):
+            with self.subTest(session=session):
+                if session:
+                    self.env["PROVENANCE_SESSION"] = session
+                else:
+                    self.env.pop("PROVENANCE_SESSION", None)
+                for body in ("1\n", "2\n"):
+                    self.put("a.txt", body + str(session))
+                    r = self.run_funnel("-F", str(self.msg), "a.txt")
+                    self.assertEqual(r.returncode, 0, r.stderr)
+                # The second commit of a.txt: only the live run's session keeps the run row.
+                self.assertEqual("opencode-go/x" in self.trailer_values("Agent"), expect)
+
     def test_provenance_pi_run_outside_worktree_is_not_counted(self):
         self.init_repo()
         self.put("a.txt", "a\n")

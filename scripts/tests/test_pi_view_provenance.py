@@ -59,6 +59,14 @@ class PiViewProvenance(unittest.TestCase):
         self.assertEqual(out.stdout, "hello --model")
         self.assertEqual(len(self.rows()), 1)
 
+    def test_session_id_is_exported_for_commit_funnel(self):
+        out = self.run_view(["sh", "-c", 'printf "%s" "${PROVENANCE_SESSION-unset}"',
+                             "--session-id", "pueue-xyz"])
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual(out.stdout, "pueue-xyz")
+        out = self.run_view(["sh", "-c", 'printf "%s" "${PROVENANCE_SESSION-unset}"'])
+        self.assertEqual(out.stdout, "unset")
+
     def test_unparsed_model_is_unknown_and_run_still_happens(self):
         out = self.run_view(["sh", "-c", "printf ran"])
         self.assertEqual(out.stdout, "ran")

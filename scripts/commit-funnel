@@ -212,9 +212,9 @@ def parse_ts(text):
         return None
 
 
-def head_commit_time():
-    """Committer date of HEAD, or None on an empty repo."""
-    r = git("log", "-1", "--format=%cI", check=False)
+def last_commit_time(rel):
+    """Committer date of the last commit touching `rel`, or None when it was never committed."""
+    r = git("log", "-1", "--format=%cI", "--", rel, check=False)
     if r.returncode != 0 or not r.stdout.strip():
         return None
     try:
@@ -223,8 +223,8 @@ def head_commit_time():
         return None
 
 
-def read_ledger(since):
-    """Ledger rows newer than `since` (all rows when None); malformed lines are skipped."""
+def read_ledger():
+    """Every well-formed ledger row with a parseable ts; malformed lines are skipped."""
     try:
         with open(ledger_path(), encoding="utf-8") as fh:
             lines = fh.readlines()
@@ -239,9 +239,9 @@ def read_ledger(since):
         if not isinstance(row, dict):
             continue
         when = parse_ts(row.get("ts"))
-        if when is None or (since is not None and when <= since):
+        if when is None:
             continue
-        rows.append(row)
+        rows.append((when, row))
     return rows
 
 
@@ -252,13 +252,20 @@ def real(path):
 def covering_rows(rows, root, rels):
     """Map each committed path to the ledger rows that cover it.
 
-    A run row (path "*") covers every path under its cwd; a file row covers its path.
+    A row counts for a path only when it is newer than that path's last commit, so an
+    edit stays attributable until its own path is committed. A run row (path "*") covers
+    every path under its cwd; inside a live Pi run (PROVENANCE_SESSION, exported by
+    pi-view) that run's row counts for every commit, because it is stamped at run start.
     """
     covered = {rel: [] for rel in rels}
-    file_index = {}
-    for rel in rels:
-        file_index[os.path.join(root, rel)] = rel
-    for row in rows:
+    since = {rel: last_commit_time(rel) for rel in rels}
+    live_run = os.environ.get("PROVENANCE_SESSION")
+    file_index = {os.path.join(root, rel): rel for rel in rels}
+
+    def fresh(when, rel):
+        return since[rel] is None or when > since[rel]
+
+    for when, row in rows:
         cwd = row.get("cwd")
         if not isinstance(cwd, str) or cwd == "unknown":
             continue
@@ -266,15 +273,17 @@ def covering_rows(rows, root, rels):
         if row.get("path") == "*":
             if cwd_real != root and not cwd_real.startswith(root + os.sep):
                 continue
+            in_run = bool(live_run) and row.get("session") == live_run
             for rel in rels:
-                covered[rel].append(row)
+                if in_run or fresh(when, rel):
+                    covered[rel].append(row)
             continue
         path = row.get("path")
         if not isinstance(path, str):
             continue
         target = real(path if os.path.isabs(path) else os.path.join(cwd_real, path))
         rel = file_index.get(target)
-        if rel is not None:
+        if rel is not None and fresh(when, rel):
             covered[rel].append(row)
     return covered
 
@@ -290,9 +299,9 @@ def compress_paths(paths):
     return sorted({p.split("/", 1)[0] + "/" if "/" in p else p for p in paths})
 
 
-def provenance_trailers(root, rels, since):
+def provenance_trailers(root, rels):
     """Return a list of (key, value) trailers for the committed paths, one set per model."""
-    covered = covering_rows(read_ledger(since), root, rels)
+    covered = covering_rows(read_ledger(), root, rels)
     per_model = OrderedDict()
     for rel in rels:
         for row in covered[rel]:
@@ -327,9 +336,9 @@ def with_trailers(text, trailers):
     return r.stdout
 
 
-def message_with_trailers(root, rels, text, since):
+def message_with_trailers(root, rels, text):
     """Return the message text with provenance trailers, or None when no rows cover the paths."""
-    trailers = provenance_trailers(root, rels, since)
+    trailers = provenance_trailers(root, rels)
     if not trailers:
         return None
     return with_trailers(text, trailers)
@@ -338,8 +347,7 @@ def message_with_trailers(root, rels, text, since):
 def commit_git(rels, message_path, text, root):
     check_git_index(rels)
     stage_git(rels)
-    since = head_commit_time()
-    final = message_with_trailers(root, rels, text, since)
+    final = message_with_trailers(root, rels, text)
     if final is None:
         print(LEDGER_NOTICE, file=sys.stderr)
         final = text
@@ -376,8 +384,7 @@ def commit_jj(rels, text, branch, root):
     on_disk = [fileset(r) for r in rels if os.path.lexists(r)]
     if on_disk:
         jj("file", "track", *on_disk)
-    since = head_commit_time()
-    final = message_with_trailers(root, rels, text, since)
+    final = message_with_trailers(root, rels, text)
     if final is None:
         print(LEDGER_NOTICE, file=sys.stderr)
         final = text
