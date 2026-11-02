@@ -13,10 +13,29 @@ Do not supply models, apiKey, oauth, or a replacement stream handler. Read
 Support `anthropic`, `openai`, `openai-codex` and `opencode-go`, preserving their
 provider IDs and native session/cache headers. Derive exact upstream path
 behavior from installed Pi providers and Headroom handlers before implementation.
-For opencode-go, use documented Headroom `x-headroom-base-url` routing with the
-correct upstream base and endpoint path. Never send opencode-go credentials to
-OpenAI or Anthropic by default. Reject unsupported heterogeneous/model-specific
-endpoint overrides rather than silently routing them incorrectly.
+
+**Measured on headroom 0.24.0 / pi 1.4.0 and implemented — this supersedes the
+original `x-headroom-base-url` instruction:**
+
+- `x-headroom-base-url` does **not** route `/v1/chat/completions`. Probed with the
+  header set to the OpenCode Go base against a default-target proxy, the request
+  reached `api.openai.com` carrying the OpenCode key. The header is read only by the
+  catch-all `/{path:path}` route, which forwards raw and skips compression. It must
+  not be used to keep opencode-go credentials at OpenCode.
+- Instead the proxy pins one OpenAI-shaped target to OpenCode Go, and `opencode-go`
+  gets `${base}/v1`. Both Codex clients are unaffected because the ChatGPT upstream
+  is chosen by auth shape (`chatgpt-account-id` header or the JWT's
+  `chatgpt_account_id` claim), not by that setting.
+- `openai-codex` gets `${base}/backend-api`, not `${base}/v1`: Pi speaks WebSocket
+  on base + `/codex/responses`, and `/backend-api/codex/responses` is the only WS
+  route headroom registers that matches.
+- Pi's `openai` provider is deliberately **not** overridden. Its API key belongs to a
+  different vendor than the pinned target, so routing it is the one misroute this
+  design must not create.
+
+Never send opencode-go credentials to OpenAI or Anthropic by default. Reject
+unsupported heterogeneous/model-specific endpoint overrides rather than silently
+routing them incorrectly.
 
 Export pure routing helpers in a sibling module only if required for testing;
 keep the extension small. Tests may import TypeScript using installed Node's
@@ -33,6 +52,19 @@ the required extension installation/path. Do not modify pi-view, pueue-safe,
 provider-governance, queue templates or review hooks.
 
 ## Verification
+
+Implemented in `pi/.pi/agent/extensions/headroom.ts` and
+`pi/.pi/agent/extensions/lib/headroom-routing.ts`, with the CLI side in
+`scripts/headroom-workflow` (`pi` subcommand) and the `hpi` alias.
+
+**AC-2 delta, needs a human decision:** AC-2 asks the Codex launcher to "route both
+API and subscription endpoint forms". Under a pinned OpenAI target the API-key form
+cannot be proxied without sending OpenAI credentials to OpenCode Go, so the launcher
+now routes only the subscription surface and leaves the API-key path direct. The test
+asserts that contract (passthrough for an inherited `OPENAI_BASE_URL`, refusal for a
+proxy-pointed leftover). AC-2's wording therefore no longer matches the code and
+should be amended or the change reverted; the AC text and its verify line were left
+untouched.
 
 Create `scripts/tests/headroom-pi.test.mjs` and
 `scripts/tests/headroom-routing.test.mjs`. Exercise inert mode, correct provider
