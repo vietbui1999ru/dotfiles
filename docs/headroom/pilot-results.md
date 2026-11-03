@@ -1,8 +1,8 @@
 # Headroom pilot results
 
-Evidence record for phase 3 (root AC-8). Everything in §2–§4 was produced by a
-command in this worktree on 2026-11-03 with fixtures and isolated homes. Every
-cell of the live matrix in §5 is `not run` and says why. There is no savings
+Evidence record for phase 3 (root AC-8). Everything in §1 and §3 was produced by
+a command in this worktree on 2026-11-03 with fixtures and isolated homes. Every
+cell of the live matrix in §4 is `not run` and says why. There is no savings
 claim in this document, and no number here comes from a dashboard compression
 estimate.
 
@@ -14,7 +14,7 @@ Baseline for all of it: `headroom 0.24.0`, `pi 1.4.0` (see the runbook, §1).
 |---|---|
 | `python3 scripts/tests/test_headroom_measure.py` | `Ran 22 tests in 1.677s` — `OK` |
 | `node --test scripts/tests/headroom-*.test.mjs` | `tests 16` · `pass 16` · `fail 0` |
-| `python3 -m unittest discover -s scripts/tests -p 'test_headroom*.py'` | `Ran 28 tests` — 26 pass, 2 fail (§3) |
+| `python3 -m unittest discover -s scripts/tests -p 'test_headroom*.py'` | `Ran 28 tests` — 26 pass, 2 fail (§2) |
 
 Test-first record for the measurement tool: the 22 tests were written first and
 run against a missing file, giving `FAILED (failures=29)` across the 22 tests and
@@ -45,7 +45,8 @@ refusing to start a second proxy.
 ```
 
 That is the refusal path working, not a regression in phase 3, and neither test
-was edited. They pass on a free port. A read-only check of `~/.claude/settings.json`
+was edited: the only failing assertion in each is that refusal message. A
+read-only check of `~/.claude/settings.json`
 after the wrap showed no `env.ANTHROPIC_BASE_URL`, so no durable Claude routing was
 left behind. Stopping the wrapped process is the operator's call (runbook §11).
 
