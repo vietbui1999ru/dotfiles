@@ -20,3 +20,4 @@ dotfiles_stow_packages:
   - claude
   - pi
   - opencode
+  - systemd

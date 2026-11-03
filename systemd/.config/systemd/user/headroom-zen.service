@@ -1,0 +1,13 @@
+# Linux counterpart of launchd com.vietbui.headroom-zen. Stowed from dotfiles/systemd.
+[Unit]
+Description=Headroom compression proxy (OpenCode Go / Zen) on 127.0.0.1:8788
+
+[Service]
+ExecStart=%h/.local/bin/headroom proxy --port 8788 --mode cache --no-subscription-tracking --openai-api-url https://opencode.ai/zen/go/v1 --anthropic-api-url https://opencode.ai/zen/go
+Environment=HEADROOM_BEACON=off
+Environment=PATH=%h/.local/bin:/usr/bin:/bin
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

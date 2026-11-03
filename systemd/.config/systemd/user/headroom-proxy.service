@@ -1,0 +1,13 @@
+# Linux counterpart of launchd com.vietbui.headroom-proxy. Stowed from dotfiles/systemd.
+[Unit]
+Description=Headroom compression proxy (Claude Code, Codex) on 127.0.0.1:8787
+
+[Service]
+ExecStart=%h/.local/bin/headroom proxy --port 8787 --mode cache
+Environment=HEADROOM_BEACON=off
+Environment=PATH=%h/.local/bin:/usr/bin:/bin
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
