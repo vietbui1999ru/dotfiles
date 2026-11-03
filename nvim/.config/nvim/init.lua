@@ -22,6 +22,10 @@ end
 vim.g["coqtail#supported"] = 1
 -- Prevent vim-kitty-navigator from claiming C-hjkl (use vim-tmux-navigator instead)
 vim.g.kitty_navigator_no_mappings = 1
+-- vim-kitty-navigator shells out to `kitten` on load; disable it where kitty isn't installed
+if vim.fn.executable("kitten") == 0 then
+	vim.g.loaded_kitty_navigator = 1
+end
 
 vim.opt.number = true
 vim.opt.mouse = "a"
