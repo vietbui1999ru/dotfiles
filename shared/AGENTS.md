@@ -217,6 +217,15 @@ Never run `mise trust` (trust lets a config run code), `mise use -g`/`--global`,
 They change the whole machine or expose credentials, so they are the human's
 call. Add a mise config to a repo that has none only when the task asks for it.
 
+## Secrets
+
+Keys live in `~/secrets/.env`, which nothing sources. Never read or source that file, and never print a key's value.
+
+- Read one key with `~/dotfiles/scripts/secret-get NAME`; run a command with only the keys it needs through `~/dotfiles/scripts/with-secrets NAME... -- cmd`.
+- Pass any text that may hold a key through `~/dotfiles/scripts/redact` before it is logged or pushed.
+- Refer to keys by name only in reports, commits and tests.
+- Which tool loads which key, and how to add one: `docs/workflows/secrets.md`.
+
 <!-- spec-loop:start -->
 ## Spec loop
 
