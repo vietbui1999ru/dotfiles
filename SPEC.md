@@ -60,8 +60,16 @@ Decisions from the 2026-11-03 planning session:
 - AC-16: In a fresh login shell no `.env` value appears in the environment, and context7, excalidraw and firecrawl MCP calls still work from Claude, OpenCode and a `pi-view` pueue dispatch
   verify: manual - live shell and client check by the human
 
+### Headroom (proxy between clients and model providers)
+- AC-17: The `hclaude` alias starts Headroom with `umask 077` and `HEADROOM_TELEMETRY=off`, and through `with-secrets` with no keys, so the proxy and its children inherit none
+  verify: `rg -q 'umask 077.*HEADROOM_TELEMETRY=off|HEADROOM_TELEMETRY=off.*umask 077' zsh/.zsh/aliases.zsh`
+- AC-18: `scripts/headroom-prune` sets `~/.headroom` to 700 and its files to 600, and deletes `logs/debug_400/*.json` older than 7 days (these dumps hold full unredacted conversations); the `hclaude` alias runs it before each start
+  verify: `python3 -m unittest -v scripts/tests/test_headroom_prune.py`
+- AC-19: The ansible server note says to bind Headroom to 127.0.0.1 and expose it only through `tailscale serve` (HTTPS, tailnet-only), never plain HTTP on a LAN address
+  verify: `rg -q 'tailscale serve' ansible/roles/agents/tasks/main.yml`
+
 ### Docs
-- AC-17: The convention (secret-get / with-secrets / redact / secret-scan, never source the file) is documented in `shared/AGENTS.md` and `docs/workflows/secrets.md`, including the human at-rest checklist below
+- AC-20: The convention (secret-get / with-secrets / redact / secret-scan, never source the file) is documented in `shared/AGENTS.md` and `docs/workflows/secrets.md`, including the human at-rest checklist below
   verify: `rg -q 'secret-get' shared/AGENTS.md docs/workflows/secrets.md`
 
 ## Companion branches (same session, separate repos)
@@ -74,6 +82,7 @@ Decisions from the 2026-11-03 planning session:
 - `~/.claude.json`: literal context7/github headers to `${VAR}`; `chmod 600` it, `~/.mcphub/servers.json`, `nvim/.config/nvim/.env`.
 - Orca (`*:6768`) and Bartender (`*:7823`): bind to localhost in their settings if offered.
 - Remove unused keys (OPENCODE_GO_API_KEY_PI_QUEUES, LITELLM_MASTER_KEY) from `.env` if truly unused.
+- Kill the ~23 orphaned `headroom mcp serve` processes (each holds the full exported environment until the `.zshrc` cutover) and find which client leaves them behind.
 
 ## Boundaries
 ### Always
