@@ -109,6 +109,7 @@ class PiQueue(unittest.TestCase):
         self.stub = self.tmp / "stub"
         self.state = self.tmp / "state"
         self.home = self.tmp / "home"
+        self.safety = self.tmp / "safety"
         for directory in (self.bin, self.stub, self.state, self.home):
             directory.mkdir(parents=True)
         for name, body in (
@@ -131,7 +132,11 @@ class PiQueue(unittest.TestCase):
             "PI_QUEUE_GH": str(self.bin / "gh"),
             "PI_QUEUE_STATE": str(self.state),
             "PI_TEST_STUB": str(self.stub),
+            # A busy refusal logs to the safety log: keep that write in the temp dir, and
+            # keep the machine's own session id out of the logged fields.
+            "SAFETY_LOG_DIR": str(self.safety),
         })
+        self.env.pop("CLAUDE_CODE_SESSION_ID", None)
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -400,6 +405,48 @@ class PiQueue(unittest.TestCase):
         (self.tmp / "plan.md").write_text("implement the plan")
         (self.tmp / "wt").mkdir(exist_ok=True)
         return step
+
+    def safety_entries(self):
+        path = self.safety / "bash-safety-blocks.jsonl"
+        if not path.exists():
+            return []
+        return [json.loads(line) for line in path.read_text().splitlines() if line]
+
+    def test_failed_event_has_reason(self):
+        # AC-8: a failed event says why; done and started events carry no reason.
+        self.run_step({**self.pi_step(executor="shell", cmd=["exit 3"], worktree="",
+                                      label="q:s1:spec-approved:shell"), "executor": "shell"})
+        failed = [item for item in self.events() if item.get("event") == "failed"]
+        self.assertTrue(failed)
+        self.assertTrue(failed[-1].get("reason"), failed[-1])
+
+        self.run_step({**self.pi_step(executor="mystery", label="q:s1:spec-approved:mystery")})
+        failed = [item for item in self.events() if item.get("event") == "failed"]
+        self.assertTrue(all(isinstance(item.get("reason"), str) and item["reason"] for item in failed))
+
+        self.run_step({**self.pi_step(executor="shell", cmd=["true"], worktree="",
+                                      label="q:s1:spec-approved:ok")})
+        for item in self.events():
+            if item.get("event") in ("started", "done"):
+                self.assertNotIn("reason", item)
+
+    def test_busy_worktree_logged(self):
+        # AC-8: a worktree-busy refusal logs one queue-worktree-busy entry, with the reason on the event.
+        self.fixture("tasks.json", {"4": {"id": 4, "label": "pi", "path": str(self.tmp / "wt"),
+                                         "group": "default", "command": "pi ...",
+                                         "status": {"Running": {"start": "2026-10-30T00:00:00Z"}}}})
+        step = self.pi_step(session="sess-busy-1234", template="spec-approved", step="dispatch")
+        result = self.run_step(step)
+        self.assertNotEqual(result.returncode, 0)
+        failed = [item for item in self.events() if item.get("event") == "failed"][-1]
+        self.assertIn("already runs pueue task", failed["reason"])
+
+        [entry] = self.safety_entries()
+        self.assertEqual(entry["rule"], "queue-worktree-busy")
+        self.assertEqual(Path(entry["cwd"]).resolve(), (self.tmp / "wt").resolve())
+        self.assertEqual(entry["session"], "sess-busy-1234")
+        self.assertEqual(entry["command"], "pi-queue spec-approved:dispatch")
+        self.assertIn("already runs pueue task", entry["reason"])
 
     def test_worktree_guard(self):
         # AC-9: a worktree with a running pueue task refuses without starting Pi.
