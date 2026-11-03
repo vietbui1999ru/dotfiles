@@ -4,6 +4,7 @@ Every case runs the CLI with a temporary HOME, stub `headroom`/`claude`/`codex`
 binaries and a loopback HTTP fixture, so no real provider, config, auth file or
 paid inference is touched. Stdlib only.
 """
+import importlib.machinery
 import json
 import shutil
 import socket
@@ -11,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import types
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -89,6 +91,29 @@ def free_port():
         return sock.getsockname()[1]
 
 
+def isolated_url():
+    """A free loopback origin, so no case depends on the owner's live proxy."""
+    return f"http://127.0.0.1:{free_port()}"
+
+
+def load_workflow_module():
+    """Import scripts/headroom-workflow in-process to inspect its constants.
+
+    The file has no .py suffix, so it is loaded by path. Importing it opens no
+    socket: only constants, helpers and command functions are defined.
+    """
+    loader = importlib.machinery.SourceFileLoader("headroom_workflow", str(CLI))
+    module = types.ModuleType(loader.name)
+    module.__file__ = str(CLI)
+    previous = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = previous
+    return module
+
+
 class HeadroomWorkflow(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="headroom-workflow-"))
@@ -143,11 +168,12 @@ class HeadroomWorkflow(unittest.TestCase):
     def test_proxy_policy(self):
         self.stub("headroom")
         before = self.snapshot()
-        r = self.run_cli("proxy")
+        port = free_port()
+        r = self.run_cli("proxy", env={"HEADROOM_WORKFLOW_URL": f"http://127.0.0.1:{port}"})
         self.assertEqual(r.returncode, 0, r.stderr)
         argv = self.stub_payload()["argv"]
         self.assertEqual(argv, [
-            "proxy", "--host", "127.0.0.1", "--port", "8787",
+            "proxy", "--host", "127.0.0.1", "--port", str(port),
             "--mode", "cache", "--workers", "1",
             "--no-cache", "--no-telemetry",
         ])
@@ -159,6 +185,16 @@ class HeadroomWorkflow(unittest.TestCase):
         self.assertNotIn("HEADROOM_LOG_MESSAGES", present)
         self.assertNotIn("HEADROOM_PROXY_EXTENSIONS", present)
         self.assertEqual(self.snapshot(), before)
+
+        # The unconfigured default is still the pilot's loopback 8787 origin, and
+        # `proxy` derives its port from it when the variable is unset. Resolved
+        # in-process, so this assertion never opens a socket on 8787.
+        module = load_workflow_module()
+        self.assertEqual(module.DEFAULT_URL, "http://127.0.0.1:8787")
+        default = module.resolve_address({})
+        self.assertEqual(default.base, "http://127.0.0.1:8787")
+        self.assertEqual(default.port, 8787)
+        self.assertEqual(default.bind_host, "127.0.0.1")
 
         # The configured port is honoured, the bind host stays loopback.
         self.stub_out.unlink()
@@ -177,13 +213,16 @@ class HeadroomWorkflow(unittest.TestCase):
         self.assertFalse(self.stub_out.exists())
 
         # Inherited feature switches are refused before launch.
-        r = self.run_cli("proxy", env={"HEADROOM_LOG_MESSAGES": "1"})
+        r = self.run_cli("proxy", env={"HEADROOM_WORKFLOW_URL": isolated_url(),
+                                       "HEADROOM_LOG_MESSAGES": "1"})
         self.assertEqual(r.returncode, 1)
         self.assertIn("HEADROOM_LOG_MESSAGES", r.stderr)
-        r = self.run_cli("proxy", env={"HEADROOM_PROXY_EXTENSIONS": "rtk"})
+        r = self.run_cli("proxy", env={"HEADROOM_WORKFLOW_URL": isolated_url(),
+                                       "HEADROOM_PROXY_EXTENSIONS": "rtk"})
         self.assertEqual(r.returncode, 1)
         self.assertIn("HEADROOM_PROXY_EXTENSIONS", r.stderr)
-        r = self.run_cli("proxy", env={"ANTHROPIC_TARGET_API_URL": "https://elsewhere.example"})
+        r = self.run_cli("proxy", env={"HEADROOM_WORKFLOW_URL": isolated_url(),
+                                       "ANTHROPIC_TARGET_API_URL": "https://elsewhere.example"})
         self.assertEqual(r.returncode, 1)
         self.assertIn("ANTHROPIC_TARGET_API_URL", r.stderr)
         self.assertFalse(self.stub_out.exists())
@@ -192,7 +231,7 @@ class HeadroomWorkflow(unittest.TestCase):
     # -- AC-1 (amended): the OpenAI-shaped target is pinned, not inherited --
     def test_proxy_pins_openai_target(self):
         self.stub("headroom")
-        r = self.run_cli("proxy")
+        r = self.run_cli("proxy", env={"HEADROOM_WORKFLOW_URL": isolated_url()})
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.stub_payload()["env"]["OPENAI_TARGET_API_URL"],
                          "https://opencode.ai/zen/go/v1")
@@ -200,6 +239,7 @@ class HeadroomWorkflow(unittest.TestCase):
         # The same value inherited from the operator is accepted, not duplicated.
         self.stub_out.unlink()
         r = self.run_cli("proxy", env={
+            "HEADROOM_WORKFLOW_URL": isolated_url(),
             "OPENAI_TARGET_API_URL": "https://opencode.ai/zen/go/v1/"})
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.stub_payload()["env"]["OPENAI_TARGET_API_URL"],
@@ -208,14 +248,16 @@ class HeadroomWorkflow(unittest.TestCase):
         # A different value would move provider traffic to another vendor: refused.
         self.stub_out.unlink()
         for value in ("https://api.openai.com", "http://127.0.0.1:11434/v1"):
-            r = self.run_cli("proxy", env={"OPENAI_TARGET_API_URL": value})
+            r = self.run_cli("proxy", env={"HEADROOM_WORKFLOW_URL": isolated_url(),
+                                           "OPENAI_TARGET_API_URL": value})
             self.assertEqual(r.returncode, 1, value)
             self.assertIn("OPENAI_TARGET_API_URL", r.stderr)
             self.assertIn("pins it to", r.stderr)
             self.assertFalse(self.stub_out.exists())
 
         # The proxy-scoped spelling is still refused outright.
-        r = self.run_cli("proxy", env={"HEADROOM_OPENAI_TARGET_API_URL": "https://x.example"})
+        r = self.run_cli("proxy", env={"HEADROOM_WORKFLOW_URL": isolated_url(),
+                                       "HEADROOM_OPENAI_TARGET_API_URL": "https://x.example"})
         self.assertEqual(r.returncode, 1)
         self.assertIn("HEADROOM_OPENAI_TARGET_API_URL", r.stderr)
 
