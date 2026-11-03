@@ -18,7 +18,7 @@ per phase. Detailed subspecs live under `docs/headroom/` and the execution plan 
 ## Acceptance Criteria
 - AC-1: Phase 1 proxy entry point binds only to loopback, explicitly selects cache mode and one worker, and does not enable memory, learning, telemetry, or full message logging
   verify: `python3 scripts/tests/test_headroom_workflow.py HeadroomWorkflow.test_proxy_policy`
-- AC-2: Phase 1 Claude and Codex launchers reuse the configured proxy, preserve user arguments and child exit status, and route both API and subscription endpoint forms without persistent config or instruction edits
+- AC-2: Phase 1 Claude and Codex launchers reuse the configured proxy, preserve user arguments and child exit status, and route Claude plus the Codex subscription endpoint form without persistent config or instruction edits; with the OpenAI target pinned to OpenCode Go, an API-key OpenAI endpoint override is refused by name, never rerouted
   verify: `python3 scripts/tests/test_headroom_workflow.py HeadroomWorkflow.test_provider_launchers`
 - AC-3: Phase 1 health checks fail clearly for an unavailable or unrelated listener, reject non-loopback proxy URLs, and never silently fall back to direct provider traffic
   verify: `python3 scripts/tests/test_headroom_workflow.py HeadroomWorkflow.test_proxy_validation`
