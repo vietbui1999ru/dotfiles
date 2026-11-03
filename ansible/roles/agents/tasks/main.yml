@@ -99,8 +99,8 @@
   when: not agent_lite | bool
 
 # Headroom CLI, proxy and MCP server (`[all]`), as a uv tool on Python 3.13.
-# Install only: run `headroom proxy --host 127.0.0.1 --port 8787` on the server and point clients
-# at it with ANTHROPIC_BASE_URL / OPENAI_BASE_URL. Bind to 127.0.0.1 and expose it to other
+# The proxy itself runs from systemd/headroom-proxy.service and
+# systemd/headroom-zen.service (see below), bound to 127.0.0.1. Expose it to other
 # machines only through `tailscale serve` (HTTPS, tailnet-only), never as plain HTTP on a LAN address.
 - name: Install Headroom (uv tool, servers only)
   ansible.builtin.command: >-
@@ -110,6 +110,114 @@
   environment:
     PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.HOME }}/.local/share/mise/shims:{{ ansible_env.PATH }}"
   when: agents_headroom_enabled | bool
+
+# The user units are linked one file at a time rather than stowed: linking the
+# whole systemd/ folder into ~/.config/systemd/user would turn every file in the
+# repo directory into a unit.
+- name: Ensure ~/.config/systemd/user exists
+  ansible.builtin.file:
+    path: "{{ ansible_env.HOME }}/.config/systemd/user"
+    state: directory
+    mode: "0755"
+  when: agents_headroom_enabled | bool
+
+- name: Link the Headroom user units
+  ansible.builtin.file:
+    src: "{{ ansible_env.HOME }}/dotfiles/systemd/{{ item }}"
+    dest: "{{ ansible_env.HOME }}/.config/systemd/user/{{ item }}"
+    state: link
+    force: true
+  loop:
+    - headroom-proxy.service
+    - headroom-zen.service
+  when: agents_headroom_enabled | bool
+
+# Molecule containers and WSL2 without systemd have no /run/systemd/system, and
+# nothing below can work there. The units are still linked, so they start on a
+# later boot of a real systemd box.
+- name: Check whether systemd is running
+  ansible.builtin.stat:
+    path: /run/systemd/system
+  register: agents_systemd_running
+
+- name: Note that the Headroom user services were not started
+  ansible.builtin.debug:
+    msg: >-
+      /run/systemd/system is missing, so the Headroom user units were linked but
+      not started or enabled, and no client was pointed at the proxy. Rerun this
+      role on a box that boots systemd.
+  when:
+    - agents_headroom_enabled | bool
+    - not agents_systemd_running.stat.exists
+
+# Without linger the user manager stops at logout, which is exactly what a
+# headless box never does in practice and WSL2 does after the last shell.
+- name: Read the current linger setting
+  ansible.builtin.command: loginctl show-user {{ ansible_user_id }} -p Linger
+  register: agents_linger
+  changed_when: false
+  failed_when: false
+  when:
+    - agents_headroom_enabled | bool
+    - agents_systemd_running.stat.exists
+
+- name: Keep the user manager running without a login session
+  ansible.builtin.command: loginctl enable-linger {{ ansible_user_id }}
+  when:
+    - agents_headroom_enabled | bool
+    - agents_systemd_running.stat.exists
+    - agents_linger.rc == 0
+    - "'Linger=yes' not in agents_linger.stdout"
+
+- name: Start the Headroom user services
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    scope: user
+    daemon_reload: true
+    enabled: true
+    state: started
+  loop:
+    - headroom-proxy.service
+    - headroom-zen.service
+  when:
+    - agents_headroom_enabled | bool
+    - agents_systemd_running.stat.exists
+
+# Pi has no env override for a provider base URL, so its route lives in
+# ~/.pi/agent/models.json. The generator reads Pi's own catalog, which only
+# exists once Pi has run.
+- name: Check Pi's model catalog
+  ansible.builtin.stat:
+    path: "{{ ansible_env.HOME }}/.pi/agent/models-store.json"
+  register: agents_pi_models_store
+  when:
+    - agents_headroom_enabled | bool
+    - not agent_lite | bool
+    - agents_systemd_running.stat.exists
+
+- name: Note that Pi keeps the direct opencode-go route
+  ansible.builtin.debug:
+    msg: >-
+      ~/.pi/agent/models-store.json is missing, so scripts/pi-headroom-models was
+      not run and Pi keeps talking to Zen Go directly. Run Pi once, then rerun
+      this role.
+  when:
+    - agents_headroom_enabled | bool
+    - not agent_lite | bool
+    - agents_systemd_running.stat.exists
+    - not agents_pi_models_store.stat.exists
+
+# The script rewrites models.json with the same bytes when nothing changed, so
+# the role is idempotent by content and reports no change.
+- name: Route Pi's opencode-go provider through the Zen proxy
+  ansible.builtin.command:
+    cmd: "{{ ansible_env.HOME }}/dotfiles/scripts/pi-headroom-models"
+  changed_when: false
+  when:
+    - agents_headroom_enabled | bool
+    - not agent_lite | bool
+    - agents_systemd_running.stat.exists
+    - agents_pi_models_store.stat.exists
 
 - name: Ensure ~/secrets exists (owner-only)
   ansible.builtin.file:

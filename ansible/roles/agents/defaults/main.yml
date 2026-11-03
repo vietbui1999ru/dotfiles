@@ -1,8 +1,9 @@
 ---
-# Headroom (LLM context-compression proxy) is for always-on servers that front
-# the LLM providers, not for every agent box. Enable per run:
-#   scripts/bootstrap-ubuntu.sh --agent -e agents_headroom_enabled=true
-agents_headroom_enabled: false
+# Headroom (LLM context-compression proxy) runs on every full agent box and on
+# the servers that front the LLM providers. Lite boxes (4 GB Raspberry Pi class)
+# stay off by default because Kompress is memory hungry; opt in per run with:
+#   scripts/bootstrap-ubuntu.sh --agent-lite -e agents_headroom_enabled=true
+agents_headroom_enabled: "{{ not (agent_lite | bool) }}"
 # pueue release asset triple for the host arch (both musl builds are static).
 agents_linux_triple: >-
   {{ {'x86_64': 'x86_64-unknown-linux-musl', 'aarch64': 'aarch64-unknown-linux-musl'}[ansible_architecture] }}
