@@ -1,5 +1,5 @@
 ---
-status: approved
+status: draft
 branch: feat/sec-scope
 ---
 # SPEC: Scope secrets to the tool that needs them
@@ -30,7 +30,7 @@ Decisions from the 2026-11-03 planning session:
   verify: `python3 -m unittest -v scripts/tests/test_with_secrets.py`
 - AC-4: `scripts/redact` (stdin to stdout) replaces every literal `.env` value and each pattern: `sk-`, `ghp_`/`gho_`/`github_pat_`, `AIza`, `fc-`, `xox[abp]-`, `AKIA`, `Bearer <tok>`, `Authorization:`/`X-Api-Key:` header values, `user:pass@` in URLs, `NAME=value` where NAME matches `(?i)(key|token|secret|pass|pat|auth)`, and short flags with glued values (`-pX`); fixtures cover each shape and leave ordinary text unchanged
   verify: `python3 -m unittest -v scripts/tests/test_redact.py`
-- AC-5: `scripts/secret-scan [files...|-]` exits 1 and prints file:line plus the pattern name (never the value) for any `redact` match; exits 0 on clean input
+- AC-5: `scripts/secret-scan [files...|-]` exits 1 and prints file:line plus the pattern name (never the value) for any literal `.env` value or any `redact` pattern tagged gate tier (token prefixes, auth header values, URL credentials); the broad redact-only rules (`NAME=value`, short-flag values) never fail it; a line containing `secret-scan: allow` is skipped; exits 0 on clean input
   verify: `python3 -m unittest -v scripts/tests/test_secret_scan.py`
 
 ### Phase 2: leaks that persist or leave the machine

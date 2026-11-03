@@ -91,6 +91,36 @@ class SecretScan(unittest.TestCase):
         out = self.run_scan(str(f))
         self.assertEqual(out.returncode, 0, out.stdout)
 
+    def test_broad_redact_rules_do_not_fail_the_gate(self):
+        # NAME=value, short-flag and templated header lines are redact-only, never a gate hit.
+        lines = [
+            'PATH=$HOME/bin:/usr/bin',
+            'key=$(sed -n "s/x//p" file)',
+            'GIT_AUTHOR_NAME=someone',
+            'find . -maxdepth 2 -newermt today',
+            'headers = {"Authorization": f"Bearer {token}"}',
+        ]
+        f = self.write("broad.sh", "\n".join(lines) + "\n")
+        out = self.run_scan(str(f))
+        self.assertEqual(out.returncode, 0, out.stdout)
+
+    def test_allow_comment_skips_the_line(self):
+        f = self.write("fixture.py", f'FAKE = "{FAKE_SK}"  # secret-scan: allow\n')
+        out = self.run_scan(str(f))
+        self.assertEqual(out.returncode, 0, out.stdout)
+
+    def test_allow_comment_covers_only_its_own_line(self):
+        f = self.write("fixture.py", f'ok = 1  # secret-scan: allow\nleak = "{FAKE_SK}"\n')
+        out = self.run_scan(str(f))
+        self.assertEqual(out.returncode, 1)
+        self.assertIn(f"{f}:2: openai-style-key", out.stdout)
+
+    def test_literal_value_is_a_hit_even_in_a_broad_rule_shape(self):
+        f = self.write("lit.sh", f"MY_TOKEN={LITERAL}\n")
+        out = self.run_scan(str(f))
+        self.assertEqual(out.returncode, 1)
+        self.assertIn(f"{f}:1: MY_LITERAL", out.stdout)
+
     def test_missing_file_is_an_error_not_a_pass(self):
         out = self.run_scan(str(self.tmp / "nope.txt"))
         self.assertNotEqual(out.returncode, 0)

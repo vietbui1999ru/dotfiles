@@ -36,6 +36,14 @@ PATTERNS = [
     ("short-flag-value", re.compile(r"(?<![A-Za-z0-9\-])(-[A-Za-z])[A-Za-z0-9_]{6,}\b")),
 ]
 
+# Gate tier: patterns precise enough to fail a commit (scripts/secret-scan). The rest
+# (auth-header, name-value-assignment, short-flag-value) match ordinary code such as PATH=,
+# key=$(...) and find -maxdepth, so they only redact log text and never block a commit.
+GATE_PATTERNS = frozenset({
+    "openai-style-key", "github-token", "github-fine-grained-pat", "google-api-key",
+    "firecrawl-key", "slack-token", "aws-access-key-id", "bearer-token", "url-userinfo",
+})
+
 
 def load_literals(secrets_path):
     """Return (name, value) pairs of length >= MIN_LITERAL, or None when unreadable."""
