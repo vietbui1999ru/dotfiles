@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
+import { spawnSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 // Fingerprints for repeated agent mistakes. A fingerprint is a normalized signature: tool, command shape, error class.
 // Counts live in a JSON map; an alert fires when one fingerprint recurs enough inside a window, and at most once per window.
@@ -34,17 +35,36 @@ export const errorClass = (text = '') => ERROR_CLASSES.find(([, pattern]) => pat
 // Flags whose next word is a path or value, not part of the shape: "git -C /repo status" is "git status".
 const VALUE_FLAGS = new Set(['-C', '-c', '--git-dir', '--work-tree', '--cwd'])
 
+// Leading "NAME=value" words and a leading "env" are wrappers, not the program.
+const ASSIGN = /^[A-Za-z_][A-Za-z0-9_]*=/
+const stripWrappers = words => {
+  let rest = words
+  while (rest.length && (ASSIGN.test(rest[0]) || rest[0] === 'env')) rest = rest.slice(1)
+  return rest
+}
+
+// Short flags with a glued value ("-pSECRET") reduce to the bare flag ("-p"). Long flags are handled by the =... drop.
+const bareShortFlag = token => (/^-[A-Za-z]/.test(token) && !token.startsWith('--') && token.length > 2 ? token.slice(0, 2) : token)
+
+// Scripts/redact runs on the final shape, so a token-shaped word that survives in a subcommand slot is still masked.
+const REDACT = fileURLToPath(new URL('./redact', import.meta.url))
+const redactShape = (shape, program) => {
+  const result = spawnSync('python3', [REDACT], { input: shape, encoding: 'utf8' })
+  return result.status === 0 && typeof result.stdout === 'string' ? result.stdout.trimEnd() : program
+}
+
 export const commandShape = (command = '') => {
-  const [first = '', ...rest] = command.trim().split(/\s+/)
+  const [first = '', ...afterProgram] = stripWrappers(command.trim().split(/\s+/))
   const program = first.split('/').pop() ?? ''
-  const words = rest.filter((token, index) => !VALUE_FLAGS.has(token) && !VALUE_FLAGS.has(rest[index - 1]))
+  const rest = afterProgram
+  const words = rest.filter((token, index) => !VALUE_FLAGS.has(token) && !VALUE_FLAGS.has(rest[index - 1])).map(bareShortFlag)
   const flags = [...new Set(words.filter(token => /^--?[A-Za-z]/.test(token)).map(token => token.replace(/=.*/, '')))].sort()
   // A second subcommand word only after a group word: "gh pr create" keeps create; "git push origin" drops origin.
   const candidates = words.filter(token => !token.startsWith('-') && !/[./~$'"]/.test(token))
   const subs = SUBCOMMAND_TOOLS.has(program)
     ? candidates.slice(0, SUB_GROUPS.has(candidates[0]) ? 2 : 1)
     : []
-  return [program, ...subs, ...flags].join(' ')
+  return redactShape([program, ...subs, ...flags].join(' '), program)
 }
 
 export const fingerprint = ({ tool, command, error }) => [tool.toLowerCase(), commandShape(command), errorClass(error)].join('|')
@@ -82,6 +102,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     console.log(`ALERT ${fp}: ${map[fp].hits.length} hits in ${WINDOW_DAYS} days. Record a mistake entry for it.`)
     map = markAlerted(map, fp, now)
   }
-  mkdirSync(dirname(mapPath), { recursive: true })
-  writeFileSync(mapPath, `${JSON.stringify(map, null, 2)}\n`)
+  mkdirSync(dirname(mapPath), { recursive: true, mode: 0o700 })
+  writeFileSync(mapPath, `${JSON.stringify(map, null, 2)}\n`, { mode: 0o600 })
 }

@@ -585,8 +585,8 @@
   "mcpServers": {
     "firecrawl": {
       "args": [
-        "-lc",
-        "set -a; if [ \"${SEND_IT:-}\" = 1 ]; then F=\"$HOME/.config/send-it/.env\"; else F=\"$HOME/secrets/.env\"; fi; [ -f \"$F\" ] && . \"$F\"; exec npx -y firecrawl-mcp"
+        "-c",
+        "if [ \"${SEND_IT:-}\" = 1 ]; then export FIRECRAWL_ENV_FILE=\"$HOME/.config/send-it/.env\"; fi; exec \"$HOME/dotfiles/scripts/firecrawl-mcp\""
       ],
       "command": "bash"
     },
