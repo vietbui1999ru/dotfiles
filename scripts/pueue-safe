@@ -25,7 +25,18 @@ if [[ -z $real ]]; then
   exit 127
 fi
 
-[[ ${1:-} == add ]] || exec $real "$@"
+# Global options come before the subcommand. Value-taking flags consume the next word
+# unless written --flag=value; the rest are standalone switches.
+globals=()
+while (( $# > 0 )); do
+  case $1 in
+    -c|--config|-p|--profile|--color) globals+=($1 $2); shift 2 ;;
+    --config=*|--profile=*|--color=*|-v|-vv|-h|--help|-V|--version) globals+=($1); shift ;;
+    -*) globals+=($1); shift ;;
+    *) break ;;
+  esac
+done
+sub=${1:-}
 
 # Variable names the secrets file defines (`NAME=value` or `export NAME=value`).
 listed=()
@@ -34,15 +45,31 @@ if [[ -r $secrets ]]; then
   for line in ${(f)"$(<$secrets)"}; do
     [[ $line =~ '^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=' ]] && listed+=($match[2])
   done
+else
+  print -u2 -- 'pueue-safe: warning: secrets file unreadable; dropping by name pattern only'
 fi
 
 # Whether a variable name looks like a secret even when the secrets file does not list it.
+# Suffixes only, matched case-insensitively, so SSH_AUTH_SOCK and MAX_THINKING_TOKENS pass.
 # Returns 0 (true) to drop the variable from what pueue stores, 1 to keep it.
 is_secret() {
-  local name=$1
-  [[ $name == *_TOKEN || $name == *_KEY  || $name == GITHUB_* || $name == *_API_KEY_PI_QUEUES || $name == *_API_KEY_LIGHTRAG || $name == *_PASSWORD || $name == *_SECRET || $name == *_CREDENTIALS ]] && return 0
+  local name=${(U)1}
+  [[ $name == *_TOKEN || $name == *_KEY  || $name == GITHUB_* || $name == *_API_KEY_PI_QUEUES || $name == *_API_KEY_LIGHTRAG || $name == *_PASSWORD || $name == *_SECRET || $name == *_CREDENTIALS \
+     || $name == *_APIKEY || $name == *_PAT || $name == *_PASS || $name == *_PASSWD || $name == *_AUTH_TOKEN || $name == *_ACCESS_KEY ]] && return 0
   return 1
 }
+
+# env set <task-id> <NAME> <value>: refuse a secret-like name before pueue stores it.
+if [[ $sub == env && ${2:-} == set ]]; then
+  name=${4:-}
+  if [[ -n $name ]] && { (( ${listed[(Ie)$name]} )) || is_secret $name; }; then
+    print -u2 -- "pueue-safe: refusing to store secret-like variable $name"
+    exit 2
+  fi
+  exec $real "${globals[@]}" "$@"
+fi
+
+[[ $sub == add ]] || exec $real "${globals[@]}" "$@"
 
 drop=()
 for name in ${(k)parameters[(R)*export*]}; do
@@ -50,4 +77,4 @@ for name in ${(k)parameters[(R)*export*]}; do
     drop+=(-u $name)
   fi
 done
-exec env $drop $real "$@"
+exec env $drop $real "${globals[@]}" "$@"
