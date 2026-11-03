@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# headroom-doctor: read-only check of the Headroom proxy setup. Prints one line
+# per item and changes nothing. See docs/workflows/headroom-proxy.md.
+#
+# Exit 0 when both proxies answer and this shell is routed if it should be;
+# 1 when a service is down or this shell matched a routing gate but is direct.
+#
+# Run it in the place that matters: a herdr pane, an Orca terminal, a tmux pane
+# or a plain shell.
+
+set -uo pipefail
+
+fail=0
+line() { printf '%-20s %s\n' "$1" "$2"; }
+
+# 1. Health. Same probe headroom.zsh uses at shell start.
+for port in 8787 8788; do
+  if curl -sf --connect-timeout 0.3 -m 2 -o /dev/null "http://127.0.0.1:$port/livez"; then
+    line "port $port" "up"
+  else
+    line "port $port" "DOWN"
+    fail=1
+  fi
+done
+
+# 2. Services: launchd on macOS, systemd user units on Linux.
+if [[ ${OSTYPE:-} == darwin* ]]; then
+  for unit in proxy zen; do
+    label="gui/$(id -u)/com.vietbui.headroom-$unit"
+    if launchctl print "$label" 2>/dev/null | grep -q 'state = running'; then
+      line "launchd $unit" "running"
+    else
+      line "launchd $unit" "not running"
+      fail=1
+    fi
+  done
+else
+  for unit in proxy zen; do
+    state="$(systemctl --user is-active "headroom-$unit" 2>/dev/null || true)"
+    line "systemd $unit" "${state:-unknown}"
+    [[ $state == active ]] || fail=1
+  done
+fi
+
+# 3. This shell. The gates are the ones headroom.zsh tests, in its order.
+gates=()
+[[ ${OSTYPE:-} == linux* ]] && gates+=("Linux")
+[[ ${HERDR_ENV:-} == 1 ]] && gates+=("herdr")
+[[ -n ${ORCA_PANE_KEY:-} ]] && gates+=("Orca")
+gate=""
+for g in ${gates[@]+"${gates[@]}"}; do gate="${gate:+$gate, }$g"; done
+line "gate" "${gate:-none (direct)}"
+line "ANTHROPIC_BASE_URL" "${ANTHROPIC_BASE_URL:-unset}"
+line "ENABLE_TOOL_SEARCH" "${ENABLE_TOOL_SEARCH:-unset}"
+
+# The `codex` wrapper is a shell function in the pane's own zsh, so this process
+# cannot see it. Ask a fresh interactive zsh instead: it sources the same rc with
+# the inherited HERDR_ENV / ORCA_PANE_KEY and reports what it ended up with.
+if command -v zsh >/dev/null 2>&1; then
+  codex_kind="$(zsh -ic 'whence -w codex' 2>/dev/null | tail -n 1)"
+  line "codex" "${codex_kind:-unknown}"
+else
+  line "codex" "unknown (no zsh)"
+fi
+
+if [[ -n $gate && ${ANTHROPIC_BASE_URL:-} != http://127.0.0.1:8787 ]]; then
+  line "routing" "NOT routed though the gate matched; reopen this shell"
+  fail=1
+fi
+
+# 4. Pi routes through 8788 from its machine-local models.json, not the shell.
+pi_models="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/models.json"
+if [[ ! -f $pi_models ]]; then
+  line "pi" "no models.json, direct route"
+elif grep -q '"opencode-go"' "$pi_models" && grep -q '127\.0\.0\.1:8788' "$pi_models"; then
+  line "pi" "opencode-go -> 8788"
+else
+  line "pi" "opencode-go direct (run scripts/pi-headroom-models)"
+fi
+
+exit "$fail"
