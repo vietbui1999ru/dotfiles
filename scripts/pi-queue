@@ -461,12 +461,9 @@ def record_busy(step, reason):
     """One queue-worktree-busy entry in the safety log. Best effort: a failed write changes nothing."""
     command = f"pi-queue {step.get('template', '')}:{step.get('step', '')}"
     safety_log = Path(__file__).resolve().with_name("safety-log")
-    try:
-        run([sys.executable, str(safety_log), "record", "--rule", "queue-worktree-busy",
-             "--reason", reason, "--command", command, "--session", step.get("session", ""),
-             "--cwd", step.get("worktree", "")])
-    except OSError:
-        pass
+    run([sys.executable, str(safety_log), "record", "--rule", "queue-worktree-busy",
+         "--reason", reason, "--command", command, "--session", step.get("session", ""),
+         "--cwd", step.get("worktree", "")])
 
 
 def run_pi(step, step_file=None):
