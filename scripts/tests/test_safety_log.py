@@ -64,7 +64,7 @@ class HookLog(unittest.TestCase):
 
     def test_redaction(self):
         secrets = ["abc123secret", "xyzBearerToken", "ghp_" + "A" * 36,
-                   "sk-proj-abcdefghij1234567890", "AKIAABCDEFGHIJKLMNOP", "hunter2"]
+                   "sk-proj-abcdefghij1234567890", "AKIAABCDEFGHIJKLMNOP", "hunter2"]  # secret-scan: allow
         command = (f"GITHUB_TOKEN={secrets[0]} DB_PASSWORD={secrets[5]} git clean -fd && "
                    f"curl -H 'Authorization: Bearer {secrets[1]}' https://x/?k={secrets[2]} "
                    f"{secrets[3]} {secrets[4]}")
@@ -249,6 +249,47 @@ class Cli(unittest.TestCase):
         self.assertRegex(counts, r"(?m)^\s*1\s+reset-hard-remote$")
         self.assertNotIn("force-push-main", counts)
         self.assertEqual(self.cli("--false-positives", log_dir=self.tmp / "empty").stdout, "no false positives.\n")
+
+
+class LogSafety(unittest.TestCase):
+    """AC-10: the block log is redacted, and its folder and files are private."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="safety-sec-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.dir = self.tmp / "state"
+        self.log = self.dir / "bash-safety-blocks.jsonl"
+
+    def run_hook(self, command):
+        payload = json.dumps({"tool_input": {"command": command}, "cwd": CWD,
+                              "session_id": "sess-9", "transcript_path": TRANSCRIPT})
+        env = {**os.environ, "SAFETY_LOG_DIR": str(self.dir)}
+        return subprocess.run(["bash", str(HOOK)], input=payload, env=env,
+                              capture_output=True, text=True)
+
+    def test_provider_keys_and_userinfo_are_absent_from_the_entry(self):
+        google = "AIza" + "Q" * 35
+        firecrawl = "fc-" + "w" * 24
+        userinfo = "curl -u user:pw@x"
+        r = self.run_hook(f"GOOGLE_KEY={google} curl {firecrawl} {userinfo} && git clean -fd")
+        self.assertEqual(r.returncode, 2, r.stderr)
+        text = self.log.read_text()
+        self.assertNotIn(google, text)
+        self.assertNotIn(firecrawl, text)
+        self.assertNotIn("pw@x", text)
+        self.assertNotIn("user:pw", text)
+        self.assertIn("git clean -fd", text)
+
+    def test_log_file_is_600_and_folder_is_700(self):
+        self.assertEqual(self.run_hook("git clean -fd").returncode, 2)
+        self.assertEqual(self.log.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(self.dir.stat().st_mode & 0o777, 0o700)
+
+    def test_umask_is_not_inherited_as_world_readable(self):
+        old = os.umask(0o022)
+        self.addCleanup(os.umask, old)
+        self.assertEqual(self.run_hook("git clean -fd").returncode, 2)
+        self.assertEqual(self.log.stat().st_mode & 0o077, 0)
 
 
 if __name__ == "__main__":

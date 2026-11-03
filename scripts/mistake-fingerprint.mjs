@@ -102,6 +102,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     console.log(`ALERT ${fp}: ${map[fp].hits.length} hits in ${WINDOW_DAYS} days. Record a mistake entry for it.`)
     map = markAlerted(map, fp, now)
   }
-  mkdirSync(dirname(mapPath), { recursive: true })
-  writeFileSync(mapPath, `${JSON.stringify(map, null, 2)}\n`)
+  mkdirSync(dirname(mapPath), { recursive: true, mode: 0o700 })
+  writeFileSync(mapPath, `${JSON.stringify(map, null, 2)}\n`, { mode: 0o600 })
 }
