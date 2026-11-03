@@ -61,8 +61,8 @@ Decisions from the 2026-11-03 planning session:
   verify: manual - live shell and client check by the human
 
 ### Headroom (proxy between clients and model providers)
-- AC-17: The `hclaude` alias starts Headroom with `umask 077` and `HEADROOM_TELEMETRY=off`, and through `with-secrets` with no keys, so the proxy and its children inherit none
-  verify: `rg -q 'umask 077.*HEADROOM_TELEMETRY=off|HEADROOM_TELEMETRY=off.*umask 077' zsh/.zsh/aliases.zsh`
+- AC-17: The `hclaude` alias starts Headroom with `HEADROOM_TELEMETRY=off` and through `with-secrets CONTEXT7_API_KEY EXCALIDRAW_API_KEY --`, so the proxy and the Claude it wraps inherit only the two keys Claude's MCP servers need. No `umask` in the alias: it would carry into Claude's own file writes, and AC-18 already makes `~/.headroom` 700. (Amended 2026-11-03: the first version passed no keys, which breaks the context7 and excalidraw MCP servers under `hclaude`.)
+  verify: `rg -q 'alias hclaude=.*HEADROOM_TELEMETRY=off.*with-secrets CONTEXT7_API_KEY EXCALIDRAW_API_KEY --' zsh/.zsh/aliases.zsh && ! rg -q 'alias hclaude=.*umask' zsh/.zsh/aliases.zsh`
 - AC-18: `scripts/headroom-prune` sets `~/.headroom` to 700 and its files to 600, and deletes `logs/debug_400/*.json` older than 7 days (these dumps hold full unredacted conversations); the `hclaude` alias runs it before each start
   verify: `python3 -m unittest -v scripts/tests/test_headroom_prune.py`
 - AC-19: The ansible server note says to bind Headroom to 127.0.0.1 and expose it only through `tailscale serve` (HTTPS, tailnet-only), never plain HTTP on a LAN address
