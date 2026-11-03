@@ -30,8 +30,8 @@
       "type": "local",
       "command": [
         "bash",
-        "-lc",
-        "set -a; [ -f \"$HOME/secrets/.env\" ] && source \"$HOME/secrets/.env\"; exec npx -y firecrawl-mcp"
+        "-c",
+        "exec \"$HOME/dotfiles/scripts/firecrawl-mcp\""
       ],
       "enabled": true
     },
