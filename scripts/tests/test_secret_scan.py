@@ -121,6 +121,15 @@ class SecretScan(unittest.TestCase):
         self.assertEqual(out.returncode, 1)
         self.assertIn(f"{f}:1: MY_LITERAL", out.stdout)
 
+    def test_symlinks_and_directories_are_skipped(self):
+        # git ls-files lists symlinks (dangling stow links too) and submodule folders; git
+        # stores a link's target path, not file content, so neither is scanned or an error.
+        (self.tmp / "dangling").symlink_to(self.tmp / "gone")
+        (self.tmp / "to-key").symlink_to(self.write("key.txt", f"k = {FAKE_SK}\n"))
+        (self.tmp / "sub").mkdir()
+        out = self.run_scan(str(self.tmp / "dangling"), str(self.tmp / "to-key"), str(self.tmp / "sub"))
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+
     def test_missing_file_is_an_error_not_a_pass(self):
         out = self.run_scan(str(self.tmp / "nope.txt"))
         self.assertNotEqual(out.returncode, 0)
