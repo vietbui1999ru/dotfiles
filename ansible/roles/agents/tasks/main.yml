@@ -102,7 +102,7 @@
 # The proxy itself runs from systemd/headroom-proxy.service and
 # systemd/headroom-zen.service (see below), bound to 127.0.0.1. Expose it to other
 # machines only through `tailscale serve` (HTTPS, tailnet-only), never as plain HTTP on a LAN address.
-- name: Install Headroom (uv tool, servers only)
+- name: Install Headroom (uv tool)
   ansible.builtin.command: >-
     mise x -- uv tool install --python 3.13 "headroom-ai[all]"
   args:
