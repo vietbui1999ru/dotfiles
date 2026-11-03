@@ -44,7 +44,11 @@ fi
 
 # 3. This shell. The gates are the ones headroom.zsh tests, in its order.
 gates=()
-[[ ${OSTYPE:-} == linux* ]] && gates+=("Linux")
+# Linux shells are routed only while this user's headroom-proxy unit is active,
+# never on an answer from 8787 alone (see headroom.zsh).
+if [[ ${OSTYPE:-} == linux* ]] && systemctl --user is-active --quiet headroom-proxy.service 2>/dev/null; then
+  gates+=("Linux")
+fi
 [[ ${HERDR_ENV:-} == 1 ]] && gates+=("herdr")
 [[ -n ${ORCA_PANE_KEY:-} ]] && gates+=("Orca")
 gate=""
