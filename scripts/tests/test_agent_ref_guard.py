@@ -4,6 +4,7 @@ Each test builds a throwaway repo with a real linked worktree under `.claude/wor
 in a temp dir, with a temp HOME and GIT_CONFIG_NOSYSTEM=1. The real repo is never touched.
 Stdlib only.
 """
+import json
 import os
 import shutil
 import subprocess
@@ -264,6 +265,93 @@ class BashHookCases(unittest.TestCase):
             self.assertEqual(self.run_hook(cmd, base).returncode, 0, cmd)
         for cmd in ("git status", "git config --get user.name"):
             self.assertEqual(self.run_hook(cmd, inside).returncode, 0, cmd)
+
+
+class RefGuardLog(Fixture):
+    """A refusal leaves one redacted safety-log entry; logging never changes the refusal."""
+
+    def setUp(self):
+        super().setUp()
+        self.install_hook()
+        self.log_dir = self.tmp / "state"
+        self.log = self.log_dir / "bash-safety-blocks.jsonl"
+        self.env["SAFETY_LOG_DIR"] = str(self.log_dir)
+        # The session ids of the machine running the tests must not leak into the log cases.
+        self.env.pop("CLAUDE_CODE_SESSION_ID", None)
+        self.env.pop("PUEUE_TASK_ID", None)
+
+    def entries(self):
+        if not self.log.exists():
+            return []
+        return [json.loads(line) for line in self.log.read_text().splitlines()]
+
+    def test_refusal_logged(self):
+        r = self.commit_file(self.wt, "b.txt")
+        self.assertNotEqual(r.returncode, 0)
+        [entry] = self.entries()
+        self.assertEqual(entry["rule"], "ref-guard")
+        self.assertEqual(Path(entry["cwd"]).resolve(), self.wt.resolve())
+        self.assertTrue(entry["reason"].startswith("refused: refs/heads/feat"), entry["reason"])
+        self.assertIn("commit", entry["command"])
+        self.assertEqual(entry["session"], "")
+
+    def test_session_from_env(self):
+        self.env["CLAUDE_CODE_SESSION_ID"] = "s-1"
+        self.commit_file(self.wt, "b.txt")
+        self.assertEqual(self.entries()[-1]["session"], "s-1")
+
+    def test_session_from_pueue_task(self):
+        self.env["PUEUE_TASK_ID"] = "7"
+        self.commit_file(self.wt, "b.txt")
+        self.assertEqual(self.entries()[-1]["session"], "pueue:7")
+
+    def test_token_in_parent_command_redacted(self):
+        secret = "ghp_" + "A" * 36
+        (self.wt / "s.txt").write_text("s")
+        self.git(self.wt, "add", "s.txt")
+        r = subprocess.run(["bash", "-c", f"GH_TOKEN={secret} git commit -q -m x"], cwd=self.wt,
+                           env=self.env, capture_output=True, text=True)
+        self.assertNotEqual(r.returncode, 0)
+        [entry] = self.entries()
+        self.assertNotIn(secret, entry["command"])
+
+    def test_multi_ref_refusal_logs_once(self):
+        self.commit_file(self.wt, "seed.txt", env={**self.env, "COMMIT_FUNNEL": "1"})
+        self.log.unlink(missing_ok=True)
+        r = self.git(self.wt, "update-ref", "refs/heads/feat", self.head(self.repo, "refs/heads/main"),
+                     capture=True)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(len(self.entries()), 1)
+
+    def test_unwritable_log_still_refuses(self):
+        blocker = self.tmp / "not-a-dir"
+        blocker.write_text("x")
+        self.env["SAFETY_LOG_DIR"] = str(blocker)
+        before = self.head(self.wt)
+        r = self.commit_file(self.wt, "b.txt")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("commit-funnel", r.stderr)
+        self.assertEqual(self.head(self.wt), before)
+
+    def test_missing_python_still_refuses(self):
+        # No python3 on PATH: the logger cannot run, and the refusal must stand unchanged.
+        empty = self.tmp / "bin"
+        empty.mkdir()
+        self.env["PATH"] = f"{empty}:/usr/bin:/bin"
+        before = self.head(self.wt)
+        r = self.commit_file(self.wt, "b.txt")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("commit-funnel", r.stderr)
+        self.assertEqual(self.head(self.wt), before)
+
+    def test_allowed_logs_nothing(self):
+        self.commit_file(self.wt, "ok.txt", env={**self.env, "COMMIT_FUNNEL": "1"})
+        self.git(self.wt, "checkout", "-q", "-b", "newbranch")
+        self.env["AGENT_REF_GUARD"] = "off"
+        self.commit_file(self.wt, "off.txt")
+        self.env.pop("AGENT_REF_GUARD")
+        self.commit_file(self.repo, "main.txt")
+        self.assertEqual(self.entries(), [])
 
 
 if __name__ == "__main__":
