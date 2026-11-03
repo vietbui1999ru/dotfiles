@@ -110,7 +110,7 @@ are model providers or explicit CLI bridges, not parallel harnesses.
 /review
 ```
 
-After editing or adding a package, re-run `./scripts/restow.sh`. It is idempotent and is the source of truth for the packages it manages: `zsh starship mise nvim tmux tmuxinator kitty git jj claude opencode pi codex`. Packages not in that list (`aerospace`, `sketchybar`, `mouseless`, `herdr`, `launchd`, `i3`) are stowed by hand where used (`stow herdr`), and `i3` is applied by Ansible on Linux. Back up an existing live config before the first stow of a package.
+After editing or adding a package, re-run `./scripts/restow.sh`. It is idempotent and is the source of truth for the packages it manages: `zsh starship mise nvim tmux tmuxinator kitty git jj claude opencode pi codex herdr`. Packages not in that list (`aerospace`, `sketchybar`, `mouseless`, `launchd`, `i3`) are stowed by hand where used, and `i3` is applied by Ansible on Linux. Back up an existing live config before the first stow of a package.
 
 Upgrade mise-managed tools with `mise up`, not `brew upgrade`. Machine-local shell overrides go in `~/.zshrc.local` (untracked). To refresh the wiki submodule pin: `git submodule update --remote repos/llm-wiki`.
 

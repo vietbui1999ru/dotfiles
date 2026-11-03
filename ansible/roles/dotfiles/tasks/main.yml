@@ -54,6 +54,16 @@
     - dotfiles_opencode_json.stat.exists | default(false)
     - dotfiles_opencode_json.stat.isreg | default(false)
 
+# herdr writes sockets, logs and session*.json inside ~/.config/herdr. Without the
+# real folder, stow links the whole directory into the repo and herdr writes that
+# state into ~/dotfiles/herdr/. Create it first so only config.toml is linked.
+- name: Ensure ~/.config/herdr is a real directory before stowing
+  ansible.builtin.file:
+    path: "{{ ansible_env.HOME }}/.config/herdr"
+    state: directory
+    mode: "0755"
+  when: "'herdr' in dotfiles_stow_packages"
+
 - name: Stow all packages
   ansible.builtin.shell: |
     cd {{ ansible_env.HOME }}/dotfiles

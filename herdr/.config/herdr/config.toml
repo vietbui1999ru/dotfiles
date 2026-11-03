@@ -9,10 +9,10 @@ show_agent_labels_on_pane_borders = true
 
 agent_panel_sort = "spaces"
 [ui.toast]
-delivery = "terminal"
+delivery = "system"
 
 [theme]
-name = "solarized"
+name = "gruvbox"
 auto_switch = false
 
 [experimental]
