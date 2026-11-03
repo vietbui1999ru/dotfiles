@@ -17,7 +17,9 @@ ${SAFETY_LOG_DIR:-$HOME/.claude/state}/
   bash-safety-verdicts.jsonl    one {"id","verdict","ts"} per human verdict
 ```
 
-- **Only blocked commands are logged.** An allowed command writes nothing.
+- **Only refusals are logged.** An allowed command writes nothing. The writers are
+  the Bash hook's blocks, the ref guard's refusals, pi-queue's worktree-busy refusals
+  and the built-in worktree guard's refusals (see Writers below).
 - **Rotation:** when the log passes 2000 entries the next block moves it to
   `bash-safety-blocks.jsonl.1` (replacing any older `.1`) and starts a new file.
   `safety-log` reads both.
@@ -33,7 +35,7 @@ ${SAFETY_LOG_DIR:-$HOME/.claude/state}/
 | `session` | the Claude Code session id that ran the command |
 | `cwd` | the session's working directory, which names the worktree |
 | `transcript` | the session's transcript path, for reading what led to the command |
-| `rule` | a short stable id per check: `rm-rf-root-home`, `force-push-main`, `reset-hard-remote`, `git-clean-force`, `force-push-lease`, `push-plus-ref`, `push-delete-ref`, `worktree-commit`, or `other` |
+| `rule` | a short stable id per check: `rm-rf-root-home`, `force-push-main`, `reset-hard-remote`, `git-clean-force`, `force-push-lease`, `push-plus-ref`, `push-delete-ref`, `worktree-commit`, `ref-guard`, `queue-worktree-busy`, `worktree-guard`, or `other` |
 | `command` | the redacted command, in full up to the cap |
 | `reason` | the first line of the block message, the same sentence the agent saw |
 
@@ -56,6 +58,42 @@ traceable. A command longer than 4000 characters is cut there and ends with
 
 If you find a secret in the log that the list above missed, treat it as a leak: fix
 the pattern in the hook, then rotate the secret. Do not paste the log into an issue.
+
+## Writers
+
+The Bash hook keeps its own `jq` writer. Every other writer calls the shared
+writer, `scripts/safety-log record`, best effort: a failed write never changes the
+guard's decision, exit code or message.
+
+```sh
+safety-log record --rule ref-guard --reason TEXT [--command C] [--session S] [--cwd D] [--transcript T] [--noted]
+```
+
+`record` redacts, caps and rotates exactly as the hook does, and prints the new id.
+`--noted` also writes a `noted` verdict for the entry.
+
+- **`ref-guard`:** the `reference-transaction` hook, when it refuses a move of an
+  existing branch in an agent worktree. The command is the parent git command line.
+- **`queue-worktree-busy`:** pi-queue, when a pi step's worktree already runs another
+  pueue task. Its `failed` event carries the same reason.
+- **`worktree-guard`:** the `PostToolUseFailure` hook
+  (`claude/.claude/hooks/log-worktree-guard.sh`), for Claude Code's built-in worktree
+  guard. It writes a `noted` verdict, because the built-in guard was already decisive.
+
+`noted` is written only by the logger. A human's `safety-log mark` overrides it. The
+pending count (the chip and `safety-log --pending`) skips `noted`, and
+`--false-positives` counts only `false-positive`. `safety-log mark` still accepts only
+`ok` and `false-positive`.
+
+## Built-in guard probe
+
+Probed 2026-11-03 on Claude Code 2.1.317, in a worktree-isolated session. The built-in
+worktree guard's Bash refusals fire **`PostToolUseFailure`**. The payload carries
+`tool_name`, `tool_input.command`, `error` (the refusal text), `session_id`, `cwd`,
+`is_interrupt` and `transcript_path`. Every refusal's text contains
+`is isolated in the worktree` and `Refusing to run it`; an ordinary failure such as
+`false` gives `Exit code 1`, which the hook does not log. `PermissionDenied` did not
+need registering and is not registered.
 
 ## `safety-log`
 
