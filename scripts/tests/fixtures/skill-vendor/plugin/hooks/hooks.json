@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "printf 'hello'" } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Edit", "hooks": [ { "type": "command", "command": "true" } ] }
+    ]
+  }
+}
