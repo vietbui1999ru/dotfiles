@@ -30,6 +30,9 @@
     <!-- No anonymous upload; HEADROOM_TELEMETRY=off would also kill local /stats. -->
     <key>HEADROOM_BEACON</key>
     <string>off</string>
+    <!-- Kompress on the Apple GPU (needs the pytorch-mps extra); falls back to ONNX CPU. -->
+    <key>HEADROOM_KOMPRESS_BACKEND</key>
+    <string>pytorch_mps</string>
     <key>PATH</key>
     <string>/Users/vietquocbui/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
   </dict>

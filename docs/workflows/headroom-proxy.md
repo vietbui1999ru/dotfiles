@@ -69,7 +69,25 @@ command codex                        # one Codex session without the proxy
 New panes pick the routing up at shell start; panes opened while the proxy was
 down stay direct until reopened.
 
-## Known limits
+## Kompress on the Apple GPU
 
-- Headroom's ML text compressor (Kompress) needs PyTorch, which the default uv
-  install does not include. JSON, code and log compression work without it.
+Kompress is Headroom's ML compressor for prose. By default it runs the int8
+ONNX model on the CPU. Both services set `HEADROOM_KOMPRESS_BACKEND=pytorch_mps`
+to run the fp32 model on the GPU through Metal Performance Shaders instead.
+That needs PyTorch in Headroom's tool environment:
+
+```sh
+mise x -- uv tool install --force --python 3.13 "headroom-ai[proxy,pytorch-mps]"
+```
+
+Measured on an M1 Pro (2,000 words of prose, model cached): ONNX CPU took 4.1 s
+per call and MPS 0.38 s. The fp32 model keeps slightly more text than the int8
+one. After a service start the proxy warms the model in the background (about
+70 s under launchd, look for `Kompress PyTorch loaded on mps` in the error log);
+requests that arrive before then are not blocked, they just skip Kompress. The
+first start ever also downloads the PyTorch weights. If the MPS check fails at load, Headroom
+falls back to ONNX CPU on its own. The "UNEXPECTED" weight keys logged at load
+are the unused pretraining head and are harmless.
+
+Upgrade with `uv tool upgrade headroom-ai`, which keeps the extras recorded at
+install.
