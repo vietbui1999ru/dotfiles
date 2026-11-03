@@ -37,7 +37,7 @@ Decisions from the 2026-11-03 planning session:
 - AC-6: `pueue-safe` finds the subcommand after global flags (`-c`, `--color`, `-p`, ...), strips secret-like names from `add`, refuses `env set` of a secret-like name, and warns on stderr when `.env` is unreadable
   verify: `python3 -m unittest -v scripts/tests/test_pueue_safe.py`
 - AC-7: Existing pueue-safe behaviour is unchanged for plain `pueue add`
-  verify: `python3 -m unittest -v scripts/tests/test_pueue_safe.py -k strips`
+  verify: `python3 -m unittest -v scripts/tests/test_pueue_safe.py -k test_add_`
   baseline: pass
 - AC-8: `mistake-fingerprint` drops leading `NAME=value` words and a leading `env`, reduces short flags to the bare flag, and runs `redact`'s patterns before returning
   verify: `node --test scripts/mistake-fingerprint.test.mjs`
