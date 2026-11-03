@@ -9,7 +9,7 @@ allowed-tools: "Bash,Read,Write,Edit,Agent"
 ## When to invoke
 
 Invoke after implementation is complete, before opening a PR:
-- After a TDD (superpowers:test-driven-development) slice completes
+- After a test-first slice completes (skill-invocation.md TDD rule)
 - After any AI-assisted feature implementation
 - When you want a structured pass/fail report against a spec
 
