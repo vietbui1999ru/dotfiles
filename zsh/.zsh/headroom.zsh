@@ -18,13 +18,17 @@
 
 # Linux: every shell, herdr panes included, needs both checks. A Type=simple
 # unit reads active before it binds (and while restart-looping on a taken port),
-# so the unit state alone is not proof; the 8787 listener must also be a socket
-# owned by this UID (`ss -e` prints uid:N), which another user cannot fake.
+# so the unit state alone is not proof. Every listener on 127.0.0.1:8787 (the
+# address clients connect to) must be a socket whose exact uid:N field is this
+# UID, and there must be at least one. Another user cannot fake that, and the
+# kernel only lets sockets share an address (SO_REUSEPORT) under the same UID.
 _headroom_gate() {
   if [[ $OSTYPE == linux* ]]; then
     (( $+commands[systemctl] && $+commands[ss] )) \
       && systemctl --user is-active --quiet headroom-proxy.service \
-      && ss -Hltne 'sport = :8787' 2>/dev/null | grep -qw "uid:$UID"
+      && ss -Hltne 'src 127.0.0.1:8787' 2>/dev/null | awk -v want="uid:$UID" '
+           { n++; mine = 0; for (i = 1; i <= NF; i++) if ($i == want) mine = 1; if (!mine) bad = 1 }
+           END { exit !(n > 0 && !bad) }'
     return
   fi
   [[ ${HERDR_ENV:-} == 1 || -n ${ORCA_PANE_KEY:-} ]]

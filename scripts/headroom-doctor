@@ -45,10 +45,12 @@ fi
 # 3. This shell. The gates are the ones headroom.zsh tests, in its order.
 gates=()
 # Same rule as _headroom_gate in headroom.zsh. On Linux every shell, herdr
-# included, needs this user's unit active and a 8787 socket owned by this UID.
+# included, needs this user's unit active and every 127.0.0.1:8787 listener owned by this UID.
 if [[ ${OSTYPE:-} == linux* ]]; then
   if systemctl --user is-active --quiet headroom-proxy.service 2>/dev/null \
-    && ss -Hltne 'sport = :8787' 2>/dev/null | grep -qw "uid:$(id -u)"; then
+    && ss -Hltne 'src 127.0.0.1:8787' 2>/dev/null | awk -v want="uid:$(id -u)" '
+         { n++; mine = 0; for (i = 1; i <= NF; i++) if ($i == want) mine = 1; if (!mine) bad = 1 }
+         END { exit !(n > 0 && !bad) }'; then
     gates+=("Linux")
   fi
 else

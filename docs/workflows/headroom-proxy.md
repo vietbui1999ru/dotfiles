@@ -97,7 +97,8 @@ active and 8787 answers, so herdr panes, tmux windows and a plain SSH session
 all go through the proxy. An answer on 8787 alone is not trusted: on a box
 without the unit, any local process holding that port would receive the API
 credentials. A `Type=simple` unit reads active before it binds, so the shell
-also checks that the 8787 listener is a socket owned by your UID (`ss -Hltne`);
+also checks that every listener on `127.0.0.1:8787` is a socket owned by your UID
+(`ss -Hltne`, exact `uid:` field, at least one listener);
 another user holding the port fails that, herdr panes included. The macOS gate
 does not do this check (single-user Mac, launchd owns the port). The check fails open: a box without the
 unit, or a stopped one, exports nothing and shell start is not delayed.
