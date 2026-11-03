@@ -251,5 +251,112 @@ class Cli(unittest.TestCase):
         self.assertEqual(self.cli("--false-positives", log_dir=self.tmp / "empty").stdout, "no false positives.\n")
 
 
+SECRET_FIXTURES = [
+    "ghp_" + "A" * 36, "gho_" + "B" * 36, "ghs_" + "C" * 36, "github_pat_" + "D" * 30,
+    "sk-proj-abcdefghij1234567890", "AKIAABCDEFGHIJKLMNOP",
+    "Bearer abc.def-ghi", "GH_TOKEN=plainvalue", "API_SECRET=\"two words\"",
+    "DB_PASSWORD='quoted pw'", "MY_PASSWD=bare", "SERVICE_KEY=keyval",
+    "--token tokenval", "--token=tokeneq", "--password pwval", "--password=pweq",
+    "--passwd pwdval", "--secret=secreteq", "--api-key apikeyval", "--apikey=apikeyeq",
+]
+
+
+class Record(unittest.TestCase):
+    """scripts/safety-log record: the one shared writer the guards call."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="safety-record-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.dir = self.tmp / "state"
+        self.log = self.dir / "bash-safety-blocks.jsonl"
+        self.rotated = self.dir / "bash-safety-blocks.jsonl.1"
+        self.verdicts = self.dir / "bash-safety-verdicts.jsonl"
+
+    def cli(self, *args, log_dir=None):
+        env = {**os.environ, "SAFETY_LOG_DIR": str(log_dir or self.dir)}
+        return subprocess.run([sys.executable, str(CLI), *args], env=env,
+                              capture_output=True, text=True)
+
+    def record(self, command, *extra, log_dir=None):
+        return self.cli("record", "--rule", "ref-guard", "--reason", "refused: x",
+                        "--command", command, *extra, log_dir=log_dir)
+
+    def entries(self, path=None):
+        path = path or self.log
+        return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+    def test_record_appends_entry(self):
+        r = self.cli("record", "--rule", "ref-guard", "--reason", "refused: refs/heads/x",
+                     "--command", "git commit -m x", "--session", "s-1", "--cwd", "/work/w",
+                     "--transcript", "/work/t.jsonl")
+        self.assertEqual(r.returncode, 0)
+        [entry] = self.entries()
+        self.assertEqual(set(entry), FIELDS)
+        self.assertRegex(entry["id"], r"^[0-9a-f]{12}$")
+        self.assertEqual(r.stdout.strip(), entry["id"])
+        parsed = datetime.fromisoformat(entry["ts"])
+        self.assertIsNotNone(parsed.tzinfo)
+        self.assertEqual((entry["rule"], entry["reason"], entry["session"], entry["cwd"],
+                          entry["transcript"], entry["command"]),
+                         ("ref-guard", "refused: refs/heads/x", "s-1", "/work/w",
+                          "/work/t.jsonl", "git commit -m x"))
+
+    def test_record_redacts_like_hook(self):
+        hook_dir = self.tmp / "hook"
+        hook = HookLog()
+        hook.dir = hook_dir
+        hook.log = hook_dir / "bash-safety-blocks.jsonl"
+        for secret in SECRET_FIXTURES:
+            command = f"rm -rf / {secret} git push"
+            hook_entries = hook.entries
+            self.assertEqual(HookLog.run_hook(hook, command).returncode, 2, command)
+            [hook_entry] = hook_entries()
+            self.assertEqual(self.record(command).returncode, 0, command)
+            [entry] = self.entries()
+            self.assertEqual(entry["command"], hook_entry["command"], command)
+            self.log.unlink()
+            hook.log.unlink()
+            self.assertNotIn(secret, entry["command"], command)
+
+    def test_record_caps_and_rotates(self):
+        self.assertEqual(self.record("git clean -fd " + "x" * 5000).returncode, 0)
+        [entry] = self.entries()
+        self.assertTrue(entry["command"].endswith("…[truncated]"))
+        self.assertLessEqual(len(entry["command"]), 4000 + len("…[truncated]"))
+        self.log.unlink()
+
+        self.dir.mkdir(exist_ok=True)
+        old = json.dumps({"id": "0" * 12, "rule": "old"})
+        self.log.write_text((old + "\n") * 2000)
+        self.assertEqual(self.record("git status").returncode, 0)
+        self.assertEqual(len(self.entries(self.rotated)), 2000)
+        [entry] = self.entries()
+        self.assertEqual(entry["command"], "git status")
+
+    def test_noted_verdict(self):
+        r = self.cli("record", "--rule", "worktree-guard", "--reason", "refused", "--noted")
+        self.assertEqual(r.returncode, 0)
+        [entry] = self.entries()
+        [verdict] = [json.loads(line) for line in self.verdicts.read_text().splitlines()]
+        self.assertEqual((verdict["id"], verdict["verdict"]), (entry["id"], "noted"))
+
+        pending = self.cli("--pending").stdout
+        self.assertNotIn(entry["id"], pending)
+        self.assertEqual(self.cli("--pending", "--json").stdout.strip(), "[]")
+        shown = self.cli("show", entry["id"]).stdout
+        self.assertIn("verdict: noted", shown)
+
+        self.assertEqual(self.cli("mark", entry["id"], "noted").returncode, 2)
+        self.assertEqual(self.cli("mark", entry["id"], "false-positive").returncode, 0)
+        self.assertIn("false-positive", self.cli("show", entry["id"]).stdout)
+        self.assertRegex(self.cli("--false-positives").stdout, r"(?m)^\s*1\s+worktree-guard$")
+
+    def test_write_failure_is_silent(self):
+        blocker = self.tmp / "not-a-dir"
+        blocker.write_text("x")
+        r = self.record("git status", log_dir=blocker)
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+
+
 if __name__ == "__main__":
     unittest.main()
