@@ -1,0 +1,9 @@
+diff -ruN a/.claude/settings.json b/.claude/settings.json
+--- a/.claude/settings.json	1970-01-01 08:00:00
++++ b/.claude/settings.json	2026-11-03 10:16:33
+@@ -0,0 +1,5 @@
++{
++  "enabledPlugins": {
++    "obsidian@obsidian-skills": true
++  }
++}

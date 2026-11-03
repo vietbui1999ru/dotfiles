@@ -480,25 +480,25 @@
   },
   "enabledPlugins": {
     "basedpyright@claude-code-lsps": false,
-    "caveman@caveman": true,
+    "caveman@caveman": false,
     "clangd@claude-code-lsps": false,
-    "explanatory-output-style@claude-plugins-official": true,
+    "explanatory-output-style@claude-plugins-official": false,
     "gopls@claude-code-lsps": false,
     "lean4-lake-lsp@claude-code-lsps": true,
-    "learning-output-style@claude-plugins-official": true,
+    "learning-output-style@claude-plugins-official": false,
     "ocaml-lsp@claude-code-lsps": false,
     "omnisharp@claude-code-lsps": false,
     "pyright-lsp@claude-plugins-official": false,
     "pyright@claude-code-lsps": false,
-    "ralph-loop@claude-plugins-official": true,
+    "ralph-loop@claude-plugins-official": false,
     "ruby-lsp@claude-code-lsps": false,
     "rust-analyzer@claude-code-lsps": false,
     "security-guidance@claude-plugins-official": true,
-    "superpowers@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": false,
     "typescript-lsp@claude-plugins-official": false,
     "vscode-langservers@claude-code-lsps": false,
     "vtsls@claude-code-lsps": false,
-    "obsidian@obsidian-skills": true
+    "obsidian@obsidian-skills": false
   },
   "extraKnownMarketplaces": {
     "caveman": {

@@ -1,0 +1,349 @@
+#!/usr/bin/env python3
+"""skill-vendor — drift check for vendored skills, and a usage/hook audit.
+
+Usage:
+  skill-vendor check [--vendor PATH]
+  skill-vendor audit --json [--home DIR] [--days N]
+
+check: for each non-frozen entry in vendor.json, report whether upstream
+changed the pinned path between the pinned sha and HEAD of the upstream repo.
+Exit 2 on missing pins or gh errors, 1 on drift, 0 otherwise.
+
+audit: report skills unused for N days and per-plugin SessionStart bytes and
+hook counts for enabled plugins.
+"""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import difflib
+import json
+import os
+import subprocess
+import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
+
+SCRIPT = Path(__file__).resolve()
+DEFAULT_VENDOR = SCRIPT.parents[1] / "shared" / "skills" / "vendor.json"
+HOOK_TIMEOUT = 10
+
+
+class Fatal(Exception):
+    """Abort with exit code 2 and a message on stderr."""
+
+
+def gh_cmd() -> str:
+    return os.environ.get("SKILL_VENDOR_GH") or "gh"
+
+
+def run_gh(args: list[str]) -> str:
+    proc = subprocess.run(
+        [gh_cmd(), *args],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        first = (proc.stderr or proc.stdout or "").strip().splitlines()
+        raise RuntimeError(first[0] if first else f"exit {proc.returncode}")
+    return proc.stdout
+
+
+def load_vendor(path: Path) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise Fatal(f"cannot read {path}: {exc}")
+    if not isinstance(data, dict) or not isinstance(data.get("skills"), list):
+        raise Fatal(f"{path}: missing 'skills' list")
+    return data
+
+
+def cmd_check(args: argparse.Namespace) -> int:
+    vendor_path = Path(args.vendor) if args.vendor else DEFAULT_VENDOR
+    data = load_vendor(vendor_path)
+    root = vendor_path.parent
+
+    worst = 0  # 0 in sync, 1 drifted, 2 pin missing / error
+
+    for entry in data["skills"]:
+        name = entry.get("name", "<unnamed>")
+        if entry.get("status") == "frozen":
+            print(f"{name}: frozen (skipped)")
+            continue
+
+        upstream = entry.get("upstream") or {}
+        missing = [k for k in ("repo", "path", "sha") if not upstream.get(k)]
+        if missing:
+            print(f"{name}: pin missing (no upstream {', '.join(missing)})")
+            worst = 2
+            continue
+        if not (root / name / "SKILL.md").is_file():
+            print(f"{name}: pin missing (no {name}/SKILL.md)")
+            worst = 2
+            continue
+
+        repo, path, sha = upstream["repo"], upstream["path"], upstream["sha"]
+        try:
+            compare = run_gh(
+                ["api", f"repos/{repo}/compare/{sha}...HEAD", "--jq", "[.files[].filename]"]
+            )
+            changed = json.loads(compare or "[]")
+        except (RuntimeError, json.JSONDecodeError) as exc:
+            print(f"{name}: error ({exc})")
+            worst = 2
+            continue
+
+        if path not in changed:
+            print(f"{name}: in sync")
+            continue
+
+        print(f"{name}: drifted")
+        worst = max(worst, 1)
+
+        upstream_md = root / name / "upstream.md"
+        if upstream_md.is_file():
+            try:
+                encoded = run_gh(
+                    ["api", f"repos/{repo}/contents/{path}", "--jq", ".content"]
+                )
+                current = base64.b64decode(encoded).decode("utf-8", errors="replace")
+            except (RuntimeError, ValueError) as exc:
+                print(f"{name}: error ({exc})")
+                worst = 2
+                continue
+            diff = difflib.unified_diff(
+                upstream_md.read_text(errors="replace").splitlines(keepends=True),
+                current.splitlines(keepends=True),
+                fromfile=f"{name}/upstream.md",
+                tofile=f"{repo}:{path}",
+            )
+            sys.stdout.writelines(diff)
+
+    return worst
+
+
+def read_json(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def enabled_plugins(home: Path) -> dict[str, dict[str, Any]]:
+    """Return {plugin key: {"installPath": str}} for every enabled plugin."""
+    settings = read_json(home / ".claude" / "settings.json") or {}
+    enabled = settings.get("enabledPlugins") or {}
+    installed = read_json(home / ".claude" / "plugins" / "installed_plugins.json") or {}
+    plugins = installed.get("plugins") or {}
+
+    result: dict[str, dict[str, Any]] = {}
+    for key, on in sorted(enabled.items()):
+        if on is not True:
+            continue
+        records = plugins.get(key) or []
+        install = records[0].get("installPath") if records and isinstance(records[0], dict) else None
+        if install:
+            result[key] = {"installPath": install}
+    return result
+
+
+def plugin_skill_names(key: str, install_path: str) -> list[str]:
+    plugin = key.split("@", 1)[0]
+    skills_dir = Path(install_path) / "skills"
+    if not skills_dir.is_dir():
+        return []
+    return [
+        f"{plugin}:{d.name}"
+        for d in sorted(skills_dir.iterdir())
+        if d.is_dir() and (d / "SKILL.md").is_file()
+    ]
+
+
+def session_start_hook_commands(install_path: str) -> dict[str, list[str]]:
+    """Return {event: [command, ...]} collected from hooks.json and plugin.json."""
+    # Each source is {"hooks": {event: [{"hooks": [{"type", "command"}]}]}}.
+    plugin_json = read_json(Path(install_path) / ".claude-plugin" / "plugin.json")
+    sources: list[Any] = [read_json(Path(install_path) / "hooks" / "hooks.json")]
+    if isinstance(plugin_json, dict):
+        sources.append(plugin_json.get("hooks"))
+
+    events: dict[str, list[str]] = {}
+    for source in sources:
+        hooks = source.get("hooks") if isinstance(source, dict) else None
+        if not isinstance(hooks, dict):
+            continue
+        for event, groups in hooks.items():
+            if not isinstance(groups, list):
+                continue
+            for group in groups:
+                if not isinstance(group, dict):
+                    continue
+                for hook in group.get("hooks") or []:
+                    if isinstance(hook, dict) and hook.get("type", "command") == "command" and hook.get("command"):
+                        events.setdefault(event, []).append(hook["command"])
+    return events
+
+
+def used_skill_timestamps(home: Path) -> dict[str, datetime]:
+    """Return {skill name: latest use timestamp} from Skill tool_use entries."""
+    root = home / ".claude" / "projects"
+    latest: dict[str, datetime] = {}
+    if not root.is_dir():
+        return latest
+    for path in root.rglob("*.jsonl"):
+        try:
+            stream = path.open(errors="replace")
+        except OSError:
+            continue
+        with stream:
+            for line in stream:
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(entry, dict):
+                    continue
+                stamp = parse_ts(entry.get("timestamp"))
+                if stamp is None:
+                    continue
+                message = entry.get("message")
+                content = message.get("content") if isinstance(message, dict) else None
+                if not isinstance(content, list):
+                    continue
+                for part in content:
+                    if not isinstance(part, dict) or part.get("type") != "tool_use":
+                        continue
+                    if part.get("name") != "Skill":
+                        continue
+                    skill = (part.get("input") or {}).get("skill")
+                    if isinstance(skill, str) and (skill not in latest or stamp > latest[skill]):
+                        latest[skill] = stamp
+    return latest
+
+
+def parse_ts(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        stamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    return stamp
+
+
+def run_session_start(commands: list[str], install_path: str) -> int:
+    env = dict(os.environ, CLAUDE_PLUGIN_ROOT=install_path)
+    payload = json.dumps({"hook_event_name": "SessionStart", "source": "startup"})
+    total = 0
+    for command in commands:
+        proc = subprocess.run(
+            ["/bin/sh", "-c", command],
+            input=payload.encode(),
+            capture_output=True,
+            env=env,
+            timeout=HOOK_TIMEOUT,
+        )
+        total += len(proc.stdout)
+    return total
+
+
+def build_audit(home: Path, days: int) -> dict[str, Any]:
+    plugins = enabled_plugins(home)
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=days)
+
+    last_used = used_skill_timestamps(home)
+
+    candidates: list[str] = []
+    user_skills = home / ".claude" / "skills"
+    if user_skills.is_dir():
+        candidates.extend(p.name for p in user_skills.iterdir() if not p.name.startswith("."))
+
+    session_bytes: dict[str, int] = {}
+    hooks: dict[str, dict[str, int]] = {}
+    errors: list[str] = []
+
+    for key, info in plugins.items():
+        install = info["installPath"]
+        candidates.extend(plugin_skill_names(key, install))
+
+        events = session_start_hook_commands(install)
+        hooks[key] = {event: len(cmds) for event, cmds in sorted(events.items())}
+
+        try:
+            session_bytes[key] = run_session_start(events.get("SessionStart", []), install)
+        except (subprocess.TimeoutExpired, OSError):
+            session_bytes[key] = 0
+            errors.append(key)
+
+    unused = []
+    for name in sorted(set(candidates)):
+        stamp = last_used.get(name)
+        if stamp is None or stamp < cutoff:
+            unused.append({
+                "name": name,
+                "last_used": stamp.isoformat() if stamp else None,
+            })
+
+    return {
+        "unused_skills": unused,
+        "session_start_bytes": session_bytes,
+        "hooks": hooks,
+        "errors": errors,
+    }
+
+
+def cmd_audit(args: argparse.Namespace) -> int:
+    home = Path(args.home) if args.home else Path(os.environ.get("HOME", str(Path.home())))
+    report = build_audit(home, args.days)
+
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0
+
+    print(f"Unused skills (no use in {args.days} days):")
+    for item in report["unused_skills"]:
+        print(f"  {item['name']}  last_used={item['last_used'] or 'never'}")
+    print("SessionStart bytes:")
+    for key, size in report["session_start_bytes"].items():
+        print(f"  {key}  {size}")
+    print("Hooks:")
+    for key, events in report["hooks"].items():
+        print(f"  {key}  {events}")
+    if report["errors"]:
+        print(f"Errors: {', '.join(report['errors'])}")
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="skill-vendor")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    check = sub.add_parser("check", help="report upstream drift for vendored skills")
+    check.add_argument("--vendor", help="path to vendor.json")
+    check.set_defaults(func=cmd_check)
+
+    audit = sub.add_parser("audit", help="report unused skills and plugin hook cost")
+    audit.add_argument("--json", action="store_true", help="print JSON")
+    audit.add_argument("--home", help="home directory to read (default $HOME)")
+    audit.add_argument("--days", type=int, default=60, help="unused window in days (default 60)")
+    audit.set_defaults(func=cmd_audit)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        return args.func(args)
+    except Fatal as exc:
+        print(f"skill-vendor: {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

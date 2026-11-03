@@ -1,0 +1,61 @@
+{
+  "about": "Skills copied or forked from upstream. scripts/skill-vendor check reports drift: an upstream path changed between the pinned sha and the upstream default branch. Skills with an upstream.md also get a content diff. status 'frozen' means upstream removed the skill and the local copy is kept as is.",
+  "skills": [
+    {
+      "name": "systematic-debugging",
+      "upstream": { "repo": "obra/superpowers", "path": "skills/systematic-debugging/SKILL.md", "sha": "bb92a77741419a4ab5f06e711a283343f1ada0c3" },
+      "notes": "Superpowers 7.0.0. TDD sub-skill reference replaced by the skill-invocation.md test-first rule; verification sub-skill name unprefixed."
+    },
+    {
+      "name": "writing-plans",
+      "upstream": { "repo": "obra/superpowers", "path": "skills/writing-plans/SKILL.md", "sha": "bb92a77741419a4ab5f06e711a283343f1ada0c3" },
+      "notes": "Superpowers 7.0.0. Plans saved under docs/plans/. The Native execution option became Pi dispatch via delegate-pi (plan-handoff.md default); worktrees via git worktree add -b."
+    },
+    {
+      "name": "brainstorming",
+      "upstream": { "repo": "obra/superpowers", "path": "skills/brainstorming/SKILL.md", "sha": "bb92a77741419a4ab5f06e711a283343f1ada0c3" },
+      "notes": "Superpowers 7.0.0. Design docs saved under docs/plans/; writing-plans name unprefixed."
+    },
+    {
+      "name": "verification-before-completion",
+      "upstream": { "repo": "obra/superpowers", "path": "skills/verification-before-completion/SKILL.md", "sha": "bb92a77741419a4ab5f06e711a283343f1ada0c3" },
+      "notes": "Superpowers 7.0.0. Unchanged copy; core.md's Definition of Done requires it."
+    },
+    {
+      "name": "finishing-a-development-branch",
+      "upstream": { "repo": "obra/superpowers", "path": "skills/finishing-a-development-branch/SKILL.md", "sha": "bb92a77741419a4ab5f06e711a283343f1ada0c3" },
+      "notes": "Superpowers 7.0.0. Unchanged copy."
+    },
+    {
+      "name": "subagent-driven-development",
+      "upstream": { "repo": "obra/superpowers", "path": "skills/subagent-driven-development/SKILL.md", "sha": "bb92a77741419a4ab5f06e711a283343f1ada0c3" },
+      "notes": "Superpowers 7.0.0. Sub-skill names unprefixed; plan paths under docs/plans/; code review via the code-review skill. The .superpowers/sdd/ workspace directory is kept because its scripts use it."
+    },
+    {
+      "name": "grill-me",
+      "upstream": { "repo": "mattpocock/skills", "path": "skills/productivity/grill-me/SKILL.md", "sha": "fcf0071560d32913c9d4f820e0d7ca467c881619" },
+      "notes": "Fork: relaxed mode, SPEC.md output with verify lines, stop for human approval."
+    },
+    {
+      "name": "improve-codebase-architecture",
+      "upstream": { "repo": "mattpocock/skills", "path": "skills/engineering/improve-codebase-architecture/SKILL.md", "sha": "7739eaed7f8f3915437a8def198a6d0d7206dbc7" },
+      "notes": "Fork moved from llm-wiki/claude-setup/skills. SKILL.md only; upstream's HTML-REPORT.md and agents/ are not vendored."
+    },
+    {
+      "name": "zoom-out",
+      "status": "frozen",
+      "upstream": { "repo": "mattpocock/skills", "path": "skills/engineering/zoom-out/SKILL.md", "sha": "e112a6b03cd7893a36760fea1d387dffa6cba80a" },
+      "notes": "Fork moved from llm-wiki/claude-setup/skills. Removed from upstream; kept as is, drift check skipped."
+    },
+    {
+      "name": "design-brief",
+      "upstream": { "repo": "anthropics/claude-plugins-official", "path": "plugins/frontend-design/skills/frontend-design/SKILL.md", "sha": "44490cccaf6d9f82fdeec9416fbf7c9bd72575dc" },
+      "notes": "Overlay on frontend-design; upstream.md is the verbatim pin, also checked by design-brief/sync-upstream against the local marketplace clone."
+    },
+    {
+      "name": "gh-stack",
+      "upstream": { "repo": "github/gh-stack", "path": "skills/gh-stack/SKILL.md", "sha": "a1b4a3d4d0bcde9ec3a78ab99b2d63af121857a9" },
+      "notes": "Vendored at tag v0.1.0 (tree c95c8b5b4dd850f3fef007b304428f5684f2fb87, recorded in its frontmatter)."
+    }
+  ]
+}

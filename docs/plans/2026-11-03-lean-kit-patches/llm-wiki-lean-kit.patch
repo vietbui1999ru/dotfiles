@@ -1,0 +1,141 @@
+diff -ruN a/claude-setup/rules/core.md b/claude-setup/rules/core.md
+--- a/claude-setup/rules/core.md	2026-11-03 10:14:17
++++ b/claude-setup/rules/core.md	2026-11-03 10:26:06
+@@ -25,8 +25,20 @@
+ - **Safety-critical output** — security warnings, irreversible action confirmations, multi-step sequences where fragment order risks misread: always full prose.
+ - **User-requested exceptions** — "normal mode" or "stop caveman" → revert for session.
+ 
+-`caveman@caveman` plugin "Auto-Clarity" exemptions (security warnings, irreversible ops, confused user) are consistent with this section.
++## Explain (always on)
+ 
++Teach the why alongside code, without slowing the work down:
++- Before and after writing or changing code, add a short `★ Insight` box with 2-3 points specific to this codebase or the code just written, not general programming facts.
++- Name the trade-off behind a non-obvious choice in one sentence.
++- Insight boxes are conversation output only, never written into files.
++- Do not ask the user to write code themselves; that hand-code-first flow lives in `/earn-it`.
++
++Format:
++
++    `★ Insight ─────────────────────────────────────`
++    [2-3 key points]
++    `─────────────────────────────────────────────────`
++
+ ## Code generation limit — ~50 LOC per turn
+ 
+ Default: ~50 logical source lines per block or per turn. A meaningful unit beats raw line count (a 60-line coherent function is fine; a 200-line dump is not). When in doubt: split, explain the split, continue.
+@@ -48,7 +60,7 @@
+ 
+ ## Definition of Done
+ 
+-Before claiming complete: run type-checker and test suite, show output. `superpowers:verification-before-completion` not optional. "Type-checks clean" ≠ "works."
++Before claiming complete: run type-checker and test suite, show output. `verification-before-completion` (vendored in shared/skills) not optional. "Type-checks clean" ≠ "works."
+ 
+ ## Bug Fixing
+ 
+diff -ruN a/claude-setup/skills/earn-it/SKILL.md b/claude-setup/skills/earn-it/SKILL.md
+--- a/claude-setup/skills/earn-it/SKILL.md	2026-11-03 10:14:17
++++ b/claude-setup/skills/earn-it/SKILL.md	2026-11-03 10:14:17
+@@ -149,6 +149,17 @@
+ 
+ ---
+ 
++## Contribution requests (5-10 lines)
++
++Outside a numbered level, earn-it still hands the user the meaningful decisions. When a task has business logic with several valid approaches, an error-handling strategy, an algorithm or data-structure choice, or a UX trade-off, ask the user to write 5-10 lines of that piece:
++
++1. Create the file with its surrounding context, the function signature and a comment stating the purpose.
++2. Mark the spot with a `TODO(you)` placeholder.
++3. Explain what is built, why this decision matters, and the trade-offs to weigh.
++4. Wait for the user's attempt, then validate it as in Level 3.
++
++Do not ask for boilerplate, obvious implementations, configuration or simple CRUD.
++
+ ## Socratic question bank
+ 
+ - "What type does X need to return, and why?"
+diff -ruN a/claude-setup/skills/improve-codebase-architecture/MOVED.md b/claude-setup/skills/improve-codebase-architecture/MOVED.md
+--- a/claude-setup/skills/improve-codebase-architecture/MOVED.md	1970-01-01 08:00:00
++++ b/claude-setup/skills/improve-codebase-architecture/MOVED.md	2026-11-03 10:14:17
+@@ -0,0 +1 @@
++Moved to ~/dotfiles/shared/skills/improve-codebase-architecture/ (dotfiles PR feat/lean-kit), pinned in shared/skills/vendor.json. ~/.claude/skills/improve-codebase-architecture links there.
+diff -ruN a/claude-setup/skills/improve-codebase-architecture/SKILL.md b/claude-setup/skills/improve-codebase-architecture/SKILL.md
+--- a/claude-setup/skills/improve-codebase-architecture/SKILL.md	2026-11-03 10:14:17
++++ b/claude-setup/skills/improve-codebase-architecture/SKILL.md	1970-01-01 08:00:00
+@@ -1,61 +0,0 @@
+----
+-name: improve-codebase-architecture
+-description: Find deepening opportunities in a codebase, informed by the domain language in CONTEXT.md and the decisions in docs/adr/. Use when the user wants to improve architecture, find refactoring opportunities, consolidate tightly-coupled modules, or make a codebase more testable and AI-navigable.
+----
+-
+-# Improve Codebase Architecture
+-
+-Surface architectural friction and propose **deepening opportunities** — refactors that turn shallow modules into deep ones. The aim is testability and AI-navigability.
+-
+-## Glossary
+-
+-Use these terms exactly in every suggestion:
+-
+-- **Module** — anything with an interface and an implementation (function, class, package, slice)
+-- **Interface** — everything a caller must know to use the module: types, invariants, error modes, ordering, config
+-- **Depth** — leverage at the interface: a lot of behaviour behind a small interface. **Deep** = high leverage. **Shallow** = interface nearly as complex as the implementation
+-- **Seam** — where an interface lives; a place behaviour can be altered without editing in place
+-- **Leverage** — what callers get from depth
+-- **Locality** — what maintainers get from depth: change, bugs, knowledge concentrated in one place
+-
+-Key principles:
+-- **Deletion test**: imagine deleting the module. If complexity vanishes, it was a pass-through. If complexity reappears across N callers, it was earning its keep.
+-- **The interface is the test surface.**
+-- **One adapter = hypothetical seam. Two adapters = real seam.**
+-
+-## Process
+-
+-### 1. Explore
+-
+-Read the project's domain glossary (`CONTEXT.md`) and any ADRs first.
+-
+-Then walk the codebase organically, noting friction points:
+-- Where does understanding one concept require bouncing between many small modules?
+-- Where are modules **shallow** — interface nearly as complex as the implementation?
+-- Where do pure functions extracted for testability hide real bugs in how they're called?
+-- Where do tightly-coupled modules leak across their seams?
+-- Which parts are untested, or hard to test through their current interface?
+-
+-Apply the **deletion test** to anything you suspect is shallow.
+-
+-### 2. Present candidates
+-
+-Present a numbered list of deepening opportunities. For each:
+-- **Files** — which files/modules are involved
+-- **Problem** — why the current architecture is causing friction
+-- **Solution** — plain English description of what would change
+-- **Benefits** — in terms of locality and leverage, and how tests would improve
+-
+-Use `CONTEXT.md` vocabulary for the domain. If CONTEXT.md defines "Order," talk about "the Order intake module."
+-
+-**ADR conflicts**: only surface a candidate that contradicts an ADR when the friction is real enough to warrant revisiting it. Mark it clearly.
+-
+-Do NOT propose interfaces yet. Ask: "Which of these would you like to explore?"
+-
+-### 3. Grilling loop
+-
+-Once the user picks a candidate, drop into a grilling conversation. Walk the design tree with them.
+-
+-Side effects happen inline as decisions crystallize:
+-- **New domain concept?** Add the term to `CONTEXT.md`
+-- **User rejects with load-bearing reason?** Offer an ADR — only if the reason would help a future explorer avoid re-suggesting the same thing
+diff -ruN a/claude-setup/skills/zoom-out/MOVED.md b/claude-setup/skills/zoom-out/MOVED.md
+--- a/claude-setup/skills/zoom-out/MOVED.md	1970-01-01 08:00:00
++++ b/claude-setup/skills/zoom-out/MOVED.md	2026-11-03 10:14:17
+@@ -0,0 +1 @@
++Moved to ~/dotfiles/shared/skills/zoom-out/ (dotfiles PR feat/lean-kit), pinned in shared/skills/vendor.json. ~/.claude/skills/zoom-out links there.
+diff -ruN a/claude-setup/skills/zoom-out/SKILL.md b/claude-setup/skills/zoom-out/SKILL.md
+--- a/claude-setup/skills/zoom-out/SKILL.md	2026-11-03 10:14:17
++++ b/claude-setup/skills/zoom-out/SKILL.md	1970-01-01 08:00:00
+@@ -1,7 +0,0 @@
+----
+-name: zoom-out
+-description: Tell the agent to zoom out and give broader context or a higher-level perspective. Use when you're unfamiliar with a section of code or need to understand how it fits into the bigger picture.
+-disable-model-invocation: true
+----
+-
+-I don't know this area of code well. Go up a layer of abstraction. Give me a map of all the relevant modules and callers, using the project's domain glossary vocabulary.
