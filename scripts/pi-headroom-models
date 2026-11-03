@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+"""Route Pi's opencode-go provider through the Headroom Zen proxy (127.0.0.1:8788).
+
+Writes the `opencode-go` entry of $PI_CODING_AGENT_DIR/models.json (default
+~/.pi/agent). Other providers in that file are left alone. Usage:
+
+    pi-headroom-models        # route opencode-go through the proxy
+    pi-headroom-models off    # remove the override, back to direct
+
+Why generated, not stowed: a provider-level baseUrl applies to every model,
+but opencode-go mixes two API styles. OpenAI-style models post to
+<baseUrl>/chat/completions (needs .../v1); Anthropic-style models post to
+<baseUrl>/v1/messages (needs no /v1). Pi's modelOverrides cannot change
+baseUrl, so the Anthropic-style models are copied in full from Pi's own
+catalog (models-store.json) with the proxy baseUrl. Rerun after Pi updates its
+catalog. Not stowed so machines without the proxy keep the direct route.
+"""
+import json
+import os
+import sys
+from pathlib import Path
+
+PROXY = "http://127.0.0.1:8788"
+agent_dir = Path(os.environ.get("PI_CODING_AGENT_DIR", Path.home() / ".pi/agent"))
+models_path = agent_dir / "models.json"
+config = json.loads(models_path.read_text()) if models_path.exists() else {}
+providers = config.setdefault("providers", {})
+
+if sys.argv[1:] == ["off"]:
+    providers.pop("opencode-go", None)
+else:
+    found = {}
+
+    def walk(node):
+        if isinstance(node, dict):
+            if node.get("provider") == "opencode-go" and node.get("api") == "anthropic-messages":
+                found.setdefault(node["id"], node)
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(json.loads((agent_dir / "models-store.json").read_text()))
+    models = [
+        {k: v for k, v in m.items() if k != "provider"} | {"baseUrl": PROXY}
+        for m in found.values()
+    ]
+    providers["opencode-go"] = {"baseUrl": f"{PROXY}/v1", "models": models}
+    print(f"opencode-go -> {PROXY}/v1; {len(models)} Anthropic-style models -> {PROXY}")
+
+models_path.write_text(json.dumps(config, indent=2) + "\n")
+print(f"wrote {models_path}")

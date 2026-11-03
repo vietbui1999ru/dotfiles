@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Shared Headroom compression proxy for Claude Code and Codex (ChatGPT login is
+  detected and forwarded to chatgpt.com). herdr and Orca shells route to it via
+  zsh/.zsh/headroom.zsh. See docs/workflows/headroom-proxy.md.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.vietbui.headroom-proxy</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/vietquocbui/.local/bin/headroom</string>
+    <string>proxy</string>
+    <string>--port</string>
+    <string>8787</string>
+    <string>--mode</string>
+    <string>cache</string>
+    <string>--no-telemetry</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/vietquocbui/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>KeepAlive</key>
+  <true/>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/tmp/headroom-proxy.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/headroom-proxy.err.log</string>
+</dict>
+</plist>
