@@ -102,9 +102,6 @@ alias dokcer="docker"
 alias kubctl="kubectl"
 alias souce="exec zsh"
 
-# Claude Code through the Headroom compression proxy (only where Headroom is installed).
-# ~/.local/bin may not be on PATH yet when .zshrc sources this file, so test
-# the default uv tool location too.
 # Clients whose MCP entries read ${CONTEXT7_API_KEY}/${EXCALIDRAW_API_KEY} get those two keys
 # from ~/secrets/.env through with-secrets, and no other key. Without a secrets file the client
 # still starts, without those MCP keys; a readable file missing one of them stops the start.
@@ -121,6 +118,9 @@ claude() { _with_mcp_keys claude "$@"; }
 opencode() { _with_mcp_keys opencode "$@"; }
 codex() { _with_mcp_keys codex "$@"; }
 
+# Claude Code through the Headroom compression proxy (only where Headroom is installed).
+# ~/.local/bin may not be on PATH yet when .zshrc sources this file, so test
+# the default uv tool location too.
 if command -v headroom >/dev/null || [[ -x $HOME/.local/bin/headroom ]]; then
   alias hclaude="$HOME/dotfiles/scripts/headroom-prune; HEADROOM_TELEMETRY=off $HOME/dotfiles/scripts/with-secrets CONTEXT7_API_KEY EXCALIDRAW_API_KEY -- headroom wrap claude"
 fi
