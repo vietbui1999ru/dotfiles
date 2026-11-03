@@ -291,6 +291,20 @@ class LogSafety(unittest.TestCase):
         self.assertEqual(self.run_hook("git clean -fd").returncode, 2)
         self.assertEqual(self.log.stat().st_mode & 0o077, 0)
 
+    def test_redacts_when_reached_through_a_per_file_link(self):
+        # Stow links the hook file into a real ~/.claude/hooks folder, so the hook must
+        # resolve its own link, not just its folder, to find scripts/redact.
+        hooks = self.tmp / "home" / ".claude" / "hooks"
+        hooks.mkdir(parents=True)
+        link = hooks / HOOK.name
+        link.symlink_to(HOOK)
+        firecrawl = "fc-" + "w" * 24
+        payload = json.dumps({"tool_input": {"command": f"curl {firecrawl} && git clean -fd"}})
+        env = {**os.environ, "SAFETY_LOG_DIR": str(self.dir)}
+        r = subprocess.run(["bash", str(link)], input=payload, env=env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertNotIn(firecrawl, self.log.read_text())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -16,8 +16,13 @@ log_block() {
   local log="$dir/bash-safety-blocks.jsonl"
   # scripts/redact, resolved through this hook's real path (the hook is a stow link). If it is
   # missing, the entry is still written with the jq-only redaction, so a block is never unlogged.
-  local hook_dir
-  hook_dir=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+  # Stow may link the file itself into a real folder, so follow the file's links first.
+  local hook_dir src="${BASH_SOURCE[0]}" target
+  while [ -L "$src" ]; do
+    target=$(readlink "$src")
+    case "$target" in /*) src=$target ;; *) src="$(dirname "$src")/$target" ;; esac
+  done
+  hook_dir=$(cd -P "$(dirname "$src")" && pwd -P)
   redact="$hook_dir/../../../scripts/redact"
   [ -x "$redact" ] || redact=cat
   case "$1" in
