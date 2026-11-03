@@ -2,26 +2,9 @@
 # firecrawl* skill that `firecrawl init` installs, moving it to ~/.agents/skills-disabled/.
 # Add a name here and re-run bootstrap to bring one back; the rest are reversible, not deleted.
 #
-# Scope: development, documentation, research, downloading information, comparison.
+# Lean kit (2026-11-03): only the base skill. Over 47 days of transcripts it was the only
+# firecrawl skill invoked, and the other 14 cost about 4.5 KB of skill descriptions in every
+# session. Candidates to restore if a need shows up: firecrawl-search, firecrawl-scrape,
+# firecrawl-interact, firecrawl-developer-index, firecrawl-deep-research.
 
-# Core CLI surface
 firecrawl
-firecrawl-search
-firecrawl-scrape
-firecrawl-map
-firecrawl-crawl
-firecrawl-download
-firecrawl-parse
-# Pages that need clicks or login (also lets an agent verify a UI the way a human would)
-firecrawl-interact
-# Multi-page research and comparison across sources
-firecrawl-agent
-firecrawl-deep-research
-# Development: upstream docs, issues and merged PRs
-firecrawl-developer-index
-# Research: papers
-firecrawl-research-index
-firecrawl-research-papers
-# Documentation: docs portals and local reference corpora
-firecrawl-knowledge-ingest
-firecrawl-knowledge-base
