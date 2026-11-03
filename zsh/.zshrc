@@ -56,10 +56,7 @@ command -v starship >/dev/null && eval "$(starship init zsh)"
 # direnv (after mise so .envrc can reference mise-managed tools)
 command -v direnv &>/dev/null && eval "$(direnv hook zsh)"
 
-# Machine secrets — exports every KEY=value in ~/secrets/.env (Context7, GitHub,
-# Anthropic, Firecrawl, shadcn, Syncthing). Consumers read them from the
-# environment; do not duplicate the values into per-tool .env files.
-[[ -f "$HOME/secrets/.env" ]] && { set -a; source "$HOME/secrets/.env"; set +a; }
+# Keys load per tool, not into this shell; see docs/workflows/secrets.md.
 
 # opam
 [[ -r "$HOME/.opam/opam-init/init.zsh" ]] && source "$HOME/.opam/opam-init/init.zsh" &>/dev/null
