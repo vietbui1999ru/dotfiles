@@ -13,7 +13,7 @@ too.
 | `launchd/.../com.vietbui.headroom-proxy.plist` | Proxy on `127.0.0.1:8787` for Claude Code (Anthropic) and Codex. Codex traffic from a ChatGPT login is detected and forwarded to `chatgpt.com/backend-api/codex`. |
 | `launchd/.../com.vietbui.headroom-zen.plist` | Proxy on `127.0.0.1:8788` for the OpenCode Go subscription (`opencode-go`). Both the OpenAI-style and the Anthropic-style upstreams point at Zen Go, because one proxy has a single upstream per API style. |
 | `systemd/headroom-proxy.service`, `systemd/headroom-zen.service` | The same two proxies as systemd user units on Linux. The agents role links, enables and starts them, with `Restart=always` and logs in the journal. |
-| `zsh/.zsh/headroom.zsh` | On macOS, in herdr panes (`HERDR_ENV=1`) and Orca terminals (`ORCA_PANE_KEY` set), when 8787 answers `/livez` at shell start: exports `ANTHROPIC_BASE_URL` and `ENABLE_TOOL_SEARCH=true`, and wraps `codex` with `-c openai_base_url=...`. On Linux every shell matches while the user's own `headroom-proxy` unit is active, so herdr, tmux and plain SSH are all routed. Plain terminals on macOS are untouched. |
+| `zsh/.zsh/headroom.zsh` | On macOS, in herdr panes (`HERDR_ENV=1`) and Orca terminals (`ORCA_PANE_KEY` set), when 8787 answers `/livez` at shell start: exports `ANTHROPIC_BASE_URL` and `ENABLE_TOOL_SEARCH=true`, and wraps `codex` with `-c openai_base_url=...`. On Linux every shell matches while the user's own `headroom-proxy` unit is active and owns the 8787 socket, so herdr, tmux and plain SSH are all routed. Plain terminals on macOS are untouched. |
 | `scripts/pi-headroom-models` | Writes the `opencode-go` entry of Pi's machine-local `~/.pi/agent/models.json` so Pi uses 8788. `off` removes it. |
 | `scripts/headroom-doctor` | Read-only check: both ports, the unit state, which gate this shell matched, the two Claude Code variables, the `codex` wrapper and Pi's route. Exits 1 when a service is down or a routed shell is not routed. |
 
@@ -96,8 +96,10 @@ Every shell on the box is routed while your own `headroom-proxy` user unit is
 active and 8787 answers, so herdr panes, tmux windows and a plain SSH session
 all go through the proxy. An answer on 8787 alone is not trusted: on a box
 without the unit, any local process holding that port would receive the API
-credentials. If another process took the port first, the unit cannot bind and
-is not active, so nothing is exported. The check fails open: a box without the
+credentials. A `Type=simple` unit reads active before it binds, so the shell
+also checks that the 8787 listener is a socket owned by your UID (`ss -Hltne`);
+another user holding the port fails that, herdr panes included. The macOS gate
+does not do this check (single-user Mac, launchd owns the port). The check fails open: a box without the
 unit, or a stopped one, exports nothing and shell start is not delayed.
 
 ## Check and bypass

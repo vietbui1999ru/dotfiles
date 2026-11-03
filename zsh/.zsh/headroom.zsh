@@ -5,10 +5,9 @@
 # Gate: on macOS only herdr panes (HERDR_ENV=1) and Orca terminals
 # (ORCA_PANE_KEY) are routed, so a plain terminal keeps talking to the APIs
 # directly. On Linux every shell (herdr, tmux, plain SSH) is routed, but only
-# while this user's own headroom-proxy unit is active. An answer on 8787 alone
-# is not trusted: on a box without the unit, any local process holding the port
-# would receive the API credentials. If another process took the port first,
-# the unit cannot bind, is not active, and nothing is exported.
+# while this user's own headroom-proxy unit is active and the 8787 listener is
+# a socket owned by this user. An answer on 8787 alone is not trusted: any local
+# process holding the port would receive the API credentials. See _headroom_gate.
 # Fails open: when the proxy is not answering at shell start, nothing is exported.
 # Bypass once: `env -u ANTHROPIC_BASE_URL claude` or `command codex`.
 #
@@ -17,10 +16,18 @@
 # busy proxy time to answer; /livez has taken 174 ms during a pane's startup,
 # which made a 0.3 s total time out and leave the pane silently unrouted.
 
+# Linux: every shell, herdr panes included, needs both checks. A Type=simple
+# unit reads active before it binds (and while restart-looping on a taken port),
+# so the unit state alone is not proof; the 8787 listener must also be a socket
+# owned by this UID (`ss -e` prints uid:N), which another user cannot fake.
 _headroom_gate() {
-  [[ ${HERDR_ENV:-} == 1 || -n ${ORCA_PANE_KEY:-} ]] && return 0
-  [[ $OSTYPE == linux* ]] && (( $+commands[systemctl] )) \
-    && systemctl --user is-active --quiet headroom-proxy.service
+  if [[ $OSTYPE == linux* ]]; then
+    (( $+commands[systemctl] && $+commands[ss] )) \
+      && systemctl --user is-active --quiet headroom-proxy.service \
+      && ss -Hltne 'sport = :8787' 2>/dev/null | grep -qw "uid:$UID"
+    return
+  fi
+  [[ ${HERDR_ENV:-} == 1 || -n ${ORCA_PANE_KEY:-} ]]
 }
 
 if _headroom_gate \

@@ -44,13 +44,17 @@ fi
 
 # 3. This shell. The gates are the ones headroom.zsh tests, in its order.
 gates=()
-# Linux shells are routed only while this user's headroom-proxy unit is active,
-# never on an answer from 8787 alone (see headroom.zsh).
-if [[ ${OSTYPE:-} == linux* ]] && systemctl --user is-active --quiet headroom-proxy.service 2>/dev/null; then
-  gates+=("Linux")
+# Same rule as _headroom_gate in headroom.zsh. On Linux every shell, herdr
+# included, needs this user's unit active and a 8787 socket owned by this UID.
+if [[ ${OSTYPE:-} == linux* ]]; then
+  if systemctl --user is-active --quiet headroom-proxy.service 2>/dev/null \
+    && ss -Hltne 'sport = :8787' 2>/dev/null | grep -qw "uid:$(id -u)"; then
+    gates+=("Linux")
+  fi
+else
+  [[ ${HERDR_ENV:-} == 1 ]] && gates+=("herdr")
+  [[ -n ${ORCA_PANE_KEY:-} ]] && gates+=("Orca")
 fi
-[[ ${HERDR_ENV:-} == 1 ]] && gates+=("herdr")
-[[ -n ${ORCA_PANE_KEY:-} ]] && gates+=("Orca")
 gate=""
 for g in ${gates[@]+"${gates[@]}"}; do gate="${gate:+$gate, }$g"; done
 line "gate" "${gate:-none (direct)}"
