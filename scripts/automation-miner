@@ -167,6 +167,10 @@ def looks_random(token: str) -> bool:
 
 def evidence_text(text: str, home: Path | None = None) -> str:
     """Evidence sent off the machine: redact raw text, then keep only its shape."""
+    command = re.match(r"\s*(/[A-Za-z][\w:-]*)(?=\s|$)", text)
+    if command:
+        rest = normalize(redact(text[command.end():], home), home)
+        return redact(f"{command.group(1)} {rest}".strip(), home)[:SHAPE_MAX]
     return redact(normalize(redact(text, home), home), home)[:SHAPE_MAX]
 
 
@@ -278,6 +282,27 @@ def detect_bash_sequence(home: Path) -> list[Event]:
     return events
 
 
+PASTE_ONLY = re.compile(r"!?\[(?:Pasted text|Image) #\d+(?: \+\d+ lines)?\]")
+
+
+def prompt_shape_key(display: str, home: Path | None) -> str | None:
+    """Shape of a typed prompt, or None when there is nothing to automate.
+
+    A bare slash command (`/clear`) is one keystroke already, and a prompt that
+    is only a paste placeholder carries no repeated text. A slash command keeps
+    its name, since normalize() would read `/name` as a path and merge them all.
+    """
+    text = display.strip()
+    if PASTE_ONLY.fullmatch(text):
+        return None
+    if text.startswith("/"):
+        name, _, rest = text.partition(" ")
+        if not rest.strip():
+            return None
+        return f"{name.lower()} {shape_key(rest, home)}"[:SHAPE_MAX]
+    return shape_key(text, home)
+
+
 def detect_prompt_shape(home: Path) -> list[Event]:
     events: list[Event] = []
     for entry in read_jsonl(home / ".claude" / "history.jsonl"):
@@ -285,9 +310,11 @@ def detect_prompt_shape(home: Path) -> list[Event]:
         stamp = parse_ts(entry.get("timestamp"))
         if not isinstance(display, str) or not display.strip() or stamp is None:
             continue
+        shape = prompt_shape_key(display, home)
+        if shape is None:
+            continue
         project = entry.get("project") or ""
         day = stamp.strftime("%Y-%m-%d")
-        shape = shape_key(display, home)
         tier_to = "script" if display.lstrip().startswith("/") else "claude"
         events.append(
             Event(

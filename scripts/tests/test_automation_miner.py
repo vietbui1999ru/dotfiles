@@ -181,6 +181,17 @@ class PromptShapeTests(FixtureCase):
         ranked = miner.rank_candidates(cands, NOW)
         self.assertEqual(ranked[0].tier_to, "script")
 
+    def test_prompt_shape_skips_bare_slash_and_paste_only(self) -> None:
+        for text in ("/clear", " /exit ", "[Pasted text #3 +40 lines]", "![Pasted text #1]", "[Image #2]"):
+            self.assertIsNone(miner.prompt_shape_key(text, self.home), text)
+
+    def test_prompt_shape_slash_commands_do_not_merge(self) -> None:
+        pi = miner.prompt_shape_key("/pi collect 3", self.home)
+        loop = miner.prompt_shape_key("/loop 5m", self.home)
+        self.assertNotEqual(pi, loop)
+        self.assertTrue(pi.startswith("/pi "))
+        self.assertEqual(miner.evidence_text("/pi collect 3", self.home), "/pi collect <n>")
+
     def test_prompt_shape_single_day_is_one_session(self) -> None:
         stamp = int((NOW - timedelta(days=1)).timestamp() * 1000)
         rows = [{"display": "same prompt", "project": "/w/p", "timestamp": stamp + i} for i in range(4)]
