@@ -106,5 +106,5 @@ alias souce="exec zsh"
 # ~/.local/bin may not be on PATH yet when .zshrc sources this file, so test
 # the default uv tool location too.
 if command -v headroom >/dev/null || [[ -x $HOME/.local/bin/headroom ]]; then
-  alias hclaude="headroom wrap claude"
+  alias hclaude="$HOME/dotfiles/scripts/headroom-prune; headroom wrap claude"
 fi
