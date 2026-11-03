@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+"""Redact secrets from stdin to stdout. The one shared redactor for logs and pushed text.
+
+Two passes. First, every literal value (length >= 8) from the secrets file becomes
+[REDACTED:NAME]. Second, each pattern in PATTERNS keeps its visible prefix or name (group 1)
+and replaces the secret part with [REDACTED], so the line still says what it was.
+
+If the secrets file cannot be read, one warning goes to stderr and only the pattern pass runs.
+Override: SECRETS_ENV (secrets file path). PATTERNS is imported by scripts/secret-scan.
+"""
+
+import os
+import re
+import sys
+from pathlib import Path
+
+MIN_LITERAL = 8
+
+# (name, regex). Group 1 is the visible part; the rest of the match is replaced.
+PATTERNS = [
+    ("openai-style-key", re.compile(r"(\bsk-)[A-Za-z0-9_\-]{20,}")),
+    ("github-token", re.compile(r"(\b(?:ghp|gho|ghu|ghs|ghr)_)[A-Za-z0-9]{20,}")),
+    ("github-fine-grained-pat", re.compile(r"(\bgithub_pat_)[A-Za-z0-9_]{20,}")),
+    ("google-api-key", re.compile(r"(\bAIza)[A-Za-z0-9_\-]{30,}")),
+    ("firecrawl-key", re.compile(r"(\bfc-)[A-Za-z0-9]{20,}")),
+    ("slack-token", re.compile(r"(\bxox[abp]-)[A-Za-z0-9\-]{10,}")),
+    ("aws-access-key-id", re.compile(r"(\bAKIA)[A-Z0-9]{16}\b")),
+    ("bearer-token", re.compile(r"(\bBearer\s+)[A-Za-z0-9._~+/=\-]{8,}")),
+    ("auth-header", re.compile(r"((?i:\b(?:Authorization|X-Api-Key)):[ \t]*)[^\r\n]+")),
+    ("url-userinfo", re.compile(r"(\b[A-Za-z][A-Za-z0-9+.\-]*://[^\s:/@]+:)[^\s@/]+(?=@)")),
+    (
+        "name-value-assignment",
+        re.compile(r"(\b[A-Za-z0-9_]*(?i:key|token|secret|pass|pat|auth)[A-Za-z0-9_]*=)(?!(?:sk-|gh[pousr]_|github_pat_|AIza|fc-|xox[abp]-|AKIA))[^\s'\"]+"),
+    ),
+    # Short flag with a glued value of 6+ chars: -pXXXXXX. Leaves -la, -rf and -m 'msg' alone.
+    ("short-flag-value", re.compile(r"(?<![A-Za-z0-9\-])(-[A-Za-z])[A-Za-z0-9_]{6,}\b")),
+]
+
+
+def load_literals(secrets_path):
+    """Return (name, value) pairs of length >= MIN_LITERAL, or None when unreadable."""
+    try:
+        text = Path(secrets_path).read_text()
+    except OSError:
+        return None
+    pairs = []
+    for raw in text.splitlines():
+        line = raw.rstrip("\r")
+        m = re.match(r"^(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$", line)
+        if not m:
+            continue
+        value = m.group(2).strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+            value = value[1:-1]
+        if len(value) >= MIN_LITERAL:
+            pairs.append((m.group(1), value))
+    # Longest first, so a value that contains another is replaced whole.
+    pairs.sort(key=lambda p: len(p[1]), reverse=True)
+    return pairs
+
+
+def redact_text(text, literals):
+    for name, value in literals:
+        text = text.replace(value, f"[REDACTED:{name}]")
+    for _name, pattern in PATTERNS:
+        text = pattern.sub(lambda m: m.group(1) + "[REDACTED]", text)
+    return text
+
+
+def main():
+    secrets_path = os.environ.get("SECRETS_ENV") or str(Path.home() / "secrets" / ".env")
+    literals = load_literals(secrets_path)
+    if literals is None:
+        print("redact: warning: secrets file unreadable; pattern pass only", file=sys.stderr)
+        literals = []
+    sys.stdout.write(redact_text(sys.stdin.read(), literals))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
