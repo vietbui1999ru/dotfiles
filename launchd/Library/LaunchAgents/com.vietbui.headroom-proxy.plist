@@ -17,10 +17,12 @@
     <string>8787</string>
     <string>--mode</string>
     <string>cache</string>
-    <string>--no-telemetry</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
+    <!-- No anonymous upload; HEADROOM_TELEMETRY=off would also kill local /stats. -->
+    <key>HEADROOM_BEACON</key>
+    <string>off</string>
     <key>PATH</key>
     <string>/Users/vietquocbui/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
   </dict>

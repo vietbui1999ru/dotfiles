@@ -19,7 +19,6 @@
     <string>8788</string>
     <string>--mode</string>
     <string>cache</string>
-    <string>--no-telemetry</string>
     <string>--no-subscription-tracking</string>
     <string>--openai-api-url</string>
     <string>https://opencode.ai/zen/go/v1</string>
@@ -28,6 +27,9 @@
   </array>
   <key>EnvironmentVariables</key>
   <dict>
+    <!-- No anonymous upload; HEADROOM_TELEMETRY=off would also kill local /stats. -->
+    <key>HEADROOM_BEACON</key>
+    <string>off</string>
     <key>PATH</key>
     <string>/Users/vietquocbui/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
   </dict>
