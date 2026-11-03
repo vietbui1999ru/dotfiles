@@ -3,7 +3,8 @@
 // the band counts this session's pending blocks, the pane lists them and marks through the CLI.
 import type { EngineInterface } from 'claude-code'
 
-export type SafetyVerdict = 'ok' | 'false-positive'
+// `noted` is the logger's own note (a built-in guard refusal); only a human's `ok` or `false-positive` clears a block.
+export type SafetyVerdict = 'ok' | 'false-positive' | 'noted'
 
 export type SafetyBlock = {
   id: string
@@ -67,7 +68,7 @@ export const parseVerdicts = (body: string | undefined): Map<string, SafetyVerdi
   for (const entry of objects(body)) {
     const id = text(entry.id)
     const verdict = text(entry.verdict)
-    if (id && (verdict === 'ok' || verdict === 'false-positive')) latest.set(id, verdict)
+    if (id && (verdict === 'ok' || verdict === 'false-positive' || verdict === 'noted')) latest.set(id, verdict)
   }
   return latest
 }
