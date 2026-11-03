@@ -14,10 +14,18 @@ fi
 command -v jq >/dev/null || { echo "statusline: jq missing"; exit 0; }
 # Unit separator (0x1f), not tab: tab is IFS whitespace, so read would collapse empty fields.
 IFS=$'\x1f' read -r cwd wt used left five seven style model < <(
-  jq -r '[.workspace.current_dir // .cwd // "",
+  # ctx is percent of the 500K auto-compact cap (CLAUDE_CODE_AUTO_COMPACT_WINDOW), not of the
+  # model window that used_percentage measures. Tokens come from current_usage.
+  jq -r 'def cap_pct: (.context_window.current_usage // null) as $u
+           | (if $u then (($u.input_tokens // 0) + ($u.cache_creation_input_tokens // 0) + ($u.cache_read_input_tokens // 0))
+              elif .context_window.used_percentage then .context_window.used_percentage * (.context_window.context_window_size // 0) / 100
+              else null end) as $t
+           | if $t then $t / 5000 else null end;
+         cap_pct as $p
+         | [.workspace.current_dir // .cwd // "",
           .workspace.git_worktree // .worktree.name // "",
-          .context_window.used_percentage // "",
-          .context_window.remaining_percentage // "",
+          ($p // ""),
+          (if $p then ([100 - $p, 0] | max) else "" end),
           .rate_limits.five_hour.used_percentage // "",
           .rate_limits.seven_day.used_percentage // "",
           .output_style.name // "",

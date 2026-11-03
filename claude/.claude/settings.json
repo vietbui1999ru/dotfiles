@@ -4,7 +4,8 @@
     "CLAUDE_CODE_SUBAGENT_MODEL": "claude-haiku-5-5",
     "MAX_THINKING_TOKENS": "10000",
     "teammateMode": "in-process",
-    "CLAUDE_CODE_PLUGIN_DIRS": "~/dotfiles/session-band-plugin"
+    "CLAUDE_CODE_PLUGIN_DIRS": "~/dotfiles/session-band-plugin",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "500000"
   },
   "permissions": {
     "allow": [
@@ -472,6 +473,18 @@
           }
         ]
       }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "auto",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/precompact-save.sh",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   },
   "statusLine": {
@@ -531,7 +544,7 @@
   "theme": "dark",
   "editorMode": "vim",
   "verbose": true,
-  "autoCompactEnabled": false,
+  "autoCompactEnabled": true,
   "teammateMode": "in-process",
   "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": true,
