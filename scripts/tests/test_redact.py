@@ -102,7 +102,7 @@ class Redact(unittest.TestCase):
         self.assertRedacts("X-Api-Key: somevalue123\n", "X-Api-Key: [REDACTED]\n")
 
     def test_url_userinfo_password(self):
-        self.assertRedacts("https://alice:hunter2pass@example.com/x\n", "https://alice:[REDACTED]@example.com/x\n")
+        self.assertRedacts("https://alice:hunter2pass@example.com/x\n", "https://alice:[REDACTED]@example.com/x\n")  # secret-scan: allow
 
     def test_name_value_assignment_with_secret_like_name(self):
         self.assertRedacts("API_KEY=abcdef123456\n", "API_KEY=[REDACTED]\n")

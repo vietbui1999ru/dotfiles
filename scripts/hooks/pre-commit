@@ -1,0 +1,40 @@
+#!/bin/sh
+# pre-commit: block a commit whose staged content holds a secret (AC-11).
+#
+# Scans the STAGED blob of each added, copied, modified or renamed file (not the working
+# tree), so a key left only in an unstaged edit does not block. Uses scripts/secret-scan,
+# found through this hook's real path (the hook is a symlink into scripts/hooks/).
+# A deliberate fake key: add "secret-scan: allow" to that line, or commit with --no-verify.
+
+hook_real=$(readlink "$0" 2>/dev/null || echo "$0")
+case "$hook_real" in
+	/*) ;;
+	*) hook_real="$(dirname "$0")/$hook_real" ;;
+esac
+scanner="$(cd -P "$(dirname "$hook_real")/.." && pwd -P)/secret-scan"
+if [ ! -x "$scanner" ]; then
+	echo "pre-commit: secret-scan not found at $scanner; skipping the check" >&2
+	exit 0
+fi
+
+status=0
+failed=""
+# POSIX sh: the staged names go to a temp file, one per line (-z would need NUL reads, not portable).
+list=$(mktemp) || exit 1
+trap 'rm -f "$list"' EXIT
+git diff --cached --name-only --diff-filter=ACMR >"$list"
+while IFS= read -r f; do
+	[ -n "$f" ] || continue
+	hits=$(git show ":$f" 2>/dev/null | "$scanner" - 2>/dev/null)
+	if [ -n "$hits" ]; then
+		status=1
+		printf '%s\n' "$hits" | sed "s|^<stdin>|$f|"
+		failed="$failed $f"
+	fi
+done <"$list"
+
+if [ "$status" -ne 0 ]; then
+	echo "pre-commit: secret-scan blocked the commit in:$failed" >&2
+	echo "Remove the value, or for a deliberate fake key add 'secret-scan: allow' to that line, or commit with git commit --no-verify." >&2
+fi
+exit "$status"
