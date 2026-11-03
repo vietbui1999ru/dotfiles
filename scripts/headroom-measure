@@ -266,8 +266,10 @@ def summarize_mode(samples, pricing):
     return summary
 
 
-def delta_of(name, baseline, variant):
+def delta_of(name, baseline, variant, round_to=None):
     change = variant - baseline
+    if round_to is not None:
+        change = round(change, round_to)
     percent = round(change / baseline * 100, 2) if baseline else None
     return {"baseline": baseline, "variant": variant, "delta": change,
             "percent": percent}
@@ -341,7 +343,7 @@ def compare(baseline_mode, baseline_samples, variant_mode, variant_samples,
     variant_cost, _ = mode_cost(variant_samples, pricing)
     if isinstance(baseline_cost, dict) and isinstance(variant_cost, dict):
         delta["cost"] = delta_of("cost", baseline_cost["total"],
-                                 variant_cost["total"])
+                                 variant_cost["total"], round_to=6)
         change, basis = delta["cost"]["delta"], "cost"
     else:
         change, basis = delta["uncached_input"]["delta"], "uncached_input_tokens"
