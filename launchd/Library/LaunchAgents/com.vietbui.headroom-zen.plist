@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Headroom proxy for the OpenCode Go subscription (opencode-go provider in
+  OpenCode and Pi). A proxy has one upstream per API style, so Zen Go gets its
+  own instance: OpenAI-style models via /v1/chat/completions, Anthropic-style
+  models (Claude, MiniMax, Qwen) via /v1/messages.
+  See docs/workflows/headroom-proxy.md.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.vietbui.headroom-zen</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/vietquocbui/.local/bin/headroom</string>
+    <string>proxy</string>
+    <string>--port</string>
+    <string>8788</string>
+    <string>--mode</string>
+    <string>cache</string>
+    <string>--no-subscription-tracking</string>
+    <string>--openai-api-url</string>
+    <string>https://opencode.ai/zen/go/v1</string>
+    <string>--anthropic-api-url</string>
+    <string>https://opencode.ai/zen/go</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- No anonymous upload; HEADROOM_TELEMETRY=off would also kill local /stats. -->
+    <key>HEADROOM_BEACON</key>
+    <string>off</string>
+    <!-- Kompress on the Apple GPU (needs the pytorch-mps extra); falls back to ONNX CPU. -->
+    <key>HEADROOM_KOMPRESS_BACKEND</key>
+    <string>pytorch_mps</string>
+    <key>PATH</key>
+    <string>/Users/vietquocbui/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>KeepAlive</key>
+  <true/>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/tmp/headroom-zen.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/headroom-zen.err.log</string>
+</dict>
+</plist>

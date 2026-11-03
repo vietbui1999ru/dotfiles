@@ -81,6 +81,8 @@ fi
 # ── Aliases + functions ───────────────────────────────────────────────
 [[ -f "$HOME/.zsh/aliases.zsh" ]] && source "$HOME/.zsh/aliases.zsh"
 [[ -f "$HOME/.zsh/functions.zsh" ]] && source "$HOME/.zsh/functions.zsh"
+# Headroom proxy routing for herdr/Orca agent panes (no-op elsewhere).
+[[ -f "$HOME/.zsh/headroom.zsh" ]] && source "$HOME/.zsh/headroom.zsh"
 [[ -f "$HOME/.zsh/keybindings.zsh" ]] && source "$HOME/.zsh/keybindings.zsh"
 
 # Reset terminal state on each prompt — prevents TUI apps from leaving mouse reporting
