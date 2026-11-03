@@ -69,6 +69,27 @@ command codex                        # one Codex session without the proxy
 New panes pick the routing up at shell start; panes opened while the proxy was
 down stay direct until reopened.
 
+## Merged dashboard
+
+Each proxy serves its own dashboard (`http://127.0.0.1:8787/dashboard` and
+`:8788/dashboard`). `headroom/dashboard/` is one page over both, at
+**http://127.0.0.1:8790**: a card per proxy (requests by provider, compression,
+tokens saved, cache hit rate and busts), a combined card that sums this boot's
+numbers, and lifetime totals. Lifetime is shown once, because both proxies write
+the same `~/.headroom/proxy_savings.json`; summing it would double-count.
+
+The page fetches each proxy's `/stats` from the browser. The proxies allow the
+page's `http://127.0.0.1:8790` origin through CORS but refuse a page opened from
+disk (Origin `null`), so `com.vietbui.headroom-dash` serves the folder with
+`python3 -m http.server`. It serves the main checkout's copy, so changes go live
+after merge and pull.
+
+```sh
+cd ~/dotfiles && stow -R launchd
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.vietbui.headroom-dash.plist
+open http://127.0.0.1:8790
+```
+
 ## Kompress on the Apple GPU
 
 Kompress is Headroom's ML compressor for prose. By default it runs the int8
