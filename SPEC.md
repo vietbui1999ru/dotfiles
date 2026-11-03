@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 branch: feat/sec-scope
 ---
 # SPEC: Scope secrets to the tool that needs them
