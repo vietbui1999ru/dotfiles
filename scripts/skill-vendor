@@ -262,7 +262,7 @@ def build_audit(home: Path, days: int) -> dict[str, Any]:
     candidates: list[str] = []
     user_skills = home / ".claude" / "skills"
     if user_skills.is_dir():
-        candidates.extend(p.name for p in user_skills.iterdir())
+        candidates.extend(p.name for p in user_skills.iterdir() if not p.name.startswith("."))
 
     session_bytes: dict[str, int] = {}
     hooks: dict[str, dict[str, int]] = {}
