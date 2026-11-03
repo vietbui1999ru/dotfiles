@@ -34,6 +34,7 @@ log_block() {
     *"+refspec"*) rule=push-plus-ref ;;
     *":branch"*) rule=push-delete-ref ;;
     *"git commit and jj commit"*) rule=worktree-commit ;;
+    *"this command names"*) rule=secrets-read ;;
     *) rule=other ;;
   esac
   ts=$(date +%Y-%m-%dT%H:%M:%S%z | sed 's/\([0-9][0-9]\)$/:\1/')
@@ -71,6 +72,21 @@ finish() {
 trap 'finish $?' EXIT
 
 [ -z "$CMD" ] && exit 0
+
+# ── reads of the secrets file ──────────────────────────────────────────────────
+# shared/AGENTS.md: keys live in ~/secrets/.env, one key comes out through
+# scripts/secret-get. Pi enforces the same rule with its secrets-guard extension.
+# Quotes and backslashes are dropped first, so ~/"sec"rets/.env is caught too.
+SECRETS_DIR="${HOME:-/nonexistent}/secrets"
+SECRETS_PATTERN=$(printf '%s' "$SECRETS_DIR" | sed 's/[][\\.*^$+?(){}|]/\\&/g')
+SECRETS_RE='(~/secrets|\$HOME/secrets|\$\{HOME\}/secrets|'"${SECRETS_PATTERN}"')([^-A-Za-z0-9_]|$)'
+SECRETS_CMD=$(printf '%s' "$CMD" | sed -e 's/[\\]//g' -e 's/["]//g' -e "s/'//g")
+if echo "$SECRETS_CMD" | grep -qE "$SECRETS_RE"; then
+  echo "BLOCKED: this command names $SECRETS_DIR."
+  echo "Read one key with ~/dotfiles/scripts/secret-get NAME, run a command with only the keys it needs"
+  echo "through ~/dotfiles/scripts/with-secrets, and pass text that may hold a key through ~/dotfiles/scripts/redact."
+  exit 2
+fi
 
 # ── rm targeting root or home ──────────────────────────────────────────────────
 # Allow: rm -rf ./tmp, rm -rf some/specific/dir
