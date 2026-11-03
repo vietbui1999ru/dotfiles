@@ -123,35 +123,54 @@ they are measured; the verdict is not.
 
 ## 4. Live matrix
 
-Every cell is `not run`. Reason codes:
+Run on 2026-11-03 with `headroom 0.42.0` (installed; the spec baseline is 0.24.0,
+see §8.1), `pi 1.4.0`, `claude 2.1.317`, `codex-cli 0.166.0`. The cache proxy ran
+on CACHE_PORT 18100 and the passthrough proxy on PASS_PORT 18101 (both loopback,
+both started by the operator-authorised agent; the owner's listener on 8787 was
+never touched). Authorization: owner, 2026-11-03, for small subscription calls.
+Full evidence and exact commands are in §8.
 
-- **R1** — paid runs not authorized: the spec puts paid API experiments beyond
-  small pilot calls behind "ask first", and no such authorization exists for this
-  run.
-- **R2** — auth not available to the agent: no auth file may be read and no
-  credential printed for this work, so the agent cannot obtain a live session.
-- **R3** — local service not started by the agent: the proxy is the operator's
-  foreground process, and port 8787 was held by a foreign `headroom wrap claude`
-  process during these runs (§2).
-- **R4** — needs an interactive TUI session the agent cannot drive here.
-- **R5** — the transport claim (WebSocket/SSE) needs a live upstream; a mock
-  cannot prove it.
+Reason codes (updated for this run):
 
-| Client | Multi-turn | Tool calls | Cancellation | Resume | Parallel sessions | SSE vs WebSocket |
+- **R1** — paid runs: lifted for this run by owner authorization, so cells are
+  run where a route works.
+- **R2** — auth unavailable: Pi `anthropic` OAuth refresh fails on this machine.
+- **R3** — local service: resolved for this run (both proxies started by the agent).
+- **R4** — needs an interactive TUI the agent cannot drive non-interactively.
+- **R5** — transport needs a live upstream; here the live upstream was reached.
+
+Cell legend: `pass` / `fail (<error>)` / `not run (<reason>)`. Retries are counted
+in the note; `errors` in the samples is 0 for every recorded turn, because a
+failed attempt is never written as a sample (§8.4).
+
+| Client | Multi-turn (t1+t2) | Tool calls | Cancellation | Resume | Parallel sessions | SSE vs WebSocket |
 |---|---|---|---|---|---|---|
-| Claude (`hclaude`) | not run (R1, R3, R4) | not run (R1, R3, R4) | not run (R3, R4) | not run (R1, R3, R4) | not run (R1, R3) | not run (R1, R3) |
-| Codex CLI (`hcodex`) | not run (R1, R3, R4) | not run (R1, R3, R4) | not run (R3, R4) | not run (R1, R3, R4) | not run (R1, R3) | not run (R3, R5) |
-| Pi `anthropic` (`hpi`) | not run (R1, R2, R3) | not run (R1, R2, R3) | not run (R2, R3) | not run (R1, R2, R3) | not run (R1, R2, R3) | not run (R2, R3) |
-| Pi `openai-codex` (`hpi`) | not run (R1, R2, R3) | not run (R1, R2, R3) | not run (R2, R3) | not run (R1, R2, R3) | not run (R1, R2, R3) | not run (R3, R5) |
-| Pi `opencode-go` (`hpi`) | not run (R1, R3) | not run (R1, R3) | not run (R3) | not run (R1, R3) | not run (R1, R3) | not run (R1, R3) |
+| Claude (`hclaude`) | pass — 3 modes × 2 turns, all correct; claude-sonnet-4-6 | pass — 2 tool calls on turn 1 (the two reads), 0 on turn 2 | pass — SIGINT, client exit 0, proxy ready, fresh call correct | pass — `--resume <sid>` turn 2 correct, cache_read present | pass — 2 concurrent cache-mode sessions, both correct, distinct sids | SSE `/v1/messages` (cache proxy log: 13 responses, all 200; the 27 log lines include request and response entries) |
+| Codex CLI (`hcodex`) | **fail** — passthrough and cache: `workspace backend must use an HTTPS origin without credentials` (CLI refuses plain-HTTP loopback `chatgpt_base_url`); direct pass | not run (no proxied turn completed) | not run (no proxied turn completed) | not run (no proxied turn completed) | not run (no proxied turn completed) | WebSocket `/v1/responses` → `wss://chatgpt.com/backend-api/codex/responses` seen at the proxy, but the client never completed a turn through it |
+| Pi `anthropic` (`hpi`) | **not run (R2)** — `OAuth refresh failed for anthropic` (token refresh to platform.claude.com failed); tried once in probe and once in the cell | not run (R2) | not run (R2) | not run (R2) | not run (R2) | not run (R2): no `/v1/messages` request from Pi reached the proxy |
+| Pi `openai-codex` (`hpi`, gpt-6.1-sol) | pass — 3 modes × 2 turns, all correct | pass — tool calls on turn 1 (2–3 per run), 0 on turn 2 | not run — not included in this pass (see note) | pass — turn 2 with `--session-id` correct, cache_read present | pass — 2 concurrent cache-mode sessions, both correct | WebSocket `/backend-api/codex/responses` (cache proxy log: 4 `WS /v1/responses` connections forwarded to `/backend-api/codex/responses`), not SSE |
+| Pi `opencode-go` (`hpi`, deepseek-v4.1-flash) | pass — 3 modes × 2 turns, all correct (passthrough rerun after the pin fix, §8.3) | pass — 2–8 tool calls on turn 1, 0 on turn 2 | pass — SIGINT rc -2, proxy ready, fresh call correct | pass — turn 2 correct, cache_read present | pass — 2 concurrent cache-mode sessions, both correct | SSE `/v1/chat/completions` (cache proxy log: 17 inbound requests, all 200) |
 
-A live cell is only recorded once it has all of: upstream cache counters
-(`cache_read`, `cache_write`) from the provider's own usage payload, total input,
-output, latency, retry count, retrieval result, correctness against the fixed
-expected answer, and the transport actually used. Retries are recorded as their
-own number in the cell's note, separate from the sample's `errors` count, which
-includes them. A green `/readyz` is not a live result — the WebSocket route can be
-missing while readiness passes (runbook §11).
+Notes that bind the table:
+
+- **Passthrough log.** The passthrough proxy was restarted with the OpenCode pin
+  (§8.3), which cleared its earlier log, so the first Claude passthrough cell's
+  traffic is not in the current log. A fresh Claude passthrough call was then
+  verified to reach PASS_PORT (`/v1/messages`, 200). The cell's recorded tokens
+  come from the run's own usage output, not from that log.
+- **Pi `openai-codex` cancellation** was not run in this pass (`not run`, not
+  implied by the other cells).
+- **Codex** is the one route with a real client-side fail: the CLI rejects a
+  plain-HTTP loopback `chatgpt_base_url` ("must use an HTTPS origin"). The proxy
+  itself received the WebSocket and forwarded it. Until the CLI accepts a loopback
+  origin, `hcodex` is not a working route on this build. Record it as
+  **experimental-fail**, not as a pilot pass.
+- **Pi `anthropic`** is blocked by auth, not by the proxy: its cells stay
+  `not run (R2)`, as the owner predicted.
+- **Attribution gap:** `/stats` `requests.by_stack` attributed only `pi_opencode`
+  (17 requests). The `pi_openai` WebSocket and Claude requests reached the proxy
+  but carry no `x-headroom-stack` tag on that path, so they are unattributed in
+  `by_stack`. The runbook's §8 check is therefore **not met** for those routes.
 
 ## 5. Deterministic read-only comparison task (for the owner)
 
@@ -234,8 +253,10 @@ assumed. No cache warmers, no retention changes, no semantic-cache reuse.
 - No claim that Headroom's dashboard compression estimate is a saving.
 - No claim that an existing MCP registration means retrieval goes through this
   proxy (runbook §8 has the check).
-- No claim that any route is production-ready: all five clients are experimental
-  until their matrix cells are filled in.
+- No claim that any route is production-ready: all five clients are experimental.
+- No claim that Codex works through the proxy: it fails on this build (§4, §8.3).
+- No claim of a token or cost reduction from the 2026-11-03 run; its verdicts are
+  no change or regression (§8.6).
 
 ## 7. Reproduce
 
@@ -252,3 +273,87 @@ that is where the recorded run wrote them. Nothing else is needed.
 
 `scripts/tests/__pycache__/` is build output, covered by the repository's
 `__pycache__/` ignore rule; it is never committed.
+
+## 8. Live run record (2026-11-03)
+
+### 8.1 Versions and commands
+
+- `headroom` **0.42.0** (installed at `~/.local/share/uv/tools/headroom-ai/bin`,
+  not on PATH). This is NOT the 0.24.0 baseline in the spec; the runbook's version
+  claim is out of date and must be re-verified.
+- `pi` 1.4.0, `claude` 2.1.317, `codex-cli` 0.166.0.
+- Cache proxy (CACHE_PORT 18100): `HEADROOM_WORKFLOW_URL=http://127.0.0.1:18100
+  scripts/headroom-workflow proxy`. The launcher's `--mode cache`, `--no-cache`,
+  `--no-telemetry`, one worker, pinned `OPENAI_TARGET_API_URL=https://opencode.ai/zen/go/v1`.
+- Passthrough proxy (PASS_PORT 18101): `OPENAI_TARGET_API_URL=https://opencode.ai/zen/go/v1
+  headroom proxy --host 127.0.0.1 --port 18101 --no-optimize --workers 1 --no-cache
+  --no-telemetry` (the launcher has no passthrough option). Log shows
+  `Optimization: DISABLED`; the banner still prints `Mode: cache`, which is expected.
+- Both proxies were stopped at the end of the run. Port 8787 (the owner's
+  `headroom wrap claude`, PID 6458) was never touched.
+- Fixture: `git archive HEAD` of `feat/headroom` at `ed29409`, extracted to
+  `/tmp/hr-smoke/fixture` and given a local git repo (so the Pi agent-review
+  extension does not log git errors). All clients ran from there.
+
+### 8.2 Model ids
+
+Claude `claude-sonnet-4-6` (passed `--model`; confirmed in the stream). Codex CLI:
+the CLI default, not reported by `exec --json`, so recorded as `codex-default`.
+Pi `anthropic/claude-sonnet-4-6`, `openai-codex/gpt-6.1-sol`,
+`opencode-go/deepseek-v4.1-flash`.
+
+### 8.3 Findings that changed the run
+
+1. The first passthrough proxy was started without the OpenCode target pin. Its
+   `opencode-go` traffic went to `api.openai.com` and returned HTTP 401, giving
+   0-token `fail` cells. That is the runbook §9.1 misroute. The proxy was restarted
+   with the pin, and the `opencode-go` passthrough cells were rerun and then pass.
+   The failed 401 samples were discarded, never written to the samples file.
+2. Codex through either proxy mode fails with `workspace backend must use an
+   HTTPS origin without credentials`. The CLI rejects the plain-HTTP loopback base.
+3. Pi `anthropic` fails at OAuth refresh (`OAuth refresh failed for anthropic`).
+4. Error turns (`stopReason: error`) are counted as failed attempts, never as
+   samples; a parser that accepted them would have produced fake zero-token samples.
+
+### 8.4 Retries and errors
+
+No client retried a turn in a way the parsers counted (`retries` is 0 for every
+recorded turn). Failed codex attempts were not written as samples, so `errors`
+is 0 in the samples file; the failures are recorded in §4 and §8.3.
+
+### 8.5 `/stats` deltas
+
+`requests.by_stack` on the cache proxy: `{"pi_opencode": 5}` before the comparison
+(from the probe calls); `{"pi_opencode": 17}` after the run. Those are the only stack
+tags recorded. No other stack tag appeared,
+because the other routes' requests carry no `x-headroom-stack` tag. Attribution
+is therefore only evidenced for `pi_opencode`.
+
+### 8.6 Samples and measure output
+
+Samples file: 20 lines, counters only (no prompts or responses). Claude
+(`direct`, `passthrough`, `cache`) and Pi `openai-codex` and `opencode-go` each
+have 3 modes × 2 turns. Codex has only `direct` (its proxied modes failed), so its
+comparison is withheld. The measure tool ran with no `--pricing` (all routes are
+subscription, so there are no dollar claims):
+
+Verdicts as the tool stated them:
+
+- claude: cache vs direct `no change`; passthrough vs direct `no change`.
+- codex: `missing_modes` passthrough and cache, so no comparison.
+- pi_openai: cache vs direct `regression`; passthrough vs direct `regression`.
+  The tool's note: fewer total input tokens, but cache reads fell (42624 to 40320),
+  so uncached input rose (1079 to 3022).
+- pi_opencode: cache vs direct `regression` (tool note: fewer total input tokens but
+  a higher bill); passthrough vs direct `regression`.
+
+These are n=2 turns per mode on a prefix cache, so the variance is larger than the
+differences. None of them is a reduction. The honest reading is that this run
+shows no proven savings, and some regressions in cache reads.
+
+### 8.7 Gates
+
+- `python3 -m unittest discover -s scripts/tests -p 'test_headroom*.py'`: Ran 34 tests, OK.
+- `node --test scripts/tests/headroom-*.test.mjs`: tests 16, pass 16, fail 0.
+- `spec check SPEC.md`: AC-1..AC-7 and AC-9 PASS; AC-8 MANUAL (expected). Approved 2026-11-02.
+- `floor-guard`: `INFO SPEC.md status: none -> approved`, rc 0.
