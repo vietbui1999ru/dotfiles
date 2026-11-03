@@ -349,6 +349,49 @@ class RedactionTests(FixtureCase):
             self.assertNotIn(leaked, out)
         self.assertIn("<secret>", out)
 
+    def assert_masked(self, text: str, leaked: str) -> None:
+        for fn in (miner.redact, miner.evidence_text):
+            out = fn(text, self.home)
+            self.assertNotIn(leaked, out, f"{fn.__name__} leaked {leaked!r}: {out!r}")
+
+    def test_redaction_masks_bearer_and_authorization(self) -> None:
+        self.assert_masked("curl -H Authorization: Bearer abc.def.ghi x", "abc.def")
+        self.assert_masked("curl -H Authorization: tok3nvalue x", "tok3nvalue")
+        self.assert_masked("curl -H Basic dXNlcjpwYXNz x", "dXNlcjpwYXNz")
+
+    def test_redaction_masks_secret_flags(self) -> None:
+        self.assert_masked("mysql --password=hunter22 db", "hunter22")
+        self.assert_masked("gh auth login --with-token s3cretvalue", "s3cretvalue")
+        self.assert_masked("tool --api-key abc123 run", "abc123")
+
+    def test_redaction_masks_url_userinfo(self) -> None:
+        self.assert_masked("git clone https://bob:pa55word@example.com/r.git", "pa55word")
+
+    def test_redaction_masks_jwt(self) -> None:
+        self.assert_masked("echo eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOjF9.c2lnbmF0dXJl", "eyJhbGci")
+
+    def test_redaction_masks_more_token_prefixes(self) -> None:
+        for tok in ("gho_", "ghs_", "ghu_", "ghr_"):
+            self.assert_masked(f"x {tok}abcdefghijklmnopqrstuvwx1 y", f"{tok}abcdef")
+        self.assert_masked("x glpat-abcdefghijklmnopqrst12 y", "glpat-abc")
+
+    def test_redaction_masks_high_entropy_tokens(self) -> None:
+        self.assert_masked("export X=1 && run Zq8vT3mK9pLx2RwN7bYc4 now", "Zq8vT3mK9pLx2RwN7bYc4")
+        out = miner.redact("cat docs/plans/2026-11-03-automation-miner.md", self.home)
+        self.assertIn("automation-miner", out)
+
+    def test_redaction_evidence_is_normalized_shape(self) -> None:
+        out = miner.evidence_text("curl -d 'pw=hunter22' -u x /etc/hosts 8080", self.home)
+        for leaked in ("hunter22", "/etc/hosts", "8080"):
+            self.assertNotIn(leaked, out)
+
+    def test_redaction_candidate_shape_uses_evidence_gate(self) -> None:
+        for s, n in (("s1", 1), ("s2", 2), ("s3", 3)):
+            self.write_bash_session(s, ["curl -d 'pw=hunter22' a", "b", "c"], n)
+        cands = miner.group_candidates(miner.detect_bash_sequence(self.home), self.home)
+        shape = next(iter(cands.values())).shape
+        self.assertNotIn("hunter22", shape)
+
     def test_redaction_truncates_long_literals(self) -> None:
         out = miner.redact("x" * 500, self.home)
         self.assertIn("…<truncated>", out)

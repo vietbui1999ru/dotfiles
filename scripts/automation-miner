@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -42,6 +43,25 @@ PLAN_TIMEOUT = 120
 GH_TIMEOUT = 120
 SHAPE_MAX = 200
 EVIDENCE_MAX = 5
+ENTROPY_MIN = 3.5  # bits per char; random keys sit near 4+, words and paths lower
+
+# Deny-list layer of redact(); evidence_text() also sends only the normalized shape.
+SECRET_PATTERNS = (
+    r"sk-[A-Za-z0-9_-]{16,}",
+    r"gh[opsur]_[A-Za-z0-9]{20,}",
+    r"github_pat_[A-Za-z0-9_]{20,}",
+    r"glpat-[A-Za-z0-9_-]{20,}",
+    r"AKIA[0-9A-Z]{16}",
+    r"xox[abpr]-[A-Za-z0-9-]+",
+    r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*",
+)
+SECRET_SUBS = (
+    (r"(\b[A-Za-z_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD)[A-Za-z_]*)=(\S+)", r"\1=<secret>"),
+    (r"((?<![\w-])--?[A-Za-z_-]*(?:password|passwd|token|secret|api[-_]?key))(=|\s+)(?!-)\S+", r"\1\2<secret>"),
+    (r"\b(Bearer|Basic)\s+\S+", r"\1 <secret>"),
+    (r"(Authorization:\s*)(?!Bearer|Basic)\S+", r"\1<secret>"),
+    (r"(://)[^/\s:@]+:[^/\s@]+@", r"\1<secret>@"),
+)
 PLAN_HEADINGS = [
     "## Purpose",
     "## Evidence",
@@ -119,26 +139,35 @@ def redact(text: str, home: Path | None = None) -> str:
     if home is not None:
         out = out.replace(str(home), "~")
     out = re.sub(r"/(?:Users|home)/[^/\s'\"]+", "~", out)
-    for pattern in (
-        r"sk-[A-Za-z0-9_-]{16,}",
-        r"ghp_[A-Za-z0-9]{20,}",
-        r"github_pat_[A-Za-z0-9_]{20,}",
-        r"AKIA[0-9A-Z]{16}",
-        r"xox[bp]-[A-Za-z0-9-]+",
-    ):
+    for pattern in SECRET_PATTERNS:
         out = re.sub(pattern, "<secret>", out)
-    out = re.sub(
-        r"(\b[A-Za-z_]*(?:KEY|TOKEN|SECRET|PASSWORD)[A-Za-z_]*)=(\S+)",
-        lambda m: f"{m.group(1)}=<secret>",
-        out,
-        flags=re.IGNORECASE,
-    )
-    tokens = []
-    for token in out.split(" "):
+    for pattern, repl in SECRET_SUBS:
+        out = re.sub(pattern, repl, out, flags=re.IGNORECASE)
+    parts = re.split(r"(\s+)", out)
+    for i, token in enumerate(parts):
+        core = token.strip("'\"`,;()[]{}")
+        if looks_random(core):
+            token = token.replace(core, "<secret>")
         if len(token) > SHAPE_MAX:
             token = token[:40] + "…<truncated>"
-        tokens.append(token)
-    return " ".join(tokens)
+        parts[i] = token
+    return "".join(parts)
+
+
+def looks_random(token: str) -> bool:
+    """High-entropy token: 20+ chars, letters and digits, no path slash."""
+    if len(token) < 20 or "/" in token or "<" in token:
+        return False
+    if not (re.search(r"[A-Za-z]", token) and re.search(r"\d", token)):
+        return False
+    counts = [token.count(c) for c in set(token)]
+    entropy = -sum(n / len(token) * math.log2(n / len(token)) for n in counts)
+    return entropy >= ENTROPY_MIN
+
+
+def evidence_text(text: str, home: Path | None = None) -> str:
+    """Evidence sent off the machine: redact raw text, then keep only its shape."""
+    return redact(normalize(redact(text, home), home), home)[:SHAPE_MAX]
 
 
 def shape_key(text: str, home: Path | None) -> str:
@@ -494,7 +523,7 @@ def group_candidates(events: list[Event], home: Path) -> dict[str, Candidate]:
                 detector=event.detector,
                 tier_from=event.tier_from,
                 tier_to=event.tier_to,
-                shape=redact(event.evidence, home)[:SHAPE_MAX],
+                shape=evidence_text(event.evidence, home),
             )
             groups[event.fingerprint] = cand
         cand.events.append(event)
@@ -540,7 +569,7 @@ def merge_state(
         prev = state.get(fp) if isinstance(state.get(fp), dict) else {}
         evidence = list(prev.get("evidence") or [])
         for event in sorted(recent, key=lambda e: e.timestamp, reverse=True):
-            sample = redact(event.evidence, home)[:SHAPE_MAX]
+            sample = evidence_text(event.evidence, home)
             if sample not in evidence:
                 evidence.insert(0, sample)
         stamps = [e.timestamp for e in recent]
@@ -689,7 +718,7 @@ def issue_title(detector: str, shape: str) -> str:
 
 
 def file_candidate(cand: Candidate, home: Path) -> str:
-    evidence = [redact(e.evidence, home)[:SHAPE_MAX] for e in cand.events[-EVIDENCE_MAX:]]
+    evidence = [evidence_text(e.evidence, home) for e in cand.events[-EVIDENCE_MAX:]]
     plan = draft_plan(cand, evidence, home)
     body = plan.rstrip() + f"\n\n<!-- fp:{cand.fingerprint} -->\n"
     repo_label = f"repo:{repo_target(cand.events[-1])}"
