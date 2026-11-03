@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 branch: feat/auto-miner
 ---
 # SPEC: Automation miner files ranked automation candidates for triage
