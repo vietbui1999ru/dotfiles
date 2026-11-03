@@ -134,7 +134,7 @@ Reason codes (updated for this run):
 
 - **R1** — paid runs: lifted for this run by owner authorization, so cells are
   run where a route works.
-- **R2** — auth unavailable: Pi `anthropic` OAuth refresh fails on this machine.
+- **R2** — out of scope: Pi `anthropic` is not used by this pilot (Pi reaches Haiku through `opencode-go`); see the Pi rerun below.
 - **R3** — local service: resolved for this run (both proxies started by the agent).
 - **R4** — needs an interactive TUI the agent cannot drive non-interactively.
 - **R5** — transport needs a live upstream; here the live upstream was reached.
@@ -147,9 +147,9 @@ failed attempt is never written as a sample (§8.4).
 |---|---|---|---|---|---|---|
 | Claude (`hclaude`) | pass — 3 modes × 2 turns, all correct; claude-sonnet-4-6 | pass — 2 tool calls on turn 1 (the two reads), 0 on turn 2 | pass — SIGINT, client exit 0, proxy ready, fresh call correct | pass — `--resume <sid>` turn 2 correct, cache_read present | pass — 2 concurrent cache-mode sessions, both correct, distinct sids | SSE `/v1/messages` (cache proxy log: 13 responses, all 200; the 27 log lines include request and response entries) |
 | Codex CLI (`hcodex`) | **fail** — passthrough and cache: `workspace backend must use an HTTPS origin without credentials` (CLI refuses plain-HTTP loopback `chatgpt_base_url`); direct pass | not run (no proxied turn completed) | not run (no proxied turn completed) | not run (no proxied turn completed) | not run (no proxied turn completed) | WebSocket `/v1/responses` → `wss://chatgpt.com/backend-api/codex/responses` seen at the proxy, but the client never completed a turn through it |
-| Pi `anthropic` (`hpi`) | **not run (R2)** — `OAuth refresh failed for anthropic` (token refresh to platform.claude.com failed); tried once in probe and once in the cell | not run (R2) | not run (R2) | not run (R2) | not run (R2) | not run (R2): no `/v1/messages` request from Pi reached the proxy |
-| Pi `openai-codex` (`hpi`, gpt-6.1-sol) | pass — 3 modes × 2 turns, all correct | pass — tool calls on turn 1 (2–3 per run), 0 on turn 2 | not run — not included in this pass (see note) | pass — turn 2 with `--session-id` correct, cache_read present | pass — 2 concurrent cache-mode sessions, both correct | WebSocket `/backend-api/codex/responses` (cache proxy log: 4 `WS /v1/responses` connections forwarded to `/backend-api/codex/responses`), not SSE |
-| Pi `opencode-go` (`hpi`, deepseek-v4.1-flash) | pass — 3 modes × 2 turns, all correct (passthrough rerun after the pin fix, §8.3) | pass — 2–8 tool calls on turn 1, 0 on turn 2 | pass — SIGINT rc -2, proxy ready, fresh call correct | pass — turn 2 correct, cache_read present | pass — 2 concurrent cache-mode sessions, both correct | SSE `/v1/chat/completions` (cache proxy log: 17 inbound requests, all 200) |
+| Pi `anthropic` (`hpi`) | out of scope (route unused; Pi reaches Haiku via opencode-go) | out of scope | out of scope | out of scope | out of scope | out of scope |
+| Pi `openai-codex` (`hpi`, gpt-6.1-sol) | pass — 3 modes × 2 turns, all correct (2026-11-03 Pi rerun, §4.1: direct, passthrough, cache) | pass — `read` tool on turn 1, 0 on turn 2 (rerun §4.1) | pass — SIGINT rc −2, proxy ready, fresh call `OK` (rerun §4.1) | pass — turn 2 `--session-id` correct, cache_read present | pass — 2 parallel sessions, `ALPHA` and `BRAVO` both correct (rerun §4.1) | WebSocket `/backend-api/codex/responses` (cache proxy log: WS accepted and compressed, route `chatgpt_subscription`), not SSE; `/stats` `by_stack` shows no `pi_codex` (§4.1) |
+| Pi `opencode-go` (`hpi`, deepseek-v4.1-flash) | pass — 3 modes × 2 turns, all correct (passthrough rerun after the pin fix, §8.3; 2026-11-03 Pi rerun §4.1) | pass — `read` tool on turn 1, 0 on turn 2 (rerun §4.1) | pass — SIGINT rc −2, proxy ready, fresh call `OK` (rerun §4.1) | pass — turn 2 correct, cache_read present | pass — 2 parallel sessions, `ALPHA` and `BRAVO` both correct (rerun §4.1) | SSE `/v1/chat/completions` (cache proxy log: 17 inbound requests, all 200 in 2026-11-03 run; 16 in the rerun, §4.1) |
 
 Notes that bind the table:
 
@@ -165,12 +165,79 @@ Notes that bind the table:
   itself received the WebSocket and forwarded it. Until the CLI accepts a loopback
   origin, `hcodex` is not a working route on this build. Record it as
   **experimental-fail**, not as a pilot pass.
-- **Pi `anthropic`** is blocked by auth, not by the proxy: its cells stay
-  `not run (R2)`, as the owner predicted.
+- **Pi `anthropic`** is out of scope for this pilot: Pi never uses Anthropic
+  auth here, it reaches Haiku through `opencode-go`. The route is not called and
+  its row is not a result.
 - **Attribution gap:** `/stats` `requests.by_stack` attributed only `pi_opencode`
   (17 requests). The `pi_openai` WebSocket and Claude requests reached the proxy
   but carry no `x-headroom-stack` tag on that path, so they are unattributed in
   `by_stack`. The runbook's §8 check is therefore **not met** for those routes.
+
+### 4.1 Pi rerun (2026-11-03, Pi routes only)
+
+Scope: Pi `opencode-go` (`opencode-go/deepseek-v4.1-flash`) and Pi `openai-codex`
+(`openai-codex/gpt-6.1-sol`). Pi `anthropic` is out of scope: this pilot never
+calls it, because Pi reaches Haiku through `opencode-go`. Claude Code and Codex
+CLI were not rerun. Authorization: owner, 2026-11-03, small subscription calls.
+
+- Ports: CACHE_PORT **18200**, PASS_PORT **18201** (both free loopback, chosen at
+  run time; owner listeners on 8787 and 8788 were never touched).
+- Cache proxy: `HEADROOM_WORKFLOW_URL=http://127.0.0.1:18200 scripts/headroom-workflow proxy`
+  (status: `headroom-proxy 0.42.0 ready`).
+- Passthrough proxy: `OPENAI_TARGET_API_URL=https://opencode.ai/zen/go/v1 headroom proxy --host 127.0.0.1 --port 18201 --no-optimize --workers 1 --no-cache --no-telemetry`.
+  Pinned target verified before measuring: one `opencode-go` call returned HTTP 200 through PASS_PORT.
+- Fixture: `git archive HEAD` extracted to `/tmp/hr-smoke-pi/fixture`; clients ran there.
+- Both proxies stopped at the end; logs in `/tmp/hr-smoke-pi/`.
+- Calls: 12 per route (6 cells, 6 comparison), at the cap. 90 s timeout per call.
+
+Cells (cache proxy; `pi --mode json`; `tools` = `tool_execution_start` events):
+
+| Route | Turn 1 | Turn 2 (`--session-id`) | Cancellation | Fresh after cancel | Parallel (2 sessions) |
+|---|---|---|---|---|---|
+| `opencode-go` | rc 0, tools `['read']`, final `# dotfiles` | rc 0, final `dotfiles` | SIGINT after 3 s, rc −2 | rc 0, `OK` | `ALPHA`, `BRAVO` both correct |
+| `openai-codex` | rc 0, tools `['read']`, final `# dotfiles` | rc 0, final `# dotfiles` | SIGINT after 3 s, rc −2 | rc 0, `OK` | `ALPHA`, `BRAVO` both correct |
+
+Correctness basis: the cell prompts are checked by the rc, the tool event and a
+non-empty final answer, not by an exact-string oracle. Turn 2 restatements are
+therefore `pass` only in the sense of a non-empty, plausible answer; treat them as
+unverified beyond that.
+
+Transport (cache proxy log): `opencode-go` is SSE `/v1/chat/completions`, all 200.
+`openai-codex` is WebSocket `/backend-api/codex/responses` (`WS /v1/responses accepted`,
+route `chatgpt_subscription`, compressed with `tokens_saved` 364 on the cache proxy).
+The passthrough proxy logged the codex WebSocket as `tokens_saved=0`, consistent with `--no-optimize`.
+
+`/stats` `requests.by_stack` (cache proxy):
+
+- Before the cells: `{}`.
+- After the `opencode-go` cells: `{"pi_opencode": 8}`.
+- After the `openai-codex` cells: `{"pi_opencode": 8}` (**no delta**).
+- After the comparisons: `{"pi_opencode": 11}`.
+
+**`pi_codex` is still missing.** The codex WebSocket traffic reaches the proxy
+and is compressed, but it carries no `x-headroom-stack` tag, so it is unattributed.
+This is the same gap as the prior run (§4 attribution note). It is not fixed here.
+
+Comparison (`scripts/headroom-measure`, no `--pricing`; all subscription billing;
+2 turns per mode; one shared `run_id` per route). Samples: 12 counter-only JSONL
+lines in `/tmp/hr-smoke-pi/samples.jsonl` (no prompts, no responses; not tracked).
+Measure output, verbatim:
+
+```json
+{"groups":[{"comparisons":[{"baseline":"direct","baseline_only":0,"basis":"uncached_input_tokens","complete":true,"delta":{"cache_read":{"baseline":39040,"delta":0,"percent":0.0,"variant":39040},"cache_write":{"baseline":0,"delta":0,"percent":null,"variant":0},"cost":null,"output":{"baseline":14,"delta":0,"percent":0.0,"variant":14},"total_input":{"baseline":39634,"delta":0,"percent":0.0,"variant":39634},"uncached_input":{"baseline":594,"delta":0,"percent":0.0,"variant":594}},"failed_pairs":0,"matched_pairs":2,"unverified_pairs":0,"variant":"passthrough","variant_only":0,"verdict":"no change"},{"baseline":"direct","baseline_only":0,"basis":"uncached_input_tokens","complete":true,"delta":{"cache_read":{"baseline":39040,"delta":-256,"percent":-0.66,"variant":38784},"cache_write":{"baseline":0,"delta":0,"percent":null,"variant":0},"cost":null,"output":{"baseline":14,"delta":0,"percent":0.0,"variant":14},"total_input":{"baseline":39634,"delta":-182,"percent":-0.46,"variant":39452},"uncached_input":{"baseline":594,"delta":74,"percent":12.46,"variant":668}},"failed_pairs":0,"matched_pairs":2,"note":"fewer total input tokens but a higher bill: cache_read 39040 -> 38784","unverified_pairs":0,"variant":"cache","variant_only":0,"verdict":"regression"},{"baseline":"passthrough","baseline_only":0,"basis":"uncached_input_tokens","complete":true,"delta":{"cache_read":{"baseline":39040,"delta":-256,"percent":-0.66,"variant":38784},"cache_write":{"baseline":0,"delta":0,"percent":null,"variant":0},"cost":null,"output":{"baseline":14,"delta":0,"percent":0.0,"variant":14},"total_input":{"baseline":39634,"delta":-182,"percent":-0.46,"variant":39452},"uncached_input":{"baseline":594,"delta":74,"percent":12.46,"variant":668}},"failed_pairs":0,"matched_pairs":2,"note":"fewer total input tokens but a higher bill: cache_read 39040 -> 38784","unverified_pairs":0,"variant":"cache","variant_only":0,"verdict":"regression"}],"missing_modes":[],"model":"openai-codex/gpt-6.1-sol","modes":{"cache":{"billing":"subscription","correctness":{"fail":0,"pass":2,"unverified":0},"correctness_complete":true,"cost":"subscription","cost_reason":"subscription billing is not metered in dollars; token counts only","count":2,"errors":0,"mean_latency_ms":5594.5,"tokens":{"cache_read":38784,"cache_write":0,"input":39452,"output":14,"uncached_input":668}},"direct":{"billing":"subscription","correctness":{"fail":0,"pass":2,"unverified":0},"correctness_complete":true,"cost":"subscription","cost_reason":"subscription billing is not metered in dollars; token counts only","count":2,"errors":0,"mean_latency_ms":9131.5,"tokens":{"cache_read":39040,"cache_write":0,"input":39634,"output":14,"uncached_input":594}},"passthrough":{"billing":"subscription","correctness":{"fail":0,"pass":2,"unverified":0},"correctness_complete":true,"cost":"subscription","cost_reason":"subscription billing is not metered in dollars; token counts only","count":2,"errors":0,"mean_latency_ms":5682.5,"tokens":{"cache_read":39040,"cache_write":0,"input":39634,"output":14,"uncached_input":594}}},"provider":"openai-codex","workflow":"readme-first-line"},{"comparisons":[{"baseline":"direct","baseline_only":0,"basis":"uncached_input_tokens","complete":true,"delta":{"cache_read":{"baseline":44160,"delta":1024,"percent":2.32,"variant":45184},"cache_write":{"baseline":0,"delta":0,"percent":null,"variant":0},"cost":null,"output":{"baseline":19,"delta":-11,"percent":-57.89,"variant":8},"total_input":{"baseline":44655,"delta":1117,"percent":2.5,"variant":45772},"uncached_input":{"baseline":495,"delta":93,"percent":18.79,"variant":588}},"failed_pairs":0,"matched_pairs":2,"unverified_pairs":0,"variant":"passthrough","variant_only":0,"verdict":"regression"},{"baseline":"direct","baseline_only":0,"basis":"uncached_input_tokens","complete":true,"delta":{"cache_read":{"baseline":44160,"delta":3072,"percent":6.96,"variant":47232},"cache_write":{"baseline":0,"delta":0,"percent":null,"variant":0},"cost":null,"output":{"baseline":19,"delta":-10,"percent":-52.63,"variant":9},"total_input":{"baseline":44655,"delta":6254,"percent":14.01,"variant":50909},"uncached_input":{"baseline":495,"delta":3182,"percent":642.83,"variant":3677}},"failed_pairs":0,"matched_pairs":2,"unverified_pairs":0,"variant":"cache","variant_only":0,"verdict":"regression"},{"baseline":"passthrough","baseline_only":0,"basis":"uncached_input_tokens","complete":true,"delta":{"cache_read":{"baseline":45184,"delta":2048,"percent":4.53,"variant":47232},"cache_write":{"baseline":0,"delta":0,"percent":null,"variant":0},"cost":null,"output":{"baseline":8,"delta":1,"percent":12.5,"variant":9},"total_input":{"baseline":45772,"delta":5137,"percent":11.22,"variant":50909},"uncached_input":{"baseline":588,"delta":3089,"percent":525.34,"variant":3677}},"failed_pairs":0,"matched_pairs":2,"unverified_pairs":0,"variant":"cache","variant_only":0,"verdict":"regression"}],"missing_modes":[],"model":"opencode-go/deepseek-v4.1-flash","modes":{"cache":{"billing":"subscription","correctness":{"fail":0,"pass":2,"unverified":0},"correctness_complete":true,"cost":"subscription","cost_reason":"subscription billing is not metered in dollars; token counts only","count":2,"errors":0,"mean_latency_ms":6941.0,"tokens":{"cache_read":47232,"cache_write":0,"input":50909,"output":9,"uncached_input":3677}},"direct":{"billing":"subscription","correctness":{"fail":0,"pass":2,"unverified":0},"correctness_complete":true,"cost":"subscription","cost_reason":"subscription billing is not metered in dollars; token counts only","count":2,"errors":0,"mean_latency_ms":14337.5,"tokens":{"cache_read":44160,"cache_write":0,"input":44655,"output":19,"uncached_input":495}},"passthrough":{"billing":"subscription","correctness":{"fail":0,"pass":2,"unverified":0},"correctness_complete":true,"cost":"subscription","cost_reason":"subscription billing is not metered in dollars; token counts only","count":2,"errors":0,"mean_latency_ms":7997.5,"tokens":{"cache_read":45184,"cache_write":0,"input":45772,"output":8,"uncached_input":588}}},"provider":"opencode-go","workflow":"readme-first-line"}],"samples":12}
+```
+
+Reading, as the tool states it: for `openai-codex`, cache vs direct is a
+`regression` (`cache_read` 39040 → 38784, uncached input 594 → 668); passthrough
+vs direct is `no change`. For `opencode-go`, cache vs direct and cache vs
+passthrough are `regression` (uncached input 495 → 3677, cache reads up but the
+uncached tail grew); passthrough vs direct is a `regression` on the same
+input-token basis. n = 2 turns per mode; these are small-sample readings, not a
+proven cost increase or reduction. **No reduction is claimed.** Subscription
+billing is never a dollar figure.
+
+Pi `anthropic`: not run; out of scope (see the §4 row). No prior §8 claim about it
+is changed here beyond that row.
 
 ## 5. Deterministic read-only comparison task (for the owner)
 
@@ -257,6 +324,9 @@ assumed. No cache warmers, no retention changes, no semantic-cache reuse.
 - No claim that Codex works through the proxy: it fails on this build (§4, §8.3).
 - No claim of a token or cost reduction from the 2026-11-03 run; its verdicts are
   no change or regression (§8.6).
+- No claim of a token or cost reduction from the Pi rerun (§4.1); its verdicts are
+  no change or regression, and subscription runs never become dollar claims.
+- No claim that `pi_codex` is attributed in `/stats`: it was not (§4.1).
 
 ## 7. Reproduce
 
@@ -311,7 +381,7 @@ Pi `anthropic/claude-sonnet-4-6`, `openai-codex/gpt-6.1-sol`,
    The failed 401 samples were discarded, never written to the samples file.
 2. Codex through either proxy mode fails with `workspace backend must use an
    HTTPS origin without credentials`. The CLI rejects the plain-HTTP loopback base.
-3. Pi `anthropic` fails at OAuth refresh (`OAuth refresh failed for anthropic`).
+3. Pi `anthropic` fails at OAuth refresh (`OAuth refresh failed for anthropic`). (Historical: superseded by the scope decision in §4 and §4.1; Pi `anthropic` is out of scope.)
 4. Error turns (`stopReason: error`) are counted as failed attempts, never as
    samples; a parser that accepted them would have produced fake zero-token samples.
 
