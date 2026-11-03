@@ -9,9 +9,10 @@ import { DEFAULT_MAP, fingerprint, markAlerted, recordOccurrence, shouldAlert, W
 export const ALERTS_PATH = join(homedir(), '.claude', 'state', 'mistake-alerts.json')
 
 const readJson = (path, fallback) => (existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : fallback)
+// State holds local mistake history, so the folder is owner-only and the files are 0600.
 const writeJson = (path, value) => {
-  mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`)
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
+  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 })
 }
 
 // PostToolUseFailure input: tool_name, tool_input.command, error ("Exit code N" first), session_id, cwd.

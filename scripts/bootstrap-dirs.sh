@@ -60,13 +60,18 @@ for shared_skill in approval-workflow delegate-pi kanban-status grill-me verify-
 	link_shared_skill "$shared_skill"
 done
 
-# gh-stack stays Claude's: stacked PRs are an interactive review workflow, and Pi's
-# skills stay lean (pi-lens's ast-grep and lsp-navigation only). Pi reads
-# ~/.agents/skills, so link gh-stack into Claude's own directory instead.
-if [[ -d "$HOME/.claude/skills" && ! -d "$HOME/.claude/skills/gh-stack" ]]; then
-	ln -sfn ../../dotfiles/shared/skills/gh-stack "$HOME/.claude/skills/gh-stack"
-	echo "✓ ~/.claude/skills/gh-stack → shared/skills/gh-stack (Claude only)"
-fi
+# Claude-only skills: gh-stack (stacked PRs are an interactive review workflow), the
+# vendored superpowers process skills and the Matt Pocock forks (shared/skills/vendor.json).
+# Pi's skills stay lean (pi-lens's ast-grep and lsp-navigation only). Pi reads
+# ~/.agents/skills, so these link into Claude's own directory instead.
+for claude_skill in gh-stack systematic-debugging writing-plans brainstorming \
+	verification-before-completion finishing-a-development-branch subagent-driven-development \
+	improve-codebase-architecture zoom-out; do
+	if [[ -d "$HOME/.claude/skills" && ! -e "$HOME/.claude/skills/$claude_skill" ]]; then
+		ln -sfn "../../dotfiles/shared/skills/$claude_skill" "$HOME/.claude/skills/$claude_skill"
+		echo "✓ ~/.claude/skills/$claude_skill → shared/skills/$claude_skill (Claude only)"
+	fi
+done
 
 # pele skill owns a pinned node dependency (bun.lock, installed with bun); install it in
 # place and expose its wrapper as pele-render. Claude reads the skill through

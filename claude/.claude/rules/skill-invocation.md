@@ -1,16 +1,16 @@
 # Skill Invocation Contract
 
-Replaces superpowers "1% chance" heuristic with deterministic triggers. User instructions always override.
+Deterministic skill triggers (no "invoke on any chance" heuristic). User instructions always override.
 
 **Decision**: user names skill → invoke immediately. User says "skip/just answer" → skip. Otherwise check trigger table.
 
-## Superpowers integration
+## Vendored process skills
 
-These overrides apply where superpowers defaults conflict with personal rules:
+The process skills in `shared/skills` (vendored from superpowers, see `vendor.json`) follow these rules where their text conflicts:
 
 - **TDD**: active for Web/Backend/API, DevOps, Testing, System Engineering. Skip for learning domains (Embedded, C, Go, C++, CUDA, Shaders, Interpreters, Ansible, Terraform, K8s). Exception: user explicitly requests TDD.
 - **Brainstorming**: commit design docs like any other work (see "Git history" in tool-routing). Present doc path + content and ask before writing. Hard gate honored — no code until design approved.
-- **Skill ordering**: this file is authoritative. Order: wiki-context → superpowers process skills → domain/implementation skills.
+- **Skill ordering**: this file is authoritative. Order: wiki-context → process skills → domain/implementation skills.
 - **Caveman + artifacts**: core.md's caveman section is single source of truth. Skill artifacts on disk use clear prose.
 - **Agent spawns** (writing-plans and any parallel dispatch): always set an explicit `model:` param per model routing policy.
 

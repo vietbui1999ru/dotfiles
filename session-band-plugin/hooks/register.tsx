@@ -28,7 +28,7 @@ import { toSnapshot, type GitFacts } from './git'
 import { toRepoInfo, type RepoInfo } from './repo'
 import { drawnPath, heartbeatBody, heartbeatPath, HEARTBEAT_INTERVAL_MS } from './heartbeat'
 import { openForSession, parseAlerts } from './mistake-alerts'
-import { guardAgent, softStop, type SoftStopCheck } from './threshold'
+import { capPercent, guardAgent, softStop, type SoftStopCheck } from './threshold'
 
 const usage = atom({ plugin: 'session-band', key: 'usage' } as const, {})
 const tick = atom({ plugin: 'session-band', key: 'tick' } as const, 0)
@@ -40,8 +40,8 @@ const progress = atom({ plugin: 'session-band', key: 'progress' } as const, {} a
 
 const asWhole = (percent: number | undefined) => (percent === undefined ? undefined : whole(percent))
 
-const measuredUsage = (context: { percent?: number }, rateLimits: readonly { kind: string; percentUsed: number }[]): Usage => ({
-  ctx: asWhole(context.percent),
+const measuredUsage = (context: { tokens?: number }, rateLimits: readonly { kind: string; percentUsed: number }[]): Usage => ({
+  ctx: asWhole(capPercent(context.tokens)),
   five: asWhole(rateLimits.find(limit => limit.kind === 'five_hour')?.percentUsed),
   seven: asWhole(rateLimits.find(limit => limit.kind === 'seven_day')?.percentUsed),
 })
@@ -253,7 +253,7 @@ export const register: Register = on => {
         : undefined
       const filePath = 'file_path' in e && typeof e.file_path === 'string' ? e.file_path : undefined
       const check: SoftStopCheck = {
-        percent: asWhole(context.percent),
+        tokens: context.tokens,
         tool: e.tool,
         filePath,
         command: e.tool === 'Bash' ? e.command : undefined,
@@ -277,7 +277,7 @@ export const register: Register = on => {
 
   on('tool.call', { tool: 'Agent' }, async ($, e, next) => {
     const { context } = await $.session.usage()
-    const denial = guardAgent(asWhole(context.percent), e.tool)
+    const denial = guardAgent(context.tokens, e.tool)
 
     return denial ? { deny: denial } : next(e)
   }).catch(($, e, next) => next.called ? next(e) : { deny: 'session-band guard failed' })

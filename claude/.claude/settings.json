@@ -4,7 +4,8 @@
     "CLAUDE_CODE_SUBAGENT_MODEL": "claude-haiku-5-5",
     "MAX_THINKING_TOKENS": "10000",
     "teammateMode": "in-process",
-    "CLAUDE_CODE_PLUGIN_DIRS": "~/dotfiles/session-band-plugin"
+    "CLAUDE_CODE_PLUGIN_DIRS": "~/dotfiles/session-band-plugin",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "500000"
   },
   "permissions": {
     "allow": [
@@ -472,6 +473,18 @@
           }
         ]
       }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "auto",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/precompact-save.sh",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   },
   "statusLine": {
@@ -480,25 +493,25 @@
   },
   "enabledPlugins": {
     "basedpyright@claude-code-lsps": false,
-    "caveman@caveman": true,
+    "caveman@caveman": false,
     "clangd@claude-code-lsps": false,
-    "explanatory-output-style@claude-plugins-official": true,
+    "explanatory-output-style@claude-plugins-official": false,
     "gopls@claude-code-lsps": false,
     "lean4-lake-lsp@claude-code-lsps": true,
-    "learning-output-style@claude-plugins-official": true,
+    "learning-output-style@claude-plugins-official": false,
     "ocaml-lsp@claude-code-lsps": false,
     "omnisharp@claude-code-lsps": false,
     "pyright-lsp@claude-plugins-official": false,
     "pyright@claude-code-lsps": false,
-    "ralph-loop@claude-plugins-official": true,
+    "ralph-loop@claude-plugins-official": false,
     "ruby-lsp@claude-code-lsps": false,
     "rust-analyzer@claude-code-lsps": false,
     "security-guidance@claude-plugins-official": true,
-    "superpowers@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": false,
     "typescript-lsp@claude-plugins-official": false,
     "vscode-langservers@claude-code-lsps": false,
     "vtsls@claude-code-lsps": false,
-    "obsidian@obsidian-skills": true
+    "obsidian@obsidian-skills": false
   },
   "extraKnownMarketplaces": {
     "caveman": {
@@ -531,7 +544,7 @@
   "theme": "dark",
   "editorMode": "vim",
   "verbose": true,
-  "autoCompactEnabled": false,
+  "autoCompactEnabled": true,
   "teammateMode": "in-process",
   "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": true,
@@ -572,8 +585,8 @@
   "mcpServers": {
     "firecrawl": {
       "args": [
-        "-lc",
-        "set -a; if [ \"${SEND_IT:-}\" = 1 ]; then F=\"$HOME/.config/send-it/.env\"; else F=\"$HOME/secrets/.env\"; fi; [ -f \"$F\" ] && . \"$F\"; exec npx -y firecrawl-mcp"
+        "-c",
+        "if [ \"${SEND_IT:-}\" = 1 ]; then export FIRECRAWL_ENV_FILE=\"$HOME/.config/send-it/.env\"; fi; exec \"$HOME/dotfiles/scripts/firecrawl-mcp\""
       ],
       "command": "bash"
     },

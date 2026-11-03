@@ -14,7 +14,7 @@ test('pickRemote prefers origin on a known forge, else any remote on one, else n
 
 test('hostOf reads https, ssh:// and scp-style remotes, and nothing else', () => {
   expect(hostOf('https://github.com/vietbui99/dotfiles.git\n')).toBe('github.com')
-  expect(hostOf('https://oauth2:token@GitLab.example.com/group/sub/repo.git')).toBe('gitlab.example.com')
+  expect(hostOf('https://oauth2:token@GitLab.example.com/group/sub/repo.git')).toBe('gitlab.example.com') // secret-scan: allow
   expect(hostOf('ssh://git@gitlab.com:2222/group/repo.git')).toBe('gitlab.com')
   expect(hostOf('git@github.com:vietbui99/dotfiles.git')).toBe('github.com')
   expect(hostOf('codeberg.org:owner/repo')).toBe('codeberg.org')

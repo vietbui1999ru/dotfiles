@@ -18,16 +18,29 @@ class PiViewSecrets(unittest.TestCase):
         secrets = tmp / ".env"
         if secrets_text is not None:
             secrets.write_text(secrets_text)
+            # secret-get refuses a file that is not 600 in a folder that is not 700.
+            secrets.chmod(0o600)
+            tmp.chmod(0o700)
         # Outside herdr (no HERDR_ENV), pi-view runs its arguments directly.
         env = {"PATH": "/usr/bin:/bin", "HOME": str(tmp), "TMPDIR": str(tmp), "PI_VIEW_SECRETS": str(secrets)}
         env.update(extra_env or {})
         cmd = [str(PI_VIEW), "sh", "-c", 'printf "%s|%s|%s" "${CONTEXT7_API_KEY-unset}" "${QUOTED-unset}" "${KEEP-unset}"']
         return subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=30)
 
-    def test_secrets_reach_the_command(self):
+    def test_only_pis_keys_reach_the_command(self):
         out = self.run_view('CONTEXT7_API_KEY=ctx7sk-test\nexport QUOTED="a b"\n', {"KEEP": "k"})
         self.assertEqual(out.returncode, 0, out.stderr)
-        self.assertEqual(out.stdout, "ctx7sk-test|a b|k")
+        self.assertEqual(out.stdout, "ctx7sk-test|unset|k")
+
+    def test_inherited_variable_still_reaches_the_command(self):
+        out = self.run_view('CONTEXT7_API_KEY=ctx7sk-test\n', {"QUOTED": "inherited", "KEEP": "k"})
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual(out.stdout, "ctx7sk-test|inherited|k")
+
+    def test_file_without_pis_key_runs_with_it_unset(self):
+        out = self.run_view('QUOTED="a b"\nOTHER=x\n', {"KEEP": "k"})
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual(out.stdout, "unset|unset|k")
 
     def test_missing_secrets_file_still_runs(self):
         out = self.run_view(None, {"KEEP": "k"})

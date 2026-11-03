@@ -77,7 +77,7 @@ describe("Phase 3 provider inventory", () => {
 
 describe("Phase 3 terminal assistant observation", () => {
   it("observes terminal metadata and discards content and error text", () => {
-    const secret = "sk-secret-prompt-tool-body";
+    const secret = "sk-secret-prompt-tool-body"; // secret-scan: allow
     const observation = observeAssistantMessage({
       role: "assistant",
       provider: "anthropic",
@@ -109,7 +109,7 @@ describe("Phase 3 terminal assistant observation", () => {
 
 describe("Phase 3 status safety", () => {
   it("renders labels and metadata but never message bodies or credentials", () => {
-    const secret = "Bearer super-secret-prompt";
+    const secret = "Bearer super-secret-prompt"; // secret-scan: allow
     const entry = inventoryModels([model("anthropic", "claude-sonnet")], "configured")[0]!;
     const terminal = observeAssistantMessage({ role: "assistant", provider: "anthropic", model: "claude-sonnet", stopReason: "stop", errorMessage: secret });
     const rendered = formatProviderStatus([entry], "anthropic/claude-sonnet", terminal);

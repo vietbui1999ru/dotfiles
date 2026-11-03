@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Merged Headroom dashboard on 127.0.0.1:8790: a static page that reads /stats
+  from both proxies (8787 Claude/Codex, 8788 Zen Go/Pi). The proxies allow the
+  page's origin via CORS; a page opened from disk (Origin null) is refused,
+  hence this small server. See docs/workflows/headroom-proxy.md.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.vietbui.headroom-dash</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/python3</string>
+    <string>-m</string>
+    <string>http.server</string>
+    <string>8790</string>
+    <string>--bind</string>
+    <string>127.0.0.1</string>
+    <string>--directory</string>
+    <string>/Users/vietquocbui/dotfiles/headroom/dashboard</string>
+  </array>
+  <key>KeepAlive</key>
+  <true/>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/tmp/headroom-dash.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/headroom-dash.err.log</string>
+</dict>
+</plist>

@@ -6,6 +6,8 @@ HISTFILE="$HOME/.zsh_history"
 HISTSIZE=50000
 SAVEHIST=50000
 setopt HIST_IGNORE_DUPS HIST_IGNORE_SPACE SHARE_HISTORY INC_APPEND_HISTORY
+# Timestamps and durations per entry, so the automation miner can group commands by session.
+setopt EXTENDED_HISTORY
 
 # ── Completions ───────────────────────────────────────────────────────
 : "${XDG_CACHE_HOME:=$HOME/.cache}"
@@ -56,10 +58,7 @@ command -v starship >/dev/null && eval "$(starship init zsh)"
 # direnv (after mise so .envrc can reference mise-managed tools)
 command -v direnv &>/dev/null && eval "$(direnv hook zsh)"
 
-# Machine secrets — exports every KEY=value in ~/secrets/.env (Context7, GitHub,
-# Anthropic, Firecrawl, shadcn, Syncthing). Consumers read them from the
-# environment; do not duplicate the values into per-tool .env files.
-[[ -f "$HOME/secrets/.env" ]] && { set -a; source "$HOME/secrets/.env"; set +a; }
+# Keys load per tool, not into this shell; see docs/workflows/secrets.md.
 
 # opam
 [[ -r "$HOME/.opam/opam-init/init.zsh" ]] && source "$HOME/.opam/opam-init/init.zsh" &>/dev/null
@@ -79,6 +78,8 @@ fi
 # ── Aliases + functions ───────────────────────────────────────────────
 [[ -f "$HOME/.zsh/aliases.zsh" ]] && source "$HOME/.zsh/aliases.zsh"
 [[ -f "$HOME/.zsh/functions.zsh" ]] && source "$HOME/.zsh/functions.zsh"
+# Headroom proxy routing for herdr/Orca agent panes (no-op elsewhere).
+[[ -f "$HOME/.zsh/headroom.zsh" ]] && source "$HOME/.zsh/headroom.zsh"
 [[ -f "$HOME/.zsh/keybindings.zsh" ]] && source "$HOME/.zsh/keybindings.zsh"
 
 # Reset terminal state on each prompt — prevents TUI apps from leaving mouse reporting

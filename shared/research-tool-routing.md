@@ -124,6 +124,15 @@ Still ask before push, force-push, merge, rebase, `reset --hard`, and deleting
 branches. The review gates (`agent-review`, `:AgentReview`) apply to what is
 pushed or merged, not to commits.
 
+Check a pull request's live state before you name it to the user or push more
+commits to its branch: `gh pr view <n>` or `gh pr list --state all`. The user
+merges pull requests mid-session, and a squash merge takes the branch as it was
+at that moment. If the pull request is already merged, put late commits on a
+fresh branch from `origin/main` and open a new pull request; never push to the
+merged branch or ask the user to act on the merged one. Archive SPEC.md (spec
+loop rule 7) before the final push a merge could pick up, so a draft spec never
+lands on `main`.
+
 jj is the default VCS for agent sessions, colocated with git so the git-based
 gates keep working. Use jj for local history work. A new worktree is colocated
 once with `jj git init --colocate`: in Claude Code a hook does it on the first
