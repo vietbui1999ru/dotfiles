@@ -326,6 +326,15 @@
         ]
       },
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/log-worktree-guard.sh"
+          }
+        ]
+      },
+      {
         "hooks": [
           {
             "type": "command",
