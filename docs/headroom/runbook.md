@@ -277,7 +277,14 @@ headroom-measure samples.jsonl --pricing rates.json
   (`direct|passthrough|cache`), `run_id`, `turn`, `input_tokens`,
   `cache_read_tokens`, `cache_write_tokens`, `output_tokens`, `latency_ms`,
   `errors`, `correctness` (`pass|fail|unverified`), optional `billing`
-  (`api|subscription`). Never prompts, never responses.
+  (`api|subscription`). Never prompts, never responses: a sample carrying a
+  `prompt` or `response` key is refused by field name and its value is never
+  echoed.
+- `run_id` names one comparison run and is **shared** by that run's `direct`,
+  `passthrough` and `cache` samples. The tool pairs modes on `(run_id, turn)`, so
+  a distinct `run_id` per mode produces `no matched (run_id, turn) pairs` and a
+  `withheld` verdict. Use one `run_id` per comparison, and one per parallel
+  session.
 - `input_tokens` is the total the provider saw; uncached input is
   `input_tokens - cache_read_tokens - cache_write_tokens`.
 - Negative, inconsistent (uncached < 0), non-finite and duplicate
@@ -285,9 +292,15 @@ headroom-measure samples.jsonl --pricing rates.json
   line-numbered error.
 - Money only from explicit per-million rates with a stated source and date;
   omitted rates are `"unknown"`, never 0; subscription billing is reported as
-  `"subscription"`, never as dollars.
+  `"subscription"`, never as dollars, and a mode mixing both billings is labelled
+  `"mixed"` — still never priced, because one subscription sample is enough.
 - Reductions only for matched, complete, passing comparisons; failed runs stay
   in the totals; unverified results are never a win.
+- `errors` includes retries: every failed attempt on a turn counts. It is summed
+  and reported per mode but is not used in the verdict, which rests on matched
+  pairs, settled correctness, failed pairs and cost or uncached input. When a
+  live cell is recorded, write the retry count as its own number in the cell's
+  note (`pilot-results.md` §4).
 
 The task definition, the offline evidence and the live matrix (all cells
 `not run`) are in `pilot-results.md`.

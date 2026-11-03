@@ -15,7 +15,8 @@ per-million rates that come with a stated source and date, and only for metered
 run is never dressed up as dollar savings. A comparison is reported only when
 both modes cover the same (run_id, turn) pairs, correctness is settled on both
 sides and nothing failed; failed runs stay in the totals, and an unverified
-result is never a win.
+result is never a win. A sample that carries `prompt` or `response` is refused by
+field name, never echoed, so raw text cannot enter the sample file at all.
 """
 import argparse
 import itertools
@@ -33,6 +34,10 @@ TOKEN_FIELDS = ("input_tokens", "cache_read_tokens", "cache_write_tokens",
 REQUIRED_FIELDS = ("workflow", "provider", "model", "mode", "run_id", "turn",
                    *TOKEN_FIELDS, "latency_ms", "errors", "correctness")
 IDENTITY_FIELDS = ("workflow", "provider", "model", "run_id")
+# Samples are counters and metadata only. A sample that carries text is refused
+# by field name (never by value), so "never store a raw prompt" is enforced
+# rather than merely documented.
+RAW_FIELDS = ("prompt", "response")
 
 USAGE = """usage: headroom-measure SAMPLES.jsonl [--pricing RATES.json]
 
@@ -47,6 +52,7 @@ RATES.json      {"source": "...", "date": "...", "currency": "USD",
 
 input_tokens is the total including cache reads and writes; uncached input is
 input_tokens - cache_read_tokens - cache_write_tokens.
+Samples carry counters and metadata only: a prompt or response key is refused.
 """
 
 
@@ -89,6 +95,12 @@ def validate(raw, lineno):
     """Return one normalized sample, or raise SampleError with a clear reason."""
     if not isinstance(raw, dict):
         raise SampleError(f"line {lineno}: sample must be a JSON object")
+    for field in RAW_FIELDS:
+        if field in raw:
+            raise SampleError(
+                f"line {lineno}: sample carries {field!r}; this tool records "
+                "counters and metadata only and never stores raw prompt or "
+                "response text")
     for field in REQUIRED_FIELDS:
         if field not in raw:
             raise SampleError(f"line {lineno}: missing required field "
@@ -266,7 +278,7 @@ def summarize_mode(samples, pricing):
     return summary
 
 
-def delta_of(name, baseline, variant, round_to=None):
+def delta_of(baseline, variant, round_to=None):
     change = variant - baseline
     if round_to is not None:
         change = round(change, round_to)
@@ -326,23 +338,22 @@ def compare(baseline_mode, baseline_samples, variant_mode, variant_samples,
     baseline_totals = token_totals(baseline_samples)
     variant_totals = token_totals(variant_samples)
     delta = {
-        "total_input": delta_of("total_input", baseline_totals["input"],
-                                variant_totals["input"]),
-        "uncached_input": delta_of("uncached_input",
-                                   baseline_totals["uncached_input"],
+        "total_input": delta_of(baseline_totals["input"],
+                                 variant_totals["input"]),
+        "uncached_input": delta_of(baseline_totals["uncached_input"],
                                    variant_totals["uncached_input"]),
-        "cache_read": delta_of("cache_read", baseline_totals["cache_read"],
+        "cache_read": delta_of(baseline_totals["cache_read"],
                                variant_totals["cache_read"]),
-        "cache_write": delta_of("cache_write", baseline_totals["cache_write"],
+        "cache_write": delta_of(baseline_totals["cache_write"],
                                 variant_totals["cache_write"]),
-        "output": delta_of("output", baseline_totals["output"],
+        "output": delta_of(baseline_totals["output"],
                            variant_totals["output"]),
         "cost": None,
     }
     baseline_cost, _ = mode_cost(baseline_samples, pricing)
     variant_cost, _ = mode_cost(variant_samples, pricing)
     if isinstance(baseline_cost, dict) and isinstance(variant_cost, dict):
-        delta["cost"] = delta_of("cost", baseline_cost["total"],
+        delta["cost"] = delta_of(baseline_cost["total"],
                                  variant_cost["total"], round_to=6)
         change, basis = delta["cost"]["delta"], "cost"
     else:

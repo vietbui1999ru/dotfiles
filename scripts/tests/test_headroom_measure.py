@@ -14,6 +14,9 @@ from pathlib import Path
 SCRIPTS = Path(__file__).resolve().parent.parent
 CLI = SCRIPTS / "headroom-measure"
 
+TOKEN_COUNT_FIELDS = ("input_tokens", "cache_read_tokens", "cache_write_tokens",
+                      "output_tokens")
+
 RATES = {
     "source": "test fixture rates, not a real price list",
     "date": "2026-11-03",
@@ -254,6 +257,58 @@ class TestCost(MeasureCase):
         entry = self.group(self.measure(samples, RATES), "claude-x")
         self.assertEqual(entry["modes"]["direct"]["cost"], "unknown")
 
+    def test_mixed_billing_is_labelled_and_never_priced(self):
+        samples = [
+            sample(mode="direct", turn=1, billing="api"),
+            sample(mode="direct", turn=2, billing="subscription"),
+            sample(mode="cache", turn=1, billing="api",
+                   input_tokens=900, cache_read_tokens=800),
+            sample(mode="cache", turn=2, billing="subscription",
+                   input_tokens=900, cache_read_tokens=800),
+        ]
+        report = self.measure(samples, RATES)
+        entry = self.group(report, "claude-x")
+        self.assertEqual(entry["modes"]["direct"]["billing"], "mixed")
+        self.assertEqual(entry["modes"]["cache"]["billing"], "mixed")
+        # One subscription sample in a mode is enough to forbid a dollar figure.
+        self.assertEqual(entry["modes"]["cache"]["cost"], "subscription")
+        cmp = self.comparison(entry, "direct", "cache")
+        self.assertEqual(cmp["verdict"], "reduction")
+        self.assertEqual(cmp["basis"], "uncached_input_tokens")
+        self.assertIsNone(cmp["delta"]["cost"])
+        self.assertNotIn('"currency"', json.dumps(report))
+
+    def test_regression_without_pricing_uses_uncached_tokens(self):
+        samples = [
+            sample(mode="direct", turn=1, input_tokens=10000,
+                   cache_read_tokens=9000, output_tokens=1000),
+            sample(mode="cache", turn=1, input_tokens=10000,
+                   cache_read_tokens=0, output_tokens=1000),
+        ]
+        report = self.measure(samples)
+        entry = self.group(report, "claude-x")
+        self.assertEqual(entry["modes"]["direct"]["cost"], "unknown")
+        cmp = self.comparison(entry, "direct", "cache")
+        # No rates, so the verdict rests on tokens alone and says so.
+        self.assertEqual(cmp["basis"], "uncached_input_tokens")
+        self.assertEqual(cmp["verdict"], "regression")
+        self.assertEqual(cmp["delta"]["total_input"]["delta"], 0)
+        self.assertEqual(cmp["delta"]["uncached_input"]["delta"], 9000)
+        self.assertIsNone(cmp["delta"]["cost"])
+
+    def test_cache_regression_without_pricing_is_not_a_savings_claim(self):
+        samples = [
+            sample(mode="direct", turn=1, input_tokens=10000,
+                   cache_read_tokens=0, output_tokens=1000),
+            sample(mode="cache", turn=1, input_tokens=10000,
+                   cache_read_tokens=0, output_tokens=1000),
+        ]
+        entry = self.group(self.measure(samples), "claude-x")
+        cmp = self.comparison(entry, "direct", "cache")
+        self.assertEqual(cmp["verdict"], "no change")
+        self.assertEqual(cmp["basis"], "uncached_input_tokens")
+        self.assertIsNone(cmp["delta"]["cost"])
+
 
 class TestComparability(MeasureCase):
     def test_unmatched_runs_are_not_compared(self):
@@ -325,6 +380,33 @@ class TestValidation(MeasureCase):
         line = json.dumps(sample())
         line = line.replace('"latency_ms": 500.0', '"latency_ms": NaN')
         self.rejected(raw_lines=[line], expect=["latency_ms", "finite"])
+
+    def test_float_token_counts_are_rejected(self):
+        for field in TOKEN_COUNT_FIELDS:
+            with self.subTest(field=field):
+                self.rejected([sample(**{field: 1000.5})],
+                              expect=[field, "integer"])
+
+    def test_nonfinite_token_counts_are_rejected(self):
+        for token, text in ((float("nan"), "NaN"), (float("inf"), "Infinity")):
+            for field in TOKEN_COUNT_FIELDS:
+                with self.subTest(field=field, value=text):
+                    line = json.dumps(sample(**{field: token}))
+                    self.rejected(raw_lines=[line], expect=[field, "integer"])
+
+    def test_raw_prompt_or_response_is_rejected_and_never_echoed(self):
+        leaked = "SENTINEL-PROMPT-TEXT-do-not-echo"
+        for field in ("prompt", "response"):
+            with self.subTest(field=field):
+                result = self.run_cli([sample(**{field: leaked})])
+                self.assertEqual(result.returncode, 2,
+                                 result.stdout + result.stderr)
+                # Refused by field name...
+                self.assertIn(field, result.stderr)
+                # ...and the value is never repeated back to the caller.
+                self.assertNotIn(leaked, result.stderr)
+                self.assertNotIn(leaked, result.stdout)
+                self.assertEqual(result.stdout, "")
 
     def test_duplicate_samples_are_rejected(self):
         self.rejected([sample(), sample()],

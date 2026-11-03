@@ -15,6 +15,8 @@ Baseline for all of it: `headroom 0.24.0`, `pi 1.4.0` (see the runbook, §1).
 | `python3 scripts/tests/test_headroom_measure.py` | `Ran 22 tests in 1.677s` — `OK` |
 | `node --test scripts/tests/headroom-*.test.mjs` | `tests 16` · `pass 16` · `fail 0` |
 | `python3 -m unittest discover -s scripts/tests -p 'test_headroom*.py'` | `Ran 28 tests` — 26 pass, 2 fail (§2) |
+| `python3 scripts/tests/test_headroom_measure.py`, after the §2 follow-up | `Ran 28 tests in 2.192s` — `OK` |
+| `python3 -m unittest discover -s scripts/tests -p 'test_headroom*.py'`, after the §2 follow-up | `Ran 34 tests in 8.996s` — `OK` |
 
 Test-first record for the measurement tool: the 22 tests were written first and
 run against a missing file, giving `FAILED (failures=29)` across the 22 tests and
@@ -28,7 +30,10 @@ fragile `"0.0" not in output` check to asserting the absence of `"total"`,
 The measurement tests cover, by name: cache regression (fewer input tokens, higher
 cost), kept cache reads (a real reduction), unknown and partial prices, unmatched
 runs, invalid counts, inconsistent uncached input, non-finite latency,
-duplicates, subscription labelling, unverified results and failed pairs.
+duplicates, subscription labelling, unverified results, failed pairs, float and
+non-finite token counts, a `prompt`/`response` sample being refused without echoing
+its value, `mixed` billing never priced, and a no-pricing regression decided on
+uncached input.
 
 ## 2. Gate environment finding
 
@@ -50,10 +55,24 @@ read-only check of `~/.claude/settings.json`
 after the wrap showed no `env.ANTHROPIC_BASE_URL`, so no durable Claude routing was
 left behind. Stopping the wrapped process is the operator's call (runbook §11).
 
+**Resolution (same day, AC-9).** The two cases were isolated rather than the
+assertions relaxed. Each now passes an explicit free-port loopback origin
+(`HEADROOM_WORKFLOW_URL=http://127.0.0.1:<free port>`) and asserts that port, so
+no case depends on a port it does not own. Coverage of the default is kept: one
+case loads `scripts/headroom-workflow` in-process with `SourceFileLoader` and
+asserts `DEFAULT_URL` is `http://127.0.0.1:8787` and that resolving an env without
+the variable yields that port and the loopback bind host — no socket is opened on
+8787. The forbidden flags, `HOME`, absent env vars, snapshot equality, loopback
+host, "already listening" refusal, inherited-switch refusals and the pinned
+OpenAI target are unchanged. Re-run with the owner's listener still live on 8787:
+`Ran 34 tests in 8.996s` — `OK`.
+
 ## 3. Measurement tool on a deterministic fixture
 
-Fixture 1 — two matched turns, `direct` vs `cache`, API-billed so the rates apply
-(`/tmp/f1.jsonl`):
+Fixture 1 — two matched turns, `direct` vs `cache`, API-billed so the rates apply.
+Its four lines are the JSONL below, which is the whole fixture: it is not
+tracked, so recreate it from the inline JSONL rather than looking for
+`/tmp/f1.jsonl` on another machine.
 
 ```jsonl
 {"workflow":"demo-readonly","provider":"anthropic","model":"claude-x","mode":"direct","run_id":"a1","turn":1,"input_tokens":12000,"cache_read_tokens":0,"cache_write_tokens":0,"output_tokens":800,"latency_ms":1800,"errors":0,"correctness":"pass","billing":"api"}
@@ -68,6 +87,8 @@ Fixture 1 — two matched turns, `direct` vs `cache`, API-billed so the rates ap
 
 ```bash
 scripts/headroom-measure /tmp/f1.jsonl --pricing /tmp/demo-rates.json
+# both paths are recreated from this document: the JSONL above, and this
+# rate JSON written to /tmp/demo-rates.json
 ```
 
 Output, verbatim (one compact line; wrap it for reading):
@@ -83,7 +104,8 @@ matched, complete, passing comparison is a `reduction` on the `cost` basis:
 says so, and the tool copies that source and date into its output.
 
 Fixture 2 — one matched pair with an unverified result on subscription billing
-(`/tmp/f2.jsonl`), the case that must never become a win:
+(two lines, recreated from this JSONL; not tracked), the case that must never
+become a win:
 
 ```jsonl
 {"workflow":"demo-readonly","provider":"openai-codex","model":"gpt-5","mode":"direct","run_id":"b1","turn":1,"input_tokens":9000,"cache_read_tokens":0,"cache_write_tokens":0,"output_tokens":700,"latency_ms":2100,"errors":0,"correctness":"pass","billing":"subscription"}
@@ -126,8 +148,10 @@ Every cell is `not run`. Reason codes:
 A live cell is only recorded once it has all of: upstream cache counters
 (`cache_read`, `cache_write`) from the provider's own usage payload, total input,
 output, latency, retry count, retrieval result, correctness against the fixed
-expected answer, and the transport actually used. A green `/readyz` is not a live
-result — the WebSocket route can be missing while readiness passes (runbook §11).
+expected answer, and the transport actually used. Retries are recorded as their
+own number in the cell's note, separate from the sample's `errors` count, which
+includes them. A green `/readyz` is not a live result — the WebSocket route can be
+missing while readiness passes (runbook §11).
 
 ## 5. Deterministic read-only comparison task (for the owner)
 
@@ -146,9 +170,16 @@ files, so it cannot drift:
 paths you read."
 
 **Turn 2.** "Restate both answers, list every file path you read, and say whether
-you called a search tool or only read files."
+you called a search tool or only read files." Expected answer: the same AC count
+and the same quoted sentence as turn 1, exactly the two paths above, and "only
+read files" — this turn calls no tool.
 
-**Turn 3.** "List the exact tool calls you made in this session, in order."
+**Turn 3.** "List the exact tool calls you made in this session, in order." This
+turn is `unverified` by design: the expected order is one read of `SPEC.md` then
+one read of `docs/headroom/03-measurement.md`, but each client renders tool names
+and arguments differently, so there is no authoritative transcript to compare
+against. Record it as `unverified` rather than inventing an expected string; a
+turn 3 answer that contradicts turn 2's path list is still a `fail`.
 
 **Expected answer.** The AC count in `SPEC.md` (9 at this commit) and the Phase
 exit sentence starting "Run root spec check and floor-guard". Correctness is
@@ -165,10 +196,22 @@ same stable session id (never per-PID, or the prefix cache has nothing to hit):
 3. `cache` — proxy started with `--mode cache`.
 
 **Recording.** One JSONL sample per turn, written with the schema in runbook §13:
-`workflow` = the task slug, `provider`/`model` as used, `mode`, `run_id` (one per
-run, distinct across parallel sessions), `turn` 1–3, the four token counters from
-the provider's usage payload, `latency_ms`, `errors` (retries count here),
-`correctness`, and `billing` (`api` or `subscription`). Then:
+`workflow` = the task slug, `provider`/`model` as used, `mode`, `run_id`, `turn`
+1–3, the four token counters from the provider's usage payload, `latency_ms`,
+`errors`, `correctness`, and `billing` (`api` or `subscription`).
+
+`run_id` names one comparison run and is **shared** by that run's `direct`,
+`passthrough` and `cache` samples: the tool pairs modes on `(run_id, turn)`, so
+the three modes must carry the same `run_id` for the same prompts. A distinct
+`run_id` per mode yields zero matched pairs and the verdict `withheld` with
+`no matched (run_id, turn) pairs`. Use a fresh `run_id` for each comparison and
+for each parallel session, so two sessions never share turn keys.
+
+`errors` counts every failed attempt on a turn, retries included. It is summed
+and reported per mode, but it does not enter the verdict: the verdict rests on
+matched pairs, settled correctness, failed pairs and cost or uncached input. The
+retry count itself, broken out from other errors, belongs in the live-cell notes
+(§4). Then:
 
 ```bash
 scripts/headroom-measure samples.jsonl --pricing rates.json
@@ -202,5 +245,10 @@ python3 -m unittest discover -s scripts/tests -p 'test_headroom*.py'
 node --test scripts/tests/headroom-*.test.mjs
 ```
 
-The fixtures in §3 are the files named there; the rate file is the illustrative
-one printed above. Nothing else is needed.
+Nothing under `/tmp` is tracked. The §3 fixtures are recreated from the inline
+JSONL printed there (`/tmp/f1.jsonl`, `/tmp/f2.jsonl`) and the rate file from the
+inline rate JSON above (`/tmp/demo-rates.json`); the paths appear only because
+that is where the recorded run wrote them. Nothing else is needed.
+
+`scripts/tests/__pycache__/` is build output, covered by the repository's
+`__pycache__/` ignore rule; it is never committed.
