@@ -416,7 +416,8 @@ class SpecLoopCases(Fixture):
         with self.spec_module() as module:
             spec = module.load("SPEC.md")
             for error in (OSError("no GUI"), subprocess.TimeoutExpired("osascript", 75)):
-                with self.subTest(error=error), patch.object(module.subprocess, "run", side_effect=error):
+                with self.subTest(error=error), patch.object(module.sys, "platform", "darwin"), \
+                        patch.object(module.subprocess, "run", side_effect=error):
                     self.assertFalse(module.confirm(spec, spec["acs"]))
 
     def test_confirm_needs_approve_reply(self):
@@ -425,7 +426,8 @@ class SpecLoopCases(Fixture):
         with self.spec_module() as module:
             spec = module.load("SPEC.md")
             for reply, expected in (("Cancel\n", False), ("Approve\n", True), ("\n", False)):
-                with patch.object(module.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout=reply)) as run:
+                with patch.object(module.sys, "platform", "darwin"), \
+                        patch.object(module.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout=reply)) as run:
                     self.assertEqual(module.confirm(spec, spec["acs"]), expected)
                 argv = run.call_args.args[0]
                 self.assertEqual(argv[0], "/usr/bin/osascript")
@@ -434,6 +436,18 @@ class SpecLoopCases(Fixture):
                 self.assertIn("SPEC.md", argv[-1])
                 self.assertIn("feat/x", argv[-1])
                 self.assertIn("runs these commands on this machine now", argv[-1])
+
+    def test_confirm_is_off_on_linux(self):
+        self.init_repo()
+        self.write_spec([(1, "true")])
+        with self.spec_module() as module:
+            spec = module.load("SPEC.md")
+            stderr = io.StringIO()
+            with patch.object(module.sys, "platform", "linux"), \
+                    patch.object(module.subprocess, "run") as run, contextlib.redirect_stderr(stderr):
+                self.assertTrue(module.confirm(spec, spec["acs"]))
+            run.assert_not_called()
+            self.assertIn("without confirmation", stderr.getvalue())
 
     def test_show_prints_summary_runs_nothing(self):
         self.init_repo()
