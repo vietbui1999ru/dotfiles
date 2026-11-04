@@ -243,6 +243,16 @@
     ],
     "SessionStart": [
       {
+        "matcher": "^(startup|resume|clear)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$HOME/dotfiles/scripts/sync-status\"; [ -x \"$f\" ] && \"$f\" || true",
+            "timeout": 40
+          }
+        ]
+      },
+      {
         "hooks": [
           {
             "type": "command",
