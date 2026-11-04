@@ -47,8 +47,11 @@ node_modules/
 opencode/.config/opencode/plugins/orca-*
 
 # Machine-local runtime state: Claude worktrees, pi-lens binaries and caches,
-# Orca-managed Pi extensions, jj per-repo metadata, Claude.ai-synced skills.
+# Orca-managed Pi extensions, jj per-repo metadata, Claude.ai-synced skills,
+# and the per-checkout state the Serena and Playwright MCP servers write.
 .claude/worktrees/
+.serena/
+.playwright-mcp/
 pi/.pi-lens/
 pi/.pi/agent/extensions/orca-*
 jj/.config/jj/repos/
