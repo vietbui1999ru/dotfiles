@@ -2,6 +2,9 @@
 gets only the two MCP keys (CONTEXT7_API_KEY, EXCALIDRAW_API_KEY), and hclaude starts Headroom
 with telemetry off through the same wrapper.
 
+Both MCP keys are optional: the file holding neither, one, or both still starts the client, and
+only the keys that are present reach it. A missing optional key must not cost the launch.
+
 Fake values are built at run time so this file holds no key-shaped literal.
 
 Run: python3 scripts/tests/test_alias_secrets.py
@@ -73,22 +76,28 @@ class AliasSecrets(unittest.TestCase):
                 self.assertEqual(out.returncode, 0, out.stderr)
                 self.assertEqual(out.stdout.strip(), "unset|unset|unset")
 
-    def test_missing_key_stops_the_client_from_running(self):
+    def test_missing_mcp_key_leaves_the_client_running(self):
         self.write_secrets(f"CONTEXT7_API_KEY={FAKE_CTX}\nOTHER={FAKE_OTHER}\n")
         for client in ("claude", "opencode", "codex"):
             with self.subTest(client=client):
                 out = self.run_zsh(client)
-                self.assertNotEqual(out.returncode, 0)
-                self.assertIn("EXCALIDRAW_API_KEY", out.stderr)
-                self.assertNotIn(FAKE_CTX, out.stdout)
-                self.assertEqual(out.stdout.strip(), "")
+                self.assertEqual(out.returncode, 0, out.stderr)
+                self.assertEqual(out.stdout.strip(), f"{FAKE_CTX}|unset|unset")
+
+    def test_missing_mcp_keys_still_run_each_client(self):
+        self.write_secrets(f"OTHER={FAKE_OTHER}\n")
+        for client in ("claude", "opencode", "codex"):
+            with self.subTest(client=client):
+                out = self.run_zsh(client)
+                self.assertEqual(out.returncode, 0, out.stderr)
+                self.assertEqual(out.stdout.strip(), "unset|unset|unset")
 
     def test_hclaude_alias_starts_headroom_with_telemetry_off_and_two_keys(self):
         out = self.run_zsh("alias hclaude")
         self.assertEqual(out.returncode, 0, out.stderr)
         alias = out.stdout
         self.assertIn("HEADROOM_TELEMETRY=off", alias)
-        self.assertIn("with-secrets CONTEXT7_API_KEY EXCALIDRAW_API_KEY --", alias)
+        self.assertIn("--optional CONTEXT7_API_KEY EXCALIDRAW_API_KEY --", alias)
         self.assertIn("headroom wrap claude", alias)
         self.assertNotIn("umask", alias)
 
@@ -97,6 +106,12 @@ class AliasSecrets(unittest.TestCase):
         out = self.run_zsh("eval \"$(alias hclaude | sed \"s/^hclaude=//; s/^'//; s/'\\$//\")\"")
         self.assertEqual(out.returncode, 0, out.stderr)
         self.assertIn(f"{FAKE_CTX}|{FAKE_EXC}|unset", out.stdout)
+
+    def test_hclaude_runs_headroom_when_an_mcp_key_is_missing(self):
+        self.write_secrets(f"CONTEXT7_API_KEY={FAKE_CTX}\n")
+        out = self.run_zsh("eval \"$(alias hclaude | sed \"s/^hclaude=//; s/^'//; s/'\\$//\")\"")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn(f"{FAKE_CTX}|unset|unset", out.stdout)
 
 
 if __name__ == "__main__":
