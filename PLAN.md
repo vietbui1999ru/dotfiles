@@ -210,3 +210,4 @@ Today that parses as an empty slot, so the slot owner's own session is read-only
 ### Done when
 The same as Dispatch 1. In addition, `scripts/focus status --json --cwd <this worktree>` against the
 fixture board copied from the live format reports `read_only: false`.
+<!-- agent-review gate check 2026-11-05: trivial run to confirm review registration -->
