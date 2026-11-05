@@ -1,0 +1,284 @@
+#!/usr/bin/env python3
+"""sync-agents: generate per-harness subagent files from shared/agents/.
+
+shared/agents/<name>.md (Claude frontmatter + body) is the single source. The
+canonical directory is the roster: every shared/agents/*.md is emitted, and no
+agent name is hard-coded here.
+
+Emitted per agent:
+  claude    claude/.claude/agents/<name>.md  relative symlink to the canonical file
+  pi        pi/.pi/agent/agents/<name>.md    lowercase tool list + body
+  opencode  opencode/.config/opencode/agents/<name>.md  permission preset + body
+  codex     codex/.codex/agents/<name>.toml  developer_instructions = body
+
+PRESETS holds harness-specific settings that cannot be derived from the
+canonical file. An agent with no preset gets safe defaults: OpenCode edit and
+bash denied, Codex model left to the harness.
+
+Modes:
+  (none)    write everything; exit 1 and list files if a generated file was
+            hand-edited and differs from what would be written
+  --force   write everything, overwriting drift
+  --check   write nothing; exit 1 and list files that are missing or would change
+
+Idempotent: a second run changes nothing.
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+CANON = ROOT / "shared" / "agents"
+CLAUDE_DIR = ROOT / "claude" / ".claude" / "agents"
+PI_DIR = ROOT / "pi" / ".pi" / "agent" / "agents"
+OC_DIR = ROOT / "opencode" / ".config" / "opencode" / "agents"
+CODEX_DIR = ROOT / "codex" / ".codex" / "agents"
+
+# Claude tool name -> Pi tool name. Names with no mapping are dropped.
+PI_TOOL_MAP = {
+    "Read": "read",
+    "Grep": "grep",
+    "Glob": "find",
+    "Bash": "bash",
+    "Write": "write",
+    "Edit": "edit",
+}
+PI_TOOL_EXTRA = {"ls"}  # Pi's own ls is always granted alongside the read tools.
+
+FILE_EFFORT_DEFAULT = "medium"
+
+# Harness-specific extras keyed by agent name. Each agent may set:
+#   oc_permission  OpenCode permission map (edit / bash glob map)
+#   codex_model    model line for Codex; omitted when absent
+#   oc_model       extra OpenCode frontmatter line, emitted verbatim
+PRESETS: dict[str, dict] = {
+    "diagrammer": {
+        "oc_permission": {
+            "edit": "allow",
+            "bash": {
+                "*": "deny",
+                "pele-render *": "allow",
+                "printf *": "allow",
+                "rg *": "allow",
+                "fd *": "allow",
+                "ls *": "allow",
+            },
+        },
+    },
+    "scout": {
+        "codex_model": "gpt-6-luna",
+    },
+    "worker": {
+        "codex_model": "gpt-6-luna",
+    },
+}
+
+# Generated-file marker. Written only where the harness parser tolerates it.
+MARK_MD = "<!-- generated from shared/agents/{name}.md by scripts/sync-agents; edit the source -->"
+MARK_TOML = "# generated from shared/agents/{name}.md by scripts/sync-agents; edit the source"
+
+
+def split_frontmatter(text: str) -> tuple[dict[str, str], str]:
+    """Return (flat frontmatter key/values, body). Raises if no frontmatter."""
+    lines = text.split("\n")
+    if not lines or lines[0].strip() != "---":
+        raise ValueError("missing frontmatter")
+    try:
+        end = next(i for i in range(1, len(lines)) if lines[i].strip() == "---")
+    except StopIteration:
+        raise ValueError("unterminated frontmatter") from None
+    fields: dict[str, str] = {}
+    for line in lines[1:end]:
+        if ":" in line and not line.startswith(" "):
+            key, value = line.split(":", 1)
+            fields[key.strip()] = value.strip()
+    body = "\n".join(lines[end + 1 :]).strip("\n")
+    return fields, body
+
+
+def pi_tools(claude_tools: str) -> list[str]:
+    out: list[str] = []
+    for raw in claude_tools.split(","):
+        mapped = PI_TOOL_MAP.get(raw.strip())
+        if mapped and mapped not in out:
+            out.append(mapped)
+    for extra in sorted(PI_TOOL_EXTRA):
+        if extra not in out:
+            out.append(extra)
+    return out
+
+
+def render_pi(name: str, fields: dict[str, str], body: str) -> str:
+    tools = ", ".join(pi_tools(fields.get("tools", "")))
+    return "\n".join(
+        [
+            "---",
+            f"name: {name}",
+            f"description: {fields['description']}",
+            f"tools: {tools}",
+            "---",
+            "",
+            MARK_MD.format(name=name),
+            "",
+            body,
+            "",
+        ]
+    )
+
+
+def render_oc(name: str, fields: dict[str, str], body: str, preset: dict) -> str:
+    perm = preset.get("oc_permission", {"edit": "deny", "bash": {"*": "deny"}})
+    lines = [
+        "---",
+        f"description: {fields['description']}",
+        "mode: subagent",
+        "permission:",
+        f"  edit: {perm['edit']}",
+        "  bash:",
+    ]
+    bash = perm["bash"]
+    if isinstance(bash, str):
+        lines.append(f"    \"*\": {bash}")
+    else:
+        for pattern, action in bash.items():
+            lines.append(f'    "{pattern}": {action}')
+    lines += ["---", "", MARK_MD.format(name=name), "", body, ""]
+    return "\n".join(lines)
+
+
+def toml_literal(body: str) -> str:
+    if "'''" in body:
+        raise ValueError("body contains ''' and cannot be a TOML literal string")
+    return body
+
+
+def render_codex(name: str, fields: dict[str, str], body: str, preset: dict) -> str:
+    effort = fields.get("effort", FILE_EFFORT_DEFAULT)
+    lines = [
+        MARK_TOML.format(name=name),
+        f'name = "{name}"',
+        f"description = {toml_quote(fields['description'])}",
+    ]
+    if "codex_model" in preset:
+        lines.append(f'model = "{preset["codex_model"]}"')
+    lines.append(f'model_reasoning_effort = "{effort}"')
+    lines.append("developer_instructions = '''")
+    lines.append(toml_literal(body))
+    lines.append("'''")
+    return "\n".join(lines) + "\n"
+
+
+def toml_quote(value: str) -> str:
+    """Basic TOML string. Description values are one line, so escaping \\ and " is enough."""
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    if "\n" in escaped:
+        raise ValueError("description must be one line")
+    return f'"{escaped}"'
+
+
+def plan_outputs(name: str, text: str) -> dict[Path, str | Path]:
+    """Map each target path to its content (str) or, for Claude, the symlink target (Path)."""
+    fields, body = split_frontmatter(text)
+    if "description" not in fields:
+        raise ValueError("no description in frontmatter")
+    preset = PRESETS.get(name, {})
+    rel_canon = Path("..") / ".." / ".." / "shared" / "agents" / f"{name}.md"
+    return {
+        CLAUDE_DIR / f"{name}.md": rel_canon,
+        PI_DIR / f"{name}.md": render_pi(name, fields, body),
+        OC_DIR / f"{name}.md": render_oc(name, fields, body, preset),
+        CODEX_DIR / f"{name}.toml": render_codex(name, fields, body, preset),
+    }
+
+
+def current_state(path: Path, want: str | Path) -> str:
+    """Return 'ok', 'missing' or 'drift' for one target."""
+    if isinstance(want, Path):
+        if not path.is_symlink():
+            return "missing" if not path.exists() else "drift"
+        return "ok" if os.readlink(path) == str(want) else "drift"
+    if not path.exists() and not path.is_symlink():
+        return "missing"
+    if path.is_symlink() or not path.is_file():
+        return "drift"
+    return "ok" if path.read_text(encoding="utf-8") == want else "drift"
+
+
+def write_target(path: Path, want: str | Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if isinstance(want, Path):
+        if path.exists() or path.is_symlink():
+            path.unlink()
+        path.symlink_to(want)
+    else:
+        if path.is_symlink():
+            path.unlink()
+        path.write_text(want, encoding="utf-8")
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--force", action="store_true", help="overwrite hand-edited generated files")
+    mode.add_argument("--check", action="store_true", help="report only; exit 1 if anything would change")
+    args = ap.parse_args()
+
+    canon_files = sorted(CANON.glob("*.md"))
+    if not canon_files:
+        print("shared/agents/ is empty — add shared/agents/<name>.md to register an agent")
+        return 0
+
+    plans: dict[Path, str | Path] = {}
+    errors: list[str] = []
+    for canon in canon_files:
+        try:
+            plans.update(plan_outputs(canon.stem, canon.read_text(encoding="utf-8")))
+        except ValueError as exc:
+            errors.append(f"{canon.name}: {exc}")
+    if errors:
+        for err in errors:
+            print(f"✗ {err}", file=sys.stderr)
+        return 1
+
+    drift: list[str] = []
+    changed: list[str] = []
+    for path, want in sorted(plans.items()):
+        rel = path.relative_to(ROOT).as_posix()
+        state = current_state(path, want)
+        if state == "ok":
+            continue
+        if args.check:
+            (drift if state == "drift" else changed).append(f"{rel} ({state})")
+            continue
+        if state == "drift" and not args.force:
+            drift.append(rel)
+            continue
+        write_target(path, want)
+        changed.append(f"{rel} ({state})")
+
+    if args.check:
+        if changed or drift:
+            print("would change:")
+            for item in changed + drift:
+                print(f"  ! {item}")
+            return 1
+        print(f"✓ {len(plans)} generated files up to date")
+        return 0
+
+    if drift:
+        print("DRIFT: hand-edited generated files differ from shared/agents/ (rerun with --force to overwrite):")
+        for item in drift:
+            print(f"  ! {item}")
+        return 1
+    print(f"✓ {len(plans)} generated files up to date ({len(changed)} written)")
+    for item in changed:
+        print(f"  ✓ {item}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
