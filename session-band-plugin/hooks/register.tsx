@@ -10,6 +10,7 @@ import { register as registerPane } from './pane.tsx'
 import { refreshSendIt, register as registerSendIt } from './send-it.tsx'
 import { register as registerWorktrees } from './worktree-pane.tsx'
 import { register as registerDraftPrs } from './draft-prs.tsx'
+import { register as registerFocusPane } from './focus-pane.tsx'
 import { PANE as BLOCKS_PANE, register as registerSafetyBlocks } from './safety-blocks.tsx'
 import { loadSessionBlocks, pendingCount } from './safety-blocks'
 import { onSessionStart as lifecycleSessionStart, register as registerLifecycle } from './lifecycle.tsx'
@@ -169,6 +170,7 @@ export const register: Register = on => {
   registerPane(on)
   registerWorktrees(on)
   registerDraftPrs(on)
+  registerFocusPane(on)
   registerSafetyBlocks(on)
   registerLifecycle(on)
   registerGates(on)
@@ -193,6 +195,7 @@ export const register: Register = on => {
     await $.command.register({ name: 'pi-history', description: 'Open Pi hand-off history' })
     await $.command.register({ name: 'worktrees', description: 'Open the worktrees and branches pane' })
     await $.command.register({ name: 'draft-prs', description: 'Open the draft PRs pane: open drafts, ready PRs and merges from the last 7 days' })
+    await $.command.register({ name: 'focus', description: 'Open the focus pane: the work and hobby slots, frozen and parked items' })
     await $.command.register({ name: BLOCKS_PANE.command, description: "Open the blocks pane: this session's bash-safety blocks, o marks ok, f marks false-positive" })
     await $.command.register({ name: 'gates', description: 'Open spec approvals and pending Pi reviews across worktrees' })
     await $.command.register({ name: 'diff-review', description: 'Review the worktree: one tab per unapproved file, with comments, questions and proposed patches' })
