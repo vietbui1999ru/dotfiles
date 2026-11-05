@@ -26,7 +26,7 @@ ROOT = SCRIPTS.parent
 SPEC_BIN = SCRIPTS / "spec"
 SHIM = SCRIPTS / "ac-run"
 FLOOR = SCRIPTS / "floor-guard"
-HUMAN = "HUMAN ONLY (agents must not run this): approve in the session-band /gates pane, or ~/dotfiles/scripts/spec approve SPEC.md"
+HUMAN = "Ready for approval: approve or deny in the session-band prompt or the /gates pane"
 GITC = ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
 
 SPEC = """---
@@ -160,18 +160,18 @@ class Fixture(unittest.TestCase):
                 os.chdir(cwd)
                 sys.argv = argv
 
-    def approve_inproc(self, answer: bool, *opts):
+    def approve_inproc(self, *opts):
         stdout, stderr = io.StringIO(), io.StringIO()
         with self.spec_module() as module:
             sys.argv = ["spec", "approve", *opts, "SPEC.md"]
-            with patch.object(module, "confirm", lambda spec, runnable: answer, create=True), \
-                    contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
                 code = module.main()
         return SimpleNamespace(returncode=code, stdout=stdout.getvalue(), stderr=stderr.getvalue())
 
-    def approve(self, answer="y\n", *opts, **kw):
+    def approve(self, *opts, **kw):
+        """Approve SPEC.md the way the session-band Approve button does: no dialog."""
         with patch.dict(self.env, kw.get("extra_env") or {}):
-            return self.approve_inproc(answer.strip().lower() == "y", *opts)
+            return self.approve_inproc(*opts)
 
     def approved(self, acs, dirty=False, opts=(), **kw):
         """Repo on feat/x with SPEC.md approved by `y`; dirty adds an untracked file first."""
@@ -179,7 +179,7 @@ class Fixture(unittest.TestCase):
         self.write_spec(acs)
         if dirty:
             self.put("sub/dirty.txt", "x\n")
-        r = self.approve("y\n", *opts, **kw)
+        r = self.approve(*opts, **kw)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         return r
 
@@ -362,7 +362,7 @@ class SpecLoopCases(Fixture):
             self.fresh()
             self.init_repo()
             self.write_spec([(1, "printf x >> SPEC.md")])  # baseline edits the spec
-            r = self.approve("y\n")
+            r = self.approve()
             out = r.stdout + r.stderr
             self.assertEqual(r.returncode, 1, out)
             self.assertIn("changed since it was read", out)
@@ -373,7 +373,7 @@ class SpecLoopCases(Fixture):
             self.init_repo()
             original = spec_text([(1, "true")]).replace("\n", "\r\n").encode()
             (self.repo / "SPEC.md").write_bytes(original)
-            r = self.approve("y\n")
+            r = self.approve()
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             self.assertEqual((self.repo / "SPEC.md").read_bytes(),
                              original.replace(b"status: draft\r\n", b"status: approved\r\n"))
@@ -382,72 +382,47 @@ class SpecLoopCases(Fixture):
             self.init_repo()
             self.write_spec([(1, "true")])
             (self.repo / "SPEC.md").chmod(0o444)
-            r = self.approve("y\n")
+            r = self.approve()
             out = r.stdout + r.stderr
             self.assertNotIn("Traceback", out)
             self.assertIn(r.returncode, (0, 1), out)
             self.assertIn("by hand", out)
 
-    def test_approve_refused(self):
+    def ready(self):
+        state = self.home / ".local" / "state" / "ac-run" / "ready"
+        return sorted(state.glob("*.json")) if state.is_dir() else []
+
+    def test_lint_marks_draft_ready(self):
         self.init_repo()
         self.write_spec([(1, "touch sentinel.txt")])
-        for answer in ("n\n", ""):
-            with self.subTest(answer=answer):
-                r = self.approve(answer)
-                self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-                self.assertIn("not approved", r.stdout + r.stderr)
-                self.assertEqual(self.records(), [])
-                self.assertRegex((self.repo / "SPEC.md").read_text(), r"(?m)^status: draft$")
-                self.assertFalse((self.repo / "sentinel.txt").exists())
+        r = self.run_spec("lint", "SPEC.md")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        [marker] = self.ready()
+        data = json.loads(marker.read_text())
+        self.assertEqual(data["branch"], "feat/x")
+        self.assertEqual(Path(data["spec"]), (self.repo / "SPEC.md").resolve())
+        self.assertEqual(marker.stem, data["hash"])
+        self.assertFalse((self.repo / "sentinel.txt").exists())
 
-    def test_approve_ignores_stdin(self):
-        self.init_repo()
-        self.write_spec([(1, "touch sentinel.txt")])
-        with patch.object(sys, "stdin", io.StringIO("y\n")):
-            r = self.approve_inproc(False)
-        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertIn("not approved", r.stdout)
-        self.assertEqual(self.records(), [])
-        self.assertIn("status: draft", (self.repo / "SPEC.md").read_text())
-
-    def test_confirm_failure_is_refusal(self):
+    def lint_then(self, act):
         self.init_repo()
         self.write_spec([(1, "true")])
-        with self.spec_module() as module:
-            spec = module.load("SPEC.md")
-            for error in (OSError("no GUI"), subprocess.TimeoutExpired("osascript", 75)):
-                with self.subTest(error=error), patch.object(module.sys, "platform", "darwin"), \
-                        patch.object(module.subprocess, "run", side_effect=error):
-                    self.assertFalse(module.confirm(spec, spec["acs"]))
+        self.run_spec("lint", "SPEC.md")
+        self.assertEqual(len(self.ready()), 1)
+        r = act()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.ready(), [])
 
-    def test_confirm_needs_approve_reply(self):
-        self.init_repo()
-        self.write_spec([(1, "true")])
-        with self.spec_module() as module:
-            spec = module.load("SPEC.md")
-            for reply, expected in (("Cancel\n", False), ("Approve\n", True), ("\n", False)):
-                with patch.object(module.sys, "platform", "darwin"), \
-                        patch.object(module.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout=reply)) as run:
-                    self.assertEqual(module.confirm(spec, spec["acs"]), expected)
-                argv = run.call_args.args[0]
-                self.assertEqual(argv[0], "/usr/bin/osascript")
-                self.assertIn('default button "Cancel"', " ".join(argv))
-                self.assertIn('cancel button "Cancel"', " ".join(argv))
-                self.assertIn("SPEC.md", argv[-1])
-                self.assertIn("feat/x", argv[-1])
-                self.assertIn("runs these commands on this machine now", argv[-1])
+    def test_approve_clears_ready(self):
+        self.lint_then(self.approve)
 
-    def test_confirm_is_off_on_linux(self):
-        self.init_repo()
-        self.write_spec([(1, "true")])
-        with self.spec_module() as module:
-            spec = module.load("SPEC.md")
-            stderr = io.StringIO()
-            with patch.object(module.sys, "platform", "linux"), \
-                    patch.object(module.subprocess, "run") as run, contextlib.redirect_stderr(stderr):
-                self.assertTrue(module.confirm(spec, spec["acs"]))
-            run.assert_not_called()
-            self.assertIn("without confirmation", stderr.getvalue())
+    def test_reject_clears_ready(self):
+        self.lint_then(lambda: self.run_spec("reject", "SPEC.md"))
+
+    def test_lint_approved_spec_not_ready(self):
+        self.approved([(1, "true")])
+        self.run_spec("lint", "SPEC.md")
+        self.assertEqual(self.ready(), [])
 
     def test_show_prints_summary_runs_nothing(self):
         self.init_repo()
@@ -747,12 +722,10 @@ class SpecLoopCases(Fixture):
         self.init_repo()
         self.put("SPEC.md", spec_text([(1, "touch sentinel.txt"), (2, "manual - wording"),
                                        (3, "true", True)]))
-        r = self.approve("")
+        r = self.approve()
         out = r.stdout + r.stderr
-        self.assertEqual(r.returncode, 1, out)
-        self.assertIn("not approved", out)
-        self.assertEqual(self.records(), [])
-        self.assertFalse((self.repo / "sentinel.txt").exists())
+        self.assertEqual(r.returncode, 0, out)
+        self.assertEqual(len(self.records()), 1)
         for text in ("runs: touch sentinel.txt", "checked by a human: manual - wording",
                      "must keep passing", "status: approved"):
             self.assertIn(text, r.stdout)
@@ -780,7 +753,7 @@ class SpecLoopCases(Fixture):
         c = self.run_spec("status", "SPEC.md")
         self.assertEqual(c.returncode, 3, c.stdout + c.stderr)
         self.assertIn("draft (no record)", c.stdout)
-        self.approve("y\n")
+        self.approve()
         c = self.run_spec("status", "SPEC.md")
         self.assertEqual(c.returncode, 0, c.stdout + c.stderr)
         self.assertIn("approved (record matches)", c.stdout)
