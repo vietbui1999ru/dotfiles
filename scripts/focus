@@ -22,7 +22,8 @@ from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import focus_triage as triage  # noqa: E402  (beside this file; read-only inventory)
+# focus_triage sits beside this file; the path insert above must run first.
+import focus_triage as triage
 
 STAGES = ["spec", "plan", "build", "review", "merge"]
 FROZEN_CAP = 3
@@ -441,8 +442,9 @@ def session_record(session: str, cwd: str) -> dict:
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(sessions, indent=2), encoding="utf-8")
-        except OSError:
-            pass
+        except OSError as err:
+            # A hook must not fail the tool call; say why the start cwd was not saved.
+            print(f"focus: could not save session state: {err}", file=sys.stderr)
     return record
 
 
