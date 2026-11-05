@@ -38,6 +38,8 @@ type World = {
   status: number
   calls: { argv: string[]; cwd?: string }[]
   toasts: string[]
+  asked: string[]
+  answer: 'Approve' | 'Deny' | 'dismiss'
   clock: ReturnType<typeof mock.clock>
   approval: { exitCode: number; stdout: string; stderr: string; isStdoutTruncated: boolean; isStderrTruncated: boolean }
   applyCheck: number
@@ -52,8 +54,15 @@ const review = (over: Record<string, unknown> = {}) => ({
 
 const setup = (on: On, over: Partial<World> = {}): World => {
   const clock = mock.clock(on, { now: 1_000_000 })
-  const world: World = { files: {}, list: JSON.stringify([review()]), diffs: {}, status: 3, calls: [], toasts: [], clock, approval: OK, applyCheck: 0, floor: '', check: '| AC-1 | PASS | 0 | 1.0 |\n', ...over }
+  const world: World = { files: {}, list: JSON.stringify([review()]), diffs: {}, status: 3, calls: [], toasts: [], asked: [], answer: 'Approve', clock, approval: OK, applyCheck: 0, floor: '', check: '| AC-1 | PASS | 0 | 1.0 |\n', ...over }
   mock.env(on, { HOME: '/h', TMPDIR: '/tmp' })
+  on('tool.call', (_$, e) => {
+    if (e.tool !== 'AskUserQuestion') return { result: 'ok', text: 'ok' }
+    const question = (e as { questions: { question: string }[] }).questions[0]?.question ?? ''
+    world.asked.push(question)
+    if (world.answer === 'dismiss') throw new Error('dismissed')
+    return { result: { answers: { [question]: world.answer } } } as never
+  })
   on('ui.open', () => ({ value: { isPlaced: true } } as never))
   on('ui.toast', (_$, e) => { world.toasts.push(String((e as { text?: unknown }).text ?? '')); return { value: undefined } as never })
   on('session.cwd', () => ({ value: '/work' }))
@@ -490,6 +499,35 @@ test('a spec tab shows its criteria and the last check table', async ($, on) => 
   expect(drawn).toContain('| AC-1 | PASS | 0 | 1.0 |')
   expect(world.calls.filter(call => call.argv[1] === 'check').map(call => call.argv)).toEqual([
     ['/h/dotfiles/scripts/spec', 'check', '/work/SPEC.md'],
+  ])
+})
+
+test('a spec tab approve asks first, then runs spec approve on Approve', async ($, on) => {
+  const world = setup(on)
+  world.list = '[]'
+  world.files['/work/SPEC.md'] = '---\nbranch: feat/x\n---\n'
+  await $.command.run(RUN)
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  await ui.press({ key: 'review-approve' })
+  await world.clock.settle()
+  expect(world.asked.length).toBe(1)
+  expect(world.calls.filter(call => call.argv[1] === 'approve').map(call => call.argv)).toEqual([
+    ['/h/dotfiles/scripts/spec', 'approve', '/work/SPEC.md'],
+  ])
+})
+
+test('a spec tab approve on Deny runs spec reject and no approve', async ($, on) => {
+  const world = setup(on)
+  world.list = '[]'
+  world.answer = 'Deny'
+  world.files['/work/SPEC.md'] = '---\nbranch: feat/x\n---\n'
+  await $.command.run(RUN)
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  await ui.press({ key: 'review-approve' })
+  await world.clock.settle()
+  expect(world.calls.filter(call => call.argv[1] === 'approve')).toEqual([])
+  expect(world.calls.filter(call => call.argv[1] === 'reject').map(call => call.argv)).toEqual([
+    ['/h/dotfiles/scripts/spec', 'reject', '/work/SPEC.md'],
   ])
 })
 
