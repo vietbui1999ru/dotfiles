@@ -76,7 +76,16 @@ def check_paths(raw_paths, cwd, root):
                 f"Name each changed file instead of {raw!r}; never stage the whole tree.",
                 "Rerun: commit-funnel --worktree <session worktree> -F <message file> <path>...",
             ])
-        resolved = os.path.realpath(os.path.join(cwd, raw))
+        joined = os.path.normpath(os.path.join(cwd, raw))
+        # Resolve the parent, not the path: a symlink is committed as the link itself.
+        # realpath on the whole path turned it into its target, so the funnel committed
+        # the unchanged target and reported an empty commit as success.
+        resolved = os.path.join(os.path.realpath(os.path.dirname(joined)), os.path.basename(joined))
+        if os.path.islink(resolved) and not os.path.realpath(resolved).startswith(root + os.sep):
+            refusals(f"path {raw!r} is a symlink that resolves outside the work-tree root", [
+                f"Only links whose target is under {root} belong to this work tree.",
+                "Rerun with paths inside the work-tree root.",
+            ])
         if resolved == root:
             refusals(f"path {raw!r} is the work-tree root itself", [
                 "Name each changed file instead; never stage the whole tree.",
