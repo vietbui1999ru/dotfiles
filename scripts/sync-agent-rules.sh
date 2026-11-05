@@ -164,13 +164,11 @@ else
 	echo "  (claude CLI or mcp-servers.json missing — skipping Claude MCP registration)"
 fi
 
-# ── Sync OpenCode agents from llm-wiki canonical source ──────────────────────
-# Generates .opencode/agents/*.md from claude-setup/agents/*.md with OpenCode
-# frontmatter, ending the drift between the two directories.
-if [ -f "$HOME/repos/llm-wiki/scripts/sync-agents.py" ]; then
-	PYTHONDONTWRITEBYTECODE=1 python3 "$HOME/repos/llm-wiki/scripts/sync-agents.py" --check 2>/dev/null &&
-		echo "✓ OpenCode agents in sync with llm-wiki canonical" ||
-		echo "⚠ OpenCode agents drifted — run: python3 ~/repos/llm-wiki/scripts/sync-agents.py --force"
+# ── Shared subagents: shared/agents/ generates each harness's copy ────────────
+if "$DOTFILES/scripts/sync-agents" --check >/dev/null 2>&1; then
+	echo "✓ shared agents in sync (shared/agents/ → Claude, Pi, OpenCode, Codex)"
+else
+	echo "⚠ shared agents drifted — run: scripts/sync-agents --force"
 fi
 
 echo ""
