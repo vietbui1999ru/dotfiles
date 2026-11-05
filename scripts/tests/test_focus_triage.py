@@ -119,6 +119,27 @@ class InventoryTest(TriageTest):
         self.assertIn("feat/x", out)
 
 
+class DedupeAndNestingTest(TriageTest):
+    def test_inventory_dedupes_linked_worktrees(self):
+        # The acme-api linked worktree sits as a sibling directory under repos/. It must not become a repo.
+        rows = json.loads(self.triage("--json").stdout)
+        repos = [r["repo"] for r in rows]
+        self.assertEqual(repos.count("acme-api"), 2)  # main + feat/x, one row each
+        self.assertNotIn("wt-x", repos)
+        self.assertEqual(len({(r["repo"], r["branch"]) for r in rows}), len(rows))
+
+    def test_inventory_nested_repo_with_space(self):
+        nested = self.repos / "WORK" / "ACME" / "Work IG" / "personal-ai-gateway"
+        nested.mkdir(parents=True)
+        git(nested, "init", "-q", "-b", "main")
+        (nested / "README").write_text("x")
+        git(nested, "add", "README")
+        git(nested, "commit", "-q", "-m", "init")
+        rows = json.loads(self.triage("--json").stdout)
+        self.assertIn("personal-ai-gateway", {r["repo"] for r in rows})
+        self.assertNotIn(".claude", {r["repo"] for r in rows})
+
+
 class ReadOnlyTest(TriageTest):
     def test_read_only_triage_changes_nothing(self):
         before = self.snapshot()

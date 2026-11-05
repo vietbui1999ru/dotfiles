@@ -28,7 +28,10 @@ STAGES = ["spec", "plan", "build", "review", "merge"]
 FROZEN_CAP = 3
 SECTIONS = ["Work", "Hobby", "Frozen", "Parked"]
 KEY_RE = re.compile(r"^[A-Za-z0-9._-]+:[^\s|]+$")
-ITEM_RE = re.compile(r"^- (?P<key>\S+?)(?: \| stage: (?P<stage>\w+))?\s*$")
+# An item line is `- <repo>:<branch>` then anything: a `| stage: S` part, or the person's own note.
+# Git refnames cannot hold `:`, so the key ends at the second colon, at whitespace, or at `|`.
+ITEM_RE = re.compile(r"^- (?P<key>[A-Za-z0-9._-]+:[^\s|:]+)(?P<rest>.*)$")
+STAGE_RE = re.compile(r"\|\s*stage:\s*(?P<stage>\w+)")
 
 
 def home() -> Path:
@@ -53,12 +56,12 @@ def roots() -> list[Path]:
 
 
 def repo_path(repo: str) -> Path:
-    if repo == "dotfiles":
-        return home() / "dotfiles"
-    for root in roots():
-        candidate = root / repo
-        if candidate.exists():
-            return candidate
+    """The main worktree of a repo by name, found with the same scan triage uses."""
+    found, clashes = triage.discover(home(), roots())
+    if repo in clashes:
+        raise SystemExit(f"focus: {repo} is in more than one place ({', '.join(str(p) for p in clashes[repo])}); rename one before writing to it")
+    if repo in found:
+        return found[repo]
     return (roots()[0] if roots() else home() / "repos") / repo
 
 
@@ -106,7 +109,8 @@ class Board:
         for index, line in enumerate(self.sections[name]):
             match = ITEM_RE.match(line)
             if match and not line.startswith("  "):
-                found.append({"key": match.group("key"), "stage": match.group("stage"), "line": index})
+                stage = STAGE_RE.search(match.group("rest"))
+                found.append({"key": match.group("key"), "stage": stage.group("stage") if stage else None, "line": index})
         return found
 
     def item_block(self, name: str, index: int) -> list[str]:
@@ -135,13 +139,16 @@ class Board:
         lines.append("")
 
     def set_stage(self, key: str, stage: str) -> bool:
+        """Replace or add only the `| stage: S` part; the person's note text is kept byte-for-byte."""
         for name in ("Work", "Hobby", "Frozen"):
             for item in self.items(name):
                 if item["key"] == key:
                     line = self.sections[name][item["line"]]
-                    head = ITEM_RE.match(line)
-                    base = head.group("key")
-                    self.sections[name][item["line"]] = f"- {base} | stage: {stage}"
+                    if STAGE_RE.search(line):
+                        new = STAGE_RE.sub(f"| stage: {stage}", line, count=1)
+                    else:
+                        new = f"{line.rstrip()} | stage: {stage}"
+                    self.sections[name][item["line"]] = new
                     return True
         return False
 
@@ -164,7 +171,8 @@ def save_board(board: Board) -> None:
 def describe(item: dict | None) -> dict | None:
     if item is None:
         return None
-    return {"key": item["key"], "stage": item["stage"] or STAGES[0]}
+    # A line with no `| stage:` has an unknown stage; show it as ? rather than guess.
+    return {"key": item["key"], "stage": item["stage"] or "?"}
 
 
 def breaches(board: Board) -> list[str]:
@@ -300,14 +308,15 @@ def cmd_switch(args) -> int:
         old_block = board.remove_item(slot, old["key"])
         if old_block:
             board.append("Frozen", old_block)
+    if args.stage and args.stage not in STAGES:
+        print(f"focus: stage must be one of {', '.join(STAGES)}", file=sys.stderr)
+        return 1
+    # The person's note stays as written; --stage only sets the stage part. A bare new item starts at build.
     new_line = block[0]
     if args.stage:
-        if args.stage not in STAGES:
-            print(f"focus: stage must be one of {', '.join(STAGES)}", file=sys.stderr)
-            return 1
-        new_line = f"- {key} | stage: {args.stage}"
-    elif not ITEM_RE.match(new_line) or not ITEM_RE.match(new_line).group("stage"):
-        new_line = f"- {key} | stage: {STAGES[2]}"
+        new_line = STAGE_RE.sub(f"| stage: {args.stage}", new_line, count=1) if STAGE_RE.search(new_line) else f"{new_line.rstrip()} | stage: {args.stage}"
+    elif not STAGE_RE.search(new_line) and not ITEM_RE.match(new_line).group("rest").strip():
+        new_line = f"{new_line} | stage: {STAGES[2]}"
     board.append(slot, [new_line] + block[1:])
     save_board(board)
     print(f"focus: {slot.lower()} is now {key}")

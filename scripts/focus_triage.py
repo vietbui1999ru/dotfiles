@@ -21,19 +21,54 @@ def _run(argv: list[str], cwd: Path | None = None, timeout: int = GIT_TIMEOUT) -
         return None
 
 
-def repos_under(home: Path, roots: list[Path]) -> list[Path]:
-    """Dotfiles plus every git repo directly under a root."""
-    found: list[Path] = []
+SCAN_DEPTH = 4
+SKIP_DIRS = {"node_modules", ".claude"}
+
+
+def is_git_repo(path: Path) -> bool:
+    """A main worktree has a .git directory; a linked worktree has a .git file and is skipped here."""
+    return (path / ".git").is_dir()
+
+
+def discover(home: Path, roots: list[Path]) -> tuple[dict[str, Path], dict[str, list[Path]]]:
+    """Every git repo under the roots (recursive, to SCAN_DEPTH), keyed by its name.
+
+    A repo is a directory with .git; the scan does not descend into one, nor into hidden dirs,
+    node_modules, or a .claude dir (which holds worktrees). Linked worktrees have a .git file, not
+    a dir, so they are found by their common git dir, not by path.
+
+    Returns (found, clashes): found keeps the first repo for each name, clashes lists every path
+    that shares a name. Triage lists them all; a write that needs one repo by name refuses a clash."""
+    found: dict[str, Path] = {}
+    clashes: dict[str, list[Path]] = {}
+
+    def walk(directory: Path, depth: int) -> None:
+        if depth > SCAN_DEPTH or not directory.is_dir():
+            return
+        for child in sorted(directory.iterdir()):
+            if not child.is_dir() or child.name.startswith(".") or child.name in SKIP_DIRS:
+                continue
+            if is_git_repo(child):
+                name = child.name
+                if name in found:
+                    clashes.setdefault(name, [found[name]]).append(child)
+                else:
+                    found[name] = child
+            else:
+                walk(child, depth + 1)
+
     dotfiles = home / "dotfiles"
-    if (dotfiles / ".git").exists():
-        found.append(dotfiles)
+    if is_git_repo(dotfiles):
+        found["dotfiles"] = dotfiles
     for root in roots:
-        if not root.is_dir():
-            continue
-        for child in sorted(root.iterdir()):
-            if (child / ".git").exists() and child not in found:
-                found.append(child)
-    return found
+        walk(root, 1)
+    return found, clashes
+
+
+def repos_under(home: Path, roots: list[Path]) -> list[Path]:
+    """One path per distinct repo, from the main worktrees found by discover()."""
+    found, _ = discover(home, roots)
+    return sorted(found.values(), key=lambda p: p.name)
 
 
 def worktrees(repo: Path) -> list[dict]:

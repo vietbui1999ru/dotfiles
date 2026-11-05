@@ -150,6 +150,20 @@ class LifecycleTest(BoardTest):
         self.assertEqual(code, 0)
         self.assertIn("- acme-api:feat/x | stage: review", self.board.read_text())
 
+    def test_caps_freeform_line_counts(self):
+        # The live board writes `- repo:branch: note` with no stage. It is still an item, with stage unknown.
+        self.write(board_text(hobby=["- dotfiles:feat/focus: focus slots, guards, and the pane"]))
+        code, out, _ = self.run_cli("status", "--json")
+        data = json.loads(out)
+        self.assertEqual(data["hobby"], {"key": "dotfiles:feat/focus", "stage": "?"})
+        self.assertEqual(code, 0)
+
+    def test_lifecycle_freeform_note_kept(self):
+        note = "- dotfiles:feat/focus: focus slots, guards, and the pane"
+        self.write(board_text(hobby=[note]))
+        self.run_cli("stage", "dotfiles:feat/focus", "review")
+        self.assertIn("- dotfiles:feat/focus: focus slots, guards, and the pane | stage: review", self.board.read_text())
+
     def test_lifecycle_round_trip_keeps_bytes(self):
         text = board_text(work=["- acme-api:feat/x | stage: build"], parked=["- free text, odd   spacing"])
         self.write(text)
