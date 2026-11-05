@@ -1,8 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, readFileSync, existsSync, statSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
+import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
+
+const HOOK = fileURLToPath(new URL('./mistake-alert-hook.mjs', import.meta.url))
 
 import { handleFailure } from './mistake-alert-hook.mjs'
 
@@ -45,4 +49,17 @@ test('non-Bash tools and interrupts are ignored and do not count', () => {
   for (let i = 0; i < 5; i++) handleFailure(failure({ tool_name: 'Edit' }), { ...opts, now: NOW + i })
   for (let i = 0; i < 5; i++) handleFailure(failure({ is_interrupt: true }), { ...opts, now: NOW + i })
   assert.equal(existsSync(opts.alertsPath), false)
+})
+
+test('state folder is 0700 and state files are 0600 when the hook runs with a temporary HOME', () => {
+  const home = mkdtempSync(join(tmpdir(), 'mistake-home-'))
+  const payload = JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'docling x' }, error: 'Exit code 2', session_id: 's', cwd: '/r' })
+  for (let i = 0; i < 3; i++) {
+    execFileSync(process.execPath, [HOOK], { input: payload, env: { ...process.env, HOME: home } })
+  }
+  const state = join(home, '.claude', 'state')
+  assert.equal(statSync(state).mode & 0o777, 0o700)
+  for (const name of ['mistake-fingerprints.json', 'mistake-alerts.json']) {
+    assert.equal(statSync(join(state, name)).mode & 0o777, 0o600, name)
+  }
 })

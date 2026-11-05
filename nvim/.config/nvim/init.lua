@@ -22,6 +22,10 @@ end
 vim.g["coqtail#supported"] = 1
 -- Prevent vim-kitty-navigator from claiming C-hjkl (use vim-tmux-navigator instead)
 vim.g.kitty_navigator_no_mappings = 1
+-- vim-kitty-navigator shells out to `kitten` on load; disable it where kitty isn't installed
+if vim.fn.executable("kitten") == 0 then
+	vim.g.loaded_kitty_navigator = 1
+end
 
 vim.opt.number = true
 vim.opt.mouse = "a"
@@ -95,6 +99,19 @@ vim.api.nvim_create_autocmd({ "FocusGained", "BufEnter" }, {
 		end
 	end,
 })
+
+-- vim.pack ships with Neovim 0.12. On an older nvim (e.g. a distro package ahead
+-- of ~/.local/bin in PATH) everything below would throw and silently drop the
+-- plugin keymaps, so stop here with the core options/keymaps above and say why.
+if not vim.pack then
+	local v = vim.version()
+	vim.notify(
+		("init.lua needs Neovim 0.12+ (vim.pack); found %d.%d.%d at %s. Loaded core keymaps only."):format(
+			v.major, v.minor, v.patch, vim.v.progpath),
+		vim.log.levels.ERROR
+	)
+	return
+end
 
 local gh = function(x)
 	return "https://github.com/" .. x

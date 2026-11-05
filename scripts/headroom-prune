@@ -1,0 +1,17 @@
+#!/bin/sh
+# headroom-prune: keep ~/.headroom private and drop stale debug dumps (AC-18).
+#
+# Headroom writes full unredacted conversations to logs/debug_400/*.json on every 400 from a
+# provider. This tightens the folder tree to 700 (dirs) and 600 (files), then deletes dumps
+# older than 7 days. Run before each `headroom wrap` start. Silent on success.
+# Override: HEADROOM_DIR (default $HOME/.headroom).
+
+PATH="$PATH:/usr/bin:/bin"
+
+root="${HEADROOM_DIR:-$HOME/.headroom}"
+[ -d "$root" ] || exit 0
+
+find "$root" -type d -exec chmod 700 {} + 2>/dev/null
+find "$root" -type f -exec chmod 600 {} + 2>/dev/null
+find "$root/logs/debug_400" -maxdepth 1 -name '*.json' -type f -mtime +7 -exec rm -f {} + 2>/dev/null
+exit 0

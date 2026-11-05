@@ -18,11 +18,11 @@ const BAND = {
   },
 }
 
-type UsageSource = { percent: number; five?: number; seven?: number }
+type UsageSource = { tokens: number; five?: number; seven?: number }
 
-const usage = ({ percent, five = 12, seven = 34 }: UsageSource) => ({
+const usage = ({ tokens, five = 12, seven = 34 }: UsageSource) => ({
   startedAt: 0,
-  context: { window: 200_000, percent },
+  context: { window: 1_000_000, tokens, percent: tokens / 10_000 },
   rateLimits: [
     { kind: 'five_hour', percentUsed: five },
     { kind: 'seven_day', percentUsed: seven },
@@ -57,20 +57,20 @@ const setup = (on: On, source: UsageSource) => {
   on('tool.call', () => ({ result: 'ok', text: 'ok' }))
 }
 
-test('denies Agent at 70% and allows it at 69%', async ($, on) => {
-  const source = { percent: 70 }
+test('denies Agent at 350000 tokens and allows it at 349999', async ($, on) => {
+  const source = { tokens: 350_000 }
   setup(on, source)
 
   const blocked = await $.tool.call({ tool: 'Agent', prompt: 'delegate this' } as never)
   expect(blocked.deny).toContain('CONTEXT THRESHOLD')
 
-  source.percent = 69
+  source.tokens = 349_999
   const allowed = await $.tool.call({ tool: 'Agent', prompt: 'delegate this' } as never)
   expect('deny' in allowed).toBe(false)
 })
 
 test('adds the long then short soft-stop directives while over the threshold', async ($, on) => {
-  setup(on, { percent: 70 })
+  setup(on, { tokens: 350_000 })
 
   const first = await $.tool.call({ tool: 'Read', file_path: '/work/README.md' })
   const second = await $.tool.call({ tool: 'Read', file_path: '/work/README.md' })
@@ -80,21 +80,21 @@ test('adds the long then short soft-stop directives while over the threshold', a
 })
 
 test('does not add a soft-stop directive to a save-critical write', async ($, on) => {
-  setup(on, { percent: 70 })
+  setup(on, { tokens: 350_000 })
 
   const result = await $.tool.call({ tool: 'Write', file_path: '/work/.claude/session-state.md', content: 'saved' })
 
   expect(result.context).toBeUndefined()
 })
 
-test('draws whole ctx percentages with green, yellow, and red threshold colours', async ($, on) => {
-  const source = { percent: 39 }
+test('draws whole ctx percentages of the 500K cap with green, yellow, and red threshold colours', async ($, on) => {
+  const source = { tokens: 195_000 }
   setup(on, source)
   await $.session.start(START)
 
   for (const [percent, color] of [[39, '#a9b665'], [40, '#e78a4e'], [70, '#d75f5f']] as const) {
-    source.percent = percent
-    await $.session.measure({ context: { window: 200_000, percent }, rateLimits: [], changed: ['context'] })
+    source.tokens = percent * 5_000
+    await $.session.measure({ context: { window: 1_000_000, tokens: percent * 5_000, percent: percent / 2 }, rateLimits: [], changed: ['context'] })
 
     const ctx = textElements(await $.ui.render(BAND))
       .find(element => element.color !== undefined && element.text === ctxBar(percent))

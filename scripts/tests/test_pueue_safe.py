@@ -4,7 +4,6 @@ Run: python3 scripts/tests/test_pueue_safe.py
 """
 
 import json
-import os
 import subprocess
 import tempfile
 import unittest
@@ -87,6 +86,68 @@ class PueueSafe(unittest.TestCase):
         got = self.run_wrapper("add", "--", "true", real=False,
                                env={"PATH": f"{shim_dir}:{self.real.parent}:/usr/bin:/bin"})
         self.assertNotIn("GITHUB_TOKEN", got["env"])
+
+    def test_global_flags_before_add_are_stripped(self):
+        for args in (
+            ("--color", "never", "add", "--", "x"),
+            ("-c", "cfg.yml", "add", "--", "x"),
+            ("--config=cfg.yml", "-p", "default", "add", "--", "x"),
+            ("-vv", "--color=never", "add", "--", "x"),
+        ):
+            got = self.run_wrapper(*args)
+            self.assertNotIn("GITHUB_TOKEN", got["env"], args)
+            self.assertNotIn("SYNC_THING", got["env"], args)
+            self.assertIn("PATH", got["env"], args)
+            self.assertEqual(got["args"], list(args), args)
+
+    def test_env_set_of_secret_like_name_is_refused(self):
+        for name in ("GITHUB_TOKEN", "SYNC_THING", "MY_SVC_APIKEY"):
+            out = subprocess.run([str(WRAPPER), "env", "set", "3", name, "v"],
+                                 env=self.base_env(), capture_output=True, text=True, timeout=30)
+            self.assertEqual(out.returncode, 2, name)
+            self.assertIn(f"refusing to store secret-like variable {name}", out.stderr)
+            self.assertEqual(out.stdout, "", "real pueue must not run")
+
+    def test_env_set_of_plain_name_passes_through(self):
+        got = self.run_wrapper("env", "set", "3", "EDITOR_MODE", "vim")
+        self.assertEqual(got["args"], ["env", "set", "3", "EDITOR_MODE", "vim"])
+
+    def test_global_flags_before_env_set_still_refuse(self):
+        out = subprocess.run([str(WRAPPER), "--color", "never", "env", "set", "3", "DB_PASSWORD", "x"],
+                             env=self.base_env(), capture_output=True, text=True, timeout=30)
+        self.assertEqual(out.returncode, 2)
+
+    def test_new_suffixes_are_secret_like(self):
+        names = ("A_APIKEY", "B_PAT", "C_PASS", "D_PASSWD", "E_AUTH_TOKEN", "F_ACCESS_KEY", "g_pat")
+        env = dict.fromkeys(names, "v")
+        got = self.run_wrapper("add", "--", "true", env=env)
+        for name in names:
+            self.assertNotIn(name, got["env"], name)
+
+    def test_substring_look_alikes_are_not_dropped(self):
+        env = {"PATHLESS_TOKENIZER": "1", "PATH_HINT": "2", "SPATIAL_ARG": "3"}
+        got = self.run_wrapper("add", "--", "true", env=env)
+        for name in env:
+            self.assertIn(name, got["env"], name)
+
+    def test_unreadable_secrets_file_warns_on_stderr(self):
+        out = subprocess.run([str(WRAPPER), "add", "--", "true"],
+                             env=self.base_env({"PUEUE_SAFE_SECRETS": str(self.tmp / "nope")}),
+                             capture_output=True, text=True, timeout=30)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("pueue-safe: warning: secrets file unreadable; dropping by name pattern only", out.stderr)
+
+    def base_env(self, env=None):
+        base = {
+            "PATH": f"{self.real.parent}:/usr/bin:/bin",
+            "HOME": str(self.tmp),
+            "PUEUE_SAFE_SECRETS": str(self.secrets),
+            "PUEUE_SAFE_REAL": str(self.real),
+            "GITHUB_TOKEN": "ghp-test",
+            "SYNC_THING": "abc",
+        }
+        base.update(env or {})
+        return base
 
 
 if __name__ == "__main__":

@@ -1,0 +1,14 @@
+#!/usr/bin/env python3
+"""Fake `pi` for tests. Returns a canned reviewer JSON chosen by FAKE_PI_MODE; never calls a model."""
+import json
+import os
+import sys
+
+mode = os.environ.get("FAKE_PI_MODE", "pass")
+if mode == "garbage":
+    print("this is not json")
+elif mode == "nits":
+    print(json.dumps({"verdict": "fail", "findings": [
+        {"file": "a.py", "line": 1, "severity": "nit", "ac": None, "failure_scenario": "style"}]}))
+else:
+    print(json.dumps({"verdict": "pass", "findings": []}))

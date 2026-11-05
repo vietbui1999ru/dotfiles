@@ -12,8 +12,19 @@ CWD=$(echo "$INPUT" | jq -r '.cwd // ""' 2>/dev/null)
 # Each block appends one redacted entry for humans to trace with scripts/safety-log.
 # Logging never weakens the guard: any failure here leaves the exit code and reason as they are.
 log_block() {
-  local dir="${SAFETY_LOG_DIR:-$HOME/.claude/state}" rule ts id
+  local dir="${SAFETY_LOG_DIR:-$HOME/.claude/state}" rule ts id redact
   local log="$dir/bash-safety-blocks.jsonl"
+  # scripts/redact, resolved through this hook's real path (the hook is a stow link). If it is
+  # missing, the entry is still written with the jq-only redaction, so a block is never unlogged.
+  # Stow may link the file itself into a real folder, so follow the file's links first.
+  local hook_dir src="${BASH_SOURCE[0]}" target
+  while [ -L "$src" ]; do
+    target=$(readlink "$src")
+    case "$target" in /*) src=$target ;; *) src="$(dirname "$src")/$target" ;; esac
+  done
+  hook_dir=$(cd -P "$(dirname "$src")" && pwd -P)
+  redact="$hook_dir/../../../scripts/redact"
+  [ -x "$redact" ] || redact=cat
   case "$1" in
     *"rm -rf targeting"*) rule=rm-rf-root-home ;;
     *"force push to main"*) rule=force-push-main ;;
@@ -23,14 +34,16 @@ log_block() {
     *"+refspec"*) rule=push-plus-ref ;;
     *":branch"*) rule=push-delete-ref ;;
     *"git commit and jj commit"*) rule=worktree-commit ;;
+    *"this command names"*) rule=secrets-read ;;
     *) rule=other ;;
   esac
   ts=$(date +%Y-%m-%dT%H:%M:%S%z | sed 's/\([0-9][0-9]\)$/:\1/')
   id=$(head -c 6 /dev/urandom | od -An -tx1 | tr -d ' \n')
   {
+    umask 077 &&
     mkdir -p "$dir" &&
       { [ ! -f "$log" ] || [ "$(wc -l <"$log")" -lt 2000 ] || mv -f "$log" "$log.1"; } &&
-      echo "$INPUT" | jq -c --arg id "$id" --arg ts "$ts" --arg rule "$rule" --arg reason "$1" '
+      echo "$INPUT" | jq -c --arg id "$id" --arg ts "$ts" --arg rule "$rule" --arg reason "$1" --arg redacted "$(printf '%s' "$CMD" | sed -E 's/(-u|--user)([=[:space:]]+)[^[:space:]]+/\1\2[REDACTED]/g' | "$redact")" '
         def redact:
           gsub("(?<n>[A-Za-z_][A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|PASSWD|KEY)[A-Za-z0-9_]*)=(\"[^\"]*\"|'"'"'[^'"'"']*'"'"'|[^[:space:]]+)"; "\(.n)=[REDACTED]"; "i")
           | gsub("(?<f>--(token|password|passwd|secret|api-key|apikey))(?<s>=|[[:space:]]+)(\"[^\"]*\"|'"'"'[^'"'"']*'"'"'|[^[:space:]]+)"; "\(.f)\(.s)[REDACTED]"; "i")
@@ -39,7 +52,7 @@ log_block() {
         def cap: if length > 4000 then .[:4000] + "…[truncated]" else . end;
         {id: $id, ts: $ts, session: (.session_id // ""), cwd: (.cwd // ""),
          transcript: (.transcript_path // ""), rule: $rule,
-         command: (.tool_input.command // "" | redact | cap), reason: $reason}' >>"$log"
+         command: ($redacted | redact | cap), reason: $reason}' >>"$log"
   } 2>/dev/null
 }
 
@@ -59,6 +72,21 @@ finish() {
 trap 'finish $?' EXIT
 
 [ -z "$CMD" ] && exit 0
+
+# ── reads of the secrets file ──────────────────────────────────────────────────
+# shared/AGENTS.md: keys live in ~/secrets/.env, one key comes out through
+# scripts/secret-get. Pi enforces the same rule with its secrets-guard extension.
+# Quotes and backslashes are dropped first, so ~/"sec"rets/.env is caught too.
+SECRETS_DIR="${HOME:-/nonexistent}/secrets"
+SECRETS_PATTERN=$(printf '%s' "$SECRETS_DIR" | sed 's/[][\\.*^$+?(){}|]/\\&/g')
+SECRETS_RE='(~/secrets|\$HOME/secrets|\$\{HOME\}/secrets|'"${SECRETS_PATTERN}"')([^-A-Za-z0-9_]|$)'
+SECRETS_CMD=$(printf '%s' "$CMD" | sed -e 's/[\\]//g' -e 's/["]//g' -e "s/'//g")
+if echo "$SECRETS_CMD" | grep -qE "$SECRETS_RE"; then
+  echo "BLOCKED: this command names $SECRETS_DIR."
+  echo "Read one key with ~/dotfiles/scripts/secret-get NAME, run a command with only the keys it needs"
+  echo "through ~/dotfiles/scripts/with-secrets, and pass text that may hold a key through ~/dotfiles/scripts/redact."
+  exit 2
+fi
 
 # ── rm targeting root or home ──────────────────────────────────────────────────
 # Allow: rm -rf ./tmp, rm -rf some/specific/dir

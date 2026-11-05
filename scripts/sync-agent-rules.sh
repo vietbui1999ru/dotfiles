@@ -88,8 +88,16 @@ print("✓ OpenCode: mcp servers synced (incl. qmd stdio)")
 
 # ── Pi ──
 # Pi's built-in MCP client accepts the standard `mcpServers` shape. The list is
-# rebuilt on every run: PI_SERVERS plus qmd, with OpenCode's {env:NAME}
-# placeholders translated to Pi's ${NAME}. Other keys in the file are kept.
+# rebuilt on every run: PI_SERVERS plus qmd. Other keys in the file are kept.
+#
+# No wrapper exports the MCP keys into Pi, so a `${NAME}` header would stay
+# unset in an ordinary `pi` session. Pi runs a header value that starts with `!`
+# as a shell command (once per session) and sends its stdout, so a bare
+# {env:NAME} placeholder becomes a secret-get call: the key is read at connect
+# time and never written into a config or an environment. Other placeholders
+# keep the ${NAME} template, which a wrapper may still supply.
+SECRET_GET = "$HOME/dotfiles/scripts/secret-get"
+
 pi_path = f"{_home}/.pi/agent/mcp.json"
 try:
     with open(pi_path) as f:
@@ -99,6 +107,9 @@ except FileNotFoundError:
 
 def pi_value(value):
     if isinstance(value, str):
+        whole = re.fullmatch(r"\{env:([A-Za-z_][A-Za-z0-9_]*)\}", value)
+        if whole:
+            return f"!{SECRET_GET} {whole.group(1)}"
         return re.sub(r"\{env:([^}]+)\}", r"${\1}", value)
     if isinstance(value, dict):
         return {key: pi_value(item) for key, item in value.items()}

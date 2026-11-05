@@ -4,7 +4,9 @@
     "CLAUDE_CODE_SUBAGENT_MODEL": "claude-haiku-5-5",
     "MAX_THINKING_TOKENS": "10000",
     "teammateMode": "in-process",
-    "CLAUDE_CODE_PLUGIN_DIRS": "~/dotfiles/session-band-plugin"
+    "CLAUDE_CODE_PLUGIN_DIRS": "~/dotfiles/session-band-plugin",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "500000",
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "70"
   },
   "permissions": {
     "allow": [
@@ -54,8 +56,25 @@
       "Bash(mise exec:*)"
     ],
     "deny": [
-      "Bash(agent-review approve:*)",
-      "Bash(/Users/vietquocbui/dotfiles/scripts/agent-review approve:*)",
+      "Bash(*agent-review approve*)",
+      "Bash(*agent-review  approve*)",
+      "Bash(*spec approve*)",
+      "Bash(*spec  approve*)",
+      "Bash(*.local/state/ac-run*)",
+      "Bash(*agent-review/decisions*)",
+      "Edit(~/.local/state/ac-run/**)",
+      "Edit(**/.pi/agent-review/decisions/**)",
+      "Read(~/secrets/**)",
+      "Edit(~/secrets/**)",
+      "Edit(~/.claude/settings.json)",
+      "Edit(**/claude/.claude/settings.json)",
+      "Edit(~/.claude/hooks/**)",
+      "Edit(**/claude/.claude/hooks/**)",
+      "Edit(**/dotfiles/**/scripts/agent-review)",
+      "Edit(**/dotfiles/**/scripts/spec)",
+      "Edit(**/pi/.pi/agent/extensions/*-guard.ts)",
+      "Edit(**/pi/.pi/agent/extensions/lib/*-guard*.ts)",
+      "Edit(**/codex-guardrails-plugin/hooks/**)",
       "Bash(git push*--force*)",
       "Bash(git push* -f)",
       "Bash(git push* -f *)",
@@ -82,7 +101,7 @@
       "Bash(/usr/bin/git -C * push* master)",
       "Edit(**/.claude/settings.local.json)",
       "Edit(~/.claude/rules/send-it.md)",
-      "Edit(//Users/vietquocbui/repos/llm-wiki/claude-setup/rules/send-it.md)",
+      "Edit(**/claude-setup/rules/send-it.md)",
       "Bash(*settings.local.json*)",
       "Bash(gh api*protection*)",
       "Bash(gh repo delete*)",
@@ -242,6 +261,16 @@
     ],
     "SessionStart": [
       {
+        "matcher": "^(startup|resume|clear)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$HOME/dotfiles/scripts/sync-status\"; [ -x \"$f\" ] && \"$f\" || true",
+            "timeout": 40
+          }
+        ]
+      },
+      {
         "hooks": [
           {
             "type": "command",
@@ -264,6 +293,16 @@
           {
             "type": "command",
             "command": "f=\"$HOME/.claude/hooks/herdr-agent-state.sh\"; [ -f \"$f\" ] || exit 0; bash \"$f\" session",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "^(startup|resume|clear|compact|fork)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/herdr-agent-state.sh session",
             "timeout": 10
           }
         ]
@@ -481,6 +520,18 @@
           }
         ]
       }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "auto",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/precompact-save.sh",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   },
   "statusLine": {
@@ -540,7 +591,7 @@
   "theme": "dark",
   "editorMode": "vim",
   "verbose": true,
-  "autoCompactEnabled": false,
+  "autoCompactEnabled": true,
   "teammateMode": "in-process",
   "inputNeededNotifEnabled": true,
   "agentPushNotifEnabled": true,
@@ -581,8 +632,8 @@
   "mcpServers": {
     "firecrawl": {
       "args": [
-        "-lc",
-        "set -a; if [ \"${SEND_IT:-}\" = 1 ]; then F=\"$HOME/.config/send-it/.env\"; else F=\"$HOME/secrets/.env\"; fi; [ -f \"$F\" ] && . \"$F\"; exec npx -y firecrawl-mcp"
+        "-c",
+        "if [ \"${SEND_IT:-}\" = 1 ]; then export FIRECRAWL_ENV_FILE=\"$HOME/.config/send-it/.env\"; fi; exec \"$HOME/dotfiles/scripts/firecrawl-mcp\""
       ],
       "command": "bash"
     },

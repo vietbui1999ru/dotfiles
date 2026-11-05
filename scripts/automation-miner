@@ -1,0 +1,890 @@
+#!/usr/bin/env python3
+"""automation-miner — find repeated work and file ranked automation candidates.
+
+Usage:
+  automation-miner [--home DIR] [--dry-run] [--state PATH]
+
+Reads Claude transcripts, Claude prompt history, Pi sessions, zsh history and
+the skill-vendor audit. Ranks repeated shapes on the automation ladder
+(script > pi > claude > human), records every candidate in a state file, and
+files the top 3 qualifying candidates (plus at most 1 lean issue) as GitHub
+issues in vietbui1999ru/agent-events. Sources are read-only.
+
+Env overrides: AUTOMATION_MINER_GH, AUTOMATION_MINER_PI,
+AUTOMATION_MINER_SKILL_VENDOR, AUTOMATION_MINER_NOW (ISO 8601, for tests).
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import math
+import os
+import re
+import subprocess
+import sys
+import tempfile
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Iterable
+
+SCRIPT = Path(__file__).resolve()
+DEFAULT_SKILL_VENDOR = SCRIPT.parent / "skill-vendor"
+REPO = "vietbui1999ru/agent-events"
+PLAN_MODEL = "opencode-go/deepseek-v4.1-flash"
+WINDOW_DAYS = 28
+MIN_EVENTS = 3
+MIN_SESSIONS = 2
+TOP_N = 3
+SESSION_GAP = timedelta(minutes=30)
+PLAN_TIMEOUT = 120
+GH_TIMEOUT = 120
+SHAPE_MAX = 200
+EVIDENCE_MAX = 5
+ENTROPY_MIN = 3.5  # bits per char; random keys sit near 4+, words and paths lower
+
+# Deny-list layer of redact(); evidence_text() also sends only the normalized shape.
+SECRET_PATTERNS = (
+    r"sk-[A-Za-z0-9_-]{16,}",
+    r"gh[opsur]_[A-Za-z0-9]{20,}",
+    r"github_pat_[A-Za-z0-9_]{20,}",
+    r"glpat-[A-Za-z0-9_-]{20,}",
+    r"AKIA[0-9A-Z]{16}",
+    r"xox[abpr]-[A-Za-z0-9-]+",
+    r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*",
+)
+SECRET_SUBS = (
+    (r"(\b[A-Za-z_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD)[A-Za-z_]*)=(\S+)", r"\1=<secret>"),
+    (r"((?<![\w-])--?[A-Za-z_-]*(?:password|passwd|token|secret|api[-_]?key))(=|\s+)(?!-)\S+", r"\1\2<secret>"),
+    (r"\b(Bearer|Basic)\s+\S+", r"\1 <secret>"),
+    (r"(Authorization:\s*)(?!Bearer|Basic)\S+", r"\1<secret>"),
+    (r"(://)[^/\s:@]+:[^/\s@]+@", r"\1<secret>@"),
+)
+PLAN_HEADINGS = [
+    "## Purpose",
+    "## Evidence",
+    "## Current tier → proposed tier",
+    "## Proposed script or dispatch",
+    "## Effort",
+    "## Risks",
+]
+MINUTES = {
+    "bash_sequence": 2,
+    "prompt_shape": 3,
+    "claude_bounded_edit": 5,
+    "pi_dispatch": 3,
+    "zsh_history": 1,
+}
+TIER_RANK = {"human": 0, "claude": 1, "pi": 2, "script": 3}
+TIER_COLORS = {"tier:script": "0e8a16", "tier:pi": "1d76db", "tier:claude": "5319e7"}
+LABEL_COLORS = {
+    "automation-candidate": "fbca04",
+    "lean": "c5def5",
+    "rejected": "b60205",
+}
+
+
+class Fatal(Exception):
+    """Abort with exit code 2 and a message on stderr."""
+
+
+# ---------------------------------------------------------------------------
+# Events and normalization
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class Event:
+    fingerprint: str
+    detector: str
+    session_key: str
+    timestamp: datetime
+    project: str
+    evidence: str
+    tier_from: str
+    tier_to: str
+
+
+@dataclass
+class Candidate:
+    fingerprint: str
+    detector: str
+    tier_from: str
+    tier_to: str
+    shape: str
+    events: list[Event] = field(default_factory=list)
+
+    @property
+    def sessions(self) -> set[str]:
+        return {e.session_key for e in self.events}
+
+
+def normalize(text: str, home: Path | None = None) -> str:
+    """Collapse whitespace; replace paths, numbers and quoted strings."""
+    out = " ".join(text.split())
+    if home is not None:
+        out = out.replace(str(home), "<path>")
+    out = re.sub(r"/(?:Users|home)/[^\s'\"]+", "<path>", out)
+    out = re.sub(r"(?<![\w<])/[\w./-]+", "<path>", out)
+    out = re.sub(r"\"[^\"]*\"|'[^']*'", "<str>", out)
+    out = re.sub(r"\b\d+\b", "<n>", out)
+    return out
+
+
+def redact(text: str, home: Path | None = None) -> str:
+    """Single redaction gate for everything sent to pi or gh."""
+    out = text
+    if home is not None:
+        out = out.replace(str(home), "~")
+    out = re.sub(r"/(?:Users|home)/[^/\s'\"]+", "~", out)
+    for pattern in SECRET_PATTERNS:
+        out = re.sub(pattern, "<secret>", out)
+    for pattern, repl in SECRET_SUBS:
+        out = re.sub(pattern, repl, out, flags=re.IGNORECASE)
+    parts = re.split(r"(\s+)", out)
+    for i, token in enumerate(parts):
+        core = token.strip("'\"`,;()[]{}")
+        if looks_random(core):
+            token = token.replace(core, "<secret>")
+        if len(token) > SHAPE_MAX:
+            token = token[:40] + "…<truncated>"
+        parts[i] = token
+    return "".join(parts)
+
+
+def looks_random(token: str) -> bool:
+    """High-entropy token: 20+ chars, letters and digits, no path slash."""
+    if len(token) < 20 or "/" in token or "<" in token:
+        return False
+    if not (re.search(r"[A-Za-z]", token) and re.search(r"\d", token)):
+        return False
+    counts = [token.count(c) for c in set(token)]
+    entropy = -sum(n / len(token) * math.log2(n / len(token)) for n in counts)
+    return entropy >= ENTROPY_MIN
+
+
+def evidence_text(text: str, home: Path | None = None) -> str:
+    """Evidence sent off the machine: redact raw text, then keep only its shape."""
+    command = re.match(r"\s*(/[A-Za-z][\w:-]*)(?=\s|$)", text)
+    if command:
+        rest = normalize(redact(text[command.end():], home), home)
+        return redact(f"{command.group(1)} {rest}".strip(), home)[:SHAPE_MAX]
+    return redact(normalize(redact(text, home), home), home)[:SHAPE_MAX]
+
+
+def shape_key(text: str, home: Path | None) -> str:
+    return normalize(text, home).lower()[:SHAPE_MAX]
+
+
+def fingerprint(*parts: str) -> str:
+    return hashlib.sha1("\x1f".join(parts).encode()).hexdigest()
+
+
+def parse_ts(value: Any) -> datetime | None:
+    if isinstance(value, (int, float)):
+        seconds = value / 1000 if value > 1e11 else value
+        return datetime.fromtimestamp(seconds, tz=timezone.utc)
+    if not isinstance(value, str):
+        return None
+    try:
+        stamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    return stamp
+
+
+def read_jsonl(path: Path) -> Iterable[dict[str, Any]]:
+    try:
+        stream = path.open(errors="replace")
+    except OSError:
+        return
+    with stream:
+        for line in stream:
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(entry, dict):
+                yield entry
+
+
+def assistant_parts(entry: dict[str, Any]) -> list[dict[str, Any]]:
+    message = entry.get("message")
+    content = message.get("content") if isinstance(message, dict) else None
+    if not isinstance(content, list):
+        return []
+    return [p for p in content if isinstance(p, dict)]
+
+
+def window_events(
+    commands: list[tuple[datetime, str]],
+    session: str,
+    project: str,
+    detector: str,
+    tier_from: str,
+    tier_to: str,
+    home: Path | None,
+) -> list[Event]:
+    """Sliding windows of 3 consecutive commands within one session."""
+    events: list[Event] = []
+    for i in range(len(commands) - 2):
+        window = commands[i : i + 3]
+        norm = [normalize(c, home) for _, c in window]
+        joined = " | ".join(norm)
+        events.append(
+            Event(
+                fingerprint=fingerprint(detector, joined),
+                detector=detector,
+                session_key=session,
+                timestamp=window[-1][0],
+                project=project,
+                evidence=" ; ".join(c for _, c in window),
+                tier_from=tier_from,
+                tier_to=tier_to,
+            )
+        )
+    return events
+
+
+# ---------------------------------------------------------------------------
+# Detectors
+# ---------------------------------------------------------------------------
+
+
+def claude_transcripts(home: Path) -> list[Path]:
+    return sorted((home / ".claude" / "projects").glob("*/*.jsonl"))
+
+
+def detect_bash_sequence(home: Path) -> list[Event]:
+    events: list[Event] = []
+    for path in claude_transcripts(home):
+        commands: list[tuple[datetime, str]] = []
+        project = ""
+        session = ""
+        for entry in read_jsonl(path):
+            session = entry.get("sessionId") or session or path.stem
+            project = entry.get("cwd") or project
+            stamp = parse_ts(entry.get("timestamp"))
+            if stamp is None:
+                continue
+            for part in assistant_parts(entry):
+                if part.get("type") == "tool_use" and part.get("name") == "Bash":
+                    cmd = (part.get("input") or {}).get("command")
+                    if isinstance(cmd, str) and cmd.strip():
+                        commands.append((stamp, cmd))
+        events.extend(
+            window_events(commands, session or path.stem, project, "bash_sequence", "claude", "script", home)
+        )
+    return events
+
+
+PASTE_ONLY = re.compile(r"!?\[(?:Pasted text|Image) #\d+(?: \+\d+ lines)?\]")
+
+
+def prompt_shape_key(display: str, home: Path | None) -> str | None:
+    """Shape of a typed prompt, or None when there is nothing to automate.
+
+    A bare slash command (`/clear`) is one keystroke already, and a prompt that
+    is only a paste placeholder carries no repeated text. A slash command keeps
+    its name, since normalize() would read `/name` as a path and merge them all.
+    """
+    text = display.strip()
+    if PASTE_ONLY.fullmatch(text):
+        return None
+    if text.startswith("/"):
+        name, _, rest = text.partition(" ")
+        if not rest.strip():
+            return None
+        return f"{name.lower()} {shape_key(rest, home)}"[:SHAPE_MAX]
+    return shape_key(text, home)
+
+
+def detect_prompt_shape(home: Path) -> list[Event]:
+    events: list[Event] = []
+    for entry in read_jsonl(home / ".claude" / "history.jsonl"):
+        display = entry.get("display")
+        stamp = parse_ts(entry.get("timestamp"))
+        if not isinstance(display, str) or not display.strip() or stamp is None:
+            continue
+        shape = prompt_shape_key(display, home)
+        if shape is None:
+            continue
+        project = entry.get("project") or ""
+        day = stamp.strftime("%Y-%m-%d")
+        tier_to = "script" if display.lstrip().startswith("/") else "claude"
+        events.append(
+            Event(
+                fingerprint=fingerprint("prompt_shape", shape),
+                detector="prompt_shape",
+                session_key=f"{project}|{day}",
+                timestamp=stamp,
+                project=project,
+                evidence=display,
+                tier_from="human",
+                tier_to=tier_to,
+            )
+        )
+    return events
+
+
+def detect_claude_bounded_edit(home: Path) -> list[Event]:
+    events: list[Event] = []
+    for path in claude_transcripts(home):
+        session = path.stem
+        project = ""
+        current: dict[str, Any] | None = None
+        edits: list[str] = []
+        other = False
+
+        def flush() -> None:
+            if current is None or other or not edits:
+                return
+            files = sorted({Path(f).name for f in edits})
+            if len(files) > 3:
+                return
+            shape = shape_key(current["text"], home)
+            events.append(
+                Event(
+                    fingerprint=fingerprint("claude_bounded_edit", shape, ",".join(files)),
+                    detector="claude_bounded_edit",
+                    session_key=current["session"],
+                    timestamp=current["stamp"],
+                    project=current["project"],
+                    evidence=current["text"] + " [files: " + ", ".join(files) + "]",
+                    tier_from="claude",
+                    tier_to="pi",
+                )
+            )
+
+        for entry in read_jsonl(path):
+            session = entry.get("sessionId") or session
+            project = entry.get("cwd") or project
+            stamp = parse_ts(entry.get("timestamp"))
+            if entry.get("type") == "user":
+                message = entry.get("message")
+                content = message.get("content") if isinstance(message, dict) else None
+                if isinstance(content, str) and content.strip():
+                    flush()
+                    current = {"text": content, "session": session, "project": project, "stamp": stamp or datetime.now(timezone.utc)}
+                    edits, other = [], False
+                continue
+            for part in assistant_parts(entry):
+                if part.get("type") != "tool_use":
+                    continue
+                name = part.get("name")
+                file_path = (part.get("input") or {}).get("file_path")
+                if name in ("Edit", "Write") and isinstance(file_path, str):
+                    edits.append(file_path)
+                else:
+                    other = True
+        flush()
+    return events
+
+
+def detect_pi_dispatch(home: Path) -> list[Event]:
+    events: list[Event] = []
+    for path in sorted((home / ".pi" / "agent" / "sessions").glob("*/*.jsonl")):
+        session_cwd = ""
+        stamp: datetime | None = None
+        first_text: str | None = None
+        for entry in read_jsonl(path):
+            if entry.get("type") == "session":
+                session_cwd = entry.get("cwd") or session_cwd
+                stamp = parse_ts(entry.get("timestamp")) or stamp
+                continue
+            if entry.get("type") != "message":
+                continue
+            message = entry.get("message")
+            if not isinstance(message, dict) or message.get("role") != "user":
+                continue
+            content = message.get("content")
+            texts = []
+            if isinstance(content, list):
+                texts = [p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"]
+            elif isinstance(content, str):
+                texts = [content]
+            joined = "\n".join(t for t in texts if t).strip()
+            if joined:
+                first_text = joined
+                break
+        if first_text is None:
+            continue
+        shape = shape_key(first_text[:300], home)
+        events.append(
+            Event(
+                fingerprint=fingerprint("pi_dispatch", shape),
+                detector="pi_dispatch",
+                session_key=path.stem,
+                timestamp=stamp or datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc),
+                project=session_cwd,
+                evidence=first_text[:300],
+                tier_from="pi",
+                tier_to="script",
+            )
+        )
+    return events
+
+
+def parse_zsh_history(text: str, now: datetime) -> list[tuple[datetime | None, str]]:
+    """Parse plain and EXTENDED_HISTORY lines; join backslash continuations."""
+    raw: list[tuple[datetime | None, str]] = []
+    pending: str | None = None
+    pending_ts: datetime | None = None
+    for line in text.splitlines():
+        if pending is not None:
+            body = line
+            if body.endswith("\\"):
+                pending += "\n" + body[:-1]
+                continue
+            raw.append((pending_ts, pending + "\n" + body))
+            pending = None
+            continue
+        stamp: datetime | None = None
+        cmd = line
+        match = re.match(r"^: (\d+):\d+;(.*)$", line)
+        if match:
+            stamp = datetime.fromtimestamp(int(match.group(1)), tz=timezone.utc)
+            cmd = match.group(2)
+        if cmd.endswith("\\"):
+            pending = cmd[:-1]
+            pending_ts = stamp
+            continue
+        if cmd.strip():
+            raw.append((stamp, cmd))
+    if pending is not None:
+        raw.append((pending_ts, pending))
+
+    # Plain lines take the next timestamped line's time, else now.
+    resolved: list[tuple[datetime, str]] = []
+    next_ts: datetime | None = None
+    filled: list[datetime] = []
+    for stamp, _ in reversed(raw):
+        if stamp is not None:
+            next_ts = stamp
+        filled.append(next_ts or now)
+    filled.reverse()
+    for (stamp, cmd), ts in zip(raw, filled):
+        resolved.append((stamp or ts, cmd.strip()))
+    return resolved
+
+
+def detect_zsh_history(home: Path, now: datetime) -> list[Event]:
+    path = home / ".zsh_history"
+    try:
+        text = path.read_text(errors="replace")
+    except OSError:
+        return []
+    entries = parse_zsh_history(text, now)
+    sessions: list[list[tuple[datetime, str]]] = []
+    for stamp, cmd in entries:
+        if not sessions or stamp - sessions[-1][-1][0] > SESSION_GAP:
+            sessions.append([])
+        sessions[-1].append((stamp, cmd))
+    events: list[Event] = []
+    for index, commands in enumerate(sessions):
+        events.extend(
+            window_events(commands, f"zsh-{index}", "", "zsh_history", "human", "script", home)
+        )
+    return events
+
+
+def detect_lean(home: Path, vendor: str, errors: list[str]) -> list[dict[str, Any]]:
+    """Lean candidates from `skill-vendor audit --json`. Not thresholded."""
+    try:
+        proc = subprocess.run(
+            [vendor, "audit", "--json", "--home", str(home)],
+            capture_output=True,
+            text=True,
+            timeout=GH_TIMEOUT,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(f"exit {proc.returncode}")
+        report = json.loads(proc.stdout)
+    except (OSError, subprocess.TimeoutExpired, RuntimeError, json.JSONDecodeError) as exc:
+        errors.append(f"skill-vendor audit failed: {exc}")
+        return []
+    items: list[dict[str, Any]] = []
+    for skill in report.get("unused_skills") or []:
+        name = skill.get("name")
+        if isinstance(name, str):
+            items.append({
+                "fingerprint": f"lean:skill:{name}",
+                "detector": "lean",
+                "kind": "unused_skill",
+                "name": name,
+                "score": 0,
+                "shape": f"unused skill {name}",
+                "last_used": skill.get("last_used"),
+            })
+    for plugin, size in (report.get("session_start_bytes") or {}).items():
+        if isinstance(size, int) and size > 1000:
+            items.append({
+                "fingerprint": f"lean:startup:{plugin}",
+                "detector": "lean",
+                "kind": "startup_bytes",
+                "name": plugin,
+                "score": size,
+                "shape": f"SessionStart {size} bytes from {plugin}",
+                "last_used": None,
+            })
+    items.sort(key=lambda i: (-i["score"], i["name"]))
+    return items
+
+
+# ---------------------------------------------------------------------------
+# Candidate building, state, ranking
+# ---------------------------------------------------------------------------
+
+
+def group_candidates(events: list[Event], home: Path) -> dict[str, Candidate]:
+    groups: dict[str, Candidate] = {}
+    for event in events:
+        cand = groups.get(event.fingerprint)
+        if cand is None:
+            cand = Candidate(
+                fingerprint=event.fingerprint,
+                detector=event.detector,
+                tier_from=event.tier_from,
+                tier_to=event.tier_to,
+                shape=evidence_text(event.evidence, home),
+            )
+            groups[event.fingerprint] = cand
+        cand.events.append(event)
+        if TIER_RANK.get(event.tier_to, 0) > TIER_RANK.get(cand.tier_to, 0):
+            cand.tier_to = event.tier_to
+    return groups
+
+
+def load_state(path: Path) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_state(path: Path, state: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
+    tmp.replace(path)
+
+
+def in_window(events: list[Event], now: datetime) -> list[Event]:
+    cutoff = now - timedelta(days=WINDOW_DAYS)
+    return [e for e in events if e.timestamp >= cutoff]
+
+
+def qualifies(events: list[Event]) -> bool:
+    return len(events) >= MIN_EVENTS and len({e.session_key for e in events}) >= MIN_SESSIONS
+
+
+def merge_state(
+    state: dict[str, Any],
+    cands: dict[str, Candidate],
+    now: datetime,
+    home: Path,
+) -> None:
+    for fp, cand in cands.items():
+        recent = in_window(cand.events, now)
+        if not recent:
+            continue
+        prev = state.get(fp) if isinstance(state.get(fp), dict) else {}
+        evidence = list(prev.get("evidence") or [])
+        for event in sorted(recent, key=lambda e: e.timestamp, reverse=True):
+            sample = evidence_text(event.evidence, home)
+            if sample not in evidence:
+                evidence.insert(0, sample)
+        stamps = [e.timestamp for e in recent]
+        state[fp] = {
+            "detector": cand.detector,
+            "tiers": [cand.tier_from, cand.tier_to],
+            "count": len(recent),
+            "sessions": len({e.session_key for e in recent}),
+            "first_seen": min(stamps).isoformat(),
+            "last_seen": max(stamps).isoformat(),
+            "evidence": evidence[:EVIDENCE_MAX],
+            "shape": cand.shape,
+            "repo": repo_target(recent[0]),
+            "filed_issue": prev.get("filed_issue"),
+        }
+
+
+def repo_target(event: Event) -> str:
+    raw = event.project or ""
+    name = Path(raw).name if raw else ""
+    return name or "unknown"
+
+
+def score(cand: Candidate, now: datetime) -> float:
+    recent = in_window(cand.events, now)
+    jump = max(1, TIER_RANK[cand.tier_to] - TIER_RANK[cand.tier_from])
+    return len(recent) * MINUTES[cand.detector] * jump
+
+
+def rank_candidates(cands: dict[str, Candidate], now: datetime) -> list[Candidate]:
+    qualified = [c for c in cands.values() if qualifies(in_window(c.events, now))]
+    return sorted(qualified, key=lambda c: (-score(c, now), c.fingerprint))
+
+
+# ---------------------------------------------------------------------------
+# gh / pi interaction
+# ---------------------------------------------------------------------------
+
+
+def gh_bin() -> str:
+    return os.environ.get("AUTOMATION_MINER_GH") or "gh"
+
+
+def pi_bin() -> str:
+    return os.environ.get("AUTOMATION_MINER_PI") or "pi"
+
+
+def vendor_bin() -> str:
+    return os.environ.get("AUTOMATION_MINER_SKILL_VENDOR") or str(DEFAULT_SKILL_VENDOR)
+
+
+def run_gh(args: list[str]) -> str:
+    proc = subprocess.run([gh_bin(), *args], capture_output=True, text=True, timeout=GH_TIMEOUT)
+    if proc.returncode != 0:
+        first = (proc.stderr or proc.stdout or "").strip().splitlines()
+        raise RuntimeError(first[0] if first else f"exit {proc.returncode}")
+    return proc.stdout
+
+
+def ensure_labels(names: set[str]) -> None:
+    for name in sorted(names):
+        color = LABEL_COLORS.get(name) or TIER_COLORS.get(name) or "ededed"
+        run_gh(["label", "create", name, "--force", "-R", REPO, "--color", color])
+
+
+def existing_markers() -> set[str]:
+    """Return fingerprints that must not be filed again (open, or rejected)."""
+    blocked: set[str] = set()
+    issues: dict[int, dict[str, Any]] = {}
+    for label in ("automation-candidate", "lean"):
+        out = run_gh([
+            "issue", "list", "-R", REPO, "--state", "all", "--label", label,
+            "--limit", "500", "--json", "number,state,labels,body",
+        ])
+        for issue in json.loads(out or "[]"):
+            issues[issue["number"]] = issue
+    marker = re.compile(r"<!-- fp:([0-9a-f:]+|lean:[^ ]+) -->")
+    for issue in issues.values():
+        body = issue.get("body") or ""
+        labels = {l.get("name") for l in issue.get("labels") or []}
+        for fp in marker.findall(body):
+            if issue.get("state") == "OPEN":
+                blocked.add(fp)
+            elif issue.get("state") == "CLOSED" and "rejected" in labels:
+                blocked.add(fp)
+    return blocked
+
+
+def template_plan(title: str, shape: str, evidence: list[str], current: str, proposed: str, note: str | None) -> str:
+    evid = "\n".join(f"- `{e}`" for e in evidence) or "- (none)"
+    body = (
+        f"## Purpose\n{title}: repeated work that could move one tier lower.\n\n"
+        f"## Evidence\n{evid}\n\n"
+        f"## Current tier → proposed tier\n{current} → {proposed}\n\n"
+        f"## Proposed script or dispatch\nReview the evidence and decide the script or dispatch shape: `{shape}`.\n\n"
+        f"## Effort\nTo be estimated at triage.\n\n"
+        f"## Risks\nRepetition may be coincidental; confirm before building.\n"
+    )
+    if note:
+        body = f"> Plan drafting failed: {note}\n\n" + body
+    return body
+
+
+def draft_plan(cand: Candidate, evidence: list[str], home: Path) -> str:
+    prompt = (
+        "Draft a plan for automating this repeated work. Output exactly these markdown "
+        "headings in order and nothing else: "
+        + ", ".join(PLAN_HEADINGS)
+        + f".\nDetector: {cand.detector}\nShape: {cand.shape}\n"
+        + f"Current tier: {cand.tier_from}; proposed tier: {cand.tier_to}\n"
+        + "Evidence (redacted):\n"
+        + "\n".join(f"- {e}" for e in evidence)
+    )
+    try:
+        proc = subprocess.run(
+            [pi_bin(), "-p", prompt, "--model", PLAN_MODEL, "--no-session"],
+            capture_output=True, text=True, timeout=PLAN_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        return template_plan(cand.detector, cand.shape, evidence, cand.tier_from, cand.tier_to, "pi timed out")
+    except OSError as exc:
+        return template_plan(cand.detector, cand.shape, evidence, cand.tier_from, cand.tier_to, f"pi unavailable ({exc})")
+    if proc.returncode != 0:
+        return template_plan(cand.detector, cand.shape, evidence, cand.tier_from, cand.tier_to, f"pi exit {proc.returncode}")
+    out = redact(proc.stdout.strip(), home)
+    if not all(h in out for h in PLAN_HEADINGS):
+        return template_plan(cand.detector, cand.shape, evidence, cand.tier_from, cand.tier_to, "pi output missing headings")
+    return out + "\n"
+
+
+def file_issue(title: str, body: str, labels: list[str]) -> str:
+    with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as fh:
+        fh.write(body)
+        path = fh.name
+    try:
+        args = ["issue", "create", "-R", REPO, "--title", title, "--body-file", path]
+        for label in labels:
+            args += ["--label", label]
+        return run_gh(args).strip()
+    finally:
+        os.unlink(path)
+
+
+def issue_title(detector: str, shape: str) -> str:
+    return f"{detector}: {shape[:80]}"
+
+
+def file_candidate(cand: Candidate, home: Path) -> str:
+    evidence = [evidence_text(e.evidence, home) for e in cand.events[-EVIDENCE_MAX:]]
+    plan = draft_plan(cand, evidence, home)
+    body = plan.rstrip() + f"\n\n<!-- fp:{cand.fingerprint} -->\n"
+    repo_label = f"repo:{repo_target(cand.events[-1])}"
+    labels = ["automation-candidate", f"tier:{cand.tier_to}", repo_label]
+    return file_issue(issue_title(cand.detector, cand.shape), body, labels)
+
+
+def lean_repo(item: dict[str, Any]) -> str:
+    """Repo label for a lean item: the plugin's name, or 'unknown' for skills."""
+    if item["kind"] == "startup_bytes":
+        return item["name"].split("@", 1)[0] or "unknown"
+    return "unknown"
+
+
+def file_lean(item: dict[str, Any], home: Path) -> str:
+    evidence = [redact(item["shape"], home)]
+    cand = Candidate(item["fingerprint"], "lean", "claude", "script", item["shape"])
+    plan = draft_plan(cand, evidence, home)
+    body = plan.rstrip() + f"\n\n<!-- fp:{item['fingerprint']} -->\n"
+    labels = ["lean", "tier:script", f"repo:{lean_repo(item)}"]
+    return file_issue(f"lean: {redact(item['shape'], home)[:80]}", body, labels)
+
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+
+
+def now_utc() -> datetime:
+    raw = os.environ.get("AUTOMATION_MINER_NOW")
+    if raw:
+        stamp = parse_ts(raw)
+        if stamp is not None:
+            return stamp
+    return datetime.now(timezone.utc)
+
+
+def collect(home: Path, now: datetime) -> list[Event]:
+    events: list[Event] = []
+    events += detect_bash_sequence(home)
+    events += detect_prompt_shape(home)
+    events += detect_claude_bounded_edit(home)
+    events += detect_pi_dispatch(home)
+    events += detect_zsh_history(home, now)
+    return events
+
+
+def print_table(ranked: list[Candidate], now: datetime, home: Path) -> None:
+    print(f"{'score':>7}  {'detector':<20} {'tiers':<16} {'count':>5} {'sess':>4}  shape")
+    for cand in ranked:
+        recent = in_window(cand.events, now)
+        tiers = f"{cand.tier_from}→{cand.tier_to}"
+        print(
+            f"{score(cand, now):>7.0f}  {cand.detector:<20} {tiers:<16} "
+            f"{len(recent):>5} {len({e.session_key for e in recent}):>4}  "
+            f"{' '.join(redact(cand.shape, home).split())[:90]}"
+        )
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    home = Path(args.home) if args.home else Path(os.environ.get("HOME", str(Path.home())))
+    state_path = Path(args.state) if args.state else home / ".claude" / "state" / "automation-candidates.json"
+    now = now_utc()
+    warnings: list[str] = []
+
+    events = collect(home, now)
+    cands = group_candidates(events, home)
+    ranked = rank_candidates(cands, now)
+
+    if args.dry_run:
+        print(f"automation-miner dry run as of {now.isoformat()} (home {redact(str(home), home)})")
+        print_table(ranked, now, home)
+        print(f"\nTop {TOP_N} would be filed. State file not written.")
+        print("Lean detector: skipped in dry run.")
+        return 0
+
+    state = load_state(state_path)
+    merge_state(state, cands, now, home)
+
+    try:
+        blocked = existing_markers()
+    except (RuntimeError, OSError, json.JSONDecodeError, subprocess.TimeoutExpired) as exc:
+        raise Fatal(f"cannot read existing issues: {exc}")
+
+    to_file = [c for c in ranked if c.fingerprint not in blocked][:TOP_N]
+
+    lean_items = [i for i in detect_lean(home, vendor_bin(), warnings) if i["fingerprint"] not in blocked]
+    lean_pick = lean_items[:1]
+
+    for msg in warnings:
+        print(f"automation-miner: warning: {msg}", file=sys.stderr)
+
+    if to_file or lean_pick:
+        ensure_labels(
+            {"automation-candidate", "lean", "rejected"}
+            | {f"tier:{c.tier_to}" for c in to_file}
+            | ({"tier:script"} if lean_pick else set())
+        )
+    rc = 0
+    for cand in to_file:
+        try:
+            url = file_candidate(cand, home)
+        except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
+            print(f"automation-miner: failed to file {cand.fingerprint}: {exc}", file=sys.stderr)
+            rc = 1
+            continue
+        state.setdefault(cand.fingerprint, {})["filed_issue"] = url
+        print(url)
+    for item in lean_pick:
+        try:
+            url = file_lean(item, home)
+        except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
+            print(f"automation-miner: failed to file {item['fingerprint']}: {exc}", file=sys.stderr)
+            rc = 1
+            continue
+        state.setdefault(item["fingerprint"], {"detector": "lean"})["filed_issue"] = url
+        print(url)
+
+    save_state(state_path, state)
+    return rc
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="automation-miner")
+    parser.add_argument("--home", help="home directory to read (default $HOME)")
+    parser.add_argument("--dry-run", action="store_true", help="print ranked candidates; no gh, pi or state writes")
+    parser.add_argument("--state", help="state file (default <home>/.claude/state/automation-candidates.json)")
+    parser.set_defaults(func=cmd_run)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        return args.func(args)
+    except Fatal as exc:
+        print(f"automation-miner: {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

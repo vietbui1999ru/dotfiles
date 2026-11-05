@@ -102,9 +102,33 @@ alias dokcer="docker"
 alias kubctl="kubectl"
 alias souce="exec zsh"
 
-# Claude Code through the Headroom compression proxy (only where Headroom is installed).
+# Clients whose MCP entries read ${CONTEXT7_API_KEY}/${EXCALIDRAW_API_KEY} get those two keys
+# from ~/secrets/.env through with-secrets, and no other key. Both are optional: a key the file
+# does not hold leaves that one MCP server unauthenticated, and a client that cannot start is a
+# worse failure than a server that cannot. Without a secrets file the client also starts, without
+# those MCP keys.
+_with_mcp_keys() {
+  local client=$1
+  shift
+  if [[ -r ${SECRETS_ENV:-$HOME/secrets/.env} ]]; then
+    "$HOME/dotfiles/scripts/with-secrets" --optional CONTEXT7_API_KEY EXCALIDRAW_API_KEY -- "$client" "$@"
+  else
+    command "$client" "$@"
+  fi
+}
+claude() { _with_mcp_keys claude "$@"; }
+opencode() { _with_mcp_keys opencode "$@"; }
+codex() { _with_mcp_keys codex "$@"; }
+
+# Claude Code, Codex and Pi through the opt-in Headroom proxy launchers (only
+# where Headroom is installed). Normal `claude`, `codex` and `pi` stay direct;
+# the workflow script probes proxy identity and readiness before routing any
+# traffic. Each launch first runs headroom-prune (keeps ~/.headroom private);
+# Claude and Codex also get the two MCP keys through with-secrets.
 # ~/.local/bin may not be on PATH yet when .zshrc sources this file, so test
 # the default uv tool location too.
 if command -v headroom >/dev/null || [[ -x $HOME/.local/bin/headroom ]]; then
-  alias hclaude="headroom wrap claude"
+  alias hclaude="$HOME/dotfiles/scripts/headroom-prune; HEADROOM_TELEMETRY=off $HOME/dotfiles/scripts/with-secrets --optional CONTEXT7_API_KEY EXCALIDRAW_API_KEY -- $HOME/dotfiles/scripts/headroom-workflow claude"
+  alias hcodex="$HOME/dotfiles/scripts/headroom-prune; HEADROOM_TELEMETRY=off $HOME/dotfiles/scripts/with-secrets --optional CONTEXT7_API_KEY EXCALIDRAW_API_KEY -- $HOME/dotfiles/scripts/headroom-workflow codex"
+  alias hpi="$HOME/dotfiles/scripts/headroom-prune; HEADROOM_TELEMETRY=off $HOME/dotfiles/scripts/headroom-workflow pi"
 fi

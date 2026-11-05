@@ -63,3 +63,21 @@ test('one alert per window: after alerting, the same fingerprint stays quiet unt
   assert.equal(shouldAlert(map.fp, NOW + THRESHOLD + 1), false)
   assert.equal(shouldAlert(map.fp, NOW + (WINDOW_DAYS + 1) * DAY), false)
 })
+
+test('leading NAME=value words and a leading env are dropped', () => {
+  assert.equal(commandShape('FOO_KEY=x curl -s u'), 'curl -s')
+  assert.equal(commandShape('env A=1 git push'), 'git push')
+  assert.equal(commandShape('A=1 B=2 git status'), 'git status')
+})
+
+test('a short flag with a glued value reduces to the bare flag', () => {
+  assert.equal(commandShape('mysql -pHUNTER2hunter root'), 'mysql -p')
+  assert.equal(commandShape('rg -n foo src'), 'rg -n')
+})
+
+test('a token-shaped secret in a subcommand position is redacted from the shape', () => {
+  const fake = 'ghp_' + 'a'.repeat(36)
+  const shape = commandShape(`gh ${fake} list`)
+  assert.equal(shape.includes(fake), false)
+  assert.match(shape, /^gh /)
+})

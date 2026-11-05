@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Headroom Proxies</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<style>
+  :root { --bg:#f7f6f3; --card:#fff; --fg:#1f1d1a; --muted:#6b665e; --line:#e3dfd8;
+          --ok:#2f7d4f; --bad:#b23b3b; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#161513; --card:#1f1e1b; --fg:#ebe7e0; --muted:#9a948a; --line:#34312c;
+            --ok:#6cc08b; --bad:#e07a7a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:24px 16px; background:var(--bg); color:var(--fg);
+         font:14px/1.45 "IBM Plex Sans", sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:var(--muted); margin:0 0 20px; }
+  .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
+  .card h2 { font-size:15px; margin:0 0 10px; display:flex; justify-content:space-between; gap:8px; }
+  .up { color:var(--ok); } .down { color:var(--bad); }
+  dl { display:grid; grid-template-columns: 1fr auto; gap:4px 12px; margin:0; }
+  dt { color:var(--muted); } dd { margin:0; text-align:right; font-family:"IBM Plex Mono", monospace; }
+  a { color:inherit; }
+  .foot { color:var(--muted); margin-top:16px; font-size:12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Headroom proxies</h1>
+  <p class="sub">This boot per proxy, combined, and lifetime (shared savings file, counted once).
+    Refreshes every 10 s.</p>
+  <div class="grid" id="cards"></div>
+  <p class="foot" id="foot">Loading…</p>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

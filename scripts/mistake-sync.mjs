@@ -2,12 +2,14 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 // Copies new alerts from ~/.claude/state/mistake-alerts.json into agent-events/events/<YYYY-MM>.jsonl.
 // Only normalized fields leave the machine: fingerprint, time, session id, repo name. Never the cwd path or raw error text.
 export const ALERTS_PATH = join(homedir(), '.claude', 'state', 'mistake-alerts.json')
 export const DEFAULT_REPO = join(homedir(), 'repos', 'agent-events')
+// The commit gate: a staged file with a key-shaped value stops the sync before commit or push.
+const SECRET_SCAN = fileURLToPath(new URL('./secret-scan', import.meta.url))
 
 export const eventKey = alert => `${alert.sessionId}|${alert.at}|${alert.fingerprint}`
 
@@ -38,6 +40,21 @@ const readKeys = dir => {
   return keys
 }
 
+// Runs secret-scan on the staged files. On a hit it unstages and throws, naming only the
+// file:line and pattern from the scanner, never the matched value.
+const assertStagedClean = repo => {
+  const staged = execFileSync('git', ['-C', repo, 'diff', '--cached', '--name-only', '-z']).toString().split('\0').filter(Boolean)
+  if (staged.length === 0) return
+  try {
+    execFileSync(SECRET_SCAN, staged, { cwd: repo, stdio: ['ignore', 'pipe', 'pipe'] })
+  } catch (err) {
+    if (err.status !== 1) throw err
+    execFileSync('git', ['-C', repo, 'reset', '-q', 'events'])
+    const hits = String(err.stdout ?? '').trim().split('\n').filter(Boolean).join('; ')
+    throw new Error(`secret-scan blocked the mistake-sync commit: ${hits}`)
+  }
+}
+
 export const sync = ({ alertsPath = ALERTS_PATH, repo = DEFAULT_REPO, push = true } = {}) => {
   const alerts = existsSync(alertsPath) ? JSON.parse(readFileSync(alertsPath, 'utf8')).alerts ?? [] : []
   const eventsDir = join(repo, 'events')
@@ -47,6 +64,7 @@ export const sync = ({ alertsPath = ALERTS_PATH, repo = DEFAULT_REPO, push = tru
   if (fresh.length > 0 && push) {
     // execFileSync takes argv directly, so no shell sees the commit message.
     execFileSync('git', ['-C', repo, 'add', 'events'])
+    assertStagedClean(repo)
     execFileSync('git', ['-C', repo, '-c', 'user.name=vietbui99', 'commit', '-qm', `events: ${fresh.length} mistake alert(s)`])
     execFileSync('git', ['-C', repo, 'push', '-q'])
   }
