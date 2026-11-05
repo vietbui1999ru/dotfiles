@@ -121,6 +121,26 @@ class Fixture(unittest.TestCase):
                          ["README.md", "a.txt", "b.txt"])
         self.assertIn("c.txt", self.git("status", "--porcelain"))
 
+    def test_git_commits_symlink_itself(self):
+        # A path that is a symlink is committed as the link, not resolved to its
+        # target: resolving it made the funnel commit the unchanged target and
+        # report success with an empty commit.
+        self.init_repo(files={"README.md": "fixture\n", "shared/a.md": "a\n"})
+        link = self.repo / "agents" / "a.md"
+        link.parent.mkdir()
+        link.symlink_to(os.path.join("..", "shared", "a.md"))
+        r = self.run_funnel("-F", str(self.msg), "agents/a.md")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.git("show", "--name-only", "--format=", "HEAD").split(), ["agents/a.md"])
+        self.assertTrue(self.git("ls-tree", "HEAD", "agents/a.md").startswith("120000 "))
+
+    def test_refuses_symlink_to_outside(self):
+        self.init_repo()
+        (self.repo / "out.md").symlink_to(self.tmp / "msg")
+        r = self.run_funnel("-F", str(self.msg), "out.md")
+        self.assert_refused(r, "outside the work-tree root")
+        self.assertEqual(self.head_count(), "1")
+
     def test_git_refuses_protected_or_detached(self):
         for case in ("main", "master", "detached"):
             with self.subTest(case=case):
