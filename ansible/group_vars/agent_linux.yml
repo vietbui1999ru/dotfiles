@@ -21,3 +21,4 @@ dotfiles_stow_packages:
   - pi
   - opencode
   - systemd
+  - herdr

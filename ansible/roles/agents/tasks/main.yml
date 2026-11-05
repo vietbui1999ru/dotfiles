@@ -99,10 +99,11 @@
   when: not agent_lite | bool
 
 # Headroom CLI, proxy and MCP server (`[all]`), as a uv tool on Python 3.13.
-# Install only: run `headroom proxy --host 127.0.0.1 --port 8787` on the server and point clients
-# at it with ANTHROPIC_BASE_URL / OPENAI_BASE_URL. Bind to 127.0.0.1 and expose it to other
-# machines only through `tailscale serve` (HTTPS, tailnet-only), never as plain HTTP on a LAN address.
-- name: Install Headroom (uv tool, servers only)
+# The proxies run from the systemd stow package (systemd/.config/systemd/user/
+# headroom-*.service), started by "Enable and start the agent user services" below
+# and bound to 127.0.0.1. Expose them to other machines only through
+# `tailscale serve` (HTTPS, tailnet-only), never as plain HTTP on a LAN address.
+- name: Install Headroom (uv tool)
   ansible.builtin.command: >-
     mise x -- uv tool install --python 3.13 "headroom-ai[all]"
   args:
@@ -110,6 +111,55 @@
   environment:
     PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.HOME }}/.local/share/mise/shims:{{ ansible_env.PATH }}"
   when: agents_headroom_enabled | bool
+
+# Molecule containers and WSL2 without systemd are not managed by systemd, and the
+# user services are not started there. The units are still stowed, so they start
+# once the role reruns on a box that boots systemd.
+- name: Note that the Headroom user services were not started
+  ansible.builtin.debug:
+    msg: >-
+      systemd is not the service manager here, so the Headroom user units were
+      stowed but not started or enabled, and no client was pointed at the proxy.
+      Rerun this role on a box that boots systemd.
+  when:
+    - agents_headroom_enabled | bool
+    - ansible_service_mgr != "systemd"
+
+# Pi has no env override for a provider base URL, so its route lives in
+# ~/.pi/agent/models.json. The generator reads Pi's own catalog, which only
+# exists once Pi has run.
+- name: Check Pi's model catalog
+  ansible.builtin.stat:
+    path: "{{ ansible_env.HOME }}/.pi/agent/models-store.json"
+  register: agents_pi_models_store
+  when:
+    - agents_headroom_enabled | bool
+    - not agent_lite | bool
+    - ansible_service_mgr == "systemd"
+
+- name: Note that Pi keeps the direct opencode-go route
+  ansible.builtin.debug:
+    msg: >-
+      ~/.pi/agent/models-store.json is missing, so scripts/pi-headroom-models was
+      not run and Pi keeps talking to Zen Go directly. Run Pi once, then rerun
+      this role.
+  when:
+    - agents_headroom_enabled | bool
+    - not agent_lite | bool
+    - ansible_service_mgr == "systemd"
+    - not agents_pi_models_store.stat.exists
+
+# The script rewrites models.json with the same bytes when nothing changed, so
+# the role is idempotent by content and reports no change.
+- name: Route Pi's opencode-go provider through the Zen proxy
+  ansible.builtin.command:
+    cmd: "{{ ansible_env.HOME }}/dotfiles/scripts/pi-headroom-models"
+  changed_when: false
+  when:
+    - agents_headroom_enabled | bool
+    - not agent_lite | bool
+    - ansible_service_mgr == "systemd"
+    - agents_pi_models_store.stat.exists
 
 - name: Ensure ~/secrets exists (owner-only)
   ansible.builtin.file:

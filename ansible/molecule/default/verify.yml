@@ -64,6 +64,9 @@
     agent_bins_full:
       - pi
       - pueue
+    # herdr is stowed on agent boxes only.
+    verify_symlinks:
+      - .config/herdr/config.toml
   tasks:
     - name: Check always-on agent binaries resolve
       ansible.builtin.shell: "command -v {{ item }}"
@@ -74,6 +77,37 @@
       loop: "{{ agent_bins_always }}"
       register: agent_bin_check
       changed_when: false
+
+    - name: Check key stow symlinks exist
+      ansible.builtin.stat:
+        path: "{{ ansible_env.HOME }}/{{ item }}"
+      loop: "{{ verify_symlinks }}"
+      register: agent_symlink_check
+
+    - name: Assert agent symlinks resolved into ~/dotfiles
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+          - item.stat.islnk
+        fail_msg: "{{ item.item }} is missing or not a symlink"
+      loop: "{{ agent_symlink_check.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Check ~/.config/herdr is a real folder
+      ansible.builtin.stat:
+        path: "{{ ansible_env.HOME }}/.config/herdr"
+      register: agent_herdr_dir
+
+    # A linked folder makes herdr write its sockets, logs and session*.json into
+    # ~/dotfiles/herdr/ instead of the live config directory.
+    - name: Assert ~/.config/herdr is a directory, not a stow link
+      ansible.builtin.assert:
+        that:
+          - agent_herdr_dir.stat.isdir
+          - not agent_herdr_dir.stat.islnk
+        fail_msg: "~/.config/herdr must be a real folder, not a symlink into the repo"
+        quiet: true
 
     - name: Check no kitty link was stowed into HOME
       ansible.builtin.stat:
