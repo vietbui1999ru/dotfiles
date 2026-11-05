@@ -29,6 +29,9 @@ the commit on a hit. `mistake-sync` runs it before commit and push.
 | pi | no wrapper: the `context7` header in `~/.pi/agent/mcp.json` is a `!` command, `$HOME/dotfiles/scripts/secret-get CONTEXT7_API_KEY`, run once when Pi connects | CONTEXT7_API_KEY |
 | pi-view (pueue dispatch) | `scripts/pi-view`, through `secret-get` | CONTEXT7_API_KEY only |
 | firecrawl MCP (Claude, OpenCode) | `scripts/firecrawl-mcp` as the server command | FIRECRAWL_API_KEY (`FIRECRAWL_ENV_FILE` picks another file, such as send-it) |
+| wiki-chat | `~/.local/bin/wiki-chat`, through `secret-get` (only with `--backend opencode`) | OPENCODE_GO_API_KEY_LIGHTRAG |
+| wiki-index | `~/.local/bin/wiki-index`, through `secret-get` | OPENCODE_GO_API_KEY_LIGHTRAG |
+| wiki-mcp | `~/.local/bin/wiki-mcp` as an MCP server command, through `secret-get` | OPENCODE_GO_API_KEY_LIGHTRAG |
 
 Without a secrets file the wrappers still start the client, with those MCP keys unset.
 The wrappers ask for both MCP keys with `--optional`, so a readable file that lacks one still

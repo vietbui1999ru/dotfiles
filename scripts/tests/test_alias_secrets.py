@@ -98,7 +98,7 @@ class AliasSecrets(unittest.TestCase):
         alias = out.stdout
         self.assertIn("HEADROOM_TELEMETRY=off", alias)
         self.assertIn("--optional CONTEXT7_API_KEY EXCALIDRAW_API_KEY --", alias)
-        self.assertIn("headroom wrap claude", alias)
+        self.assertIn("headroom-workflow claude", alias)
         self.assertNotIn("umask", alias)
 
     def test_hclaude_runs_headroom_with_the_two_keys(self):

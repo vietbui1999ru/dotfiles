@@ -1,0 +1,428 @@
+#!/usr/bin/env python3
+"""headroom-measure — compare direct, passthrough and cache-mode samples.
+
+Phase 3 of the shared Headroom pilot (SPEC.md, AC-7). Reads JSONL samples that
+carry counters and metadata only — workflow, provider, model, mode, run id, turn,
+token counts, latency, errors and a correctness verdict — and prints one compact
+JSON comparison. It never reads, stores or emits a prompt or a response.
+
+    headroom-measure samples.jsonl [--pricing rates.json]
+
+`input_tokens` is the total the provider saw, cache reads and writes included;
+uncached input is derived by subtraction. Money is reported only from explicit
+per-million rates that come with a stated source and date, and only for metered
+(API-billed) runs: omitted rates are `"unknown"`, never zero, and a subscription
+run is never dressed up as dollar savings. A comparison is reported only when
+both modes cover the same (run_id, turn) pairs, correctness is settled on both
+sides and nothing failed; failed runs stay in the totals, and an unverified
+result is never a win. A sample that carries `prompt` or `response` is refused by
+field name, never echoed, so raw text cannot enter the sample file at all.
+"""
+import argparse
+import itertools
+import json
+import math
+import sys
+from pathlib import Path
+
+MODES = ("direct", "passthrough", "cache")
+CORRECTNESS = ("pass", "fail", "unverified")
+BILLING = ("api", "subscription", "unknown")
+RATE_KEYS = ("uncached_input", "cache_read", "cache_write", "output")
+TOKEN_FIELDS = ("input_tokens", "cache_read_tokens", "cache_write_tokens",
+                "output_tokens")
+REQUIRED_FIELDS = ("workflow", "provider", "model", "mode", "run_id", "turn",
+                   *TOKEN_FIELDS, "latency_ms", "errors", "correctness")
+IDENTITY_FIELDS = ("workflow", "provider", "model", "run_id")
+# Samples are counters and metadata only. A sample that carries text is refused
+# by field name (never by value), so "never store a raw prompt" is enforced
+# rather than merely documented.
+RAW_FIELDS = ("prompt", "response")
+
+USAGE = """usage: headroom-measure SAMPLES.jsonl [--pricing RATES.json]
+
+SAMPLES.jsonl   one JSON object per line, fields: workflow, provider, model,
+                mode (direct|passthrough|cache), run_id, turn, input_tokens,
+                cache_read_tokens, cache_write_tokens, output_tokens,
+                latency_ms, errors, correctness (pass|fail|unverified), and
+                optionally billing (api|subscription).
+RATES.json      {"source": "...", "date": "...", "currency": "USD",
+                 "per_million": {"uncached_input": 0, "cache_read": 0,
+                                 "cache_write": 0, "output": 0}}
+
+input_tokens is the total including cache reads and writes; uncached input is
+input_tokens - cache_read_tokens - cache_write_tokens.
+Samples carry counters and metadata only: a prompt or response key is refused.
+"""
+
+
+class SampleError(Exception):
+    """A sample or pricing file that cannot be compared honestly."""
+
+
+def fail(message):
+    print(f"headroom-measure: {message}", file=sys.stderr)
+    raise SystemExit(2)
+
+
+def is_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def require_count(raw, field, lineno):
+    value = raw[field]
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise SampleError(f"line {lineno}: {field} must be an integer "
+                          f"(got {value!r})")
+    if value < 0:
+        raise SampleError(f"line {lineno}: {field} {value} is negative")
+    return value
+
+
+def require_latency(raw, lineno):
+    value = raw["latency_ms"]
+    if not is_number(value):
+        raise SampleError(f"line {lineno}: latency_ms must be a number "
+                          f"(got {value!r})")
+    if not math.isfinite(value):
+        raise SampleError(f"line {lineno}: latency_ms {value!r} is not finite")
+    if value < 0:
+        raise SampleError(f"line {lineno}: latency_ms {value} is negative")
+    return float(value)
+
+
+def validate(raw, lineno):
+    """Return one normalized sample, or raise SampleError with a clear reason."""
+    if not isinstance(raw, dict):
+        raise SampleError(f"line {lineno}: sample must be a JSON object")
+    for field in RAW_FIELDS:
+        if field in raw:
+            raise SampleError(
+                f"line {lineno}: sample carries {field!r}; this tool records "
+                "counters and metadata only and never stores raw prompt or "
+                "response text")
+    for field in REQUIRED_FIELDS:
+        if field not in raw:
+            raise SampleError(f"line {lineno}: missing required field "
+                              f"{field!r}")
+    for field in IDENTITY_FIELDS:
+        value = raw[field]
+        if not isinstance(value, str) or not value.strip():
+            raise SampleError(f"line {lineno}: {field} must be a non-empty "
+                              f"string (got {value!r})")
+    mode = raw["mode"]
+    if mode not in MODES:
+        raise SampleError(f"line {lineno}: mode {mode!r} is not one of "
+                          + ", ".join(MODES))
+    correctness = raw["correctness"]
+    if correctness not in CORRECTNESS:
+        raise SampleError(f"line {lineno}: correctness {correctness!r} is not "
+                          "one of " + ", ".join(CORRECTNESS))
+    billing = raw.get("billing", "unknown")
+    if billing not in BILLING:
+        raise SampleError(f"line {lineno}: billing {billing!r} is not one of "
+                          + ", ".join(BILLING))
+
+    counts = {field: require_count(raw, field, lineno) for field in TOKEN_FIELDS}
+    uncached = (counts["input_tokens"] - counts["cache_read_tokens"]
+                - counts["cache_write_tokens"])
+    if uncached < 0:
+        raise SampleError(
+            f"line {lineno}: cache reads and writes exceed input_tokens "
+            f"({counts['cache_read_tokens']} + {counts['cache_write_tokens']} > "
+            f"{counts['input_tokens']}), so uncached input would be {uncached}")
+
+    return {
+        "workflow": raw["workflow"].strip(),
+        "provider": raw["provider"].strip(),
+        "model": raw["model"].strip(),
+        "mode": mode,
+        "run_id": raw["run_id"].strip(),
+        "turn": require_count(raw, "turn", lineno),
+        "input_tokens": counts["input_tokens"],
+        "cache_read_tokens": counts["cache_read_tokens"],
+        "cache_write_tokens": counts["cache_write_tokens"],
+        "output_tokens": counts["output_tokens"],
+        "uncached_input_tokens": uncached,
+        "latency_ms": require_latency(raw, lineno),
+        "errors": require_count(raw, "errors", lineno),
+        "correctness": correctness,
+        "billing": billing,
+    }
+
+
+def load_samples(path):
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except OSError as exc:
+        fail(f"cannot read samples {path}: {exc}")
+    samples, seen = [], {}
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            raw = json.loads(line)
+        except ValueError as exc:
+            raise SampleError(f"line {lineno}: not valid JSON: {exc}") from None
+        try:
+            entry = validate(raw, lineno)
+        except SampleError as exc:
+            fail(str(exc))
+        key = (entry["workflow"], entry["provider"], entry["model"],
+               entry["mode"], entry["run_id"], entry["turn"])
+        if key in seen:
+            fail(f"line {lineno}: duplicate sample for {entry['mode']}/"
+                 f"{entry['provider']}/{entry['model']} run {entry['run_id']} "
+                 f"turn {entry['turn']} (first seen on line {seen[key]})")
+        seen[key] = lineno
+        samples.append(entry)
+    if not samples:
+        fail(f"no samples in {path}")
+    return samples
+
+
+def load_pricing(path):
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except OSError as exc:
+        fail(f"cannot read pricing {path}: {exc}")
+    except ValueError as exc:
+        fail(f"pricing {path} is not valid JSON: {exc}")
+    if not isinstance(data, dict):
+        fail(f"pricing {path} must be a JSON object")
+    for field in ("source", "date"):
+        value = data.get(field)
+        if not isinstance(value, str) or not value.strip():
+            fail(f"pricing {path} must state a {field!r} for every rate it "
+                 f"reports (got {value!r})")
+    currency = data.get("currency", "USD")
+    if not isinstance(currency, str) or not currency.strip():
+        fail(f"pricing {path} currency must be a non-empty string "
+             f"(got {currency!r})")
+    rates = data.get("per_million", {})
+    if not isinstance(rates, dict):
+        fail(f"pricing {path} per_million must be a JSON object")
+    unknown = sorted(set(rates) - set(RATE_KEYS))
+    if unknown:
+        fail(f"pricing {path} per_million has unknown rate(s) "
+             + ", ".join(unknown) + "; expected " + ", ".join(RATE_KEYS))
+    for name, value in sorted(rates.items()):
+        if not is_number(value) or not math.isfinite(value):
+            fail(f"pricing {path} per_million.{name} {value!r} is not a finite "
+                 "number")
+        if value < 0:
+            fail(f"pricing {path} per_million.{name} {value} is negative")
+    return {"source": data["source"].strip(), "date": data["date"].strip(),
+            "currency": currency.strip(), "per_million": dict(rates)}
+
+
+def token_totals(samples):
+    totals = {
+        "input": sum(s["input_tokens"] for s in samples),
+        "cache_read": sum(s["cache_read_tokens"] for s in samples),
+        "cache_write": sum(s["cache_write_tokens"] for s in samples),
+        "output": sum(s["output_tokens"] for s in samples),
+    }
+    totals["uncached_input"] = (totals["input"] - totals["cache_read"]
+                                - totals["cache_write"])
+    return totals
+
+
+def mode_cost(samples, pricing):
+    """Return (cost, reason). Cost is a dict, "unknown" or "subscription"."""
+    billings = {s["billing"] for s in samples}
+    if "subscription" in billings:
+        return "subscription", ("subscription billing is not metered in "
+                                "dollars; token counts only")
+    if billings != {"api"}:
+        return "unknown", "billing mode is not stated for every sample"
+    if pricing is None:
+        return "unknown", "no --pricing rates supplied"
+    rates = pricing["per_million"]
+    missing = [name for name in RATE_KEYS if name not in rates]
+    if missing:
+        return "unknown", "no rate for " + ", ".join(missing)
+    totals = token_totals(samples)
+    total = sum(totals[name] * rates[name]
+                for name in ("uncached_input", "cache_read", "cache_write",
+                             "output")) / 1_000_000
+    return {
+        "currency": pricing["currency"],
+        "total": round(total, 6),
+        "per_million": {name: rates[name] for name in RATE_KEYS},
+        "source": pricing["source"],
+        "date": pricing["date"],
+    }, None
+
+
+def summarize_mode(samples, pricing):
+    totals = token_totals(samples)
+    correctness = {name: 0 for name in CORRECTNESS}
+    for s in samples:
+        correctness[s["correctness"]] += 1
+    cost, reason = mode_cost(samples, pricing)
+    billings = sorted({s["billing"] for s in samples})
+    summary = {
+        "count": len(samples),
+        "tokens": totals,
+        "errors": sum(s["errors"] for s in samples),
+        "mean_latency_ms": round(
+            sum(s["latency_ms"] for s in samples) / len(samples), 3),
+        "correctness": correctness,
+        "correctness_complete": correctness["unverified"] == 0,
+        "billing": billings[0] if len(billings) == 1 else "mixed",
+        "cost": cost,
+    }
+    if reason:
+        summary["cost_reason"] = reason
+    return summary
+
+
+def delta_of(baseline, variant, round_to=None):
+    change = variant - baseline
+    if round_to is not None:
+        change = round(change, round_to)
+    percent = round(change / baseline * 100, 2) if baseline else None
+    return {"baseline": baseline, "variant": variant, "delta": change,
+            "percent": percent}
+
+
+def compare(baseline_mode, baseline_samples, variant_mode, variant_samples,
+            pricing):
+    baseline_by_key = {(s["run_id"], s["turn"]): s for s in baseline_samples}
+    variant_by_key = {(s["run_id"], s["turn"]): s for s in variant_samples}
+    matched = sorted(set(baseline_by_key) & set(variant_by_key))
+    baseline_only = len(set(baseline_by_key) - set(variant_by_key))
+    variant_only = len(set(variant_by_key) - set(baseline_by_key))
+    unverified = sum(
+        1 for key in matched
+        if "unverified" in (baseline_by_key[key]["correctness"],
+                            variant_by_key[key]["correctness"]))
+    failed = sum(
+        1 for key in matched
+        if "fail" in (baseline_by_key[key]["correctness"],
+                      variant_by_key[key]["correctness"]))
+    complete = bool(matched) and not baseline_only and not variant_only \
+        and not unverified
+
+    result = {
+        "baseline": baseline_mode,
+        "variant": variant_mode,
+        "matched_pairs": len(matched),
+        "baseline_only": baseline_only,
+        "variant_only": variant_only,
+        "unverified_pairs": unverified,
+        "failed_pairs": failed,
+        "complete": complete,
+        "basis": None,
+        "verdict": "withheld",
+        "delta": None,
+    }
+    if not complete:
+        reasons = []
+        if not matched:
+            reasons.append("no matched (run_id, turn) pairs")
+        if baseline_only:
+            reasons.append(f"{baseline_only} {baseline_mode}-only turn(s)")
+        if variant_only:
+            reasons.append(f"{variant_only} {variant_mode}-only turn(s)")
+        if unverified:
+            reasons.append(f"{unverified} unverified pair(s)")
+        result["reason"] = "; ".join(reasons)
+        return result
+    if failed:
+        result["reason"] = (f"{failed} failed pair(s); a failed run is kept in "
+                            "the totals but is not a win")
+        return result
+
+    baseline_totals = token_totals(baseline_samples)
+    variant_totals = token_totals(variant_samples)
+    delta = {
+        "total_input": delta_of(baseline_totals["input"],
+                                 variant_totals["input"]),
+        "uncached_input": delta_of(baseline_totals["uncached_input"],
+                                   variant_totals["uncached_input"]),
+        "cache_read": delta_of(baseline_totals["cache_read"],
+                               variant_totals["cache_read"]),
+        "cache_write": delta_of(baseline_totals["cache_write"],
+                                variant_totals["cache_write"]),
+        "output": delta_of(baseline_totals["output"],
+                           variant_totals["output"]),
+        "cost": None,
+    }
+    baseline_cost, _ = mode_cost(baseline_samples, pricing)
+    variant_cost, _ = mode_cost(variant_samples, pricing)
+    if isinstance(baseline_cost, dict) and isinstance(variant_cost, dict):
+        delta["cost"] = delta_of(baseline_cost["total"],
+                                 variant_cost["total"], round_to=6)
+        change, basis = delta["cost"]["delta"], "cost"
+    else:
+        change, basis = delta["uncached_input"]["delta"], "uncached_input_tokens"
+    result["delta"] = delta
+    result["basis"] = basis
+    if change < 0:
+        result["verdict"] = "reduction"
+    elif change > 0:
+        result["verdict"] = "regression"
+    else:
+        result["verdict"] = "no change"
+    if result["verdict"] == "regression" and delta["total_input"]["delta"] < 0:
+        result["note"] = (
+            "fewer total input tokens but a higher bill: cache_read "
+            f"{baseline_totals['cache_read']} -> {variant_totals['cache_read']}"
+        )
+    return result
+
+
+def summarize_group(key, samples, pricing):
+    workflow, provider, model = key
+    by_mode = {}
+    for entry in samples:
+        by_mode.setdefault(entry["mode"], []).append(entry)
+    present = [mode for mode in MODES if mode in by_mode]
+    return {
+        "workflow": workflow,
+        "provider": provider,
+        "model": model,
+        "missing_modes": [mode for mode in MODES if mode not in by_mode],
+        "modes": {mode: summarize_mode(by_mode[mode], pricing)
+                  for mode in present},
+        "comparisons": [
+            compare(baseline, by_mode[baseline], variant, by_mode[variant],
+                    pricing)
+            for baseline, variant in itertools.combinations(present, 2)
+        ],
+    }
+
+
+def build_report(samples, pricing):
+    groups = {}
+    for entry in samples:
+        key = (entry["workflow"], entry["provider"], entry["model"])
+        groups.setdefault(key, []).append(entry)
+    return {
+        "samples": len(samples),
+        "groups": [summarize_group(key, groups[key], pricing)
+                   for key in sorted(groups)],
+    }
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(
+        prog="headroom-measure", usage=USAGE,
+        description="Compare direct, passthrough and cache-mode Headroom samples.")
+    parser.add_argument("samples", help="JSONL samples, one object per line")
+    parser.add_argument("--pricing", help="explicit per-million rates as JSON")
+    args = parser.parse_args(argv)
+    pricing = load_pricing(args.pricing) if args.pricing else None
+    try:
+        samples = load_samples(args.samples)
+    except SampleError as exc:
+        fail(str(exc))
+    report = build_report(samples, pricing)
+    print(json.dumps(report, sort_keys=True, separators=(",", ":")))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
