@@ -2,19 +2,27 @@
 description: Use after a ticket or spec lands, a decision is accepted, or the system wiring changes, to keep a dated progress log, a decision trail, short key-code excerpts and an optional system map current. It reads the sources of truth and writes only under docs/progress/ and docs/system-map.md, so the parent can call it at the end of a session without scoping every file first.
 mode: subagent
 permission:
-  edit: allow
+  edit:
+    "*": deny
+    "docs/progress/**": allow
+    "docs/system-map.md": allow
   bash:
     "*": deny
-    "git *": allow
-    "gh *": allow
-    "glab *": allow
+    "git log *": allow
+    "git show *": allow
+    "git symbolic-ref --short refs/remotes/origin/HEAD": allow
+    "gh pr list *": allow
+    "gh pr view *": allow
+    "glab mr list *": allow
     "pele-render *": allow
+    "printf *": allow
     "rg *": allow
     "fd *": allow
     "ls *": allow
-    "date *": allow
-    "mise run check*": allow
-    "*commit-funnel*": allow
+    "date +%F": allow
+    "mise run check": allow
+    "make check": allow
+    "$HOME/dotfiles/scripts/commit-funnel --worktree *": allow
 ---
 
 <!-- generated from shared/agents/chronicler.md by scripts/sync-agents; edit the source -->

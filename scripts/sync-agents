@@ -76,20 +76,31 @@ PRESETS: dict[str, dict] = {
         "codex_model": "gpt-6-luna",
     },
     "chronicler": {
+        # Least privilege: only the commands and paths its instructions name. A leading
+        # "*" in a pattern matches any command line containing the word, so never use one.
         "oc_permission": {
-            "edit": "allow",
+            "edit": {
+                "*": "deny",
+                "docs/progress/**": "allow",
+                "docs/system-map.md": "allow",
+            },
             "bash": {
                 "*": "deny",
-                "git *": "allow",
-                "gh *": "allow",
-                "glab *": "allow",
+                "git log *": "allow",
+                "git show *": "allow",
+                "git symbolic-ref --short refs/remotes/origin/HEAD": "allow",
+                "gh pr list *": "allow",
+                "gh pr view *": "allow",
+                "glab mr list *": "allow",
                 "pele-render *": "allow",
+                "printf *": "allow",
                 "rg *": "allow",
                 "fd *": "allow",
                 "ls *": "allow",
-                "date *": "allow",
-                "mise run check*": "allow",
-                "*commit-funnel*": "allow",
+                "date +%F": "allow",
+                "mise run check": "allow",
+                "make check": "allow",
+                "$HOME/dotfiles/scripts/commit-funnel --worktree *": "allow",
             },
         },
     },
@@ -155,14 +166,15 @@ def render_oc(name: str, fields: dict[str, str], body: str, preset: dict) -> str
         f"description: {fields['description']}",
         "mode: subagent",
         "permission:",
-        f"  edit: {perm['edit']}",
-        "  bash:",
     ]
-    bash = perm["bash"]
-    if isinstance(bash, str):
-        lines.append(f"    \"*\": {bash}")
-    else:
-        for pattern, action in bash.items():
+    # Each permission is one action or a pattern map; OpenCode accepts both.
+    for key in ("edit", "bash"):
+        rule = perm[key]
+        if isinstance(rule, str):
+            lines.append(f"  {key}: {rule}")
+            continue
+        lines.append(f"  {key}:")
+        for pattern, action in rule.items():
             lines.append(f'    "{pattern}": {action}')
     lines += ["---", "", MARK_MD.format(name=name), "", body, ""]
     return "\n".join(lines)
