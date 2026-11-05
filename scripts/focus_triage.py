@@ -45,8 +45,12 @@ def discover(home: Path, roots: list[Path]) -> tuple[dict[str, Path], dict[str, 
     def walk(directory: Path, depth: int) -> None:
         if depth > SCAN_DEPTH or not directory.is_dir():
             return
-        for child in sorted(directory.iterdir()):
-            if not child.is_dir() or child.name.startswith(".") or child.name in SKIP_DIRS:
+        try:
+            children = sorted(directory.iterdir())
+        except OSError:
+            return  # unreadable directory: skip it, never crash a hook
+        for child in children:
+            if child.is_symlink() or not child.is_dir() or child.name.startswith(".") or child.name in SKIP_DIRS:
                 continue
             if is_git_repo(child):
                 name = child.name

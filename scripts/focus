@@ -56,9 +56,20 @@ def roots() -> list[Path]:
     return [Path(part) for part in raw.split(os.pathsep) if part]
 
 
+_DISCOVERED: dict[tuple, tuple] = {}
+
+
+def discover_once() -> tuple:
+    """One repo scan per process; a hook call resolves several board items."""
+    key = (str(home()), tuple(str(r) for r in roots()))
+    if key not in _DISCOVERED:
+        _DISCOVERED[key] = triage.discover(home(), roots())
+    return _DISCOVERED[key]
+
+
 def repo_path(repo: str) -> Path:
     """The main worktree of a repo by name, found with the same scan triage uses."""
-    found, clashes = triage.discover(home(), roots())
+    found, clashes = discover_once()
     if repo in clashes:
         raise SystemExit(f"focus: {repo} is in more than one place ({', '.join(str(p) for p in clashes[repo])}); rename one before writing to it")
     if repo in found:
@@ -229,9 +240,15 @@ def focus_worktrees(board: Board | None) -> list[Path]:
     if board is None:
         return []
     found = []
-    for name in ("Work", "Hobby", "Frozen"):
+    # Only the two open slots are focus; a frozen item is not open for writes.
+    for name in ("Work", "Hobby"):
         for item in board.items(name):
-            path = worktree_of(item["key"])
+            try:
+                path = worktree_of(item["key"])
+            except SystemExit as clash:
+                # Ambiguous repo name: treat the item as not in focus (fail closed).
+                print(clash, file=sys.stderr)
+                continue
             if path is not None:
                 found.append(path)
     return found
@@ -506,8 +523,30 @@ def bash_writes(command: str) -> list[str]:
     return targets
 
 
+WRITE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
+
+
+def deny(reason: str) -> None:
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                              "permissionDecision": "deny",
+                                              "permissionDecisionReason": reason}}))
+
+
 def cmd_guard(_args) -> int:
+    """PreToolUse hook. Any non-2 exit lets the tool run, so an error must deny writes itself."""
     data = read_hook_input()
+    try:
+        return guard_decision(data)
+    except Exception as err:  # fail closed on writes; reads still run
+        tool_input = data.get("tool_input") if isinstance(data.get("tool_input"), dict) else {}
+        tool = str(data.get("tool_name", ""))
+        if tool in WRITE_TOOLS or (tool == "Bash" and bash_writes(str(tool_input.get("command", "")))):
+            deny(f"focus: guard error ({type(err).__name__}: {err}); writes are blocked until "
+                 f"scripts/focus or the board is fixed. Edit the board by hand: {board_path()}")
+        return 0
+
+
+def guard_decision(data: dict) -> int:
     board = load_board()
     if board is None:
         return 0
@@ -522,7 +561,7 @@ def cmd_guard(_args) -> int:
         tool_input = {}
     board_file = board_path()
     denied = False
-    if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
+    if tool in WRITE_TOOLS:
         target = str(tool_input.get("file_path") or tool_input.get("notebook_path") or "")
         if target:
             path = Path(target)
@@ -535,16 +574,15 @@ def cmd_guard(_args) -> int:
     elif tool == "Bash":
         command = str(tool_input.get("command", ""))
         writes = bash_writes(command)
-        if writes:
+        granted = any(inside(Path(cwd), Path(g)) for g in record.get("grants", []))
+        if writes and not granted:
             allowed_writes = all(
-                (w != "<write command>" and is_allowlisted(Path(w if w.startswith("/") else cwd) / w, board_file))
+                is_allowlisted(Path(cwd) / w, board_file)  # an absolute w replaces cwd
                 for w in writes if w != "<write command>"
             )
             denied = ("<write command>" in writes) or not allowed_writes
     if denied:
-        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
-                                                  "permissionDecision": "deny",
-                                                  "permissionDecisionReason": deny_message(board)}}))
+        deny(deny_message(board))
     return 0
 
 

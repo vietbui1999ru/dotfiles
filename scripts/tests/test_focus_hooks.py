@@ -227,5 +227,53 @@ class PiDispatchTest(HooksTest):
         self.assertEqual(r.returncode, 0)
 
 
+class GuardFailClosedTest(GuardTest):
+    """A PreToolUse hook that crashes or exits non-2 lets the tool run, so errors must deny."""
+
+    def write_into_focus_from_outside(self, session):
+        return self.guard(str(self.wiki), "Write", {"file_path": str(self.focus_wt / "f")}, session=session)
+
+    def test_guard_frozen_item_is_not_writable(self):
+        self.board.write_text("work-repos: acme-api\n\n## Work\n\n## Hobby\n\n## Frozen\n"
+                              "- acme-api:feat/x | stage: build\n\n## Parked\n", encoding="utf-8")
+        r = self.guard(str(self.focus_wt), "Write", {"file_path": str(self.focus_wt / "f")}, session="fz")
+        self.assertEqual(self.deny_of(r)["permissionDecision"], "deny")
+
+    def test_guard_repo_name_clash_denies_without_crashing(self):
+        self._repo(self.repos / "nested" / "acme-api")
+        r = self.guard(str(self.focus_wt), "Write", {"file_path": str(self.focus_wt / "f")}, session="cl")
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(self.deny_of(r)["permissionDecision"], "deny")
+
+    def test_guard_unreadable_dir_in_roots_is_skipped(self):
+        locked = self.repos / "locked"
+        locked.mkdir()
+        locked.chmod(0)
+        try:
+            r = self.guard(str(self.focus_wt), "Write", {"file_path": str(self.focus_wt / "f")}, session="ul")
+        finally:
+            locked.chmod(0o755)  # before tearDown, so rmtree can remove it
+        self.assertEqual(r.returncode, 0)
+        self.assertIsNone(self.denied(r))
+
+    def test_guard_error_denies_writes_but_not_reads(self):
+        self.board.chmod(0)
+        try:
+            r = self.write_into_focus_from_outside("er1")
+            read = self.guard(str(self.wiki), "Bash", {"command": "git status"}, session="er2")
+        finally:
+            self.board.chmod(0o644)
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("guard error", self.deny_of(r)["permissionDecisionReason"])
+        r = read
+        self.assertIsNone(self.denied(r))
+
+    def test_blocker_grant_lets_bash_write_in_the_granted_worktree(self):
+        self.hook("prompt", data={"session_id": "bg", "cwd": str(self.wiki)})
+        self.hook("allow", str(self.focus_wt), "--session", "bg", "--blocker", "fix needed")
+        r = self.guard(str(self.focus_wt), "Bash", {"command": "git commit -m x"}, session="bg")
+        self.assertIsNone(self.denied(r))
+
+
 if __name__ == "__main__":
     unittest.main()
