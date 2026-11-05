@@ -75,6 +75,24 @@ PRESETS: dict[str, dict] = {
     "worker": {
         "codex_model": "gpt-6-luna",
     },
+    "chronicler": {
+        "oc_permission": {
+            "edit": "allow",
+            "bash": {
+                "*": "deny",
+                "git *": "allow",
+                "gh *": "allow",
+                "glab *": "allow",
+                "pele-render *": "allow",
+                "rg *": "allow",
+                "fd *": "allow",
+                "ls *": "allow",
+                "date *": "allow",
+                "mise run check*": "allow",
+                "*commit-funnel*": "allow",
+            },
+        },
+    },
 }
 
 # Generated-file marker. Written only where the harness parser tolerates it.
