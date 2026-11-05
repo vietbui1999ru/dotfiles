@@ -2,6 +2,8 @@
 // No engine here, so band.test.ts pins the exact strings; band.tsx only maps the runs to Text.
 import type { GitSnapshot, Usage } from '../types'
 import type { HandoffSegment } from './handoff'
+import type { FocusState } from './focus'
+import { focusChip } from './focus'
 import { ctxBar } from './format'
 import { ctxTone, limitTone, type Tone } from './palette'
 import { SYMBOL } from './worktrees'
@@ -12,9 +14,9 @@ export type Seg = { text: string; tone: Tone; drop?: number }
 /** Between groups. Runs inside a group are joined by one space. */
 export const SEP = ' · '
 
-export type StatusInput = { dir: string; model: string; usage: Usage; git: GitSnapshot | null; style: string | null; openAlerts?: number; sendIt?: boolean; piQueue?: string }
+export type StatusInput = { dir: string; model: string; usage: Usage; git: GitSnapshot | null; style: string | null; openAlerts?: number; sendIt?: boolean; piQueue?: string; focus?: FocusState }
 
-/** Left to right: where (dir, branch, sync), budget (ctx, 5h, 7d), alerts, who (model, style). */
+/** Left to right: where (dir, branch, sync), focus (the slots), budget (ctx, 5h, 7d), alerts, who (model, style). */
 export const statusGroups = (d: StatusInput): Seg[][] => {
   const g = d.git
   const where: Seg[] = [{ text: d.dir, tone: 'peach' }]
@@ -37,7 +39,7 @@ export const statusGroups = (d: StatusInput): Seg[][] => {
   if (d.piQueue) alerts.push({ text: `${PI_HANDOFF} ${d.piQueue}`, tone: 'yellow' })
   const who: Seg[] = [{ text: d.model, tone: 'mauve' }]
   if (d.style) who.push({ text: d.style, tone: 'muted', drop: 1 })
-  return [where, budget, alerts, who].filter(group => group.length > 0)
+  return [where, focusChip(d.focus), budget, alerts, who].filter(group => group.length > 0)
 }
 
 export const statusText = (groups: readonly Seg[][]): string =>
@@ -46,7 +48,7 @@ export const statusText = (groups: readonly Seg[][]): string =>
 /** Drops runs by rank until the line fits `width`; anything still too wide the Text truncates at its end. */
 export const fitStatus = (groups: Seg[][], width: number): Seg[][] => {
   let kept = groups
-  for (const rank of [1, 3, 4]) {
+  for (const rank of [1, 2, 3, 4]) {
     if (statusText(kept).length <= width) break
     kept = kept.map(group => group.filter(seg => seg.drop !== rank)).filter(group => group.length > 0)
   }
