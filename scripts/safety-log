@@ -13,16 +13,36 @@ Standard library only.
 import argparse
 import json
 import os
+import re
+import subprocess
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
 BLOCKS = "bash-safety-blocks.jsonl"
 VERDICTS = "bash-safety-verdicts.jsonl"
+# `mark` takes a human's judgement only; `noted` is written by `record --noted`, a logger's note.
 VERDICT_CHOICES = ("ok", "false-positive")
+READ_VERDICTS = VERDICT_CHOICES + ("noted",)
+CAP = 4000
+ROTATE_AT = 2000
 # --since accepts a relative span in these units, or an ISO date.
 UNITS = {"m": "minutes", "h": "hours", "d": "days", "w": "weeks"}
 FIELDS = ("id", "ts", "session", "rule", "verdict", "command", "reason", "cwd", "transcript")
+# enforce-bash-safety.sh first blanks -u/--user values, then pipes through scripts/redact.
+USERINFO = re.compile(r"(-u|--user)([=\s]+)[^\s]+")
+SHARED_REDACT = Path(__file__).resolve().parent / "redact"
+# The same four substitutions, in the same order, as the jq `redact` in enforce-bash-safety.sh.
+VALUE = r"""("[^"]*"|'[^']*'|[^\s]+)"""
+REDACTIONS = [
+    (re.compile(r"([A-Za-z_][A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|KEY)[A-Za-z0-9_]*)=" + VALUE, re.I),
+     r"\1=[REDACTED]"),
+    (re.compile(r"(--(?:token|password|passwd|secret|api-key|apikey))(=|\s+)" + VALUE, re.I),
+     r"\1\2[REDACTED]"),
+    (re.compile(r"(gh[pos]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{16,}|AKIA[0-9A-Z]{16})"),
+     "[REDACTED]"),
+    (re.compile(r"(Bearer)\s+[^\s\"']+", re.I), r"\1 [REDACTED]"),
+]
 
 
 def log_dir() -> Path:
@@ -60,11 +80,28 @@ def stamp(value: object) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.astimezone()
 
 
+def redact(text: str) -> str:
+    """The hook's chain: -u/--user values, then scripts/redact (skipped if missing), then REDACTIONS."""
+    text = USERINFO.sub(r"\1\2[REDACTED]", text)
+    try:
+        text = subprocess.run([str(SHARED_REDACT)], input=text, capture_output=True,
+                              text=True, check=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        pass
+    for pattern, replacement in REDACTIONS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
+def cap(text: str) -> str:
+    return text[:CAP] + "…[truncated]" if len(text) > CAP else text
+
+
 def verdicts(directory: Path) -> dict[str, str]:
     """Verdicts by block id; the last line for an id wins."""
     latest: dict[str, str] = {}
     for row in read_jsonl(directory / VERDICTS):
-        if isinstance(row.get("id"), str) and row.get("verdict") in VERDICT_CHOICES:
+        if isinstance(row.get("id"), str) and row.get("verdict") in READ_VERDICTS:
             latest[row["id"]] = row["verdict"]
     return latest
 
@@ -142,22 +179,63 @@ def false_positive_counts(entries: list[dict]) -> list[tuple[str, int]]:
     return sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))
 
 
+def now_stamp() -> str:
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def append_verdict(directory: Path, block_id: str, verdict: str) -> None:
+    path = directory / VERDICTS
+    record = {"id": block_id, "verdict": verdict, "ts": now_stamp()}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record) + "\n")
+
+
 def mark(directory: Path, block_id: str, verdict: str) -> int:
     """Append one verdict; an unknown id writes nothing."""
     if block_id not in {entry["id"] for entry in rows(directory)}:
         print(f"safety-log: no block with id {block_id}", file=sys.stderr)
         return 2
     path = directory / VERDICTS
-    record = {"id": block_id, "verdict": verdict, "ts": datetime.now().astimezone().isoformat(timespec="seconds")}
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(record) + "\n")
+        append_verdict(directory, block_id, verdict)
     except OSError as error:
         print(f"safety-log: cannot write {path}: {error}", file=sys.stderr)
         return 1
     print(f"marked {block_id} {verdict}")
     return 0
+
+
+def record(directory: Path, args: argparse.Namespace) -> int:
+    """Append one redacted entry, as the Bash hook does. Best effort: never fails the caller."""
+    block_id = os.urandom(6).hex()
+    entry = {
+        "id": block_id,
+        "ts": now_stamp(),
+        "session": args.session or "",
+        "cwd": args.cwd or "",
+        "transcript": args.transcript or "",
+        "rule": args.rule,
+        "command": cap(redact(args.shell_command or "")),
+        "reason": args.reason,
+    }
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        log = directory / BLOCKS
+        if log.exists() and len(read_lines(log)) >= ROTATE_AT:
+            os.replace(log, directory / f"{BLOCKS}.1")
+        with log.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry) + "\n")
+        if args.noted:
+            append_verdict(directory, block_id, "noted")
+    except OSError:
+        return 0
+    print(block_id)
+    return 0
+
+
+def read_lines(path: Path) -> list[str]:
+    return path.read_text(encoding="utf-8", errors="replace").splitlines()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -178,8 +256,19 @@ def main(argv: list[str] | None = None) -> int:
     mark_parser = commands.add_parser("mark", help="record a human verdict for one block")
     mark_parser.add_argument("id")
     mark_parser.add_argument("verdict", choices=VERDICT_CHOICES)
+    record_parser = commands.add_parser("record", help="append one redacted entry (used by the guards)")
+    record_parser.add_argument("--rule", required=True)
+    record_parser.add_argument("--reason", required=True)
+    record_parser.add_argument("--command", dest="shell_command")
+    record_parser.add_argument("--session")
+    record_parser.add_argument("--cwd")
+    record_parser.add_argument("--transcript")
+    record_parser.add_argument("--noted", action="store_true", help="also write a noted verdict")
     args = parser.parse_args(argv)
     directory = log_dir()
+
+    if args.command == "record":
+        return record(directory, args)
 
     try:
         entries = rows(directory)

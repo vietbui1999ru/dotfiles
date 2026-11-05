@@ -47,6 +47,22 @@ parent_subcommand() {
 # An update whose new id equals its old, non-zero id moves nothing; `git worktree add` sends one
 # for the checked-out branch from inside the new worktree, so skip it. An all-zero pair is not
 # a no-op: `git branch -D` sends one, so it falls through to the existence test.
+# Refusals are logged for humans to trace with scripts/safety-log (docs/workflows/bash-safety-log.md).
+# Logging is best effort: a failure never changes the refusal, its message or its exit code.
+# Only a refusal runs python3, so allowed updates never start it. The hook exits at the first
+# refused ref, so one refused update leaves exactly one entry.
+log_refusal() {
+  local self scripts session
+  self=$(readlink -f "$0" 2>/dev/null) || return 0
+  scripts=${self%/hooks/*}
+  [ -f "$scripts/safety-log" ] || return 0
+  session=${CLAUDE_CODE_SESSION_ID:-}
+  [ -n "$session" ] || { [ -n "${PUEUE_TASK_ID:-}" ] && session="pueue:$PUEUE_TASK_ID"; }
+  python3 "$scripts/safety-log" record --rule ref-guard --reason "$1" \
+    --command "$(ps -o args= -p "$PPID" 2>/dev/null)" --session "$session" --cwd "$top" \
+    >/dev/null 2>&1 || true
+}
+
 zero=0000000000000000000000000000000000000000
 while read -r _old _new ref; do
   [ "$_old" = "$_new" ] && [ "$_old" != "$zero" ] && continue
@@ -59,6 +75,7 @@ while read -r _old _new ref; do
           echo "  \$HOME/dotfiles/scripts/commit-funnel --worktree <session worktree> -F <message file> <path>..."
           echo "Rebase, reset, merge, cherry-pick and branch deletion are the user's call: ask the user to run them."
         } >&2
+        log_refusal "refused: $ref is an existing branch, and this worktree belongs to an agent session."
         exit 1
       fi
       ;;

@@ -164,6 +164,36 @@ test('blocks pane marks the selected block', async ($, on) => {
   expect(lines(await $.ui.render(PANE)).some(row => row.includes('git push -f origin main') && row.includes('ok'))).toBe(true)
 })
 
+test('noted blocks are not pending', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  mock.env(on, { HOME: '/h' })
+  on('session.id', () => ({ value: 's1' }))
+  on('session.cwd', () => ({ value: '/work' }))
+  on('session.model', () => ({ value: 'opus' }))
+  on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200_000, percent: 10 }, rateLimits: [] } }))
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('settings.read', () => ({ value: {} }))
+  on('tool.call', () => ({ result: 'ok', text: 'ok' }))
+  const notedLine = JSON.stringify({ id: 'eeee11112222', verdict: 'noted', ts: '2026-10-21T16:03:11+07:00' })
+  const files: Record<string, string> = {
+    [LOG]: [entry('eeee11112222', { rule: 'worktree-guard' }), entry('ffff33334444')].join('\n') + '\n',
+    [VERDICTS]: `${notedLine}\n`,
+  }
+  state(on, files)
+  await $.session.start(START)
+
+  // The noted block is judged by the logger, so only the unnoted block still waits for a human.
+  expect(labels(await $.ui.render(BAND))).toContain('⛔1')
+  expect(parseVerdicts(`${notedLine}\n`).get('eeee11112222')).toBe('noted')
+  expect(pendingCount(judge(parseBlocks([files[LOG]]), parseVerdicts(`${notedLine}\n`)))).toBe(1)
+
+  // A later human false-positive for the same block overrides the noted verdict.
+  files[VERDICTS] += `${verdict('eeee11112222', 'false-positive')}\n`
+  expect(parseVerdicts(files[VERDICTS]).get('eeee11112222')).toBe('false-positive')
+  expect(pendingCount(judge(parseBlocks([files[LOG]]), parseVerdicts(files[VERDICTS])))).toBe(1)
+  expect(safetyBlockLine(judge(parseBlocks([files[LOG]]), parseVerdicts(files[VERDICTS]))[0]!)).toContain('false-positive')
+})
+
 test('an empty SAFETY_LOG_DIR counts as unset, as it does for the hook', () => {
   expect(stateDir('/h', '')).toBe(STATE)
   expect(stateDir('/h', '/logs')).toBe('/logs')

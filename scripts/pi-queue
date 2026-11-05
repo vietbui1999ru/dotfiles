@@ -67,8 +67,11 @@ def now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def log_event(event, *, session="", workflow="gated", template="", step="", executor="", task="", round=None):
-    """Append one JSON line: time, session, workflow, template, step, executor, event, task."""
+def log_event(event, *, session="", workflow="gated", template="", step="", executor="", task="", round=None,
+              reason=None):
+    """Append one JSON line: time, session, workflow, template, step, executor, event, task.
+
+    A failed event also carries the reason it failed; other events never do."""
     record = {
         "time": now(),
         "session": session,
@@ -81,6 +84,8 @@ def log_event(event, *, session="", workflow="gated", template="", step="", exec
     }
     if round is not None:
         record["round"] = round
+    if reason is not None:
+        record["reason"] = reason
     path = events_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
@@ -448,6 +453,19 @@ def run_shell(step):
     return True, "commands ran"
 
 
+class WorktreeBusy(Exception):
+    """A pi step's worktree already runs another pueue task; the step is refused, not failed."""
+
+
+def record_busy(step, reason):
+    """One queue-worktree-busy entry in the safety log. Best effort: a failed write changes nothing."""
+    command = f"pi-queue {step.get('template', '')}:{step.get('step', '')}"
+    safety_log = Path(__file__).resolve().with_name("safety-log")
+    run([sys.executable, str(safety_log), "record", "--rule", "queue-worktree-busy",
+         "--reason", reason, "--command", command, "--session", step.get("session", ""),
+         "--cwd", step.get("worktree", "")])
+
+
 def run_pi(step, step_file=None):
     worktree = step.get("worktree", "")
     try:
@@ -455,7 +473,7 @@ def run_pi(step, step_file=None):
     except QueueError as error:
         return False, f"refusing to dispatch: {error}"
     if busy is not None:
-        return False, f"worktree {worktree} already runs pueue task {busy.get('id')}"
+        raise WorktreeBusy(f"worktree {worktree} already runs pueue task {busy.get('id')}")
     model = step.get("model")
     if not model:
         return False, "pi step has no model"
@@ -540,14 +558,18 @@ def command_run_step(args):
     }
     log_event("started", **fields)
     executor = step.get("executor")
-    if executor == "shell":
-        ok, detail = run_shell(step)
-    elif executor == "pi":
-        ok, detail = run_pi(step, args.step_file)
-    elif executor == "claude":
-        ok, detail = run_claude(step, fields)
-    else:
-        ok, detail = False, f"unknown executor {executor!r}"
+    try:
+        if executor == "shell":
+            ok, detail = run_shell(step)
+        elif executor == "pi":
+            ok, detail = run_pi(step, args.step_file)
+        elif executor == "claude":
+            ok, detail = run_claude(step, fields)
+        else:
+            ok, detail = False, f"unknown executor {executor!r}"
+    except WorktreeBusy as busy:
+        ok, detail = False, str(busy)
+        record_busy(step, detail)
     if not ok:
         print(f"pi-queue: {detail}", file=sys.stderr)
         failure = dict(fields)
@@ -555,7 +577,7 @@ def command_run_step(args):
             round_number = pi_round(step)
             if round_number is not None:
                 failure["round"] = round_number
-        log_event("failed", **failure)
+        log_event("failed", **failure, reason=detail)
         return 1
     done = dict(fields)
     if executor == "pi":
@@ -567,8 +589,9 @@ def command_run_step(args):
     if release:
         released = run([pueue_bin(), "enqueue", *[str(item) for item in release]])
         if released.returncode != 0:
-            print(f"pi-queue: pueue enqueue failed: {released.stderr.strip()}", file=sys.stderr)
-            log_event("failed", **fields)
+            detail = f"pueue enqueue failed: {released.stderr.strip()}"
+            print(f"pi-queue: {detail}", file=sys.stderr)
+            log_event("failed", **fields, reason=detail)
             return 1
         log_event("released", **{**fields, "task": ",".join(str(item) for item in release)})
     return 0
