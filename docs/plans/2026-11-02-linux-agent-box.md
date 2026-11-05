@@ -57,7 +57,7 @@ Replace the hardcoded loop list with `dotfiles_stow_packages`, defaulting to the
 ### 4. New `agents` role
 
 Create `ansible/roles/agents/` (tasks + defaults). Linux only (`ansible_os_family != 'Darwin'`). It runs after `mise`, so node and npm come from mise (`mise x -- npm ...`, or mise shims on PATH).
-- **pueue + pueued** (skip when `agent_lite`): download the latest GitHub release binaries for the host arch (`pueue-x86_64-unknown-linux-musl` / `pueue-aarch64-unknown-linux-musl`, and the same for `pueued`; check the names) into `~/.local/bin`, mode 0755. Don't install a service: the workflow starts pueued on dispatch.
+- **pueue + pueued** (skip when `agent_lite`): download the latest GitHub release binaries for the host arch (`pueue-x86_64-unknown-linux-musl` / `pueue-aarch64-unknown-linux-musl`, and the same for `pueued`; check the names) into `~/.local/bin`, mode 0755. Don't install a service: the workflow starts pueued on dispatch. (Superseded 2026-11-03: pueued now runs as a systemd user service from the `systemd` stow package, enabled by the agents role.)
 - **Pi** (skip when `agent_lite`): global npm install of `@earendil-works/pi-coding-agent`.
 - **qmd** (always): global npm install of `@tobilu/qmd`. Register the llm-wiki collection the same way the Mac does: run `qmd --help` and `qmd collection list` on this Mac to get the exact commands and collection names, then mirror them. Run `qmd update` only. Never run `qmd embed` when `agent_lite` is true; on a full box, leave `qmd embed` to the user and say so in a debug message.
 - **Secrets:** ensure `~/secrets` exists with mode 0700, and print a debug reminder that `~/secrets/.env` and `~/.pi/agent/auth.json` must be copied by hand.

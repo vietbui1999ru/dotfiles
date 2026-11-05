@@ -79,7 +79,7 @@ For long tasks that run in the background while you continue work.
 # WORKTREE is an existing worktree, absolute path; create it before dispatching.
 SLUG="<task-name>-$(openssl rand -hex 2)"
 TASK_ID=$(pueue add -i --print-task-id --label "$SLUG" -w "$WORKTREE" -- \
-  "$HOME/dotfiles/scripts/pi-view --tui pi --model opencode-go/deepseek-v4.1-flash:medium --session-id pueue-$SLUG \
+  "$HOME/dotfiles/scripts/pi-view --tui pi --model opencode-go/deepseek-v4.1-flash:low --session-id pueue-$SLUG \
       -p '<full task description>' < /dev/null")
 
 # Check when ready
@@ -111,7 +111,7 @@ Claude owns verification. When the dispatched run settles — exit 0 or not — 
 | medium | `PI_DELEGATE_MEDIUM_MODEL` from `~/.pi/agent/routing.env` |
 | low | `PI_DELEGATE_LOW_MODEL` from `~/.pi/agent/routing.env` |
 
-Default routes: high=`opencode-go/claude-haiku-5-5:off` (keep Claude's thinking off in Pi: pi-lens and context-mode add unsaved messages to each request, which breaks Claude's signed thinking from the second turn with a 400 "thinking block is bound to a different conversation"), medium=`opencode-go/deepseek-v4.1-flash:medium`, low=`opencode-go/deepseek-v4.1-flash:off`. Delegated implementation is pure coding, so it uses the low tiers and low effort. The high tier (`openai-codex/gpt-6.1-sol:high`, `opencode-go/deepseek-v4-pro:high`, and `opencode-go/glm-5.3:high` for the security veto) is reserved for council voices and second or third adversarial reviews. These match the tiers in `claude/.claude/rules/model-routing.md`; change both together. Check an ID with `pi --list-models <name>` before adding it. Note: `--fallback-models` requires a custom extension (not built-in). Without it, assign model per task at dispatch time.
+Default routes: high=`opencode-go/claude-haiku-5-5:off` (keep Claude's thinking off in Pi: pi-lens and context-mode add unsaved messages to each request, which breaks Claude's signed thinking from the second turn with a 400 "thinking block is bound to a different conversation"), medium=`opencode-go/deepseek-v4.1-flash:low`, low=`opencode-go/deepseek-v4.1-flash:off`. Delegated implementation is pure coding, so it uses the low tiers and low effort. The high tier (`openai-codex/gpt-6.1-sol:high`, `opencode-go/deepseek-v4-pro:high`, and `opencode-go/glm-5.3:high` for the security veto) is reserved for council voices and second or third adversarial reviews. These match the tiers in `claude/.claude/rules/model-routing.md`; change both together. Check an ID with `pi --list-models <name>` before adding it. The opencode-go catalogue (`~/.pi/agent/models-store.json`) has no `medium` thinking level for `deepseek-v4.1-flash`, `deepseek-v4-pro` or `glm-5.3`, and Pi raises an unsupported level to the next supported one, so `:medium` silently ran at `high` (found 2026-11-04 from session logs). Use `:low` for medium effort on these models; `deepseek-v4-pro` has no level below `high`. Note: `--fallback-models` requires a custom extension (not built-in). Without it, assign model per task at dispatch time.
 
 ---
 
@@ -168,7 +168,7 @@ T_REVIEW=$(pueue add -i --print-task-id --label "$S_REVIEW" -w "$WT_REVIEW" -- \
       -p '<review task>' < /dev/null")
 
 T_IMPL=$(pueue add -i --print-task-id --label "$S_IMPL" -w "$WT_IMPL" -- \
-  "$HOME/dotfiles/scripts/pi-view --tui pi --model opencode-go/deepseek-v4.1-flash:medium --session-id pueue-$S_IMPL \
+  "$HOME/dotfiles/scripts/pi-view --tui pi --model opencode-go/deepseek-v4.1-flash:low --session-id pueue-$S_IMPL \
       -p '<implementation task>' < /dev/null")
 
 T_LOW=$(pueue add -i --print-task-id --label "$S_LOW" -w "$WT_LOW" -- \

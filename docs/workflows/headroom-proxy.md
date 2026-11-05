@@ -12,7 +12,7 @@ too.
 | --- | --- |
 | `launchd/.../com.vietbui.headroom-proxy.plist` | Proxy on `127.0.0.1:8787` for Claude Code (Anthropic) and Codex. Codex traffic from a ChatGPT login is detected and forwarded to `chatgpt.com/backend-api/codex`. |
 | `launchd/.../com.vietbui.headroom-zen.plist` | Proxy on `127.0.0.1:8788` for the OpenCode Go subscription (`opencode-go`). Both the OpenAI-style and the Anthropic-style upstreams point at Zen Go, because one proxy has a single upstream per API style. |
-| `systemd/headroom-proxy.service`, `systemd/headroom-zen.service` | The same two proxies as systemd user units on Linux. The agents role links, enables and starts them, with `Restart=always` and logs in the journal. |
+| `systemd/.config/systemd/user/headroom-proxy.service`, `headroom-zen.service` | The same two proxies as systemd user units on Linux, stowed from the `systemd` package. The agents role enables and starts them, with `Restart=always` and logs in the journal. |
 | `zsh/.zsh/headroom.zsh` | On macOS, in herdr panes (`HERDR_ENV=1`) and Orca terminals (`ORCA_PANE_KEY` set), when 8787 answers `/livez` at shell start: exports `ANTHROPIC_BASE_URL` and `ENABLE_TOOL_SEARCH=true`, and wraps `codex` with `-c openai_base_url=...`. On Linux every shell matches while the user's own `headroom-proxy` unit is active and owns the 8787 socket, so herdr, tmux and plain SSH are all routed. Plain terminals on macOS are untouched. |
 | `scripts/pi-headroom-models` | Writes the `opencode-go` entry of Pi's machine-local `~/.pi/agent/models.json` so Pi uses 8788. `off` removes it. |
 | `scripts/headroom-doctor` | Read-only check: both ports, the unit state, which gate this shell matched, the two Claude Code variables, the `codex` wrapper and Pi's route. Exits 1 when a service is down or a routed shell is not routed. |
@@ -85,8 +85,8 @@ the install, because its own proxy holds the port.
 ~/dotfiles/scripts/bootstrap-ubuntu.sh --agent
 ```
 
-The agents role installs Headroom as a uv tool on full agent boxes, links the two
-user units into `~/.config/systemd/user`, enables linger so they keep running
+The agents role installs Headroom as a uv tool on full agent boxes, stows the
+`systemd` package into `~/.config/systemd/user`, enables linger so the units keep running
 without a login session, and starts them. It also points Pi at the Zen proxy.
 Logs go to the journal instead of `/tmp`. The 4 GB Raspberry Pi class box
 (`--agent-lite`) stays off by default because Kompress is memory hungry; opt in

@@ -1,0 +1,10 @@
+{"type":"session","id":"s1","cwd":"/tmp/x"}
+{"type":"message","message":{"role":"user","content":[{"type":"text","text":"Implement the spec."}]}}
+{"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"Done."}],"usage":{"input":100,"output":50,"totalTokens":150,"cost":{"total":0.0021}}}}
+{"type":"message","message":{"role":"user","content":[{"type":"text","text":"The log path is wrong, fix it."}]}}
+{"type":"custom_message","customType":"review","content":"ignored extension injection"}
+{"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"Fixed."}],"usage":{"input":80,"output":30,"totalTokens":110,"cost":{"total":0.0015}}}}
+{"type":"message","message":{"role":"user","content":[{"type":"text","text":"[bench-review] Round 1: fail. Fix the crash on empty input."}]}}
+{"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"Fixed crash."}],"usage":{"input":60,"output":20,"totalTokens":80,"cost":{"total":0.0009}}}}
+not valid json line
+{"type":"message","message":{"role":"user","content":[{"type":"text","text":"Also rename the flag."}]}}

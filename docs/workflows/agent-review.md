@@ -118,6 +118,9 @@ Build as three separate commits, in this order.
   - Before writing anything it shows a macOS confirmation dialog (`osascript`, default button
     Cancel, gives up after 25 s). There is no environment variable or flag that skips it; an
     agent cannot click it. Claude's settings also deny running `agent-review approve`.
+    On Linux there is no dialog, so the gate is off: approval goes through without asking, and
+    only the written rules and the settings deny stop an agent. `scripts/spec approve` behaves
+    the same way.
   - On approval it consumes the run itself: claim `pending/<id>.json` as `.processing`, re-check
     the tree, write `decisions/<id>.json` (all files `accepted`, never `skipped`, so no follow-up
     message), remove the claim, delete the `refs/agent-review/<id>/*` refs. Any failure puts the

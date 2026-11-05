@@ -1,0 +1,514 @@
+#!/usr/bin/env python3
+"""headroom-workflow — opt-in launchers for the shared Headroom proxy.
+
+Phase 1 of the shared Headroom pilot (SPEC.md, AC-1..AC-3). Nothing here writes
+user configuration: `claude` and `codex` get child-scoped routing only, and the
+proxy runs in the foreground in the operator's own terminal.
+
+    headroom-workflow proxy     start the loopback proxy (foreground)
+    headroom-workflow status    probe identity and readiness
+    headroom-workflow claude …  run claude through the proxy
+    headroom-workflow codex …   run codex through the proxy (subscription auth)
+    headroom-workflow pi …      run pi through the proxy (extension opt-in)
+
+Normal `claude`, `codex`, `pi` and `headroom` commands stay direct.
+
+The proxy pins its OpenAI-shaped upstream to OpenCode Go, so Pi's opencode-go
+provider and the llm-wiki scripts reach OpenCode while Claude keeps the Anthropic
+upstream and both Codex clients reach chatgpt.com (headroom routes those by auth
+shape, not by that setting).
+"""
+import http.client
+import ipaddress
+import json
+import os
+import shutil
+import socket
+import sys
+from pathlib import Path
+from urllib.parse import urlsplit
+
+URL_ENV = "HEADROOM_WORKFLOW_URL"
+DEFAULT_URL = "http://127.0.0.1:8787"
+SERVICE = "headroom-proxy"
+PROBE_TIMEOUT = 2.0
+
+# One proxy serves three providers: Anthropic stays on its default upstream, both
+# Codex clients are routed to chatgpt.com by auth shape, and this pinned target
+# serves everything OpenAI-shaped that is not ChatGPT-authenticated — Pi's
+# opencode-go provider and the llm-wiki scripts. It is pinned rather than
+# inherited: an operator-supplied value that differs would silently move provider
+# traffic to another vendor.
+PINNED_OPENAI_TARGET = "https://opencode.ai/zen/go/v1"
+
+# Inherited settings that would enable a feature outside the pilot. Any value is
+# refused for the remaining routing vars; only truthy values are refused for the
+# boolean switches. OPENAI_TARGET_API_URL is deliberately absent: the pilot owns
+# it (PINNED_OPENAI_TARGET) and refuses only a differing inherited value.
+FORBIDDEN_TRUTHY_ENV = ("HEADROOM_LOG_MESSAGES", "HEADROOM_INTERCEPT_ENABLED")
+FORBIDDEN_ANY_ENV = (
+    "HEADROOM_PROXY_EXTENSIONS",
+    "HEADROOM_ANTHROPIC_TARGET_API_URL",
+    "HEADROOM_OPENAI_TARGET_API_URL",
+    "HEADROOM_GEMINI_TARGET_API_URL",
+    "HEADROOM_CLOUDCODE_TARGET_API_URL",
+    "ANTHROPIC_TARGET_API_URL",
+    "ANTHROPIC_FOUNDRY_BASE_URL",
+    "GEMINI_TARGET_API_URL",
+    "CLOUDCODE_TARGET_API_URL",
+)
+
+USAGE = """usage: headroom-workflow <command> [args...]
+
+  proxy            start the loopback Headroom proxy in the foreground
+  status           report proxy identity and readiness
+  claude [args...] run claude with child-scoped proxy routing
+  codex  [args...] run codex with command-scoped proxy routing (subscription auth)
+  pi     [args...] run pi with the routing extension loaded
+
+Proxy URL: HEADROOM_WORKFLOW_URL (default http://127.0.0.1:8787).
+Proxy OpenAI target is pinned to """ + PINNED_OPENAI_TARGET + """.
+"""
+
+
+class Address:
+    def __init__(self, host, port):
+        self.host = host
+        self.port = port
+
+    @property
+    def netloc(self):
+        return f"[{self.host}]" if ":" in self.host else self.host
+
+    @property
+    def base(self):
+        return f"http://{self.netloc}:{self.port}"
+
+    @property
+    def bind_host(self):
+        # localhost may resolve to ::1; the pilot proxy always binds IPv4.
+        return "127.0.0.1" if self.host == "localhost" else self.host
+
+
+class ProbeError(Exception):
+    """The configured URL does not answer as a ready Headroom proxy."""
+
+
+def fail(message):
+    print(f"headroom-workflow: {message}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def usage(message):
+    print(f"headroom-workflow: {message}", file=sys.stderr)
+    print(USAGE, file=sys.stderr)
+    raise SystemExit(2)
+
+
+def truthy(value):
+    return (value or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def normalize_url(value):
+    return value.strip().rstrip("/")
+
+
+def is_loopback(host):
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def resolve_address(env):
+    raw = env.get(URL_ENV, DEFAULT_URL)
+
+    def bad(reason):
+        fail(f"{URL_ENV} {raw!r} {reason}")
+
+    if raw != raw.strip():
+        bad("has surrounding whitespace")
+    parts = urlsplit(raw)
+    if parts.scheme != "http":
+        bad("must be a plain http:// URL (the pilot proxy serves loopback HTTP)")
+    if parts.username or parts.password:
+        bad("must not embed credentials")
+    if parts.query or parts.fragment:
+        bad("must not carry a query or fragment")
+    if parts.path not in ("", "/"):
+        bad("must not carry a path; use the bare origin")
+    try:
+        port = parts.port
+    except ValueError:
+        bad("has an invalid port")
+    if port is None:
+        bad("must include an explicit port")
+    host = (parts.hostname or "").lower()
+    if not host:
+        bad("has no host")
+    if not is_loopback(host):
+        bad("must point at a loopback host (127.0.0.1, ::1 or localhost)")
+    return Address(host, port)
+
+
+def http_json(address, path):
+    conn = http.client.HTTPConnection(address.bind_host, address.port,
+                                      timeout=PROBE_TIMEOUT)
+    try:
+        # http.client does not follow redirects, so a redirect cannot be
+        # mistaken for a healthy proxy.
+        conn.request("GET", path, headers={"Accept": "application/json"})
+        response = conn.getresponse()
+        body = response.read(1 << 20)
+        status = response.status
+    except (OSError, http.client.HTTPException) as exc:
+        raise ProbeError(f"{address.base}: {exc}") from exc
+    finally:
+        conn.close()
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        payload = None
+    return status, payload
+
+
+def describe(status, payload):
+    service = payload.get("service") if isinstance(payload, dict) else None
+    return f"HTTP {status}, service={service!r}"
+
+
+def probe(address):
+    """Return the /readyz payload, or raise ProbeError with a clear reason."""
+    try:
+        status, live = http_json(address, "/livez")
+    except ProbeError:
+        raise ProbeError(
+            f"no proxy listening at {address.base}: start it with: "
+            "headroom-workflow proxy"
+        ) from None
+    if status != 200 or not isinstance(live, dict) or live.get("service") != SERVICE:
+        raise ProbeError(
+            f"listener at {address.base} is not Headroom "
+            f"(GET /livez -> {describe(status, live)}); refusing to route "
+            "provider traffic to it"
+        )
+    status, ready = http_json(address, "/readyz")
+    if (status != 200 or not isinstance(ready, dict)
+            or ready.get("service") != SERVICE or ready.get("ready") is not True):
+        raise ProbeError(
+            f"Headroom proxy at {address.base} is not ready "
+            f"(GET /readyz -> {describe(status, ready)}); check its log"
+        )
+    return ready
+
+
+def require_ready(address):
+    try:
+        return probe(address)
+    except ProbeError as exc:
+        fail(str(exc))
+
+
+def require_binary(name, recovery):
+    path = shutil.which(name)
+    if not path:
+        fail(f"{name} not found on PATH; {recovery}")
+    return path
+
+
+def listener_present(address):
+    try:
+        with socket.create_connection((address.bind_host, address.port), timeout=1.0):
+            return True
+    except OSError:
+        return False
+
+
+def inherited_conflicts(env, names, expected=None):
+    conflicts = []
+    for name in names:
+        value = env.get(name)
+        if not value:
+            continue
+        if expected is not None and normalize_url(value) == normalize_url(expected):
+            continue
+        conflicts.append(f"{name} is already set to {value}")
+    return conflicts
+
+
+def claude_settings_conflict(env, address):
+    home = Path(env.get("HOME") or Path.home())
+    config_dir = Path(env.get("CLAUDE_CONFIG_DIR") or home / ".claude")
+    path = config_dir / "settings.json"
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return f"{path} cannot be read as JSON, so conflicting routing cannot be ruled out"
+    settings_env = data.get("env") if isinstance(data, dict) else None
+    value = settings_env.get("ANTHROPIC_BASE_URL") if isinstance(settings_env, dict) else None
+    if isinstance(value, str) and normalize_url(value) != normalize_url(address.base):
+        return f"{path} sets env.ANTHROPIC_BASE_URL to {value}"
+    return None
+
+
+def toml_value(raw):
+    if raw[:1] in ("'", '"'):
+        end = raw.find(raw[0], 1)
+        return raw[1:end] if end > 0 else raw[1:]
+    return raw.split("#", 1)[0].strip()
+
+
+def toml_scalars(text):
+    """Minimal top-level and section key scan; enough to spot routing keys."""
+    top, sections, current = {}, {}, None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith("[") and stripped.endswith("]"):
+            current = stripped.strip("[]").strip()
+            sections.setdefault(current, {})
+            continue
+        key, sep, value = stripped.partition("=")
+        if not sep:
+            continue
+        key = key.strip()
+        if current is None:
+            top[key] = toml_value(value.strip())
+        else:
+            sections[current][key] = toml_value(value.strip())
+    return top, sections
+
+
+def codex_config_conflicts(env, address):
+    """Report Codex config that would route outside the pilot's subscription path.
+
+    Only the subscription surface is routed (`chatgpt_base_url`). `openai_base_url`
+    is the API-key path and is deliberately left alone — except when it still points
+    at the proxy, which is a leftover from an earlier phase where the OpenAI path was
+    routed too. Under the pinned target that leftover would hand OpenAI credentials
+    to OpenCode Go.
+    """
+    home = Path(env.get("HOME") or Path.home())
+    codex_home = Path(env.get("CODEX_HOME") or home / ".codex")
+    path = codex_home / "config.toml"
+    if not path.is_file():
+        return []
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return [f"{path} cannot be read, so conflicting routing cannot be ruled out"]
+
+    expected_chatgpt = f"{address.base}/backend-api/"
+    stale_openai = f"{address.base}/v1"
+    top, sections = toml_scalars(text)
+    conflicts = []
+
+    chatgpt = top.get("chatgpt_base_url")
+    if chatgpt and normalize_url(chatgpt) != normalize_url(expected_chatgpt):
+        conflicts.append(f"{path} sets chatgpt_base_url to {chatgpt}")
+    openai_base = top.get("openai_base_url")
+    if openai_base and normalize_url(openai_base) == normalize_url(stale_openai):
+        conflicts.append(
+            f"{path} still routes openai_base_url through the proxy ({openai_base}); "
+            "remove it so API-key traffic never reaches the pinned target")
+    provider = top.get("model_provider")
+    if provider and provider != "openai":
+        conflicts.append(
+            f"{path} sets model_provider to {provider!r}, which would bypass "
+            "the built-in openai routing")
+    for section, values in sections.items():
+        base = values.get("base_url")
+        if base and normalize_url(base) == normalize_url(stale_openai):
+            conflicts.append(
+                f"{path} still routes [{section}].base_url through the proxy ({base})")
+    return conflicts
+
+
+def argv_routing_conflicts(argv, keys):
+    """Return user `-c key=value` overrides that would reroute the child."""
+    found = []
+    index = 0
+    while index < len(argv):
+        arg = argv[index]
+        value = None
+        if arg in ("-c", "--config") and index + 1 < len(argv):
+            value = argv[index + 1]
+            index += 2
+        elif arg.startswith("--config="):
+            value = arg.split("=", 1)[1]
+            index += 1
+        elif arg.startswith("-c") and len(arg) > 2:
+            value = arg[2:]
+            index += 1
+        else:
+            index += 1
+            continue
+        if value.partition("=")[0].strip() in keys:
+            found.append(f"{arg} {value}".strip())
+    return found
+
+
+def refuse_conflicts(binary, conflicts, address, hint=None):
+    if not conflicts:
+        return
+    fail(
+        f"refusing to launch {binary} with conflicting routing: "
+        + "; ".join(conflicts)
+        + f". {hint or f'Point it at {address.base}, unset it, or run the direct `{binary}` command.'}"
+        + " If Codex was persistently wrapped, run `headroom unwrap codex` first."
+    )
+
+
+def stale_openai_routing(env, address):
+    """Catch an OPENAI_BASE_URL left pointing at the proxy by an earlier phase."""
+    value = env.get("OPENAI_BASE_URL")
+    if value and normalize_url(value) in (
+            normalize_url(f"{address.base}/v1"), normalize_url(address.base)):
+        return [f"OPENAI_BASE_URL is still pointed at the proxy ({value})"]
+    return []
+
+
+def cmd_proxy(argv, env):
+    if argv:
+        usage("proxy takes no arguments; it runs the fixed pilot policy")
+    address = resolve_address(env)
+    for name in FORBIDDEN_TRUTHY_ENV:
+        if truthy(env.get(name)):
+            fail(f"refusing to start: {name} is set and would enable a feature "
+                 f"outside the pilot; unset it first: env -u {name} "
+                 "headroom-workflow proxy")
+    for name in FORBIDDEN_ANY_ENV:
+        if env.get(name):
+            fail(f"refusing to start: {name} is set and would route outside the "
+                 f"pilot; unset it first: env -u {name} headroom-workflow proxy")
+    if listener_present(address):
+        fail(f"something is already listening at {address.base}; refusing to "
+             "start a second proxy. Stop that listener or point "
+             f"{URL_ENV} at a free loopback port.")
+    binary = require_binary("headroom", "install it with: uv tool install headroom-ai")
+    inherited_target = env.get("OPENAI_TARGET_API_URL")
+    if inherited_target and normalize_url(inherited_target) != normalize_url(PINNED_OPENAI_TARGET):
+        fail("refusing to start: OPENAI_TARGET_API_URL is already set to "
+             f"{inherited_target}, but this pilot pins it to {PINNED_OPENAI_TARGET}. "
+             "Unset it first: env -u OPENAI_TARGET_API_URL headroom-workflow proxy")
+    child_env = dict(env)
+    child_env["OPENAI_TARGET_API_URL"] = PINNED_OPENAI_TARGET
+    os.execvpe(binary, [
+        binary, "proxy",
+        "--host", address.bind_host,
+        "--port", str(address.port),
+        "--mode", "cache",
+        "--workers", "1",
+        "--no-cache",
+        "--no-telemetry",
+    ], child_env)
+
+
+def cmd_status(argv, env):
+    if argv:
+        usage("status takes no arguments")
+    address = resolve_address(env)
+    ready = require_ready(address)
+    version = ready.get("version") or "unknown version"
+    print(f"headroom-workflow: {SERVICE} {version} ready at {address.base}")
+
+
+def cmd_claude(argv, env):
+    address = resolve_address(env)
+    conflicts = inherited_conflicts(env, ("ANTHROPIC_BASE_URL",))
+    settings = claude_settings_conflict(env, address)
+    if settings:
+        conflicts.append(settings)
+    refuse_conflicts("claude", conflicts, address)
+    binary = require_binary("claude", "install Claude Code, then retry")
+    require_ready(address)
+    child_env = dict(env)
+    child_env["ANTHROPIC_BASE_URL"] = address.base
+    os.execvpe(binary, [binary, *argv], child_env)
+
+
+def cmd_codex(argv, env):
+    address = resolve_address(env)
+    conflicts = stale_openai_routing(env, address)
+    conflicts.extend(codex_config_conflicts(env, address))
+    conflicts.extend(argv_routing_conflicts(
+        argv, ("openai_base_url", "chatgpt_base_url", "model_provider")))
+    refuse_conflicts(
+        "codex", conflicts, address,
+        hint="Only Codex subscription traffic is supported through the proxy, so the "
+             "OpenAI API-key path is left direct; run plain `codex` for that.")
+    binary = require_binary("codex", "install the Codex CLI, then retry")
+    require_ready(address)
+    # Subscription surface only. openai_base_url is intentionally not pinned: under
+    # the pilot's pinned target an API-key Codex run would otherwise be sent to
+    # OpenCode Go with OpenAI credentials attached.
+    os.execvpe(binary, [
+        binary,
+        "-c", f'chatgpt_base_url="{address.base}/backend-api/"',
+        *argv,
+    ], dict(env))
+
+
+def pi_extension(env):
+    """Return (source path, already_installed) for the routing extension.
+
+    Pi loads every file in ~/.pi/agent/extensions, so a stow-installed copy is
+    already active; passing --extension as well would load it twice.
+    """
+    source = Path(__file__).resolve().parent.parent / "pi/.pi/agent/extensions/headroom.ts"
+    if not source.is_file():
+        fail(f"Pi routing extension not found at {source}; run this from a dotfiles checkout")
+    home = Path(env.get("HOME") or Path.home())
+    installed = home / ".pi/agent/extensions/headroom.ts"
+    try:
+        already = installed.is_file() and installed.resolve() == source.resolve()
+    except OSError:
+        already = False
+    return source, already
+
+
+def cmd_pi(argv, env):
+    address = resolve_address(env)
+    conflicts = inherited_conflicts(env, ("PI_HEADROOM_URL",), expected=address.base)
+    refuse_conflicts(
+        "pi", conflicts, address,
+        hint="The launcher supplies PI_HEADROOM and PI_HEADROOM_URL itself, so an "
+             "inherited value would describe a different proxy.")
+    binary = require_binary("pi", "install Pi, then retry")
+    source, already_installed = pi_extension(env)
+    require_ready(address)
+    child_env = dict(env)
+    child_env["PI_HEADROOM"] = "1"
+    child_env["PI_HEADROOM_URL"] = address.base
+    args = [binary] if already_installed else [binary, "--extension", str(source)]
+    os.execvpe(binary, [*args, *argv], child_env)
+
+
+COMMANDS = {
+    "proxy": cmd_proxy,
+    "status": cmd_status,
+    "claude": cmd_claude,
+    "codex": cmd_codex,
+    "pi": cmd_pi,
+}
+
+
+def main(argv, env):
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        print(USAGE, end="")
+        return 0
+    command, rest = argv[0], argv[1:]
+    handler = COMMANDS.get(command)
+    if handler is None:
+        usage(f"unknown command {command!r}")
+    handler(rest, env)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:], os.environ))

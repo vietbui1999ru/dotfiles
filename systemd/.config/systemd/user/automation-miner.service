@@ -1,0 +1,7 @@
+# Linux counterpart of launchd com.vietbui.automation-miner. Run by automation-miner.timer.
+[Unit]
+Description=automation-miner: file ranked automation candidates as GitHub issues
+
+[Service]
+Type=oneshot
+ExecStart=/bin/zsh -lc %h/dotfiles/scripts/automation-miner

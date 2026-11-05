@@ -10,8 +10,8 @@
 # pueue (task queue). The real binaries go in /usr/local/bin, mirroring Homebrew's
 # pueue on the Mac: bootstrap-dirs.sh links ~/.local/bin/pueue (earlier on PATH) to
 # the secret-scrubbing wrapper scripts/pueue-safe, which finds the real binary by
-# searching PATH past itself. Skipped on lite boxes. No service is installed;
-# dispatch starts pueued.
+# searching PATH past itself. Skipped on lite boxes. pueued runs as a systemd user
+# service (dotfiles/systemd, enabled at the end of this role).
 - name: Fetch the latest pueue release tag
   ansible.builtin.uri:
     url: https://api.github.com/repos/Nukesor/pueue/releases/latest
@@ -99,9 +99,10 @@
   when: not agent_lite | bool
 
 # Headroom CLI, proxy and MCP server (`[all]`), as a uv tool on Python 3.13.
-# The proxy itself runs from systemd/headroom-proxy.service and
-# systemd/headroom-zen.service (see below), bound to 127.0.0.1. Expose it to other
-# machines only through `tailscale serve` (HTTPS, tailnet-only), never as plain HTTP on a LAN address.
+# The proxies run from the systemd stow package (systemd/.config/systemd/user/
+# headroom-*.service), started by "Enable and start the agent user services" below
+# and bound to 127.0.0.1. Expose them to other machines only through
+# `tailscale serve` (HTTPS, tailnet-only), never as plain HTTP on a LAN address.
 - name: Install Headroom (uv tool)
   ansible.builtin.command: >-
     mise x -- uv tool install --python 3.13 "headroom-ai[all]"
@@ -111,77 +112,18 @@
     PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.HOME }}/.local/share/mise/shims:{{ ansible_env.PATH }}"
   when: agents_headroom_enabled | bool
 
-# The user units are linked one file at a time rather than stowed: linking the
-# whole systemd/ folder into ~/.config/systemd/user would turn every file in the
-# repo directory into a unit.
-- name: Ensure ~/.config/systemd/user exists
-  ansible.builtin.file:
-    path: "{{ ansible_env.HOME }}/.config/systemd/user"
-    state: directory
-    mode: "0755"
-  when: agents_headroom_enabled | bool
-
-- name: Link the Headroom user units
-  ansible.builtin.file:
-    src: "{{ ansible_env.HOME }}/dotfiles/systemd/{{ item }}"
-    dest: "{{ ansible_env.HOME }}/.config/systemd/user/{{ item }}"
-    state: link
-    force: true
-  loop:
-    - headroom-proxy.service
-    - headroom-zen.service
-  when: agents_headroom_enabled | bool
-
-# Molecule containers and WSL2 without systemd have no /run/systemd/system, and
-# nothing below can work there. The units are still linked, so they start on a
-# later boot of a real systemd box.
-- name: Check whether systemd is running
-  ansible.builtin.stat:
-    path: /run/systemd/system
-  register: agents_systemd_running
-
+# Molecule containers and WSL2 without systemd are not managed by systemd, and the
+# user services are not started there. The units are still stowed, so they start
+# once the role reruns on a box that boots systemd.
 - name: Note that the Headroom user services were not started
   ansible.builtin.debug:
     msg: >-
-      /run/systemd/system is missing, so the Headroom user units were linked but
-      not started or enabled, and no client was pointed at the proxy. Rerun this
-      role on a box that boots systemd.
+      systemd is not the service manager here, so the Headroom user units were
+      stowed but not started or enabled, and no client was pointed at the proxy.
+      Rerun this role on a box that boots systemd.
   when:
     - agents_headroom_enabled | bool
-    - not agents_systemd_running.stat.exists
-
-# Without linger the user manager stops at logout, which is exactly what a
-# headless box never does in practice and WSL2 does after the last shell.
-- name: Read the current linger setting
-  ansible.builtin.command: loginctl show-user {{ ansible_user_id }} -p Linger
-  register: agents_linger
-  changed_when: false
-  failed_when: false
-  when:
-    - agents_headroom_enabled | bool
-    - agents_systemd_running.stat.exists
-
-- name: Keep the user manager running without a login session
-  ansible.builtin.command: loginctl enable-linger {{ ansible_user_id }}
-  when:
-    - agents_headroom_enabled | bool
-    - agents_systemd_running.stat.exists
-    - agents_linger.rc == 0
-    - "'Linger=yes' not in agents_linger.stdout"
-
-- name: Start the Headroom user services
-  ansible.builtin.systemd_service:
-    name: "{{ item }}"
-    scope: user
-    daemon_reload: true
-    enabled: true
-    state: started
-  loop:
-    - headroom-proxy.service
-    - headroom-zen.service
-  when:
-    - agents_headroom_enabled | bool
-    - agents_systemd_running.stat.exists
+    - ansible_service_mgr != "systemd"
 
 # Pi has no env override for a provider base URL, so its route lives in
 # ~/.pi/agent/models.json. The generator reads Pi's own catalog, which only
@@ -193,7 +135,7 @@
   when:
     - agents_headroom_enabled | bool
     - not agent_lite | bool
-    - agents_systemd_running.stat.exists
+    - ansible_service_mgr == "systemd"
 
 - name: Note that Pi keeps the direct opencode-go route
   ansible.builtin.debug:
@@ -204,7 +146,7 @@
   when:
     - agents_headroom_enabled | bool
     - not agent_lite | bool
-    - agents_systemd_running.stat.exists
+    - ansible_service_mgr == "systemd"
     - not agents_pi_models_store.stat.exists
 
 # The script rewrites models.json with the same bytes when nothing changed, so
@@ -216,7 +158,7 @@
   when:
     - agents_headroom_enabled | bool
     - not agent_lite | bool
-    - agents_systemd_running.stat.exists
+    - ansible_service_mgr == "systemd"
     - agents_pi_models_store.stat.exists
 
 - name: Ensure ~/secrets exists (owner-only)
@@ -224,6 +166,29 @@
     path: "{{ ansible_env.HOME }}/secrets"
     state: directory
     mode: "0700"
+
+# User services from the dotfiles/systemd stow package. Enabled only where systemd is
+# the service manager (not in Molecule containers). Linger lets them run at boot
+# without a login. automation-miner.timer is left to the user: it needs `gh` auth.
+- name: Enable linger so user services start at boot
+  ansible.builtin.command: loginctl enable-linger {{ ansible_env.USER }}
+  args:
+    creates: "/var/lib/systemd/linger/{{ ansible_env.USER }}"
+  become: true
+  when: ansible_service_mgr == "systemd"
+
+- name: Enable and start the agent user services
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    scope: user
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop: >-
+    {{ ([] if agent_lite | bool else ['pueued.service'])
+       + (['headroom-proxy.service', 'headroom-zen.service', 'headroom-dash.service']
+          if agents_headroom_enabled | bool else []) }}
+  when: ansible_service_mgr == "systemd"
 
 # Secrets are never copied by the playbook.
 - name: Remind to copy secrets by hand

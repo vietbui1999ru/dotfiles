@@ -1,0 +1,10 @@
+# Weekly, Sunday 19:00, as in the launchd plist. Persistent catches a run missed while off.
+[Unit]
+Description=Weekly automation-miner run
+
+[Timer]
+OnCalendar=Sun 19:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

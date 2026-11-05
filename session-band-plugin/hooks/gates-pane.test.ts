@@ -16,6 +16,8 @@ const lines = (node: unknown): string[] => {
   return children.flatMap(lines)
 }
 
+const answer = { value: 'Approve' as 'Approve' | 'Deny' | 'dismiss' }
+
 const setup = (on: Parameters<Parameters<typeof test>[1]>[1], state = 'draft', hold = false, reviews = { ...OK, stdout: '[]' }, approval = '{"ok":true}') => {
   const clock = mock.clock(on, { now: 1000 })
   mock.env(on, { HOME: '/h', TMPDIR: '/tmp', USER: 'test' })
@@ -24,6 +26,15 @@ const setup = (on: Parameters<Parameters<typeof test>[1]>[1], state = 'draft', h
   on('session.cwd', () => ({ value: '/r/w' }))
   on('fs.read', (_$, e) => ({ value: e.path === '/r/w/SPEC.md' ? '---\nbranch: feat/w\n---\n' : e.path === '/r/SPEC.md' ? '---\nbranch: main\n---\n' : '' }))
   on('fs.list', () => ({ value: [] } as never))
+  // The spec approve question: Approve unless a test sets the answer.
+  const asked: string[] = []
+  on('tool.call', (_$, e) => {
+    if (e.tool !== 'AskUserQuestion') return { result: 'ok', text: 'ok' }
+    const question = (e as { questions: { question: string }[] }).questions[0]?.question ?? ''
+    asked.push(question)
+    if (answer.value === 'dismiss') throw new Error('dismissed')
+    return { result: { answers: { [question]: answer.value } } } as never
+  })
   const calls: { argv: string[]; cwd?: string; timeoutMs?: number }[] = []
   let release: (() => void) | undefined
   const waiting = new Promise<void>(resolve => { release = resolve })
@@ -52,7 +63,7 @@ const setup = (on: Parameters<Parameters<typeof test>[1]>[1], state = 'draft', h
     if (e.argv.includes('--remote-expr')) return { value: { ...OK, stdout: '/r/w' } } as never
     return { value: OK } as never
   })
-  return { clock, calls, opens, release: () => release?.(), reached }
+  return { clock, calls, opens, asked, release: () => release?.(), reached }
 }
 
 const review = (over: Record<string, unknown> = {}) => ({ runId: 'run-12345678', owner: '/r/w', branch: 'feat/w', name: 'build', startedAt: '', processing: false, error: false, landed: true, orphan: false, ...over })
@@ -154,6 +165,30 @@ test('gates approve runs in the spec worktree with baseline timeout', async ($, 
   await ui.press({ key: 'gates-approve' })
   await clock.settle()
   expect(calls.filter(call => call.argv[1] === 'approve')).toEqual([{ argv: ['/h/dotfiles/scripts/spec', 'approve', '/r/w/SPEC.md'], cwd: '/r/w', timeoutMs: 345000 }])
+})
+
+test('gates deny on a spec row runs spec reject, not approve', async ($, on) => {
+  const { clock, calls, asked } = setup(on)
+  answer.value = 'Deny'
+  await $.command.run(RUN)
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  await ui.press({ key: 'gates-approve' })
+  await clock.settle()
+  answer.value = 'Approve'
+  expect(asked.length).toBe(1)
+  expect(calls.filter(call => call.argv[1] === 'approve')).toEqual([])
+  expect(calls.filter(call => call.argv[1] === 'reject')).toEqual([{ argv: ['/h/dotfiles/scripts/spec', 'reject', '/r/w/SPEC.md'], cwd: '/r/w', timeoutMs: undefined }])
+})
+
+test('gates dismissed spec question runs neither approve nor reject', async ($, on) => {
+  const { clock, calls } = setup(on)
+  answer.value = 'dismiss'
+  await $.command.run(RUN)
+  const ui = await $.ui.mount({ plugin: 'session-band', ...PANE })
+  await ui.press({ key: 'gates-approve' })
+  await clock.settle()
+  answer.value = 'Approve'
+  expect(calls.filter(call => call.argv[1] === 'approve' || call.argv[1] === 'reject')).toEqual([])
 })
 
 test('gates second approve while one runs starts no second process', async ($, on) => {

@@ -70,6 +70,25 @@ class WithSecrets(unittest.TestCase):
         self.assertIn("NOT_THERE", out.stderr)
         self.assertFalse(marker.exists(), "command must not run when a key is missing")
 
+    def test_optional_missing_key_still_execs(self):
+        out = self.run_with("--optional", "FAKE_KEY_A", "NOT_THERE", "--", *DUMP)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        child = json.loads(out.stdout)
+        self.assertEqual(child["FAKE_KEY_A"], FAKE_A)
+        self.assertNotIn("NOT_THERE", child)
+        self.assertNotIn("FAKE_KEY_OTHER", child)
+
+    def test_optional_does_not_excuse_a_loose_mode(self):
+        os.chmod(self.file, 0o644)
+        out = self.run_with("--optional", "FAKE_KEY_A", "--", "true")
+        self.assertEqual(out.returncode, 2, out.stderr)
+        self.assertIn("mode", out.stderr)
+
+    def test_optional_without_a_name_is_a_usage_error(self):
+        out = self.run_with("--optional", "--", "true")
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("usage", out.stderr)
+
     def test_missing_key_exit_code_is_secret_get_code(self):
         out = self.run_with("NOT_THERE", "--", "true")
         self.assertEqual(out.returncode, 1)

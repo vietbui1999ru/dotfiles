@@ -53,9 +53,6 @@
   "defaultProjectTrust": "ask",
   "doubleEscapeAction": "tree",
   "treeFilterMode": "all",
-  "warnings": {
-    "anthropicExtraUsage": true
-  },
   "enabledModels": [
     "openai-codex/gpt-6-astra",
     "openai-codex/gpt-6-luna",
