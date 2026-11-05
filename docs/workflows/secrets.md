@@ -13,6 +13,7 @@ tool loads only the keys it needs, at the moment it starts.
 | `redact` | `scripts/redact` | Cleans text (stdin to stdout) before it is logged or pushed: literal `.env` values, token shapes, auth headers, URL credentials. |
 | `secret-scan` | `scripts/secret-scan` | Exits 1 on a file or stdin that holds a key, printing file:line and the pattern name, never the value. |
 
+
 A line containing `secret-scan: allow` is skipped, for a deliberate fake key in a fixture.
 The pre-commit hook (`scripts/link-git-hooks`) runs `secret-scan` on staged content and refuses
 the commit on a hit. `mistake-sync` runs it before commit and push.
@@ -27,6 +28,9 @@ the commit on a hit. `mistake-sync` runs it before commit and push.
 | hclaude | alias, Headroom with `HEADROOM_TELEMETRY=off`, through `with-secrets` | CONTEXT7_API_KEY, EXCALIDRAW_API_KEY |
 | pi-view (pueue dispatch) | `scripts/pi-view`, through `secret-get` | CONTEXT7_API_KEY only |
 | firecrawl MCP (Claude, OpenCode) | `scripts/firecrawl-mcp` as the server command | FIRECRAWL_API_KEY (`FIRECRAWL_ENV_FILE` picks another file, such as send-it) |
+| wiki-chat | `~/.local/bin/wiki-chat`, through `secret-get` (only with `--backend opencode`) | OPENCODE_GO_API_KEY_LIGHTRAG |
+| wiki-index | `~/.local/bin/wiki-index`, through `secret-get` | OPENCODE_GO_API_KEY_LIGHTRAG |
+| wiki-mcp | `~/.local/bin/wiki-mcp` as an MCP server command, through `secret-get` | OPENCODE_GO_API_KEY_LIGHTRAG |
 
 Without a secrets file the wrappers still start the client, with those MCP keys unset.
 A readable file that lacks one of the keys stops the start and names the key on stderr.
