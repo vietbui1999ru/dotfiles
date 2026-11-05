@@ -14,6 +14,7 @@ import { PANE as BLOCKS_PANE, register as registerSafetyBlocks } from './safety-
 import { loadSessionBlocks, pendingCount } from './safety-blocks'
 import { onSessionStart as lifecycleSessionStart, register as registerLifecycle } from './lifecycle.tsx'
 import { register as registerGates } from './gates.tsx'
+import { captureSpecSession, onSpecReadySessionStart } from './spec-ready.tsx'
 import { register as registerReviewPane, startReviewAnswers } from './review-pane.tsx'
 import { setTurn } from './review-land'
 import { register as registerReviewTouch } from './review-touch'
@@ -183,6 +184,7 @@ export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
     captureSession(e.isInteractive)
+    captureSpecSession(e.isInteractive)
     // A heartbeat failure must not cost the session its command registrations (F3).
     await startHeartbeat($).catch(() => undefined)
     // A settings read failure leaves send-it off for this session rather than failing the start.
@@ -201,6 +203,7 @@ export const register: Register = on => {
       refreshGit($),
     ])
     await lifecycleSessionStart($).catch(() => undefined)
+    onSpecReadySessionStart($)
     // The review base is the snapshot at the session's start, so a failure here never costs the start.
     await ensureSessionBase($, await $.session.id().catch(() => ''), await $.session.cwd().catch(() => '')).catch(() => undefined)
     // One 60-second tick for the review queue: no-reply timeouts, and a retry for a queued Pi batch.

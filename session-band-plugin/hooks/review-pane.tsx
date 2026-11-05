@@ -26,6 +26,7 @@ import {
 import { FOCUS_ACTION, FOCUS_REFUSED, JUMP_KEYS, MOD_PANES, PANE_TITLES, switchSteps } from './pane-nav'
 import { landPatch } from './review-land'
 import { specArgv } from './gates'
+import { askSpec } from './spec-ready.tsx'
 import { approveArgv, approvalAction } from './pane.tsx'
 import { approveSession } from './review-touch'
 import { takeReviewFocus } from './review-focus'
@@ -400,7 +401,17 @@ async function approveCurrent($: EngineInterface, worktree: string, state: Revie
     return
   }
   if (tab.kind === 'spec') {
-    const result = await $.process.run(specArgv(home, 'approve', tab.specPath ?? tab.file), { cwd: worktree, timeoutMs: 600_000 }).catch(() => undefined)
+    const specPath = tab.specPath ?? tab.file
+    const shown = await $.process.run(specArgv(home, 'show', specPath), { cwd: worktree }).catch(() => undefined)
+    let answer: string
+    try {
+      answer = await askSpec($, tab.file, shown?.exitCode === 0 ? shown.stdout : '')
+    } catch {
+      await $.ui.toast('not approved')
+      return
+    }
+    const argv = answer === 'Approve' ? specArgv(home, 'approve', specPath) : specArgv(home, 'reject', specPath)
+    const result = await $.process.run(argv, answer === 'Approve' ? { cwd: worktree, timeoutMs: 600_000 } : { cwd: worktree }).catch(() => undefined)
     const message = (result?.stdout.trim() || result?.stderr.trim() || 'not approved').split('\n').filter(Boolean).pop() ?? 'not approved'
     await $.ui.toast(message)
     await reload($, worktree)

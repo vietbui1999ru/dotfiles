@@ -2,6 +2,7 @@ import { atom, read, update, type EngineInterface, type Register } from 'claude-
 
 import { specArgv, approveTimeoutMs, editRemoteArgv, parseSpecStatus, specRows, REVIEW_LIST_ARGV, parseReviewList, reviewFocus, reviewRows, skipArgv, type GateRow, type SpecRow, type ReviewRow } from './gates'
 import { requestReviewFocus } from './review-focus'
+import { askSpec } from './spec-ready.tsx'
 import { approveArgv, approvalAction, matchingSocket, needsRejectConfirm, rejectToast, reviewRemoteArgv, reviewPaneRunArgv, reviewSplitArgv } from './pane.tsx'
 import { FOCUS_ACTION, FOCUS_REFUSED, JUMP_KEYS, nextPane, PANE_TITLES, switchSteps } from './pane-nav'
 import { PALETTE } from './palette'
@@ -166,7 +167,16 @@ const approve = async ($: EngineInterface, row: GateRow | undefined) => {
       const detail = await show($, row)
       if (home && detail !== undefined) {
         const count = detail.split('\n').filter(line => line.trimStart().startsWith('runs:')).length
-        const result = await $.process.run(specArgv(home, 'approve', row.path), { cwd: row.worktree, timeoutMs: approveTimeoutMs(count) })
+        let answer: string
+        try {
+          answer = await askSpec($, row.rel, detail)
+        } catch {
+          // Dismissed: nothing runs, and the row stays as it was.
+          message = 'not approved'
+          return
+        }
+        const argv = answer === 'Approve' ? specArgv(home, 'approve', row.path) : specArgv(home, 'reject', row.path)
+        const result = await $.process.run(argv, answer === 'Approve' ? { cwd: row.worktree, timeoutMs: approveTimeoutMs(count) } : { cwd: row.worktree })
         message = (result.stdout.trim() || result.stderr.trim()).split('\n').filter(Boolean).pop() ?? 'not approved'
       }
     }
