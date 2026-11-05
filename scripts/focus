@@ -1,0 +1,658 @@
+#!/usr/bin/env python3
+"""Focus slots: one work item and one hobby item open at a time, the rest frozen or parked.
+
+The board is a Markdown file (FOCUS_BOARD, default ~/repos/Obsidian/Focus.md) with four
+sections: ## Work, ## Hobby, ## Frozen, ## Parked. Only the first three are edited by the
+commands here; Parked lines are kept verbatim and in order.
+
+Subcommands: status, switch, drop, park, stage, triage, prompt, guard, allow, check-dispatch.
+Stdlib only. The hook entry points (prompt, guard) read the hook JSON from stdin and never
+raise, so a broken board cannot wedge a session.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+from datetime import date
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import focus_triage as triage  # noqa: E402  (beside this file; read-only inventory)
+
+STAGES = ["spec", "plan", "build", "review", "merge"]
+FROZEN_CAP = 3
+SECTIONS = ["Work", "Hobby", "Frozen", "Parked"]
+KEY_RE = re.compile(r"^[A-Za-z0-9._-]+:[^\s|]+$")
+ITEM_RE = re.compile(r"^- (?P<key>\S+?)(?: \| stage: (?P<stage>\w+))?\s*$")
+
+
+def home() -> Path:
+    return Path(os.environ.get("HOME", str(Path.home())))
+
+
+def board_path() -> Path:
+    override = os.environ.get("FOCUS_BOARD")
+    return Path(override) if override else home() / "repos" / "Obsidian" / "Focus.md"
+
+
+def state_dir() -> Path:
+    override = os.environ.get("FOCUS_STATE")
+    return Path(override) if override else home() / ".claude" / "state" / "focus"
+
+
+def roots() -> list[Path]:
+    raw = os.environ.get("FOCUS_ROOTS")
+    if raw is None:
+        return [home() / "repos"]
+    return [Path(part) for part in raw.split(os.pathsep) if part]
+
+
+def repo_path(repo: str) -> Path:
+    if repo == "dotfiles":
+        return home() / "dotfiles"
+    for root in roots():
+        candidate = root / repo
+        if candidate.exists():
+            return candidate
+    return (roots()[0] if roots() else home() / "repos") / repo
+
+
+# ---------------------------------------------------------------- board parsing
+
+
+class Board:
+    """The board as ordered lines, split into sections. Writing back reproduces untouched bytes."""
+
+    def __init__(self, text: str):
+        self.preamble: list[str] = []
+        self.sections: dict[str, list[str]] = {name: [] for name in SECTIONS}
+        self.order: list[str] = []
+        current: str | None = None
+        for line in text.splitlines():
+            heading = re.match(r"^## (\w+)\s*$", line)
+            if heading and heading.group(1) in self.sections:
+                current = heading.group(1)
+                self.order.append(current)
+                continue
+            if current is None:
+                self.preamble.append(line)
+            else:
+                self.sections[current].append(line)
+        self.trailing_newline = text.endswith("\n")
+
+    def render(self) -> str:
+        out = list(self.preamble)
+        for name in self.order:
+            out.append(f"## {name}")
+            out.extend(self.sections[name])
+        text = "\n".join(out)
+        return text + "\n" if self.trailing_newline else text
+
+    def work_repos(self) -> list[str]:
+        for line in self.preamble:
+            match = re.match(r"^work-repos:\s*(.*)$", line)
+            if match:
+                return [part.strip() for part in match.group(1).split(",") if part.strip()]
+        return []
+
+    def items(self, name: str) -> list[dict]:
+        """Top-level `- key | stage: S` lines of one section, with their indented sub-lines."""
+        found: list[dict] = []
+        for index, line in enumerate(self.sections[name]):
+            match = ITEM_RE.match(line)
+            if match and not line.startswith("  "):
+                found.append({"key": match.group("key"), "stage": match.group("stage"), "line": index})
+        return found
+
+    def item_block(self, name: str, index: int) -> list[str]:
+        block = [self.sections[name][index]]
+        for line in self.sections[name][index + 1:]:
+            if line.startswith("  "):
+                block.append(line)
+            else:
+                break
+        return block
+
+    def remove_item(self, name: str, key: str) -> list[str] | None:
+        lines = self.sections[name]
+        for index, item in enumerate(self.items(name)):
+            if item["key"] == key:
+                block = self.item_block(name, item["line"])
+                del lines[item["line"]:item["line"] + len(block)]
+                return block
+        return None
+
+    def append(self, name: str, block: list[str]) -> None:
+        lines = self.sections[name]
+        while lines and lines[-1] == "":
+            lines.pop()
+        lines.extend(block)
+        lines.append("")
+
+    def set_stage(self, key: str, stage: str) -> bool:
+        for name in ("Work", "Hobby", "Frozen"):
+            for item in self.items(name):
+                if item["key"] == key:
+                    line = self.sections[name][item["line"]]
+                    head = ITEM_RE.match(line)
+                    base = head.group("key")
+                    self.sections[name][item["line"]] = f"- {base} | stage: {stage}"
+                    return True
+        return False
+
+
+def load_board() -> Board | None:
+    path = board_path()
+    try:
+        return Board(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, IsADirectoryError):
+        return None
+
+
+def save_board(board: Board) -> None:
+    path = board_path()
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(board.render(), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def describe(item: dict | None) -> dict | None:
+    if item is None:
+        return None
+    return {"key": item["key"], "stage": item["stage"] or STAGES[0]}
+
+
+def breaches(board: Board) -> list[str]:
+    out = []
+    for name in ("Work", "Hobby"):
+        count = len(board.items(name))
+        if count > 1:
+            out.append(f"breach: {name} holds {count} items")
+    frozen = len(board.items("Frozen"))
+    if frozen > FROZEN_CAP:
+        out.append(f"breach: Frozen holds {frozen} items (cap {FROZEN_CAP})")
+    return out
+
+
+def state(board: Board) -> dict:
+    work = board.items("Work")
+    hobby = board.items("Hobby")
+    return {
+        "work": describe(work[0]) if work else None,
+        "hobby": describe(hobby[0]) if hobby else None,
+        "frozen": [describe(item) for item in board.items("Frozen")],
+        "parked": [line[2:] for line in board.sections["Parked"] if line.startswith("- ")],
+        "read_only": False,
+        "breaches": breaches(board),
+    }
+
+
+def slot_for(board: Board, key: str) -> str:
+    repo = key.split(":", 1)[0]
+    return "Work" if repo in board.work_repos() else "Hobby"
+
+
+def worktree_of(key: str) -> Path | None:
+    repo, _, branch = key.partition(":")
+    repo_dir = repo_path(repo)
+    try:
+        out = subprocess.run(["git", "-C", str(repo_dir), "worktree", "list", "--porcelain"],
+                             capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if out.returncode != 0:
+        return None
+    path = None
+    for line in out.stdout.splitlines():
+        if line.startswith("worktree "):
+            path = line[len("worktree "):]
+        elif line == f"branch refs/heads/{branch}" and path:
+            return Path(path)
+    return None
+
+
+def focus_worktrees(board: Board | None) -> list[Path]:
+    if board is None:
+        return []
+    found = []
+    for name in ("Work", "Hobby", "Frozen"):
+        for item in board.items(name):
+            path = worktree_of(item["key"])
+            if path is not None:
+                found.append(path)
+    return found
+
+
+def inside(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+        return True
+    except (ValueError, OSError):
+        return False
+
+
+def in_focus(board: Board | None, cwd: str) -> bool:
+    if board is None or not cwd:
+        return False
+    return any(inside(Path(cwd), wt) for wt in focus_worktrees(board))
+
+
+# ---------------------------------------------------------------- commands
+
+
+def cmd_status(args) -> int:
+    board = load_board()
+    if board is None:
+        if args.json:
+            print(json.dumps({"no_board": True}))
+        else:
+            print("focus: no board")
+        return 0
+    info = state(board)
+    if args.cwd:
+        info["read_only"] = not in_focus(board, args.cwd)
+    if args.json:
+        print(json.dumps(info))
+        return 1 if info["breaches"] else 0
+    w, h = info["work"], info["hobby"]
+    print(f"work:   {w['key']} [{w['stage']}]" if w else "work:   (empty)")
+    print(f"hobby:  {h['key']} [{h['stage']}]" if h else "hobby:  (empty)")
+    print(f"frozen: {len(info['frozen'])}")
+    if args.cwd:
+        print("this worktree: " + ("focus item" if not info["read_only"] else "read-only"))
+    for b in info["breaches"]:
+        print(b)
+    return 1 if info["breaches"] else 0
+
+
+def cmd_switch(args) -> int:
+    board = load_board()
+    if board is None:
+        print("focus: no board", file=sys.stderr)
+        return 1
+    key = args.key
+    if not KEY_RE.match(key):
+        print(f"focus: not a key (repo:branch): {key}", file=sys.stderr)
+        return 1
+    slot = slot_for(board, key)
+    frozen_now = board.items("Frozen")
+    existing = [i for i in frozen_now if i["key"] == key]
+    if not existing and len(frozen_now) >= FROZEN_CAP and board.items(slot):
+        print(f"focus: Frozen already holds {FROZEN_CAP}; park or drop one first", file=sys.stderr)
+        return 1
+    # Take the target out of Frozen or Parked, wherever it sits.
+    block = board.remove_item("Frozen", key)
+    if block is None:
+        for index, line in enumerate(board.sections["Parked"]):
+            if line.startswith("- ") and line[2:] == key:
+                del board.sections["Parked"][index]
+                block = [f"- {key}"]
+                break
+    if block is None:
+        block = [f"- {key}"]
+    # The old occupant of the slot is frozen, keeping its own stage.
+    for old in board.items(slot):
+        old_block = board.remove_item(slot, old["key"])
+        if old_block:
+            board.append("Frozen", old_block)
+    new_line = block[0]
+    if args.stage:
+        if args.stage not in STAGES:
+            print(f"focus: stage must be one of {', '.join(STAGES)}", file=sys.stderr)
+            return 1
+        new_line = f"- {key} | stage: {args.stage}"
+    elif not ITEM_RE.match(new_line) or not ITEM_RE.match(new_line).group("stage"):
+        new_line = f"- {key} | stage: {STAGES[2]}"
+    board.append(slot, [new_line] + block[1:])
+    save_board(board)
+    print(f"focus: {slot.lower()} is now {key}")
+    return 0
+
+
+def cmd_drop(args) -> int:
+    board = load_board()
+    if board is None:
+        print("focus: no board", file=sys.stderr)
+        return 1
+    removed = False
+    for name in ("Work", "Hobby", "Frozen"):
+        if board.remove_item(name, args.key) is not None:
+            removed = True
+            break
+    if not removed:
+        print(f"focus: {args.key} is not an open item", file=sys.stderr)
+        return 1
+    save_board(board)
+    print(f"focus: dropped {args.key} from the board")
+    if args.yes:
+        path = worktree_of(args.key)
+        if path is None:
+            print("focus: no worktree to remove")
+        else:
+            repo = repo_path(args.key.split(":", 1)[0])
+            result = subprocess.run(["git", "-C", str(repo), "worktree", "remove", str(path)])
+            if result.returncode != 0:
+                print(f"focus: worktree kept; git refused to remove {path}", file=sys.stderr)
+                return 1
+            print(f"focus: removed worktree {path} (the branch is kept)")
+    else:
+        print("focus: worktree left in place (pass --yes to remove it)")
+    return 0
+
+
+def cmd_park(args) -> int:
+    board = load_board()
+    if board is None:
+        print("focus: no board", file=sys.stderr)
+        return 1
+    block = None
+    for name in ("Work", "Hobby", "Frozen"):
+        block = board.remove_item(name, args.key)
+        if block is not None:
+            break
+    if block is None:
+        print(f"focus: {args.key} is not an open item", file=sys.stderr)
+        return 1
+    board.sections["Parked"].append(f"- {args.key}")
+    save_board(board)
+    print(f"focus: parked {args.key}")
+    return 0
+
+
+def cmd_stage(args) -> int:
+    board = load_board()
+    if board is None:
+        print("focus: no board", file=sys.stderr)
+        return 1
+    if args.stage not in STAGES:
+        print(f"focus: stage must be one of {', '.join(STAGES)}", file=sys.stderr)
+        return 1
+    if not board.set_stage(args.key, args.stage):
+        print(f"focus: {args.key} is not an open item", file=sys.stderr)
+        return 1
+    save_board(board)
+    print(f"focus: {args.key} is at {args.stage}")
+    return 0
+
+
+# ---------------------------------------------------------------- hooks and dispatch
+
+ALLOWED_GLOBS_HOME = [
+    ".claude/projects/*/memory",
+    ".claude/jobs/*/tmp",
+    ".claude/plans",
+]
+
+
+def deny_message(board: Board) -> str:
+    info = state(board)
+    work = info["work"]["key"] if info["work"] else "none"
+    hobby = info["hobby"]["key"] if info["hobby"] else "none"
+    return (f"focus: read-only session. Focus items: {work}, {hobby}. "
+            f"Switch: scripts/focus switch <key>. "
+            f"Unblock once: scripts/focus allow <worktree> --session <sid> --blocker \"<reason>\"")
+
+
+def summary_line(board: Board, writable: bool) -> str:
+    info = state(board)
+
+    def part(label: str, item: dict | None) -> str:
+        return f"{label} {item['key']} [{item['stage']}]" if item else f"{label} (empty)"
+
+    tail = "this session: focus" if writable else "this session: read-only"
+    return f"focus: {part('work', info['work'])} | {part('hobby', info['hobby'])} | {tail}"
+
+
+def read_hook_input() -> dict:
+    try:
+        data = json.loads(sys.stdin.read() or "{}")
+    except (json.JSONDecodeError, OSError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def session_record(session: str, cwd: str) -> dict:
+    """The session's record, with start_cwd recorded on first sight and never overwritten."""
+    path = state_dir() / "sessions.json"
+    try:
+        sessions = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        sessions = {}
+    record = sessions.get(session)
+    if record is None:
+        record = {"start_cwd": cwd, "grants": []}
+        sessions[session] = record
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(sessions, indent=2), encoding="utf-8")
+        except OSError:
+            pass
+    return record
+
+
+def save_session(session: str, record: dict) -> None:
+    path = state_dir() / "sessions.json"
+    try:
+        sessions = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        sessions = {}
+    sessions[session] = record
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(sessions, indent=2), encoding="utf-8")
+
+
+def cmd_prompt(_args) -> int:
+    data = read_hook_input()
+    board = load_board()
+    if board is None:
+        print("focus: no board")
+        return 0
+    session = str(data.get("session_id", ""))
+    cwd = str(data.get("cwd", "") or os.getcwd())
+    record = session_record(session, cwd) if session else {"start_cwd": cwd, "grants": []}
+    writable = in_focus(board, record["start_cwd"])
+    print(summary_line(board, writable))
+    return 0
+
+
+def is_allowlisted(path: Path, board_file: Path) -> bool:
+    if inside(path, board_file.parent) and path.resolve() == board_file.resolve():
+        return True
+    for pattern in ALLOWED_GLOBS_HOME:
+        for base in home().glob(pattern):
+            if inside(path, base):
+                return True
+    job_dir = os.environ.get("CLAUDE_JOB_DIR")
+    if job_dir and inside(path, Path(job_dir) / "tmp"):
+        return True
+    return False
+
+
+WRITE_BASH = re.compile(
+    r"(?:^|[;&|(]\s*)(?:tee|rm|mv|cp|mkdir|touch|sed\s+-i|vim|nvim|nano)\b"
+    r"|\bgit\s+(?:commit|push|worktree\s+add|checkout|switch|reset|merge|rebase)\b"
+    r"|\bjj\s+(?:commit|new|squash|rebase|bookmark|git\s+push|edit|abandon)\b"
+)
+REDIRECT = re.compile(r"(?<![0-9&])>>?\s*(\S+)")
+
+
+def bash_writes(command: str) -> list[str]:
+    """The targets a shell command writes to; an empty list means it does not write."""
+    targets = []
+    for match in REDIRECT.finditer(command):
+        target = match.group(1).strip("'\"")
+        if target != "/dev/null" and not target.startswith("&"):
+            targets.append(target)
+    if WRITE_BASH.search(command):
+        targets.append("<write command>")
+    return targets
+
+
+def cmd_guard(_args) -> int:
+    data = read_hook_input()
+    board = load_board()
+    if board is None:
+        return 0
+    session = str(data.get("session_id", ""))
+    cwd = str(data.get("cwd", "") or os.getcwd())
+    record = session_record(session, cwd) if session else {"start_cwd": cwd, "grants": []}
+    if in_focus(board, record["start_cwd"]):
+        return 0
+    tool = str(data.get("tool_name", ""))
+    tool_input = data.get("tool_input") or {}
+    if not isinstance(tool_input, dict):
+        tool_input = {}
+    board_file = board_path()
+    denied = False
+    if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
+        target = str(tool_input.get("file_path") or tool_input.get("notebook_path") or "")
+        if target:
+            path = Path(target)
+            if not path.is_absolute():
+                path = Path(cwd) / path
+            allowed = is_allowlisted(path, board_file) or any(inside(path, Path(g)) for g in record.get("grants", []))
+            if not allowed:
+                allowed = in_focus(board, str(path))
+            denied = not allowed
+    elif tool == "Bash":
+        command = str(tool_input.get("command", ""))
+        writes = bash_writes(command)
+        if writes:
+            allowed_writes = all(
+                (w != "<write command>" and is_allowlisted(Path(w if w.startswith("/") else cwd) / w, board_file))
+                for w in writes if w != "<write command>"
+            )
+            denied = ("<write command>" in writes) or not allowed_writes
+    if denied:
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                                  "permissionDecision": "deny",
+                                                  "permissionDecisionReason": deny_message(board)}}))
+    return 0
+
+
+def cmd_allow(args) -> int:
+    session = args.session
+    board = load_board()
+    if board is None:
+        print("focus: no board", file=sys.stderr)
+        return 1
+    if not args.blocker.strip():
+        print("focus: --blocker needs a reason", file=sys.stderr)
+        return 1
+    path = Path(args.worktree).resolve()
+    record = session_record(session, os.getcwd())
+    record.setdefault("grants", [])
+    if str(path) not in record["grants"]:
+        record["grants"].append(str(path))
+    save_session(session, record)
+    start_repo = None
+    start = Path(record["start_cwd"])
+    for root in [home() / "dotfiles", *roots()]:
+        if inside(start, root):
+            rel = start.resolve().relative_to(root.resolve())
+            start_repo = rel.parts[0] if rel.parts else root.name
+            break
+    block = [f"  - blocker {date.today().isoformat()} {path.name}: {args.blocker}"]
+    # Attach under the focus item of the session's start repo, else under the hobby item.
+    target = None
+    for name in ("Work", "Hobby", "Frozen"):
+        for item in board.items(name):
+            if start_repo and item["key"].split(":", 1)[0] == start_repo:
+                target = (name, item)
+                break
+        if target:
+            break
+    if target is None and board.items("Hobby"):
+        hobby = board.items("Hobby")[0]
+        target = ("Hobby", hobby)
+    if target is not None:
+        name, item = target
+        insert_at = item["line"] + len(board.item_block(name, item["line"]))
+        board.sections[name].insert(insert_at, block[0])
+    else:
+        board.append("Hobby", block)
+    save_board(board)
+    print(f"focus: this session may write in {path} until it ends; blocker recorded")
+    return 0
+
+
+def cmd_check_dispatch(args) -> int:
+    board = load_board()
+    if board is None:
+        return 0
+    if in_focus(board, args.cwd):
+        return 0
+    print(deny_message(board), file=sys.stderr)
+    return 1
+
+
+# ---------------------------------------------------------------- triage
+
+
+def cmd_triage(args) -> int:
+    rows = triage.collect(home(), roots())
+    if args.json:
+        print(json.dumps(rows, indent=2))
+    else:
+        print(triage.render(rows))
+    return 0
+
+
+# ---------------------------------------------------------------- main
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="focus", description="Focus slots: one work and one hobby item at a time.")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    st = sub.add_parser("status", help="show the slots and any cap breach")
+    st.add_argument("--json", action="store_true")
+    st.add_argument("--cwd")
+    st.set_defaults(func=cmd_status)
+
+    sw = sub.add_parser("switch", help="make <key> the slot's item and freeze the old one")
+    sw.add_argument("key")
+    sw.add_argument("--stage")
+    sw.set_defaults(func=cmd_switch)
+
+    dr = sub.add_parser("drop", help="remove an item from the board")
+    dr.add_argument("key")
+    dr.add_argument("--yes", action="store_true", help="also remove its worktree (never the branch)")
+    dr.set_defaults(func=cmd_drop)
+
+    pk = sub.add_parser("park", help="move an item to Parked")
+    pk.add_argument("key")
+    pk.set_defaults(func=cmd_park)
+
+    sg = sub.add_parser("stage", help="set an item's stage")
+    sg.add_argument("key")
+    sg.add_argument("stage")
+    sg.set_defaults(func=cmd_stage)
+
+    tr = sub.add_parser("triage", help="list every worktree; read-only")
+    tr.add_argument("--json", action="store_true")
+    tr.set_defaults(func=cmd_triage)
+
+    sub.add_parser("prompt", help="UserPromptSubmit hook").set_defaults(func=cmd_prompt)
+    sub.add_parser("guard", help="PreToolUse hook").set_defaults(func=cmd_guard)
+
+    al = sub.add_parser("allow", help="let this session write in one worktree, with a recorded blocker")
+    al.add_argument("worktree")
+    al.add_argument("--session", required=True)
+    al.add_argument("--blocker", required=True)
+    al.set_defaults(func=cmd_allow)
+
+    cd = sub.add_parser("check-dispatch", help="exit 1 unless cwd is a focus worktree (or there is no board)")
+    cd.add_argument("--cwd", default=os.getcwd())
+    cd.set_defaults(func=cmd_check_dispatch)
+
+    args = parser.parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
