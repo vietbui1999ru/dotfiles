@@ -1,0 +1,98 @@
+#!/usr/bin/env python3
+"""bench: workflow benchmark harness (pilot). Thin entry point over scripts/bench_lib."""
+import argparse
+import sys
+from pathlib import Path
+
+
+
+def _libs():
+    """Import the harness modules from the repo root. Deferred so the path is set first."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from scripts.bench_lib import anonymize, cli_log, collect, compare, events, judge_call, prepare, report, review
+    return anonymize, cli_log, collect, compare, events, judge_call, prepare, report, review
+
+
+def main(argv=None):
+    anonymize, cli_log, collect, compare, events, judge_call, prepare, report, review = _libs()
+    p = argparse.ArgumentParser(prog="bench")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    lg = sub.add_parser("log", help="append a manual event to a run")
+    lg.add_argument("run_id")
+    lg.add_argument("type", choices=events.TYPES, metavar="type")
+    lg.add_argument("text")
+    pr = sub.add_parser("prepare", help="create a run worktree at the task base (prints the Pi command)")
+    pr.add_argument("task")
+    pr.add_argument("arm")
+    pr.add_argument("run", type=int)
+    rv = sub.add_parser("review", help="run one review round for a prepared run")
+    rv.add_argument("run_id")
+    co = sub.add_parser("collect", help="derive steer events and usage from the Pi session")
+    co.add_argument("run_id")
+    sub.add_parser("anonymize", help="write blind grading items and the sealed id map")
+    sub.add_parser("judge", help="fill the judge grades with the judge model")
+    sub.add_parser("report", help="print the per-arm summary (refuses until both graders have graded)")
+    cm = sub.add_parser("compare", help="blind side-by-side copies of one file across a task's runs")
+    cm.add_argument("task")
+    cm.add_argument("path")
+    cm.add_argument("--grep", help="open every pane at the first match")
+    args = p.parse_args(argv)
+    if hasattr(args, "run_id"):
+        try:
+            events.check_run_id(args.run_id)
+        except events.BadRunId:
+            sys.stderr.write(f"bench: bad run id '{args.run_id}' (letters, digits, dot, dash, underscore only)\n")
+            return 2
+    if args.cmd == "log":
+        return cli_log.log(args.run_id, args.type, args.text)
+    if args.cmd == "prepare":
+        try:
+            out = prepare.prepare(args.task, args.arm, args.run)
+        except prepare.PrepareError as exc:
+            sys.stderr.write(f"bench prepare: {exc}\n")
+            return 2
+        print(f"run:      {out['run_id']}\nworktree: {out['worktree']}\nbase:     {out['base']}")
+        print(f"dispatch (not run): {out['command']}")
+        return 0
+    if args.cmd == "review":
+        try:
+            idx, action, result = review.review(args.run_id)
+        except review.ReviewError as exc:
+            sys.stderr.write(f"bench review: {exc}\n")
+            return 2
+        print(f"round {idx}: {result['verdict']}, {len(result['findings'])} findings")
+        print(action)
+        return 0
+    if args.cmd == "collect":
+        try:
+            out = collect.collect(args.run_id, review.RUNS)
+        except FileNotFoundError as exc:
+            sys.stderr.write(f"bench collect: {exc}\n")
+            return 2
+        print(f"steers: {out['steers']}  tokens: {out['tokens']}  cost: {out['cost']:.6f}")
+        return 0
+    if args.cmd == "anonymize":
+        print(f"{anonymize.anonymize()} item(s) written to bench/grading/")
+        return 0
+    if args.cmd == "judge":
+        print(f"{judge_call.judge_all(anonymize.GRADING)} item(s) judged")
+        return 0
+    if args.cmd == "report":
+        try:
+            sys.stdout.write(report.report(anonymize.GRADING, anonymize.SEALED, review.RUNS))
+        except report.NotGraded as exc:
+            sys.stderr.write(f"bench report: {exc}\n")
+            return 2
+        return 0
+    if args.cmd == "compare":
+        out = compare.compare(args.task, args.path, grep=args.grep)
+        print(f"copies:  {out['dir']}")
+        if out["absent"]:
+            print(f"absent:  {' '.join(out['absent'])}")
+        print(out["command"])
+        return 0
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
