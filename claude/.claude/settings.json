@@ -5,7 +5,8 @@
     "MAX_THINKING_TOKENS": "10000",
     "teammateMode": "in-process",
     "CLAUDE_CODE_PLUGIN_DIRS": "~/dotfiles/session-band-plugin",
-    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "500000"
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "500000",
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "70"
   },
   "permissions": {
     "allow": [
@@ -55,8 +56,25 @@
       "Bash(mise exec:*)"
     ],
     "deny": [
-      "Bash(agent-review approve:*)",
-      "Bash(/Users/vietquocbui/dotfiles/scripts/agent-review approve:*)",
+      "Bash(*agent-review approve*)",
+      "Bash(*agent-review  approve*)",
+      "Bash(*spec approve*)",
+      "Bash(*spec  approve*)",
+      "Bash(*.local/state/ac-run*)",
+      "Bash(*agent-review/decisions*)",
+      "Edit(~/.local/state/ac-run/**)",
+      "Edit(**/.pi/agent-review/decisions/**)",
+      "Read(~/secrets/**)",
+      "Edit(~/secrets/**)",
+      "Edit(~/.claude/settings.json)",
+      "Edit(**/claude/.claude/settings.json)",
+      "Edit(~/.claude/hooks/**)",
+      "Edit(**/claude/.claude/hooks/**)",
+      "Edit(**/dotfiles/**/scripts/agent-review)",
+      "Edit(**/dotfiles/**/scripts/spec)",
+      "Edit(**/pi/.pi/agent/extensions/*-guard.ts)",
+      "Edit(**/pi/.pi/agent/extensions/lib/*-guard*.ts)",
+      "Edit(**/codex-guardrails-plugin/hooks/**)",
       "Bash(git push*--force*)",
       "Bash(git push* -f)",
       "Bash(git push* -f *)",
@@ -83,7 +101,7 @@
       "Bash(/usr/bin/git -C * push* master)",
       "Edit(**/.claude/settings.local.json)",
       "Edit(~/.claude/rules/send-it.md)",
-      "Edit(//Users/vietquocbui/repos/llm-wiki/claude-setup/rules/send-it.md)",
+      "Edit(**/claude-setup/rules/send-it.md)",
       "Bash(*settings.local.json*)",
       "Bash(gh api*protection*)",
       "Bash(gh repo delete*)",
@@ -243,6 +261,16 @@
     ],
     "SessionStart": [
       {
+        "matcher": "^(startup|resume|clear)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$HOME/dotfiles/scripts/sync-status\"; [ -x \"$f\" ] && \"$f\" || true",
+            "timeout": 40
+          }
+        ]
+      },
+      {
         "hooks": [
           {
             "type": "command",
@@ -265,6 +293,16 @@
           {
             "type": "command",
             "command": "f=\"$HOME/.claude/hooks/herdr-agent-state.sh\"; [ -f \"$f\" ] || exit 0; bash \"$f\" session",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "^(startup|resume|clear|compact|fork)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/herdr-agent-state.sh session",
             "timeout": 10
           }
         ]

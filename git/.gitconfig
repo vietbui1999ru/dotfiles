@@ -31,3 +31,6 @@
 	enabled = true
 [remote]
 	pushDefault = origin
+[include]
+	# Machine-local overrides (credentials etc.); ignored when absent.
+	path = ~/.gitconfig.local
