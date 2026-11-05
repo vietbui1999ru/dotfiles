@@ -12,6 +12,7 @@ raise, so a broken board cannot wedge a session.
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import os
 import re
@@ -381,10 +382,12 @@ def cmd_stage(args) -> int:
 
 # ---------------------------------------------------------------- hooks and dispatch
 
-ALLOWED_GLOBS_HOME = [
-    ".claude/projects/*/memory",
-    ".claude/jobs/*/tmp",
-    ".claude/plans",
+# Home-relative allowlist patterns, matched against the resolved path. Matching is by pattern,
+# not by globbing existing directories, so a memory dir that does not exist yet still counts.
+ALLOWED_PATTERNS_HOME = [
+    ".claude/projects/*/memory/*",
+    ".claude/jobs/*/tmp/*",
+    ".claude/plans/*",
 ]
 
 
@@ -462,10 +465,10 @@ def cmd_prompt(_args) -> int:
 def is_allowlisted(path: Path, board_file: Path) -> bool:
     if inside(path, board_file.parent) and path.resolve() == board_file.resolve():
         return True
-    for pattern in ALLOWED_GLOBS_HOME:
-        for base in home().glob(pattern):
-            if inside(path, base):
-                return True
+    resolved = str(path.resolve())
+    for pattern in ALLOWED_PATTERNS_HOME:
+        if fnmatch.fnmatchcase(resolved, str(home().resolve() / pattern)):
+            return True
     job_dir = os.environ.get("CLAUDE_JOB_DIR")
     if job_dir and inside(path, Path(job_dir) / "tmp"):
         return True
