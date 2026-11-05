@@ -1,0 +1,11 @@
+# Linux counterpart of the Mac's Homebrew pueue service. Stowed from dotfiles/systemd.
+[Unit]
+Description=pueue daemon (task queue for Pi dispatches)
+
+[Service]
+ExecStart=/usr/local/bin/pueued -v
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

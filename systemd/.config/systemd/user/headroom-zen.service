@@ -1,0 +1,20 @@
+# Linux counterpart of launchd com.vietbui.headroom-zen. Stowed from dotfiles/systemd.
+[Unit]
+Description=Headroom compression proxy (OpenCode Go / Zen) on 127.0.0.1:8788
+Documentation=https://github.com/chopratejas/headroom
+
+[Service]
+# Loopback only: the tailnet reaches it through `tailscale serve`, never a public bind.
+# One upstream per API style, both pointing at Zen Go.
+ExecStart=%h/.local/bin/headroom proxy --host 127.0.0.1 --port 8788 --mode cache --no-subscription-tracking --openai-api-url https://opencode.ai/zen/go/v1 --anthropic-api-url https://opencode.ai/zen/go
+# No anonymous upload; HEADROOM_TELEMETRY=off would also kill local /stats.
+# HEADROOM_KOMPRESS_BACKEND is deliberately unset: pytorch_mps is macOS-only, so
+# Linux runs the default int8 ONNX model on the CPU.
+Environment=HEADROOM_BEACON=off
+Environment=PATH=%h/.local/bin:/usr/bin:/bin
+Restart=always
+RestartSec=5
+# Logs go to the journal: journalctl --user -u headroom-zen -f
+
+[Install]
+WantedBy=default.target
