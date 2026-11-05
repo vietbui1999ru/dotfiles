@@ -89,3 +89,9 @@ export function onSpecReadySessionStart($: EngineInterface) {
   timer?.cancel()
   timer = $.clock.every(SPEC_READY_MS, () => { void tick($).catch(() => undefined) })
 }
+
+// The Approve/Deny question for one spec, shared by the prompt and the gates and diff-review panes.
+// Resolves to the answer; throws when the person dismisses it, as $.ui.ask does.
+export async function askSpec($: EngineInterface, rel: string, summary: string): Promise<string> {
+  return $.ui.ask(askText({ rel }, summary), ['Approve', 'Deny'])
+}
