@@ -180,3 +180,33 @@ AC-14 are expected to fail or stay manual). `scripts/floor-guard` is clean. Do n
 llm-wiki and every other repo; branch deletion; commit-funnel, agent-review and the built-in
 worktree guard; Codex hooks; the origin header and the Review pane grouping.
 
+
+## Dispatch 1b: finish Dispatch 1 and fix triage findings
+Dispatch 1 stopped after Step 5. Do Steps 6 and 7 as written above, then these fixes. Each fix
+gets a test in the existing test file it touches.
+
+### Fix A: parse the person's free-form item lines (AC-3, AC-5)
+The live board writes items as `- dotfiles:feat/focus: focus slots, guards, ...` with no `| stage:`.
+Today that parses as an empty slot, so the slot owner's own session is read-only.
+- Item key: the first `<repo>:<branch>` token after `- `. Git refnames cannot contain `:`, so the
+  key ends at the second `:` or at whitespace or `|`. The rest of the line is a free-text note.
+- If there is no `| stage:`, the stage is unknown. Show it as `?`, and the pane highlights no stage.
+- Writes keep the note text byte-for-byte. `switch` and `stage` add or replace only the `| stage: S`
+  part.
+- Test `test_caps_freeform_line_counts` and `test_lifecycle_freeform_note_kept`.
+
+### Fix B: one row per worktree in triage, and find nested repos (AC-1)
+- Linked worktrees sit as sibling directories under `~/repos` (`llm-wiki-lean-kit` was one), so
+  triage listed the same worktrees again under each sibling. Group repos by
+  `git rev-parse --path-format=absolute --git-common-dir`, and name each repo after its main
+  worktree's directory.
+- Repos nest: the work repo is `~/repos/WORK/ACME/Work IG/personal-ai-gateway`, and its path has a
+  space. Scan the `FOCUS_ROOTS` dirs recursively to depth 4. Do not descend into a git repo, or into
+  `.claude/worktrees`, `node_modules` or hidden dirs. Quote every path.
+- Repo name to path (the shared contract) uses the same scan. When two repos share a name, it is an
+  error.
+- Test `test_inventory_dedupes_linked_worktrees` and `test_inventory_nested_repo_with_space`.
+
+### Done when
+The same as Dispatch 1. In addition, `scripts/focus status --json --cwd <this worktree>` against the
+fixture board copied from the live format reports `read_only: false`.
