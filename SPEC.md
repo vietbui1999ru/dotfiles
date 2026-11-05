@@ -1,71 +1,66 @@
 ---
 status: approved
-branch: worktree-wfbench
+branch: feat/focus
 ---
-# SPEC: Benchmark harness for three review workflows (pilot)
+# SPEC: Focus slots for one person supervising many agents
 
 ## Objective
-Measure how much human steering, review retry and test-loop iteration each agent workflow needs, and how good its final code is, before changing the review architecture or its token spend. Success: the pilot (2 tasks x 4 arms x 2 runs = 16 runs) produces one per-run event log and one blind-graded result per run, and `bench report` prints per-arm counts and grades from those files alone.
+Keep at most one work and one hobby item open across all repos, make the current item visible in
+every session, and stop agents from writing outside it. Success: a session started outside the
+focus item's worktree cannot write files, the band always names the focus item, and the ~40
+existing worktrees are triaged down to the caps.
 
-Background and sources: `docs/plans/2026-10-29-workflow-bench-research.md`.
-
-### Decisions
-- D1: Arms. `council`: Pi implements, then the council reviews (acceptance gpt-6.1-sol, code quality and style deepseek-v4-pro, security veto glm-5.3), every voice at `medium`. `single-gpt`: Pi implements, then `openai-codex/gpt-6.1-sol:medium` alone reviews. `single-deepseek`: Pi implements, then `opencode-go/deepseek-v4-pro:medium` alone reviews. `send-it`: the send-it rule as written, a separate baseline whose steering counts are not compared.
-- D2: Only the review stage differs between `council`, `single-gpt` and `single-deepseek`. Implementer model, task input, loop rules and reviewer input are identical across them.
-- D3: Reviewer input in every review arm is the diff plus the task's SPEC.md acceptance criteria. No transcript, plan or implementer notes. Each reviewer returns structured findings: one JSON object per finding with `file`, `line`, `severity`, `ac` (id or null) and `failure_scenario`, plus a `verdict` of `pass` or `fail`.
-- D4: Each review is a fresh `pi -p ... --no-session --no-extensions --no-skills` process started by the harness at a fixed step, never by model delegation. The reviewer prompts are versioned files under `scripts/bench/prompts/`.
-- D5: Loop: Pi applies review fixes; at most 3 review rounds; a run stops on `pass`, on a round with only `nit` findings, or at the cap.
-- D6: Tasks are the archived specs `docs/specs/2026-10-21-safety-block-log.md` and `docs/specs/2026-10-20-nvim-review-dashboard.md`. Each run starts in a fresh worktree at the parent of the task's first implementation commit, with the archived SPEC.md copied in as the approved input. No grill.
-- D7: Per-run log `bench/runs/<run-id>/events.jsonl`, one object per event with `ts`, `type` and `detail`. Types: `steer`, `review_round`, `finding`, `test_iteration`, `reject`, `note`. `steer` is derived from every user message after the first in the run's Pi session; `review_round` and `finding` from the harness's reviewer calls; `test_iteration` from post-run-verifier repair loops. `bench log <run-id> <type> <text>` records anything outside Pi.
-- D8: Grading. `bench anonymize` gives each run's final diff and findings a random id, shuffles the order and writes the id-to-run map to a sealed file that `bench report` reads only after grades exist. The human grades a rubric (correctness against ACs, readability, unrequested scope, over-defensive additions) and classifies each finding as `real`, `nit`, `stale` or `wrong`. `opencode-go/qwen3.8-max` grades the same items through `pi -p --no-session --no-extensions --no-skills`.
-- D9: `bench report` prints, per arm: mean and spread of steer, review_round, test_iteration and reject counts; finding classification counts; mean rubric scores from both graders; tokens per run where the Pi session records them.
-- D10: `scripts/bench` is Python, standard library only, tested in `scripts/tests/test_bench.py`.
-- D11: `bench compare <task> <path> [--grep <pattern>]` gives the human an anonymized side-by-side view of one file across a task's runs. It copies `<path>` from each run's worktree to `bench/grading/compare/<slug>/<id><ext>` with fresh random ids, unrelated to the D8 ids, in shuffled order, and writes the id-to-run map only to that directory's `.sealed-map.json`. A run without the file is listed as absent by id. It prints an `nvim -O` command over the copies; with `--grep`, each pane opens at the first match. Copy paths and contents carry no arm name, model name or run id.
+Board: `~/repos/Obsidian/Focus.md` (overridable by `FOCUS_BOARD` for tests), sections `## Work`,
+`## Hobby`, `## Frozen`, `## Parked`. Item key: `<repo>:<branch>`. Work = employer repos listed
+in the board's `work-repos:` line; every other repo is hobby. Tool: `scripts/focus`.
 
 ## Acceptance Criteria
-- AC-1: `bench prepare <task> <arm> <run>` creates a worktree at the task's base commit with the archived SPEC.md at its root and an empty events log
-  verify: `python3 -m unittest scripts.tests.test_bench.Prepare.test_worktree_at_base_with_spec`
-- AC-2: The three review arms read the same implementer model and loop settings; only the reviewer entry differs
-  verify: `python3 -m unittest scripts.tests.test_bench.Arms.test_review_arms_differ_only_in_reviewer`
-- AC-3: The reviewer call passes the diff and the AC list, includes no transcript or plan text, and runs pi with `--no-session --no-extensions --no-skills`
-  verify: `python3 -m unittest scripts.tests.test_bench.Review.test_reviewer_input_and_flags`
-- AC-4: Reviewer output is parsed into findings with every D3 field; malformed output is recorded as a `note` event and counts as a failed round
-  verify: `python3 -m unittest scripts.tests.test_bench.Review.test_parse_findings`
-- AC-5: The loop stops on pass, on nit-only findings, or after 3 rounds, and logs one `review_round` event per round
-  verify: `python3 -m unittest scripts.tests.test_bench.Loop.test_stop_conditions`
-- AC-6: `steer` events are derived from user messages after the first in a fixture Pi session
-  verify: `python3 -m unittest scripts.tests.test_bench.Collect.test_steer_from_session`
-- AC-7: `bench log` appends one event with `ts`, `type` and `detail`; an unknown type exits 2 and writes nothing
-  verify: `python3 -m unittest scripts.tests.test_bench.Log.test_append_and_reject_unknown`
-- AC-8: `bench anonymize` output contains no arm name or run id, and the id map is written only to the sealed file
-  verify: `python3 -m unittest scripts.tests.test_bench.Anonymize.test_no_arm_leak`
-- AC-9: `bench report` refuses to unseal before both graders' grades exist, then prints per-arm counts, finding classes and rubric means
-  verify: `python3 -m unittest scripts.tests.test_bench.Report.test_sealed_until_graded scripts.tests.test_bench.Report.test_per_arm_summary`
-- AC-10: Live review-gate files are unchanged by this branch
-  verify: `/usr/bin/git diff --quiet main -- shared/skills/delegate-pi/pi-evaluator.sh shared/skills/delegate-pi/pi-council.sh shared/skills/delegate-pi/pi-router.sh scripts/agent-review pi/.pi/agent/extensions`
-- AC-11: Existing script tests still pass
-  verify: `python3 -m unittest discover -s scripts/tests`
+- AC-1: `focus triage` lists every worktree of every repo under ~/repos and ~/dotfiles with repo, branch, last commit date, dirty flag, PR state and SPEC.md presence
+  verify: `python3 -m unittest discover -s scripts/tests -p test_focus_triage.py -k inventory`
+- AC-2: `focus triage` changes no file, branch or worktree
+  verify: `python3 -m unittest discover -s scripts/tests -p test_focus_triage.py -k read_only`
+- AC-3: `focus status` exits non-zero and names the breach when Work or Hobby holds more than one item or Frozen holds more than three
+  verify: `python3 -m unittest discover -s scripts/tests -p test_focus_board.py -k caps`
+- AC-4: `focus switch`, `drop` and `park` update the board; switch freezes the old item and refuses at three frozen; drop removes a worktree only with `--yes` and never deletes a branch
+  verify: `python3 -m unittest discover -s scripts/tests -p test_focus_board.py -k lifecycle`
+- AC-5: the UserPromptSubmit hook prints both slots, their stage, and whether the session's start worktree is a focus item (else "read-only")
+  verify: `python3 -m unittest discover -s scripts/tests -p test_focus_hooks.py -k prompt`
+- AC-6: the PreToolUse guard denies Write, Edit and writing Bash outside a focus worktree when the session started outside one, allows Focus.md, Claude memory, job tmp and ~/.claude/plans, and its deny message names the focus item and how to switch
+  verify: `python3 -m unittest discover -s scripts/tests -p test_focus_hooks.py -k guard`
+- AC-7: `focus allow <worktree> --blocker "<reason>"` lets the current session write there until the session ends, and records the blocker under the focus item
+  verify: `python3 -m unittest discover -s scripts/tests -p test_focus_hooks.py -k blocker`
+- AC-8: `scripts/pi-view` refuses to start Pi in a worktree that is not a focus item, with the same message as the guard
+  verify: `python3 -m unittest discover -s scripts/tests -p test_focus_hooks.py -k pi_dispatch`
+- AC-9: the band shows the hobby and work slot, the stage, frozen count, and "read-only" when the session is outside a focus item
+  verify: `cd session-band-plugin && bun test hooks/focus.test.ts`
+- AC-10: the `/focus` pane shows each slot as a stage pipeline, lists frozen and parked items, and binds o, s, d and p
+  verify: `cd session-band-plugin && bun test hooks/focus-pane.test.ts`
+- AC-11: both hooks are registered in the stowed Claude settings
+  verify: `rg -q "scripts/focus guard" claude/.claude/settings.json && rg -q "scripts/focus prompt" claude/.claude/settings.json`
+- AC-12: the focus rules (caps, refuse-park-switch, blocker exception, NEXT names the focus item) are in the always-loaded tool-routing rules
+  verify: `rg -q "^## Focus slots" shared/research-tool-routing.md`
+- AC-13: existing session-band tests still pass
+  verify: `cd session-band-plugin && bun test`
   baseline: pass
-- AC-12: The pilot's 16 runs complete with an events log and two graders' grades each
-  verify: manual - the runs need a human steering live
-- AC-13: `bench compare` writes one anonymized copy per run that has the file, lists absent runs by id, keeps the map only in the sealed file, uses ids distinct from the D8 grading ids, and prints an `nvim -O` command over the copies
-  verify: `python3 -m unittest scripts.tests.test_bench.Compare.test_blind_copies scripts.tests.test_bench.Compare.test_ids_distinct_from_grading`
+- AC-14: a live Claude session started in ~/repos/llm-wiki main is denied a write into a dotfiles worktree and is told the focus item
+  verify: manual - needs a real interactive session after stow
 
 ## Boundaries
 ### Always
-- Run `~/dotfiles/scripts/ac-run check SPEC.md` before claiming done
-- Invoke reviewers from the harness at a fixed step, never through model delegation
+- Run triage and show its result to the person before any guard is registered
+- Write PLAN.md beside this spec; implementation goes to Pi per plan-handoff
+- Keep every board edit to the four sections; never reorder the person's parked lines
 ### Ask first
-- Running anything beyond the 16 pilot runs
-- Changing an arm's model, effort or reviewer prompt after the first run
+- Removing any worktree, even a merged clean one
+- Changing commit-funnel, agent-review or the worktree guard
 ### Never
-- Edit the live review gate (`pi-evaluator.sh`, `pi-council.sh`, `pi-router.sh`, `scripts/agent-review`, Pi review extensions); the benchmark uses its own copies
-- Read the sealed id map before both graders finish
+- Delete a branch
+- Touch llm-wiki or any repo other than dotfiles in this item
 - Edit a `verify:` line or a test to make a check pass
 
 ## Open Questions
-- Implementer model for the three review arms? Default: `opencode-go/claude-haiku-5-5:off` (the high tier) for all three.
-- send-it builds with the Claude Haiku worker, not Pi; keep it as is or force Pi? Default: as written, recorded as a confound.
-- Where does Pi store the session for `--session-id pueue-<slug>`, and does it record tokens? Default: locate it in the first build step; tokens marked unavailable if absent.
-- How is the council run at medium without touching `routing.env`? Default: the harness sets the `PI_COUNCIL_*` variables per call through a bench-local routing file (`PI_ROUTING_FILE`).
-- Which commit is a task's base? Default: the parent of the first commit on the task's branch that touches non-spec files.
+- Board path: Obsidian root or a subfolder? Default: `~/repos/Obsidian/Focus.md`.
+- Does the guard apply to the work slot's employer repos on this machine? Default: yes, same rules.
+- Read-only Bash: how is "writing Bash" detected? Default: deny on redirects, `rm`, `mv`, `cp`, `git commit|push|worktree add`, editors; allow everything else.
+- Origin header in the band prompt and Review pane grouping by worktree: Default: parked, not v1.
+- Codex sessions: Default: guard via the same script once Codex hooks exist; not v1.
