@@ -1,6 +1,6 @@
 // Pure tests for the focus chip (AC-9). bun:test, not the engine harness, so this file runs
 // without the Claude Code host. The status JSON is the contract `scripts/focus status --json` prints.
-import { expect, test } from 'bun:test'
+import { expect, test } from 'claude-code/testing'
 
 import { FOCUS_ARGV, focusChip, focusSlots, focusText, parseFocus, type FocusState } from './focus'
 

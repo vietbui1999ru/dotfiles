@@ -1,6 +1,6 @@
 // Pure tests for the /focus pane (AC-10). bun:test, not the engine harness, so this file runs
 // without the Claude Code host. The pane draws what these functions return.
-import { expect, test } from 'bun:test'
+import { expect, test } from 'claude-code/testing'
 
 import type { FocusState } from './focus'
 import { ACTIONS, keyOf, pick, pipeline, rowId, rows, slotLine, step } from './focus-pane-logic'

@@ -32,15 +32,15 @@ in the board's `work-repos:` line; every other repo is hobby. Tool: `scripts/foc
 - AC-8: `scripts/pi-view` refuses to start Pi in a worktree that is not a focus item, with the same message as the guard
   verify: `python3 -m unittest discover -s scripts/tests -p test_focus_hooks.py -k pi_dispatch`
 - AC-9: the band shows the hobby and work slot, the stage, frozen count, and "read-only" when the session is outside a focus item
-  verify: `cd session-band-plugin && bun test hooks/focus.test.ts`
+  verify: `claude plugin test session-band-plugin 2>&1 | rg -q "\(pass\) read-only appears when the session sits outside a focus item"`
 - AC-10: the `/focus` pane shows each slot as a stage pipeline, lists frozen and parked items, and binds o, s, d and p
-  verify: `cd session-band-plugin && bun test hooks/focus-pane.test.ts`
+  verify: `claude plugin test session-band-plugin 2>&1 | rg -q "\(pass\) the pane binds o s d p as hotkeys"`
 - AC-11: both hooks are registered in the stowed Claude settings
   verify: `rg -q "scripts/focus guard" claude/.claude/settings.json && rg -q "scripts/focus prompt" claude/.claude/settings.json`
 - AC-12: the focus rules (caps, refuse-park-switch, blocker exception, NEXT names the focus item) are in the always-loaded tool-routing rules
   verify: `rg -q "^## Focus slots" shared/research-tool-routing.md`
 - AC-13: existing session-band tests still pass
-  verify: `cd session-band-plugin && bun test`
+  verify: `claude plugin test session-band-plugin`
   baseline: pass
 - AC-14: a live Claude session started in ~/repos/llm-wiki main is denied a write into a dotfiles worktree and is told the focus item
   verify: manual - needs a real interactive session after stow
