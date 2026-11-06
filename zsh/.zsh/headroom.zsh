@@ -2,8 +2,9 @@
 # (127.0.0.1:8787; launchd on macOS, systemd user units on Linux).
 # See docs/workflows/headroom-proxy.md.
 #
-# Gate: on macOS only herdr panes (HERDR_ENV=1) and Orca terminals
-# (ORCA_PANE_KEY) are routed, so a plain terminal keeps talking to the APIs
+# Gate: on macOS only herdr TUI panes (HERDR_ENV=1), Herdr app terminals
+# (HC_TERMINAL_ID) and Paseo terminals (PASEO_TERMINAL_ID) are routed, so a
+# plain terminal keeps talking to the APIs
 # directly. On Linux every shell (herdr, tmux, plain SSH) is routed, but only
 # while this user's own headroom-proxy unit is active and the 8787 listener is
 # a socket owned by this user. An answer on 8787 alone is not trusted: any local
@@ -31,7 +32,7 @@ _headroom_gate() {
            END { exit !(n > 0 && !bad) }'
     return
   fi
-  [[ ${HERDR_ENV:-} == 1 || -n ${ORCA_PANE_KEY:-} ]]
+  [[ ${HERDR_ENV:-} == 1 || -n ${HC_TERMINAL_ID:-} || -n ${PASEO_TERMINAL_ID:-} ]]
 }
 
 if _headroom_gate \

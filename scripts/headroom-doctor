@@ -55,7 +55,8 @@ if [[ ${OSTYPE:-} == linux* ]]; then
   fi
 else
   [[ ${HERDR_ENV:-} == 1 ]] && gates+=("herdr")
-  [[ -n ${ORCA_PANE_KEY:-} ]] && gates+=("Orca")
+  [[ -n ${HC_TERMINAL_ID:-} ]] && gates+=("herdr-app")
+  [[ -n ${PASEO_TERMINAL_ID:-} ]] && gates+=("Paseo")
 fi
 gate=""
 for g in ${gates[@]+"${gates[@]}"}; do gate="${gate:+$gate, }$g"; done
@@ -65,7 +66,7 @@ line "ENABLE_TOOL_SEARCH" "${ENABLE_TOOL_SEARCH:-unset}"
 
 # The `codex` wrapper is a shell function in the pane's own zsh, so this process
 # cannot see it. Ask a fresh interactive zsh instead: it sources the same rc with
-# the inherited HERDR_ENV / ORCA_PANE_KEY and reports what it ended up with.
+# the inherited HERDR_ENV / HC_TERMINAL_ID / PASEO_TERMINAL_ID and reports what it ended up with.
 if command -v zsh >/dev/null 2>&1; then
   codex_kind="$(zsh -ic 'whence -w codex' 2>/dev/null | tail -n 1)"
   line "codex" "${codex_kind:-unknown}"
