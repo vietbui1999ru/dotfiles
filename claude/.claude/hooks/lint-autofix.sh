@@ -3,6 +3,7 @@
 # Runs biome check --write on the project if linting: enabled in profile.md.
 # Safe to run here (not PostToolUse) — no file-state conflict with CC's Edit tool.
 
+INPUT=$(cat)
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 
 # ── Biome autofix ─────────────────────────────────────────────────────────────
@@ -23,12 +24,13 @@ if [[ "$LINTING" == "enabled" ]]; then
 fi
 
 # ── Session quality summary + event log ───────────────────────────────────────
-SESSION_ID="${CLAUDE_SESSION_ID:-$(date +%s)}"
+SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // ""' 2>/dev/null)
+[[ -z "$SESSION_ID" ]] && SESSION_ID=$(date +%s)
 SESSION_SHORT="${SESSION_ID:0:8}"
 TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-
 # Count files changed in this session
-FILE_COUNT=$(git diff --name-only HEAD 2>/dev/null | grep -c . || echo 0)
+
+FILE_COUNT=$(git diff --name-only HEAD 2>/dev/null | grep -c .)
 
 echo ""
 echo "── Session summary [$SESSION_SHORT] ──────────────────────────"
