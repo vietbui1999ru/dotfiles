@@ -56,6 +56,7 @@ alias spec="$HOME/dotfiles/scripts/spec"
 alias ac-run="$HOME/dotfiles/scripts/ac-run"
 alias floor-guard="$HOME/dotfiles/scripts/floor-guard"
 alias agent-review="$HOME/dotfiles/scripts/agent-review"
+alias focus="$HOME/dotfiles/scripts/focus"
 
 # macOS-specific
 if [[ $OSTYPE == darwin* ]]; then
