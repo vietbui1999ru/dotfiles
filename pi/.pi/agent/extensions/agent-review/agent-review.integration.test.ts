@@ -243,13 +243,13 @@ test("a decision with a forged endTree is ignored and the review stays pending",
   assert.ok(session.notices.length > 0, "a warning should be shown");
 });
 
-test("/review skip clears a pending review with one follow-up", async () => {
+test("/review skip clears a pending review with no follow-up", async () => {
   const { root, session } = await newSession();
   const pending = await changingRun(root, session);
   await session.command("review", `skip ${pending.runId}`);
   await waitFor(() => pendingIds(root).length === 0);
   await sleep(400);
-  assert.equal(session.sent.length, 1);
+  assert.equal(session.sent.length, 0);
   assert.deepEqual(await session.input("carry on"), { action: "continue" });
 });
 

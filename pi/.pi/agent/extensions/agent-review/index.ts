@@ -121,11 +121,12 @@ export function resolveReview<T extends { runId: string; name?: string }>(record
 }
 
 const label = (record: { runId: string; name?: string }) => record.name ?? record.runId;
+// A skip carries no files, notes or patch, so a follow-up would only hand Pi an
+// empty review to act on; it would treat that as its new task and stop the plan.
 export const needsFollowUp = (decision: Decision) =>
 	Boolean(
 		decision.patch.trim() ||
 			decision.notes.length ||
-			decision.skipped ||
 			decision.files.some((file) => file.status === "changed"),
 	);
 export const validDecisionShape = (value: unknown): value is Decision => {

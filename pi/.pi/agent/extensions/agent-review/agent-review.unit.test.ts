@@ -77,10 +77,10 @@ test("decision shape validation rejects malformed records", () => {
 	assert.equal(validDecisionShape(null), false);
 });
 
-test("accept-everything sends nothing; skip and edits do", () => {
+test("accept-everything and skip send nothing; edits do", () => {
 	const base = { runId: pending.runId, endTree: "d".repeat(40), finalTree: "f".repeat(40), files: [], notes: [], patch: "" };
 	assert.equal(needsFollowUp(base), false);
-	assert.equal(needsFollowUp({ ...base, skipped: true }), true);
+	assert.equal(needsFollowUp({ ...base, skipped: true }), false);
 	assert.equal(needsFollowUp({ ...base, files: [{ file: "a.txt", status: "changed" as const }] }), true);
 	assert.equal(needsFollowUp({ ...base, notes: [{ file: "a", line: 1, note: "n" }] }), true);
 });

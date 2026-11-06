@@ -260,7 +260,9 @@ cycle it dispatches:
   2026-09-17). Block **all** inputs, human- and extension-sourced alike, while any pending record
   exists. `/review …` commands dispatch before `input` and stay available.
 - `/review skip <run-id>` writes a decision with `skipped: true`, the current `endTree` and a
-  fresh `finalTree`, which then flows through normal validation.
+  fresh `finalTree`, which then flows through normal validation. Since 2026-11-05 it sends no
+  follow-up message, the same as `agent-review skip`: the skip has no files, notes or patch, and
+  a follow-up made Pi treat the empty review as its new task and stop the plan it was running.
 - **Review names (2026-10-11).** Each pending record also carries a `name`: the last segment of
   the branch it was written on (`feat/session-band-pi-handoff` becomes `session-band-pi-handoff`),
   lowercased, with `-2`, `-3` appended when another pending review already holds that name, and
@@ -287,7 +289,7 @@ cycle it dispatches:
   `decision.finalTree ===` the tree of a fresh snapshot. **On any failure:** rename `.processing`
   back to pending, warn, and stop. The review stays pending.
 - On success: delete the `.processing` record and both refs.
-  - Decision has an empty `patch`, no notes, and isn't `skipped`: send nothing, so no new agent
+  - Decision has an empty `patch`, no notes and no changed files (a skip always qualifies): send nothing, so no new agent
     turn starts.
   - Otherwise send **exactly one** `pi.sendUserMessage(..., { deliverAs: "followUp" })` with fixed
     text. Only the validated `runId` and the fixed decision path may be interpolated:
