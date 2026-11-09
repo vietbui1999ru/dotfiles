@@ -20,8 +20,9 @@ import {
 	home,
 	nextCommand,
 	exec,
+	hc,
 } from "herdr";
-import { piRows, planSync, nextAddress, windowSpec, duration, reviewRows, approveMessage } from "./logic.js";
+import { piRows, planSync, nextAddress, windowSpec, duration, reviewRows, approveMessage, cleanupRows, removeMessage, canClose } from "./logic.js";
 import { newDialog, newDialogState } from "./new-dialog.js";
 
 // The agents mod's spinner and icon set, so this section reads like its neighbour.
@@ -38,10 +39,15 @@ export default class PiFleet extends View {
 		this.windowCount = 0;
 		this.rows = [];
 		this.reviews = [];
+		this.cleanup = [];
+		this.cleaning = false;
+		this.removing = undefined;
+		this.removeNote = undefined;
 		this.sync(cx);
 		cx.timer.every(2000, (cx) => this.sync(cx));
 		this.readReviews(cx);
 		cx.timer.every(10000, (cx) => this.readReviews(cx));
+		this.closeArm = undefined;
 		cx.spawn(async (cx) => {
 			for (;;) {
 				const c = await nextCommand();
@@ -105,19 +111,101 @@ export default class PiFleet extends View {
 		});
 	}
 
-	// One read at a time. A failed read keeps the last rows.
+	// One read at a time. A failed read keeps the last rows. The full list (not --offline)
+	// is what finds squash-merged runs, so this read is slower.
 	async readReviews(cx) {
 		if (this.reviewBusy) return;
 		this.reviewBusy = true;
 		try {
-			const r = await exec(`${home()}/dotfiles/scripts/agent-review`, ["list", "--global", "--json", "--offline"], { timeout: 10000 });
-			if (r.code === 0) this.reviews = reviewRows(JSON.parse(r.stdout));
+			const r = await exec(`${home()}/dotfiles/scripts/agent-review`, ["list", "--global", "--json"], { timeout: 30000 });
+			if (r.code === 0) {
+				const entries = JSON.parse(r.stdout);
+				this.reviews = reviewRows(entries);
+				this.cleanup = cleanupRows(entries);
+			}
 		} catch {
 			// Keep the last rows; the next read tries again.
 		} finally {
 			this.reviewBusy = false;
 			cx.notify();
 		}
+	}
+
+	// Two clicks: the first arms the button for 3 seconds, a second click inside that acts.
+	arm(cx, key, onConfirm) {
+		if (this.armed?.key === key) {
+			this.armed = undefined;
+			onConfirm();
+			return;
+		}
+		const token = {};
+		this.armed = { key, token };
+		cx.notify();
+		cx.timer.after(3000, (cx) => {
+			if (this.armed?.token !== token) return;
+			this.armed = undefined;
+			cx.notify();
+		});
+	}
+
+	// Remove one agent-review record with `skip`. One removal at a time; the row leaves the
+	// list at once. The caller reads the list again when the run of removals ends.
+	async removeOne(cx, row) {
+		this.removing = row.runId;
+		this.removeNote = undefined;
+		cx.notify();
+		let text = "Remove failed";
+		try {
+			const r = await exec(`${home()}/dotfiles/scripts/agent-review`, ["skip", row.runId], { cwd: row.cwd, timeout: 15000 });
+			text = removeMessage(r.code, r.stdout);
+		} catch {
+			// A program that cannot start, or a timeout: not removed.
+		}
+		this.removing = undefined;
+		if (text === null) {
+			this.cleanup = this.cleanup.filter((r) => r.runId !== row.runId);
+			return null;
+		}
+		return text;
+	}
+
+	// Remove one row, then re-read the list once.
+	async removeRow(cx, row) {
+		if (this.removing) return;
+		const text = await this.removeOne(cx, row);
+		if (text) this.showRemoveNote(cx, { runId: row.runId, text });
+		await this.readReviews(cx);
+	}
+
+	// Remove every row oldest first. A refusal does not stop the rest; the note says how many went.
+	async removeAll(cx) {
+		if (this.removing) return;
+		const rows = [...this.cleanup];
+		let removed = 0;
+		let first;
+		for (const row of rows) {
+			const text = await this.removeOne(cx, row);
+			if (text === null) removed += 1;
+			else if (first === undefined) first = text;
+			cx.notify();
+		}
+		if (first !== undefined) this.showRemoveNote(cx, { runId: "all", text: `Removed ${removed} of ${rows.length}. ${first}` });
+		await this.readReviews(cx);
+	}
+
+	showRemoveNote(cx, note) {
+		this.removeNote = note;
+		cx.timer.after(10000, (cx) => {
+			if (this.removeNote !== note) return;
+			this.removeNote = undefined;
+			cx.notify();
+		});
+	}
+
+	// Close a settled Pi run: Ctrl+D quits an idle Pi with an empty input, so a half-typed
+	// message survives. Closing never approves anything.
+	closePi(row) {
+		hc(["keys", row.address, "ctrl+d"]);
 	}
 
 	// One approve at a time. The macOS dialog it raises stays the person's last step.
@@ -176,17 +264,87 @@ export default class PiFleet extends View {
 			.when(Boolean(note), (el) => el.child(div().text_size(11).text_color(t.blocked).child(note)));
 	}
 
-	// Nothing at all when no run is waiting.
-	reviewSection(t, now) {
-		if (this.reviews.length === 0) return [];
-		const title = h_flex()
+	cleanRow(t, row, now) {
+		const started = Date.parse(row.startedAt);
+		const busy = this.removing === row.runId;
+		const note = this.removeNote?.runId === row.runId ? this.removeNote.text : null;
+		return v_flex()
 			.px(8)
-			.pt(12)
-			.pb(4)
-			.gap(6)
-			.child(div().text_size(11.5).font_medium().text_color(t.dim).child("Needs review"))
-			.child(div().text_size(11.5).text_color(t.blocked).child(String(this.reviews.length)));
-		return [title, ...this.reviews.map((row) => this.reviewRow(t, row, now))];
+			.py(4)
+			.gap(2)
+			.child(
+				h_flex()
+					.gap(8)
+					.items_center()
+					.child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(row.name))
+					.child(div().flex_none().text_size(11).text_color(t.dim).child(row.kind === "orphan" ? "No worktree" : "Landed"))
+					.when(!Number.isNaN(started), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - started))))
+					.child(
+						this.textButton(
+							t,
+							`pi-remove-${row.runId}`,
+							busy ? "Removing…" : this.armed?.key === `row:${row.runId}` ? "Remove?" : "Remove",
+							!this.removing,
+							(_e, cx) => this.arm(cx, `row:${row.runId}`, () => this.removeRow(cx, row)),
+						),
+					),
+			)
+			.when(Boolean(note), (el) => el.child(div().text_size(11).text_color(t.blocked).child(note)));
+	}
+
+	// Nothing at all when no run is waiting or ready to clear.
+	reviewSection(t, now) {
+		if (this.reviews.length === 0 && this.cleanup.length === 0) return [];
+		const out = [];
+		if (this.reviews.length > 0) {
+			out.push(
+				h_flex()
+					.px(8)
+					.pt(12)
+					.pb(4)
+					.gap(6)
+					.child(div().text_size(11.5).font_medium().text_color(t.dim).child("Needs review"))
+					.child(div().text_size(11.5).text_color(t.blocked).child(String(this.reviews.length))),
+				...this.reviews.map((row) => this.reviewRow(t, row, now)),
+			);
+		}
+		if (this.cleanup.length > 0) {
+			const toggle = this.cleaning ? "Done" : `Clean up ${this.cleanup.length}`;
+			out.push(
+				h_flex()
+					.px(8)
+					.pt(12)
+					.pb(4)
+					.gap(6)
+					.items_center()
+					.child(div().flex_1().text_size(11.5).font_medium().text_color(t.dim).when(this.reviews.length === 0, (el) => el.child("Clean up")))
+					.child(
+						this.textButton(t, "pi-cleanup", toggle, true, (_e, cx) => {
+							this.cleaning = !this.cleaning;
+							this.armed = undefined;
+							cx.notify();
+						}),
+					),
+			);
+			if (this.cleaning) {
+				out.push(
+					h_flex()
+						.px(8)
+						.pb(4)
+						.child(
+							this.textButton(
+								t,
+								"pi-remove-all",
+								this.armed?.key === "all" ? `Remove all ${this.cleanup.length}?` : `Remove all ${this.cleanup.length}`,
+								!this.removing,
+								(_e, cx) => this.arm(cx, "all", () => this.removeAll(cx)),
+							),
+						),
+					...this.cleanup.map((row) => this.cleanRow(t, row, now)),
+				);
+			}
+		}
+		return out;
 	}
 
 	// A status mark drawn like the agents mod: a spinner, a ring for idle, a dot for done,
@@ -198,11 +356,13 @@ export default class PiFleet extends View {
 		return div().size(7).mx(3).flex_none().rounded(4).bg(t[st] ?? t.dim);
 	}
 
-	// Two lines: name (and machine) on top, model and elapsed time dim beneath.
+	// Two lines: name (and machine) on top, model and elapsed time dim beneath. A settled
+	// run shows Close at the right, which takes two clicks.
 	row(t, row, now) {
 		const st = row.status ?? "idle";
 		const since = row.createdMs !== undefined ? duration(now - row.createdMs) : null;
 		const detail = since ? `${row.model} · ${since}` : row.model;
+		const armed = this.armed?.key === `close:${row.address}`;
 		return h_flex()
 			.id(`pi-${row.address}`)
 			.px(8)
@@ -226,6 +386,23 @@ export default class PiFleet extends View {
 							.when(row.machine !== "local", (el) => el.child(div().flex_none().text_size(10).text_color(t.dim).child(row.machine))),
 					)
 					.child(div().truncate().text_size(11).text_color(t.dim).child(detail)),
+			)
+			.when(canClose(row), (el) =>
+				el.child(
+					div()
+						.id(`pi-close-${row.address}`)
+						.flex_none()
+						.text_size(11)
+						.text_color(t.dim)
+						.cursor_pointer()
+						.hover((s) => s.text_color(t.foreground))
+						.on_click((_e, cx) => {
+							// Keep the click from also focusing the row.
+							cx.stop_propagation();
+							this.arm(cx, `close:${row.address}`, () => this.closePi(row));
+						})
+						.child(armed ? "Close?" : "Close"),
+				),
 			);
 	}
 
