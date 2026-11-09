@@ -51,3 +51,11 @@ node_modules/
 pi/.pi-lens/
 jj/.config/jj/repos/
 claude/.claude/skills/synced/
+
+# Skill links that setup scripts create in the stowed ~/.claude/skills on each
+# machine: bootstrap-dirs.sh links shared/skills entries, firecrawl-setup.sh
+# links the kept firecrawl skills. Their sources are tracked elsewhere.
+claude/.claude/skills/design-brief
+claude/.claude/skills/gh-stack
+claude/.claude/skills/pele
+claude/.claude/skills/firecrawl*
