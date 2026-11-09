@@ -1,7 +1,7 @@
 // Run: node --test scripts/pi-outcome.test.mjs
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -45,6 +45,10 @@ function sandbox(taskId = 7) {
 	} });
 
 	return {
+		dir,
+		home,
+		runsDir: runs,
+		bins,
 		worktree,
 		head,
 		currentDiffHash,
@@ -128,4 +132,28 @@ test("unknown task exits 2", () => {
 	const run = box.run([], { STUB_PUEUE_JSON: box.pueueStatus(8) });
 	assert.equal(run.status, 2);
 	assert.match(run.stderr, /pi-outcome: no pueue task 7/);
+});
+
+// A Running task silent for ten minutes is `stuck` unless Pi reports idle. The hc terminal
+// reports that through status.state, so an idle hc:<address> pane makes the run `running`.
+test("an hc pane reporting idle keeps a silent Running task out of stuck", () => {
+	const box = sandbox();
+	const running = JSON.parse(box.pueueStatus());
+	running.tasks["7"].status = { Running: { start: "2026-10-29T00:00:01Z" } };
+	// A session log whose mtime is well past STUCK_MS, so the silent branch is taken.
+	const sessionDir = join(box.home, ".pi", "agent", "sessions", "d");
+	mkdirSync(sessionDir, { recursive: true });
+	const log = join(sessionDir, "2026_pueue-x.jsonl");
+	writeFileSync(log, "{}\n");
+	const old = new Date(Date.now() - 3_600_000);
+	utimesSync(log, old, old);
+	writeFileSync(join(box.runsDir, "pueue-x.pane"), "hc:t9\n");
+
+	const hc = join(box.bins, "hc.mjs");
+	writeFileSync(hc, `#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify({ state: "live", status: { app: "pi", state: "idle", turn: 1 } }) + "\\n");\n`);
+	chmodSync(hc, 0o755);
+
+	const run = box.run(["--json"], { STUB_PUEUE_JSON: JSON.stringify(running), HC_BIN_PATH: hc });
+	assert.equal(run.status, 0, run.stderr);
+	assert.equal(JSON.parse(run.stdout).outcome, "running");
 });

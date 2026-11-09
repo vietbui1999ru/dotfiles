@@ -357,3 +357,44 @@ test("a lock with a dead pid is taken over", () => {
 	assert.equal(box.record().phase, "done");
 	assert.equal(existsSync(lock), false);
 });
+
+// An hc terminal's pane file reads `hc:<address>`. hc is stubbed to log to the same call log.
+const HC_STUB = `#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
+const args = process.argv.slice(2);
+appendFileSync(process.env.STUB_LOG, JSON.stringify(["hc", ...args]) + "\\n");
+if (args[0] === "get") {
+	process.stdout.write(JSON.stringify({ address: args[2], state: process.env.STUB_HC_STATE ?? "live" }) + "\\n");
+}
+process.exit(0);
+`;
+
+function hcBox() {
+	const box = sandbox();
+	const hc = join(box.bins, "hc.mjs");
+	writeFileSync(hc, HC_STUB);
+	chmodSync(hc, 0o755);
+	box.writeSpec("main", "`false`");
+	mkdirSync(box.runs, { recursive: true });
+	writeFileSync(join(box.runs, "pueue-test.pane"), "hc:t9\n");
+	return { box, hc };
+}
+
+test("an hc pane is steered with hc send, never with herdr", () => {
+	const { box, hc } = hcBox();
+	const run = box.run({ HC_BIN_PATH: hc, STUB_AC_RECORD: failing(), STUB_AC_EXIT: "1" });
+	assert.equal(run.status, 0);
+	assert.equal(box.record().steered, true);
+	const hcSend = box.calls().filter((call) => call[0] === "hc" && call[1] === "send");
+	assert.equal(hcSend.length, 1);
+	assert.equal(hcSend[0][2], "t9", "the address is the pane file's hc: value without its prefix");
+	assert.equal(box.calls().some((call) => call[0] === "herdr" && call[2] === "send-text"), false);
+});
+
+test("an hc pane that is no longer live is not steered", () => {
+	const { box, hc } = hcBox();
+	const run = box.run({ HC_BIN_PATH: hc, STUB_HC_STATE: "finished", STUB_AC_RECORD: failing(), STUB_AC_EXIT: "1" });
+	assert.equal(run.status, 0);
+	assert.equal(box.record().steered, false);
+	assert.equal(box.calls().some((call) => call[0] === "hc" && call[1] === "send"), false);
+});

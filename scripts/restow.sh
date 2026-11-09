@@ -16,7 +16,10 @@ PACKAGES=(zsh starship mise nvim tmux tmuxinator kitty git jj claude opencode pi
 # folder is missing, stow links the whole ~/.config/herdr directory into the
 # repo and herdr writes that state into ~/dotfiles/herdr/. Creating the real
 # folder first makes stow link only config.toml. The Herdr app does the same
-# in ~/.config/herdr-app (keys.error, layouts, mods), so only keys.json links.
-mkdir -p "$HOME/.config/herdr" "$HOME/.config/herdr-app"
+# in ~/.config/herdr-app (keys.error, layouts, mods), so only keys.json, the
+# layouts/ and mods/ folder links here. layouts/ is created first so stow links
+# only the layout files this repo ships (Herdr replaces its shipped layouts). mods/ is created first so stow links only the mod
+# folders this repo ships, not the whole directory with Herdr's own mods.
+mkdir -p "$HOME/.config/herdr" "$HOME/.config/herdr-app" "$HOME/.config/herdr-app/mods" "$HOME/.config/herdr-app/layouts"
 
 stow -R "${PACKAGES[@]}"

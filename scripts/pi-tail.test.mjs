@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
-import { foldChunk, relayInput, render, splitComplete, watchRunner } from "./pi-tail.mjs";
+import { foldChunk, relayInput, render, splitComplete, waitForRunnerExit, watchRunner } from "./pi-tail.mjs";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -104,4 +104,19 @@ test("relays pane input to a session FIFO and stops after it disappears", async 
 		closeSync(reader);
 		rmSync(dir, { recursive: true, force: true });
 	}
+});
+
+test("a viewer without a pane resolves once its runner is gone", async () => {
+	let alive = 3;
+	let polls = 0;
+	await waitForRunnerExit({
+		pid: 123,
+		intervalMs: 1,
+		isAlive: (pid) => {
+			polls++;
+			assert.equal(pid, 123);
+			return alive-- > 0;
+		},
+	});
+	assert.equal(polls, 4, "polls until the runner stops answering, then returns");
 });

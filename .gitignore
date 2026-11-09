@@ -29,6 +29,10 @@ kitty/.config/kitty/*.bak
 .pi-subagents/
 __pycache__/
 
+# Herdr writes these into mod folders; the stow link would put them in the repo.
+herdr-app/.config/herdr-app/mods/*/jsconfig.json
+herdr-app/.config/herdr-app/mods/*/*.d.ts
+
 
 # Backup files — rely on git history, no .bak convention (json.bak already covered elsewhere)
 *.md.bak

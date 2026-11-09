@@ -43,3 +43,35 @@ test("refuses fewer than 5 arguments with exit 2", () => {
 	const result = spawnSync("zsh", [SCRIPT, "T1", "999999", "x.exit"], { encoding: "utf8", timeout: 10000 });
 	assert.equal(result.status, 2);
 });
+
+// The context key comes from the secrets file through secret-get, never from the caller.
+const runWithSecrets = ({ secrets, preset }) => {
+	const dir = mkdtempSync(join(tmpdir(), "pi-pane-run-key-"));
+	const exitFile = join(dir, "x.exit");
+	const promptFile = join(dir, "x.prompt");
+	const secretsFile = join(dir, "secrets.env");
+	writeFileSync(promptFile, "hello");
+	writeFileSync(secretsFile, secrets, { mode: 0o600 });
+	const env = { ...process.env, HERDR_PANE_ID: "", HERDR_BIN_PATH: "/usr/bin/false", PI_VIEW_SECRETS: secretsFile };
+	delete env.CONTEXT7_API_KEY;
+	if (preset !== undefined) env.CONTEXT7_API_KEY = preset;
+	const seen = join(dir, "seen");
+	const result = spawnSync("zsh", [SCRIPT, "T1", "999999", exitFile, promptFile, "sh", "-c", `printf %s "$CONTEXT7_API_KEY" > ${seen}`], {
+		encoding: "utf8",
+		timeout: 10000,
+		env,
+	});
+	const value = existsSync(seen) ? readFileSync(seen, "utf8") : undefined;
+	rmSync(dir, { recursive: true, force: true });
+	return { status: result.status, value };
+};
+
+test("loads CONTEXT7_API_KEY from the secrets file when it is unset", () => {
+	const { value } = runWithSecrets({ secrets: "CONTEXT7_API_KEY=ctx-from-file\n" });
+	assert.equal(value, "ctx-from-file");
+});
+
+test("keeps an already-set CONTEXT7_API_KEY", () => {
+	const { value } = runWithSecrets({ secrets: "CONTEXT7_API_KEY=ctx-from-file\n", preset: "ctx-preset" });
+	assert.equal(value, "ctx-preset");
+});
