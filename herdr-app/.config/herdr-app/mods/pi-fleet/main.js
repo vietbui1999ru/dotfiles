@@ -1,13 +1,16 @@
-// The Pi fleet strip: one item per Pi run, a + to start a new one, and the window
-// sync. A copy opened with props { role: "new" } is the dialog instead (new-dialog.js):
-// it runs no sync or command loop.
-// Key commands (keys.json): pi-fleet.new opens the dialog, pi-fleet.next focuses the next run.
+// The Pi agents section of the sidebar: one two-line row per Pi run, a + to start a new
+// one, a monitor button, and the window sync. Opened by herdr-pi.json beneath the agents
+// mod. A copy opened with props { role: "new" } is the dialog instead (new-dialog.js): it
+// runs no sync or command loop.
+// Key commands (keys.json): pi-fleet.new opens the dialog, pi-fleet.next focuses the next run,
+// pi-fleet.monitor opens the Pi monitor beside the focused pane.
 
-import { View, div } from "gpui-kit";
-import { h_flex } from "gpui-base";
+import { View, div, svg } from "gpui-kit";
+import { v_flex, h_flex } from "gpui-base";
 import {
 	terminals,
 	focused,
+	panes,
 	run,
 	theme,
 	openOverlay,
@@ -17,11 +20,12 @@ import {
 	home,
 	nextCommand,
 } from "herdr";
-import { piRows, planSync, nextAddress, windowSpec } from "./logic.js";
+import { piRows, planSync, nextAddress, windowSpec, duration } from "./logic.js";
 import { newDialog, newDialogState } from "./new-dialog.js";
 
-const SPIN = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-const GLYPH = { working: "●", blocked: "●", done: "●", idle: "○" };
+// The agents mod's spinner and icon set, so this section reads like its neighbour.
+const ICON = "mods/workspace-chrome";
+
 
 export default class PiFleet extends View {
 	init(_props, cx) {
@@ -39,6 +43,7 @@ export default class PiFleet extends View {
 				const c = await nextCommand();
 				if (c === "new") this.openNew();
 				if (c === "next") this.focusNext();
+				if (c === "monitor") this.openMonitor();
 				cx.notify();
 			}
 		});
@@ -80,6 +85,13 @@ export default class PiFleet extends View {
 		if (row) this.focusRow(row);
 	}
 
+	// Focus the Pi monitor if it is open, else split one in beside the focused pane.
+	openMonitor() {
+		const open = panes().find((p) => p.mod === "pi-monitor");
+		if (open) run("pane.focus", { pane: open.pane });
+		else run("pane.split", { direction: "right", mod: "pi-monitor" });
+	}
+
 	openNew() {
 		openOverlay({
 			mod: "pi-fleet",
@@ -89,55 +101,98 @@ export default class PiFleet extends View {
 		});
 	}
 
-	chip(t, row) {
-		const st = row.status;
+	// A status mark drawn like the agents mod: a spinner, a ring for idle, a dot for done,
+	// a "!" chip for blocked.
+	mark(t, st) {
+		if (st === "working") return svg(`${ICON}/spinner.svg`).size(12).mx(1).flex_none().text_color(t.working).spin(900);
+		if (st === "blocked") return div().size(14).flex_none().rounded(4).bg(t.blocked + "26").text_size(10.5).font_bold().text_color(t.blocked).flex().items_center().justify_center().child("!");
+		if (st === "idle") return div().size(7).mx(3).flex_none().rounded(4).border(1.5).border_color(t.idle ?? t.dim);
+		return div().size(7).mx(3).flex_none().rounded(4).bg(t[st] ?? t.dim);
+	}
+
+	// Two lines: name (and machine) on top, model and elapsed time dim beneath.
+	row(t, row, now) {
+		const st = row.status ?? "idle";
+		const since = row.createdMs !== undefined ? duration(now - row.createdMs) : null;
+		const detail = since ? `${row.model} · ${since}` : row.model;
 		return h_flex()
 			.id(`pi-${row.address}`)
-			.h_full()
 			.px(8)
-			.gap(5)
+			.py(4)
+			.gap(9)
 			.items_center()
-			.rounded(6)
+			.rounded(8)
 			.cursor_pointer()
 			.hover((s) => s.bg(t.hover))
 			.on_click(() => this.focusRow(row))
+			.child(h_flex().w(14).flex_none().items_center().justify_center().child(this.mark(t, st)))
 			.child(
-				div()
-					.text_color(t[st] ?? t.dim)
-					.when(st === "working", (el) => el.frames(SPIN, 90))
-					.child(GLYPH[st] ?? "·"),
-			)
-			.when(row.machine !== "local", (el) => el.child(div().text_color(t.dim).child(row.machine)))
-			.child(div().text_color(t.foreground).child(row.name || row.address));
+				v_flex()
+					.flex_1()
+					.min_w(0)
+					.child(
+						h_flex()
+							.gap(5)
+							.items_center()
+							.child(div().min_w(0).truncate().text_color(st === "idle" ? t.muted : t.foreground).child(row.name || row.address))
+							.when(row.machine !== "local", (el) => el.child(div().flex_none().text_size(10).text_color(t.dim).child(row.machine))),
+					)
+					.child(div().truncate().text_size(11).text_color(t.dim).child(detail)),
+			);
 	}
 
 	render() {
 		const t = theme();
 		if (props()?.role === "new") return newDialog(this, t);
-		const plus = h_flex()
-			.id("pi-new")
-			.px(8)
-			.h_full()
+		const now = Date.now();
+		const header = h_flex()
+			.px(16)
+			.h(41)
+			.pt(14)
+			.pb(5)
+			.flex_none()
 			.items_center()
-			.rounded(6)
-			.text_color(t.muted)
-			.cursor_pointer()
-			.hover((s) => s.bg(t.hover).text_color(t.foreground))
-			.on_click(() => this.openNew())
-			.child("+");
-		const items = this.rows.length
-			? this.rows.map((row) => this.chip(t, row))
-			: [div().text_color(t.dim).child("No Pi runs")];
-		return h_flex()
+			.justify_between()
+			.child(div().text_size(11.5).font_medium().text_color(t.dim).child("Pi agents"))
+			.child(
+				h_flex()
+					.gap(10)
+					.items_center()
+					.child(
+						div()
+							.id("pi-monitor")
+							.text_size(11)
+							.text_color(t.dim)
+							.cursor_pointer()
+							.hover((s) => s.text_color(t.foreground))
+							.tooltip("Pi monitor")
+							.on_click(() => this.openMonitor())
+							.child(svg(`${ICON}/monitor.svg`).size(14)),
+					)
+					.child(
+						div()
+							.id("pi-new")
+							.text_size(11)
+							.text_color(t.dim)
+							.cursor_pointer()
+							.hover((s) => s.text_color(t.foreground))
+							.tooltip("New Pi run")
+							.on_click(() => this.openNew())
+							.child(svg(`${ICON}/plus.svg`).size(14)),
+					),
+			);
+		const body = this.rows.length
+			? this.rows.map((row) => this.row(t, row, now))
+			: [div().px(12).text_size(12).text_color(t.dim).child("No Pi runs yet.")];
+		return v_flex()
 			.id("pi-fleet")
 			.size_full()
-			.px(8)
-			.gap(6)
-			.items_center()
+			.min_h(0)
 			.bg(t.chrome)
-			.text_size(12)
-			.children(items)
-			.child(div().flex_1())
-			.child(plus);
+			.border_t(1)
+			.border_color(t.border)
+			.text_size(13)
+			.child(header)
+			.child(v_flex().id("pi-list").flex_1().min_h(0).px(8).overflow_y_scrollbar().mode("always").children(body));
 	}
 }

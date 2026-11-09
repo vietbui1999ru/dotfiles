@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+	duration,
 	modelFrom,
 	nextAddress,
 	piRows,
@@ -185,4 +186,11 @@ test("spawnArgs adds --on for another machine", () => {
 		spawnArgs({ tier: "high", taskFile: "/t.md", folder: "/repo", machine: "pve2" }),
 		["--tier", "high", "--task-file", "/t.md", "--cwd", "/repo", "--on", "pve2"],
 	);
+});
+
+test("duration formats minutes, hours and days as the agents mod does", () => {
+  assert.equal(duration(30000), "<1m");
+  assert.equal(duration(12 * 60000), "12m");
+  assert.equal(duration(3 * 3600000), "3h");
+  assert.equal(duration(2 * 86400000), "2d");
 });
