@@ -8,7 +8,7 @@ machine can see and drive terminals and agents on the other.
 | | Mac | pve2 |
 |---|---|---|
 | Tailscale node | `viets-macbook-pro-2` (100.73.122.127) | `pve-2-1` (100.116.136.75) |
-| SSH alias (Mac side) | — | `pve2-ts` (MagicDNS `pve-2-1.tail953017.ts.net`) |
+| SSH alias (Mac side) | — | `pve2-ts` (pinned to 100.116.136.75) |
 | herdr core (`hc`) | 0.1.18 | 0.1.18 |
 | herdr TUI | herdr | herdr 0.9.5 in `~/.local/bin` |
 | Paseo daemon | desktop-managed, listens on `100.73.122.127:6767` | listens on `100.116.136.75:6767` |
@@ -49,7 +49,7 @@ before you trust it:
 
 ```sh
 hc exec --on pve2 -- ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
-ssh-keyscan -t ed25519 pve-2-1.tail953017.ts.net | ssh-keygen -lf -
+ssh-keyscan -t ed25519 100.116.136.75 | ssh-keygen -lf -
 ```
 
 Paseo host registration. The password goes in the query string of a `tcp://`
@@ -125,6 +125,12 @@ TUI. Outside it they do nothing, or `pi-view` falls back to a plain dispatch.
 
 ## Limits
 
+- Tailscale DNS is off on the Mac, so MagicDNS names do not resolve there.
+  `~/.ssh/config` pins `pve2-ts` and `proxmox.tail953017.ts.net` to their 100.x
+  addresses, with `HostKeyAlias` set to the MagicDNS name the host key is stored
+  under. A 100.x address changes if the node is re-registered; check `tailscale status`.
+- Neither Paseo daemon restarts by itself after a reboot of pve2 or when the Mac
+  daemon exits. pve2 has no service for it: start it with `paseo daemon start`.
 - herdr is one-way: pve2 cannot add the Mac as a machine yet. The Mac's sshd is
   on and reachable from pve2, but none of pve2's keys is in the Mac's
   `~/.ssh/authorized_keys` (which does not exist). To enable it, create a key on
