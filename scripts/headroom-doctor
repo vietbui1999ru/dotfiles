@@ -5,7 +5,7 @@
 # Exit 0 when both proxies answer and this shell is routed if it should be;
 # 1 when a service is down or this shell matched a routing gate but is direct.
 #
-# Run it in the place that matters: a herdr pane, an Orca terminal, a tmux pane
+# Run it in the place that matters: a herdr pane, a Herdr app or Paseo terminal, a tmux pane
 # or a plain shell.
 
 set -uo pipefail
