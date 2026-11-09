@@ -195,7 +195,6 @@ export const register: Register = on => {
     await $.command.register({ name: 'pi-history', description: 'Open Pi hand-off history' })
     await $.command.register({ name: 'worktrees', description: 'Open the worktrees and branches pane' })
     await $.command.register({ name: 'draft-prs', description: 'Open the draft PRs pane: open drafts, ready PRs and merges from the last 7 days' })
-    await $.command.register({ name: 'focus', description: 'Open the focus pane: the work and hobby slots, frozen and parked items' })
     await $.command.register({ name: BLOCKS_PANE.command, description: "Open the blocks pane: this session's bash-safety blocks, o marks ok, f marks false-positive" })
     await $.command.register({ name: 'gates', description: 'Open spec approvals and pending Pi reviews across worktrees' })
     await $.command.register({ name: 'diff-review', description: 'Review the worktree: one tab per unapproved file, with comments, questions and proposed patches' })
