@@ -129,5 +129,6 @@ TUI. Outside it they do nothing, or `pi-view` falls back to a plain dispatch.
   on and reachable from pve2, but none of pve2's keys is in the Mac's
   `~/.ssh/authorized_keys` (which does not exist). To enable it, create a key on
   pve2, authorize it on the Mac, then run `hc machine add <mac> --name mac` on pve2.
-- `p2` passes the password on the command line, so other local users could see
-  it in `ps` while the command runs.
+- `paseo host add` takes the password in its connection argument, so it shows
+  in `ps` for that one call. `p2` passes it in `PASEO_HOST` instead, which keeps
+  it out of the argument list.
