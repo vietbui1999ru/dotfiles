@@ -1,6 +1,6 @@
 # jj workspaces for agent sessions: plan
 
-Status: draft, awaiting approval. Branch `feat/jj-ws`. Written 2026-11-09 against jj 0.46.
+Status: approved 2026-11-09. M1 and M2 done, M3 and M4 in progress. Branch `feat/jj-ws`. Written against jj 0.46 and Claude Code 2.1.319.
 
 ## Goal
 
@@ -90,7 +90,20 @@ Pi cannot launch Claude Code, and this decides whether the rest is worth doing. 
 
 If the guard fires, stop. The fallback is the keep-all-isolation option, with `jw` kept for the shared store only.
 
-### M3: restore the shared-checkout stop (Pi)
+**Result, 2026-11-09: passed.** A real `claude --bg` job in a fresh `jw` workspace started with no trust prompt and no guard refusal for any shape: nested git expansion, computed `rg` value, `git -C` at the primary (literal and `~`), and `jj git fetch`. The funnel committed in the workspace with HEAD on its branch. The primary stayed on `main` with its status unchanged, and `jw rm` removed the jj workspace, git worktree and directory.
+
+Three things the gate showed:
+
+- An unattended job can stall on a "Blast-radius check" prompt for a command it "can't analyze". Both complex shapes did this, and the job waited as `blocked` until answered. Its source was not found in the plugins or dotfiles searched, and it is unknown whether guarded sessions see it. Open question: whether jobs should stop on it.
+- The focus guard refuses writes in a workspace that is not a focus item. This is correct, and it means a `jwb` job on a new branch is read-only unless that branch holds a focus slot.
+- The job read the primary checkout freely, which confirms M3 is needed.
+
+### M3: restore the shared-checkout stop and fix `jw rm` (Pi)
+
+`scripts/jw`, `jw rm`, two review findings from M1. Add the tests first, in `scripts/jw.test.sh`:
+
+1. Refuse a name containing `/` or `..`, before anything else happens.
+2. Stop using `rm -rf` on the workspace. Before `jj workspace forget`, list gitignored content with `git status --porcelain --ignored`, excluding `.jj`. If there is any (for example `.pi/agent-review` state or `node_modules`), refuse, name the entries and change nothing, so the human decides. After the forget, remove only the leftover `.jj` directory and then `rmdir` the workspace, so anything unexpected makes it fail loudly.
 
 In `enforce-bash-safety.sh`, alongside the block at lines 158-166: when the hook `cwd` is under `*/.claude/worktrees/*`, refuse a git or jj command aimed at the primary checkout (`-C`, `-R`, `--git-dir`, `GIT_DIR=`, `cd <primary> &&`). Message: what was refused and that the session works only in its own workspace. Reuse `SEG`, `ASSIGN`, `WRAP` and `OPTS`.
 
@@ -99,7 +112,7 @@ This matches command text, so it stops habit and accident, not a deliberate bypa
 ### M4: fixes and docs (Pi)
 
 1. `settings.json:489`: replace the stale path with the repo's description, without naming a worktree.
-2. `scripts/focus`: make `REDIRECT` ignore `>` inside quotes. Add a test, after finding where focus's existing tests live.
+2. `scripts/focus`: make `REDIRECT` ignore `>` inside quotes. Add the test to `scripts/tests/test_focus_hooks.py`.
 3. `docs/workflows/worktree-guard-bandaid.md`: state that the guard is session state, not location; drop "background jobs" as always guarded in the Symptom section; add `jw` to the jj section.
 4. `shared/research-tool-routing.md` and `shared/AGENTS.md`: new sessions start through `jw`, and in those sessions `jj git fetch` and `jj git push` work. Keep the guard rules for isolated sessions. Do not touch the Spec loop block; both copies of it stay identical.
 
