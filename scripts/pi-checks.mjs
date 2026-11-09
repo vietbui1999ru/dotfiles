@@ -38,6 +38,9 @@ const runDir = () => process.env.PI_VIEW_RUN_DIR || join(tmpdir(), "pi-view");
 const specBin = () => process.env.SPEC_BIN || process.env.AC_RUN_BIN || join(scriptDir, "spec");
 const floorGuardBin = () => process.env.FLOOR_GUARD_BIN || join(scriptDir, "floor-guard");
 const herdrBin = () => process.env.HERDR_BIN_PATH || "herdr";
+const hcBin = () => process.env.HC_BIN_PATH || "hc";
+/** The `.pane` prefix that marks an hc terminal rather than a herdr pane. */
+const HC_PREFIX = "hc:";
 
 const git = (cwd, args) => {
 	const result = spawnSync("git", args, { cwd });
@@ -112,12 +115,25 @@ export const steerMessage = (acs, verify, floorGuard) => {
 	return lines.join("\n");
 };
 
-/** The id of a pane herdr still knows; a closed pane (Pi quit) answers nothing. */
+/**
+ * The id of a pane herdr still knows; a closed pane (Pi quit) answers nothing.
+ * An `hc:` address is an hc terminal: live only while hc reports its state as `live`.
+ */
 const livePane = (sessionId) => {
 	const file = join(runDir(), `${sessionId}.pane`);
 	if (!existsSync(file)) return undefined;
 	const pane = readFileSync(file, "utf8").trim().split("\n")[0];
 	if (!pane) return undefined;
+	if (pane.startsWith(HC_PREFIX)) {
+		const address = pane.slice(HC_PREFIX.length);
+		const got = spawnSync(hcBin(), ["get", "--json", address], { encoding: "utf8" });
+		if (got.status !== 0) return undefined;
+		try {
+			return JSON.parse(got.stdout)?.state === "live" ? pane : undefined;
+		} catch {
+			return undefined;
+		}
+	}
 	const got = spawnSync(herdrBin(), ["pane", "get", pane], { encoding: "utf8" });
 	return got.status === 0 ? pane : undefined;
 };
@@ -139,8 +155,12 @@ const queueBatch = (worktree, sessionId) => {
 	return id;
 };
 
-/** The same two calls the mod's Continue makes for a `--tui` run. */
+/** The same two calls the mod's Continue makes for a `--tui` run; an hc terminal takes one `send`. */
 const steer = (pane, message) => {
+	if (pane.startsWith(HC_PREFIX)) {
+		const sent = spawnSync(hcBin(), ["send", pane.slice(HC_PREFIX.length), message], { encoding: "utf8" });
+		return sent.status === 0;
+	}
 	const sent = spawnSync(herdrBin(), ["pane", "send-text", pane, message], { encoding: "utf8" });
 	if (sent.status !== 0) return false;
 	const entered = spawnSync(herdrBin(), ["pane", "send-keys", pane, "Enter"], { encoding: "utf8" });

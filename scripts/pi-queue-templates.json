@@ -33,7 +33,7 @@
     "steps": [
       {"name": "wait-review", "executor": "wait", "fact": ["review-decided", "{worktree}", "{run}"]},
       {"name": "send", "executor": "shell", "worktree": "{worktree}", "cmd": [
-        "pane=$(head -n1 \"${{TMPDIR:-/tmp}}/pi-view/{session}.pane\"); [ -n \"$pane\" ] && {herdr} pane send-text \"$pane\" \"$(cat '{message}')\" && {herdr} pane send-keys \"$pane\" Enter"
+        "pane=$(head -n1 \"${{TMPDIR:-/tmp}}/pi-view/{session}.pane\"); case \"$pane\" in hc:*) [ -n \"$pane\" ] && ${{HC_BIN_PATH:-hc}} send \"${{pane#hc:}}\" \"$(cat '{message}')\";; *) [ -n \"$pane\" ] && {herdr} pane send-text \"$pane\" \"$(cat '{message}')\" && {herdr} pane send-keys \"$pane\" Enter;; esac"
       ]}
     ]
   },

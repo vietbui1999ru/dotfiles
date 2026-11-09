@@ -104,6 +104,16 @@ const agentStatus = (runDir, sessionId) => {
 		return undefined;
 	}
 	if (!pane) return undefined;
+	// An hc terminal reports Pi's status as `status.state`; herdr reports `agent_status`.
+	if (pane.startsWith("hc:")) {
+		const hc = spawnSync(process.env.HC_BIN_PATH || "hc", ["get", "--json", pane.slice(3)], { encoding: "utf8" });
+		if (hc.status !== 0) return undefined;
+		try {
+			return JSON.parse(hc.stdout)?.status?.state;
+		} catch {
+			return undefined;
+		}
+	}
 	const got = spawnSync(process.env.HERDR_BIN_PATH || "herdr", ["pane", "get", pane], { encoding: "utf8" });
 	if (got.status !== 0) return undefined;
 	try {
