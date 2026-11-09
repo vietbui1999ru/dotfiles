@@ -62,7 +62,8 @@ export default class PiWindowBar extends View {
       .cursor_pointer()
       .hover((s) => s.bg(t.hover).text_color(t.foreground))
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-      .on_click(onClick);
+      .on_click(onClick)
+      .child(label);
   }
 
   render() {
