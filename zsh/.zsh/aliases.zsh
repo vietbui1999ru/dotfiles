@@ -133,3 +133,17 @@ if command -v headroom >/dev/null || [[ -x $HOME/.local/bin/headroom ]]; then
   alias hcodex="$HOME/dotfiles/scripts/headroom-prune; HEADROOM_TELEMETRY=off $HOME/dotfiles/scripts/with-secrets --optional CONTEXT7_API_KEY EXCALIDRAW_API_KEY -- $HOME/dotfiles/scripts/headroom-workflow codex"
   alias hpi="$HOME/dotfiles/scripts/headroom-prune; HEADROOM_TELEMETRY=off $HOME/dotfiles/scripts/headroom-workflow pi"
 fi
+
+# Mesh to pve2 (Tailscale node pve-2-1). See docs/workflows/herdr-paseo-mesh.md.
+# p2 reads the pve2 Paseo daemon password from the macOS Keychain (paseo-pve2)
+# on every call and hands it over in PASEO_HOST, not argv, so it stays out of
+# this file, the shell history and other users' `ps`.
+alias hx2="hc exec --on pve2"
+alias herdr2="herdr --machine pve2"
+if [[ $OSTYPE == darwin* ]]; then
+  p2() {
+    local pw
+    pw=$(security find-generic-password -a "$USER" -s paseo-pve2 -w) || return
+    PASEO_HOST="tcp://100.116.136.75:6767?password=$pw" paseo "$@"
+  }
+fi

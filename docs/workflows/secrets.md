@@ -40,7 +40,7 @@ key on stderr once at start. A missing key must not cost the launch — an MCP s
 authenticate is a smaller failure than a client that cannot start. Add the key to
 `~/secrets/.env` to bring its server back.
 
-GUI-launched clients (the Claude desktop app, Orca) do not run shell aliases, so they get none
+GUI-launched clients (the Claude desktop app) do not run shell aliases, so they get none
 of these keys. They lose those MCP servers until a launcher exists.
 
 ## Adding a key for a new tool
@@ -61,7 +61,7 @@ key is read at connect time and never lands in a config or an exported environme
 - Rotate GITHUB_PAT, SHADCN_API_KEY (found in opencode.db and one Pi session file) and FIRECRAWL_API_KEY (shell history).
 - Delete that Pi session file and the history line.
 - `~/.claude.json`: literal context7/github headers to `${VAR}`; `chmod 600` it, `~/.mcphub/servers.json`, `nvim/.config/nvim/.env`.
-- Orca (`*:6768`) and Bartender (`*:7823`): bind to localhost in their settings if offered.
+- Bartender (`*:7823`): bind to localhost in its settings if offered.
 - Remove unused keys (OPENCODE_GO_API_KEY_PI_QUEUES, LITELLM_MASTER_KEY) from `.env` if truly unused.
 - Kill the orphaned `headroom mcp serve` processes (each holds the full exported environment until the `.zshrc` cutover) and find which client leaves them behind.
 
