@@ -186,6 +186,11 @@ def in_index(rel):
     return git("ls-files", "--error-unmatch", "--", rel, check=False).returncode == 0
 
 
+def is_submodule(rel):
+    """True when the index records `rel` as a gitlink (a submodule pointer)."""
+    return git("ls-files", "-s", "--", rel).stdout.startswith("160000 ")
+
+
 def in_head(rel):
     return git("cat-file", "-e", f"HEAD:{rel}", check=False).returncode == 0
 
@@ -445,6 +450,11 @@ def run(args):
         ])
     rels = check_paths(args.paths, cwd, root)
     message_path, text = read_message(args.message_file, cwd)
+    if jj_mode and any(is_submodule(r) for r in rels):
+        # jj ignores submodules, so its commit would silently drop the pointer move.
+        # Commit through git on the attached branch; jj imports it on its next command.
+        git("switch", "-q", branch)
+        jj_mode = False
     if jj_mode:
         commit_jj(rels, text, branch, root)
     else:

@@ -263,6 +263,35 @@ class Fixture(unittest.TestCase):
         self.assertEqual(self.git("rev-parse", "HEAD").strip(), committed)
         self.assertIn("add a and b", r.stdout)
 
+    def test_jj_commits_submodule_pointer_through_git(self):
+        # jj ignores submodules, so a jj commit would drop the pointer move and come out empty.
+        self.init_repo()
+        sub = self.repo / "sub"
+        sub.mkdir()
+        sg = ["git", *GITC, "-C", str(sub)]
+        subprocess.run([*sg, "init", "-q"], env=self.env, check=True)
+        for m in ("s1", "s2"):
+            subprocess.run([*sg, "commit", "-q", "--allow-empty", "-m", m], env=self.env, check=True)
+        subprocess.run([*sg, "checkout", "-q", "HEAD~1"], env=self.env, check=True)
+        self.git("add", "sub")
+        self.git("commit", "-q", "-m", "add sub")
+        self.jj_colocated()
+        subprocess.run([*sg, "checkout", "-q", "-"], env=self.env, check=True)
+        new = subprocess.run([*sg, "rev-parse", "HEAD"], env=self.env, check=True,
+                             capture_output=True, text=True).stdout.strip()
+        self.put("a.txt", "a\n")
+        self.put("b.txt", "b\n")
+        r = self.run_funnel("-F", str(self.msg), "sub", "a.txt")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.git("rev-parse", "HEAD:sub").strip(), new)
+        self.assertEqual(self.git("diff", "--name-only", "HEAD~1", "HEAD").split(),
+                         ["a.txt", "sub"])
+        self.assertEqual(self.git("symbolic-ref", "--short", "HEAD").strip(), "feat/x")
+        head = self.git("rev-parse", "HEAD").strip()
+        bookmark = self.jj("log", "--no-graph", "-r", "feat/x", "-T", "commit_id").stdout.strip()
+        self.assertEqual(bookmark, head)
+        self.assertEqual(self.jj("diff", "--name-only", "-r", "@").stdout.split(), ["b.txt"])
+
     def test_jj_quotes_odd_path_names(self):
         self.init_repo()
         self.jj_colocated()
