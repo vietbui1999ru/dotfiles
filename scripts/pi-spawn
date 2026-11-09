@@ -64,6 +64,10 @@ if [[ -n $tier ]]; then
   model=""
   if [[ -r $routing_file ]]; then
     model=$(sed -n "s/^${key}=//p" "$routing_file" | tail -n1)
+    # Strip one matching pair of surrounding quotes, as routing.env may quote a value.
+    if [[ $model == \"*\" || $model == \'*\' ]]; then
+      model=${model[2,-2]}
+    fi
   fi
   if [[ -z $model ]]; then
     print -u2 -- "pi-spawn: $key is not set in $routing_file"
@@ -93,7 +97,7 @@ slug=${slug}-$(openssl rand -hex 2)
 session_id=pueue-$slug
 
 # The task text is read inside the pueue task, so it is never stored in pueue's command.
-pueue_command="$script_dir/pi-view --tui pi --model $model --session-id $session_id -p \"\$(cat ${(q)task_file})\" < /dev/null"
+pueue_command="${(q)script_dir}/pi-view --tui pi --model ${(q)model} --session-id ${(q)session_id} -p \"\$(cat ${(q)task_file})\" < /dev/null"
 
 task_id=$(PI_VIEW_APP=1 PI_VIEW_PLACE=$place pueue add -i --print-task-id --label "$slug" -w "$cwd" -- "$pueue_command") || {
   print -u2 -- 'pi-spawn: pueue add failed'

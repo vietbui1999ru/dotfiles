@@ -117,3 +117,21 @@ test("a value flag with no value exits 2 instead of looping", () => {
 	assert.match(result.stderr, /--tier needs a value/);
 	assert.equal(box.queued().length, 0);
 });
+
+test("a quoted routing.env value loses its quotes", () => {
+	const box = sandbox({ routing: 'PI_DELEGATE_HIGH_MODEL="opencode-go/high:high"\n' });
+	const result = box.run(["--tier", "high", "--task-file", box.task]);
+	assert.equal(result.status, 0, result.stderr);
+	assert.match(result.stdout, /model=opencode-go\/high:high\n/);
+	assert.ok(!result.stdout.includes('"'), result.stdout);
+	assert.ok(!box.queued()[0].argv.join(" ").includes('"opencode'), "no quote in the model");
+});
+
+test("a --model with shell metacharacters is escaped in the queued command", () => {
+	const box = sandbox();
+	const result = box.run(["--model", "x/y;touch PWNED", "--task-file", box.task]);
+	assert.equal(result.status, 0, result.stderr);
+	const command = box.queued()[0].argv.join(" ");
+	assert.ok(command.includes("x/y\\;touch\\ PWNED"), command);
+	assert.ok(!command.includes("--model x/y;touch"), command);
+});
