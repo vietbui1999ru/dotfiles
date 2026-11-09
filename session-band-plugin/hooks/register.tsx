@@ -235,21 +235,22 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined) await setTurn($, false).catch(() => undefined)
     await refreshGit($)
-    // Auto-clear at the end of a turn past 350K tokens; it never throws, and its clear runs before the review drain.
-    await endOfTurn($, e)
     // Notes never interrupt a running turn: the main loop's end is when this session's batches go in.
+    let notesSent = false
     if (e.agentId === undefined) {
       const [worktree, sessionId] = await Promise.all([$.session.cwd().catch(() => ''), $.session.id().catch(() => '')])
-      if (worktree !== '' && sessionId !== '') await deliverOwn($, worktree, sessionId).catch(() => undefined)
+      if (worktree !== '' && sessionId !== '') notesSent = await deliverOwn($, worktree, sessionId).catch(() => false)
     }
 
-    return next(e)
+    const result = await next(e)
+    // Last, once the engine has ended the turn. Notes just delivered get their turn first; the threshold fires again after it.
+    if (!notesSent) await endOfTurn($, e)
+    return result
   })
 
   on('tool.call', async ($, e, next) => {
     const { context } = await $.session.usage()
     const r = await next(e)
-    // Auto-clear owns the end-of-turn clear; the soft-stop directive is shown only when that save failed.
 
     // Not awaited: the band catches up on redraw, and the tool result must not wait on ~7 git calls.
     if (e.tool === 'Bash') void refreshGit($).catch(() => undefined)
@@ -275,8 +276,9 @@ export const register: Register = on => {
       if (stop.action === 'clear') {
         await update($, isNotified, () => false)
       } else if (stop.action === 'notify') {
-        await update($, isNotified, () => true)
+        // Auto-clear owns the end-of-turn clear, so the directive shows only after its save failed.
         if (!(await autoClearFailed($).catch(() => false))) return r
+        await update($, isNotified, () => true)
 
         return { ...r, context: [...(r.context ?? []), stop.text] }
       }

@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import { AUTO_CLEAR_TOKENS, COMPACT_CEILING_TOKENS, introText, readClearResult, shouldClear, shouldSkipCompact, type ClearCheck } from './auto-clear'
 
-const base: ClearCheck = { isTaskSession: false, isRefusal: false, tokens: 350_000, agentsBusy: false, draft: '', saveFailed: false }
+const base: ClearCheck = { isTaskSession: false, turnReason: 'answer', tokens: 350_000, agentsBusy: false, draft: '', saveFailed: false }
 
 test('the clear threshold is the 70% soft-stop threshold, 350K tokens', () => {
   expect(AUTO_CLEAR_TOKENS).toBe(350_000)
@@ -15,10 +15,10 @@ test('shouldClear fires at 350,000 tokens and not at 349,999', () => {
   expect(shouldClear({ ...base, tokens: undefined })).toBe(false)
 })
 
-test('shouldClear refuses a sub-agent, a task session, a refused turn, busy agents, a typed draft, or a failed save', () => {
+test('shouldClear refuses a sub-agent, a task session, a turn that did not answer, busy agents, a typed draft, or a failed save', () => {
   expect(shouldClear({ ...base, agentId: 'a1' })).toBe(false)
   expect(shouldClear({ ...base, isTaskSession: true })).toBe(false)
-  expect(shouldClear({ ...base, isRefusal: true })).toBe(false)
+  for (const turnReason of ['aborted', 'refusal', 'error']) expect(shouldClear({ ...base, turnReason })).toBe(false)
   expect(shouldClear({ ...base, agentsBusy: true })).toBe(false)
   expect(shouldClear({ ...base, draft: 'half a thought' })).toBe(false)
   expect(shouldClear({ ...base, saveFailed: true })).toBe(false)

@@ -25,9 +25,8 @@ async function agentsBusy($: EngineInterface): Promise<boolean> {
   return agents.some(agent => BUSY.has(agent.status))
 }
 
-// The end-of-turn clear. register.tsx's own turn.complete handler calls this: the engine allows one turn.complete
-// hook per matcher, so this module does not register one of its own. It never throws; a failure is a no-op.
-export async function endOfTurn($: EngineInterface, e: { agentId?: string; refusal?: boolean }): Promise<void> {
+// The end-of-turn clear, called from register.tsx's turn.complete hook after next(e). It never throws; a failure is a no-op.
+export async function endOfTurn($: EngineInterface, e: { agentId?: string; reason: string }): Promise<void> {
   try {
     const { context } = await $.session.usage()
     const tokens = context.tokens
@@ -40,7 +39,7 @@ export async function endOfTurn($: EngineInterface, e: { agentId?: string; refus
     const check: ClearCheck = {
       agentId: e.agentId,
       isTaskSession: await isTaskSession($),
-      isRefusal: e.refusal === true,
+      turnReason: e.reason,
       tokens,
       agentsBusy: await agentsBusy($),
       draft: (await $.prompt.read()).text,
@@ -54,7 +53,7 @@ export async function endOfTurn($: EngineInterface, e: { agentId?: string; refus
       : readClearResult(cleared.text)
     if (outcome.kind === 'failed') {
       await update($, saveFailed, () => true)
-      await $.ui.toast(`Auto-clear stopped: ${outcome.text}. Compaction is back on.`)
+      await $.ui.toast(`Auto-clear stopped: ${outcome.text} Compaction is back on.`)
       return
     }
 

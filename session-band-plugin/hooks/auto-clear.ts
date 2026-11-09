@@ -11,18 +11,19 @@ export const COMPACT_CEILING_TOKENS = 900_000
 export type ClearCheck = {
   agentId?: string
   isTaskSession: boolean
-  isRefusal: boolean
+  turnReason: string
   tokens: number | undefined
   agentsBusy: boolean
   draft: string
   saveFailed: boolean
 }
 
-// Clear only a main, non-task session at or over the threshold, with nothing running and nothing typed.
+// Clear only a main, non-task session whose turn ended with an answer (not Esc, a refusal or an API error),
+// at or over the threshold, with nothing running and nothing typed.
 export const shouldClear = (c: ClearCheck): boolean =>
   c.agentId === undefined &&
   !c.isTaskSession &&
-  !c.isRefusal &&
+  c.turnReason === 'answer' &&
   c.tokens !== undefined &&
   c.tokens >= AUTO_CLEAR_TOKENS &&
   !c.agentsBusy &&

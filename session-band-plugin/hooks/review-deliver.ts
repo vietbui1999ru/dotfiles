@@ -73,12 +73,12 @@ async function spawnAnswerer($: EngineInterface, worktree: string, batch: Batch,
  * Delivers this session's queued batches at the end of its turn: the ones that stay on the session's
  * model as one message, oldest first, each of the others to a fresh answerer on the model the person chose.
  */
-export async function deliverOwn($: EngineInterface, worktree: string, sessionId: string): Promise<void> {
+export async function deliverOwn($: EngineInterface, worktree: string, sessionId: string): Promise<boolean> {
   // The queue lives at the worktree's root, so a session started in a subdirectory still finds its batches.
   const root = await worktreeRoot($, worktree)
   const queue = await readQueue($, root)
   const mine = oldestFirst(queue.filter(batch => batch.state === 'queued' && batch.agent === claudeAgent(sessionId)))
-  if (mine.length === 0) return
+  if (mine.length === 0) return false
   const model = await $.session.model().catch(() => '')
   const here = mine.filter(batch => batch.model === undefined || batch.model === model)
   const elsewhere = mine.filter(batch => batch.model !== undefined && batch.model !== model)
@@ -94,6 +94,7 @@ export async function deliverOwn($: EngineInterface, worktree: string, sessionId
     }
   }
   for (const batch of elsewhere) await spawnAnswerer($, root, batch, sessionId)
+  return here.length > 0
 }
 
 /**

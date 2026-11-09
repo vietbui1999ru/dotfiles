@@ -69,8 +69,19 @@ test('denies Agent at 350000 tokens and allows it at 349999', async ($, on) => {
   expect('deny' in allowed).toBe(false)
 })
 
-test('adds the long then short soft-stop directives while over the threshold', async ($, on) => {
+test('adds the long then short soft-stop directives only after an auto-clear save failed', async ($, on) => {
   setup(on, { tokens: 350_000 })
+  on('session.root', () => ({ value: '/work' }))
+  on('fs.read', () => { throw new Error('ENOENT') })
+  on('agent.list', () => ({ value: [] }))
+  on('prompt.read', () => ({ value: { text: '', cursor: 0 } }))
+  on('ui.toast', () => ({ value: undefined }))
+  on('command.run', () => ({ text: 'Clear cancelled: nothing was saved.' }))
+  on('turn.complete', () => ({ text: '' }))
+
+  const before = await $.tool.call({ tool: 'Read', file_path: '/work/README.md' })
+  expect(before.context).toBeUndefined()
+  await $.turn.complete({ answer: 'done', durationMs: 10, isAborted: false, turnId: 't1', reason: 'answer' })
 
   const first = await $.tool.call({ tool: 'Read', file_path: '/work/README.md' })
   const second = await $.tool.call({ tool: 'Read', file_path: '/work/README.md' })

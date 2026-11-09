@@ -158,6 +158,31 @@ test('real work is summarised, saved, saved, cleared, then reported', async ($, 
   expect(world.saveStdin).toContain('## Next Session Should')
 })
 
+const pluginClear = { ...clear(), origin: { kind: 'plugin', name: 'session-band' } } as never
+
+test('a plugin clear summarises through a fork, not the digest', async ($, on) => {
+  const world = setup(on)
+  on('model.fork', () => ({ value: { isAnswered: true, text: MODEL_REPLY } } as never))
+
+  await edit($)
+  const result = await $.command.run(pluginClear)
+
+  expect(result.text).toBe('Session saved: .agents/sessions/20261007_cc_general_goal.md')
+  expect(world.modelPrompt).toBeUndefined()
+  expect(world.saveStdin).toContain('## Completed')
+})
+
+test('a plugin clear falls back to the digest when the fork is not answered', async ($, on) => {
+  const world = setup(on)
+  on('model.fork', () => ({ value: { isAnswered: false, reason: 'aborted' } } as never))
+
+  await edit($)
+  await $.command.run(pluginClear)
+
+  expect(world.modelPrompt).toContain('fix the clear hook')
+  expect(world.clearRan).toBe(1)
+})
+
 test('a failed save asks, and Clear anyway clears', async ($, on) => {
   const world = setup(on, { model: { isAnswered: false, reason: 'empty-reply' }, askAnswer: 'Clear anyway' })
 
