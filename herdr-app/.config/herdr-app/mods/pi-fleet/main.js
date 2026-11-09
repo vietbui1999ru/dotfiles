@@ -21,6 +21,7 @@ import {
 	nextCommand,
 	exec,
 	hc,
+	notify,
 } from "herdr";
 import { piRows, planSync, nextAddress, windowSpec, duration, reviewRows, approveMessage, cleanupRows, removeMessage, canClose } from "./logic.js";
 import { newDialog, newDialogState } from "./new-dialog.js";
@@ -92,6 +93,7 @@ export default class PiFleet extends View {
 		const address = nextAddress(this.rows, focused()?.terminal);
 		const row = this.rows.find((r) => r.address === address);
 		if (row) this.focusRow(row);
+		else notify({ title: "No Pi runs", timeout: 3000 });
 	}
 
 	// Focus the Pi monitor if it is open, else split one in beside the focused pane.
@@ -258,7 +260,7 @@ export default class PiFleet extends View {
 					.child(div().flex_1().min_w(0).truncate().text_color(t.foreground).child(row.name))
 					.when(!Number.isNaN(started), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - started))))
 					.child(this.textButton(t, `pi-diff-${row.runId}`, "Diff", true, () => run("terminal.open", { argv: ["nvim", "+AgentReview"], folder: row.owner, place: "tab" })))
-					.child(this.textButton(t, `pi-approve-${row.runId}`, waiting ? "Confirm in dialog…" : "Approve", !this.approving, (_e, cx) => this.approve(cx, row))),
+					.child(this.textButton(t, `pi-approve-${row.runId}`, waiting ? "Confirm in dialog…" : "Approve", !this.approving, (_e, cx) => cx.spawn((cx) => this.approve(cx, row)))),
 			)
 			.when(Boolean(note), (el) => el.child(div().text_size(11).text_color(t.blocked).child(note)));
 	}
@@ -284,7 +286,7 @@ export default class PiFleet extends View {
 							`pi-remove-${row.runId}`,
 							busy ? "Removing…" : this.armed?.key === `row:${row.runId}` ? "Remove?" : "Remove",
 							!this.removing,
-							(_e, cx) => this.arm(cx, `row:${row.runId}`, () => this.removeRow(cx, row)),
+							(_e, cx) => this.arm(cx, `row:${row.runId}`, () => cx.spawn((cx) => this.removeRow(cx, row))),
 						),
 					),
 			)
@@ -337,7 +339,7 @@ export default class PiFleet extends View {
 								"pi-remove-all",
 								this.armed?.key === "all" ? `Remove all ${this.cleanup.length}?` : `Remove all ${this.cleanup.length}`,
 								!this.removing,
-								(_e, cx) => this.arm(cx, "all", () => this.removeAll(cx)),
+								(_e, cx) => this.arm(cx, "all", () => cx.spawn((cx) => this.removeAll(cx))),
 							),
 						)
 						.when(this.removeNote?.runId === "all", (el) => el.child(div().text_size(11).text_color(t.blocked).child(this.removeNote.text))),

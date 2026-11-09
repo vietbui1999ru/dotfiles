@@ -158,7 +158,7 @@ export default class PiMonitor extends View {
 					return;
 				}
 				this.armed = false;
-				this.clearFinished(cx);
+				cx.spawn((cx) => this.clearFinished(cx));
 			})
 			.child(this.clearing ? "Clearing…" : armed ? `Clear finished ${n}?` : `Clear finished ${n}`);
 	}
