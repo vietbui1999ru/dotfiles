@@ -145,3 +145,25 @@ Add no other top-level heading, preamble or trailing text.`
 
 export const summaryPrompt = (digest: string): string =>
   `Summarise this session from the digest below, in the format the system prompt specifies.\n\n${digest}`
+
+// The /clear failure texts, shared with auto-clear.ts so it can tell a failed save from a clean clear.
+export const REFUSED =
+  'Clear refused: the transcript is already gone, nothing to summarise. Run save-session first, or re-run /clear.'
+export const CANCELLED = 'Clear cancelled: nothing was saved.'
+export const SAVE_FAILED = 'Clear cancelled: the save step failed.'
+
+// The summariser's brief for a forked call: the fork sees the whole transcript and has no tools, so it answers in the parseReply shape at once.
+export const forkSummaryPrompt = `Summarise this entire session in the handoff format. You have no tools: answer at once, with no preamble and no tool calls.
+
+Reply in exactly this shape. The first line is the goal, then the six headings, in this order, each with bullet lines (write "nothing" under a heading that has no content):
+
+GOAL: <one sentence describing what the session set out to do>
+
+## Completed
+## In Progress
+## Decisions Made
+## Blocked / Needs Input
+## Files Modified This Session
+## Next Session Should
+
+Every one of the six headings must appear exactly once, spelled exactly as above. Add no other top-level heading, preamble or trailing text.`

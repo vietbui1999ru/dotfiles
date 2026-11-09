@@ -4,6 +4,7 @@ import type { Usage } from '../types'
 import { drawBand } from './band'
 import { captureSession, register as registerBlast } from './blast'
 import { register as registerClear } from './clear'
+import { autoClearFailed, endOfTurn, onCompact } from './auto-clear.tsx'
 import { register as registerHandoff } from './handoff.tsx'
 import { register as registerHistory } from './history.tsx'
 import { register as registerPane } from './pane.tsx'
@@ -234,6 +235,8 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined) await setTurn($, false).catch(() => undefined)
     await refreshGit($)
+    // Auto-clear at the end of a turn past 350K tokens; it never throws, and its clear runs before the review drain.
+    await endOfTurn($, e)
     // Notes never interrupt a running turn: the main loop's end is when this session's batches go in.
     if (e.agentId === undefined) {
       const [worktree, sessionId] = await Promise.all([$.session.cwd().catch(() => ''), $.session.id().catch(() => '')])
@@ -246,6 +249,7 @@ export const register: Register = on => {
   on('tool.call', async ($, e, next) => {
     const { context } = await $.session.usage()
     const r = await next(e)
+    // Auto-clear owns the end-of-turn clear; the soft-stop directive is shown only when that save failed.
 
     // Not awaited: the band catches up on redraw, and the tool result must not wait on ~7 git calls.
     if (e.tool === 'Bash') void refreshGit($).catch(() => undefined)
@@ -272,6 +276,7 @@ export const register: Register = on => {
         await update($, isNotified, () => false)
       } else if (stop.action === 'notify') {
         await update($, isNotified, () => true)
+        if (!(await autoClearFailed($).catch(() => false))) return r
 
         return { ...r, context: [...(r.context ?? []), stop.text] }
       }
@@ -286,6 +291,9 @@ export const register: Register = on => {
 
     return denial ? { deny: denial } : next(e)
   }).catch(($, e, next) => next.called ? next(e) : { deny: 'session-band guard failed' })
+
+  // Claude's own compaction is held back while auto-clear can handle the session (see auto-clear.tsx).
+  on('session.compact', ($, e, next) => onCompact($, e, () => next(e)) as never)
 
   on('prompt.compose', async ($, e, next) => {
     hasComposed = true
