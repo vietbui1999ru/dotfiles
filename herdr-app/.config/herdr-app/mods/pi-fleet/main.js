@@ -58,15 +58,18 @@ export default class PiFleet extends View {
 		cx.notify();
 	}
 
-	// Open a row's window (out of the dismissed list), then focus its terminal.
+	// A window row: take it out of the dismissed list and open its window; the person
+	// clicks the window to type, since pane.focus cannot reach a window's terminal.
+	// Any other row (a tab or split): focus its pane.
 	focusRow(row) {
-		const dismissed = shared("pi-fleet.dismissed") ?? [];
-		if (dismissed.includes(row.address)) {
-			setShared("pi-fleet.dismissed", dismissed.filter((a) => a !== row.address));
-		}
 		if (row.isWindow) {
+			const dismissed = shared("pi-fleet.dismissed") ?? [];
+			if (dismissed.includes(row.address)) {
+				setShared("pi-fleet.dismissed", dismissed.filter((a) => a !== row.address));
+			}
 			openOverlay(windowSpec(row.address, this.windowCount));
 			this.windowCount += 1;
+			return;
 		}
 		run("pane.focus", { terminal: row.address });
 	}
