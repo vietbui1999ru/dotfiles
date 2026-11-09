@@ -172,6 +172,14 @@ forms pass the guard. Never move or push
 `main`/`master`, never pass `--ignore-immutable`, and never rewrite a branch that
 another worktree has checked out.
 
+New sessions start through `jw`, not `EnterWorktree`: `jwc <branch>` opens an interactive
+`claude` in a fresh colocated jj workspace under `.claude/worktrees/`, and `jwb <branch> <prompt>`
+starts a background job there. Such a session has no worktree marker, so the guard does not apply:
+`jj git fetch` and `jj git push -b <branch>` pass there, and git aimed at the primary checkout is
+still refused by the Bash hook. Remove a finished workspace with `jw rm <name>`; it refuses one
+holding uncommitted or gitignored content. A session that did enter a worktree through
+`EnterWorktree` or `isolation: "worktree"` is still guarded, and keeps the rules above.
+
 Agent provenance is recorded by tools, never by the model. Each agent write is logged
 to a local ledger outside the repo (`scripts/provenance`), and `commit-funnel` appends one
 `Agent:` and one `Agent-Paths:` trailer per model that wrote the committed paths, so

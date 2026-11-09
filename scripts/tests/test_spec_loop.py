@@ -703,6 +703,17 @@ class SpecLoopCases(Fixture):
             return text[text.index("<!-- spec-loop:start -->"):text.index("<!-- spec-loop:end -->")]
         self.assertEqual(block("AGENTS.md"), block("research-tool-routing.md"))
 
+    # M4 item 4: new sessions start through jw, and in those sessions the jj wire forms pass
+    def test_routing_names_jw_and_the_guard_split(self):
+        for name in ("AGENTS.md", "research-tool-routing.md"):
+            with self.subTest(file=name):
+                text = (ROOT / "shared" / name).read_text()
+                self.assertRegex(text, r"\bjw\b", f"{name}: no jw launch guidance")
+                self.assertIn("jwc", text, f"{name}: no jwc launcher named")
+                self.assertIn("jw rm", text, f"{name}: no removal path named")
+                self.assertIn("jj git push", text)
+                self.assertIn("isolated", text, f"{name}: guard rules for isolated sessions dropped")
+
     # AC-15: the example inside grill-me lints clean
     def test_lint_skill_example(self):
         path = ROOT / "shared" / "skills" / "grill-me" / "SKILL.md"
