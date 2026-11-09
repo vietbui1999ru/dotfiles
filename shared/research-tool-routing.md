@@ -203,6 +203,22 @@ Never run `mise trust` (trust lets a config run code), `mise use -g`/`--global`,
 They change the whole machine or expose credentials, so they are the human's
 call. Add a mise config to a repo that has none only when the task asks for it.
 
+## Other machines: pve2 over herdr and Paseo
+
+The Mac and pve2 (Tailscale node `pve-2-1`) are linked both ways in Paseo and
+one way (Mac to pve2) in herdr. Setup and limits: `docs/workflows/herdr-paseo-mesh.md`.
+
+- herdr core: `hc ls`, `hc read`, `hc send`, `hc wait` address a terminal as
+  `pve2/t7`. `hc run --on pve2 <cmd>` starts one there; `hc exec --on pve2 <cmd>`
+  runs a program without a terminal. Drive the Herdr app with `herdr-app do <cmd>`.
+- herdr TUI: `herdr --machine pve2 <command>`.
+- Paseo: from the Mac, `p2 ls|send|wait` (a zsh function that reads the pve2
+  password from the Keychain). To start an agent on the other host through the
+  Paseo MCP tools, pass that host's `serverId` (from `paseo host ls --json`).
+- On pve2, `paseo` is on PATH only with mise active: `bash -lc 'eval "$(mise activate bash)"; paseo …'`.
+- Never print or log a daemon password. They live in the Mac Keychain
+  (`paseo-mac`, `paseo-pve2`).
+
 ## Claude/Codex planner continuity
 
 Claude Code, Codex, and OpenCode are not parallel workflow targets.
