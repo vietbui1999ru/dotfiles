@@ -27,6 +27,15 @@ shift 4
 prompt=$(<$prompt_file)
 rm -f -- $prompt_file
 
+# An hc terminal does not inherit the caller's environment, so the context key is loaded
+# here as pi-view loads it: one secret-get for the name, never on a command line. A failed
+# lookup is ignored.
+if [[ -z ${CONTEXT7_API_KEY:-} ]]; then
+  if key_value=$(SECRETS_ENV=${PI_VIEW_SECRETS:-$HOME/secrets/.env} "${0:A:h}/secret-get" CONTEXT7_API_KEY 2>/dev/null); then
+    export CONTEXT7_API_KEY=$key_value
+  fi
+fi
+
 # The watcher ends Pi and this script together, but only when <watch-pid> goes away
 # while Pi is still running: it shares this process group, so signalling group 0 ends
 # both, not the pane's shell. A watch pid that is already gone must not end Pi, so the
