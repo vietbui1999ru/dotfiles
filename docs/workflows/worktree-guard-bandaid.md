@@ -4,7 +4,7 @@ Status: active since 2026-10-20. Applies to Claude Code 2.1.210 through at least
 
 ## Symptom
 
-In a worktree-isolated Claude Code session (`EnterWorktree`, `isolation: "worktree"` subagents, background jobs), Bash calls fail with one of:
+The guard follows the session's state, not its location. A session that entered a worktree through `EnterWorktree` or `isolation: "worktree"` is guarded, and so is a session whose persisted worktree marker is set. A plain `claude -p` or `claude --bg` started inside `.claude/worktrees/<name>` is not guarded: it never called `EnterWorktree`, so it has no marker. The live gate (2026-11-09) and an unguarded probe show this; a background job is guarded only when it entered a worktree itself. In a guarded session Bash calls fail with one of:
 
 - "...this command names git in a form too complex to verify that it stays inside the worktree. Refusing to run it..."
 - "...this command runs rtk with a git command among its operands..."
@@ -23,7 +23,7 @@ The guard is part of Claude Code. It cannot be turned off, and WorktreeCreate ho
 | `source`, `.`, `eval` and other interpreter builtins | anthropics/claude-code#84530 | By design |
 | Nested shell expansions, runtime-computed paths, the word "git" inside argument text | #84720, CHANGELOG 2.1.274 | Partly fixed in 2.1.257/2.1.259 |
 
-Full evidence: llm-wiki `wiki/summaries/claude-code-worktree-guard-issues.md` and `wiki/concepts/claude-code-worktree-guard.md`.
+Full evidence: llm-wiki `wiki/summaries/claude-code-worktree-guard-issues.md` and `wiki/concepts/claude-code-worktree-guard.md`. The session-state finding is in `docs/workflows/jj-workspaces-plan.md`.
 
 ## The bandaid
 
@@ -100,6 +100,8 @@ Human override: for the human's own work inside an agent worktree, run `AGENT_RE
 Known gap: jj bookmark moves do not run git hooks. jj writes refs through its own library, so `jj bookmark move` and jj's commit path are not covered. The Bash hook still blocks `jj commit`/`jj ci` for Claude, and Pi's rules say to use the funnel. A jj-native check needs jj's own hook support, which jj 0.46 does not offer.
 
 ## jj in worktree sessions
+
+New agent work starts through `scripts/jw`, which creates a colocated jj workspace under `.claude/worktrees/<name>` on a real branch, with HEAD attached. `jwc <branch>` opens an interactive `claude` there and `jwb <branch> <prompt>` starts a background job there. Sessions started this way have no worktree marker, so the guard does not apply, and `jj git fetch` and `jj git push` work in them. `jw rm <name>` removes a workspace and refuses one holding uncommitted or gitignored content. In these sessions the Bash hook's primary-checkout block still applies: git and jj aimed at the primary checkout are refused.
 
 The guard treats `jj` as a launcher and refuses any command with `git` among its operands: `jj git init --colocate`, `jj git fetch` and `jj git push` are refused in every spelling, including with `-R <literal worktree>`. Every other jj command passes (`jj st`, `log`, `diff`, `new`, `describe`, `bookmark`, and the commit funnel).
 
