@@ -4,6 +4,7 @@ import type { Usage } from '../types'
 import { drawBand } from './band'
 import { captureSession, register as registerBlast } from './blast'
 import { register as registerClear } from './clear'
+import { autoClearFailed, endOfTurn, onCompact } from './auto-clear.tsx'
 import { register as registerHandoff } from './handoff.tsx'
 import { register as registerHistory } from './history.tsx'
 import { register as registerPane } from './pane.tsx'
@@ -195,7 +196,6 @@ export const register: Register = on => {
     await $.command.register({ name: 'pi-history', description: 'Open Pi hand-off history' })
     await $.command.register({ name: 'worktrees', description: 'Open the worktrees and branches pane' })
     await $.command.register({ name: 'draft-prs', description: 'Open the draft PRs pane: open drafts, ready PRs and merges from the last 7 days' })
-    await $.command.register({ name: 'focus', description: 'Open the focus pane: the work and hobby slots, frozen and parked items' })
     await $.command.register({ name: BLOCKS_PANE.command, description: "Open the blocks pane: this session's bash-safety blocks, o marks ok, f marks false-positive" })
     await $.command.register({ name: 'gates', description: 'Open spec approvals and pending Pi reviews across worktrees' })
     await $.command.register({ name: 'diff-review', description: 'Review the worktree: one tab per unapproved file, with comments, questions and proposed patches' })
@@ -236,12 +236,16 @@ export const register: Register = on => {
     if (e.agentId === undefined) await setTurn($, false).catch(() => undefined)
     await refreshGit($)
     // Notes never interrupt a running turn: the main loop's end is when this session's batches go in.
+    let notesSent = false
     if (e.agentId === undefined) {
       const [worktree, sessionId] = await Promise.all([$.session.cwd().catch(() => ''), $.session.id().catch(() => '')])
-      if (worktree !== '' && sessionId !== '') await deliverOwn($, worktree, sessionId).catch(() => undefined)
+      if (worktree !== '' && sessionId !== '') notesSent = await deliverOwn($, worktree, sessionId).catch(() => false)
     }
 
-    return next(e)
+    const result = await next(e)
+    // Last, once the engine has ended the turn. Notes just delivered get their turn first; the threshold fires again after it.
+    if (!notesSent) await endOfTurn($, e)
+    return result
   })
 
   on('tool.call', async ($, e, next) => {
@@ -272,6 +276,8 @@ export const register: Register = on => {
       if (stop.action === 'clear') {
         await update($, isNotified, () => false)
       } else if (stop.action === 'notify') {
+        // Auto-clear owns the end-of-turn clear, so the directive shows only after its save failed.
+        if (!(await autoClearFailed($).catch(() => false))) return r
         await update($, isNotified, () => true)
 
         return { ...r, context: [...(r.context ?? []), stop.text] }
@@ -287,6 +293,9 @@ export const register: Register = on => {
 
     return denial ? { deny: denial } : next(e)
   }).catch(($, e, next) => next.called ? next(e) : { deny: 'session-band guard failed' })
+
+  // Claude's own compaction is held back while auto-clear can handle the session (see auto-clear.tsx).
+  on('session.compact', ($, e, next) => onCompact($, e, () => next(e)) as never)
 
   on('prompt.compose', async ($, e, next) => {
     hasComposed = true

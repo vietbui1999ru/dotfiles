@@ -11,22 +11,23 @@ import {
 
 import {
   buildDigest,
+  CANCELLED,
   extractSavedPath,
+  forkSummaryPrompt,
   isRealWork,
   parseReply,
   RECENT_SAVE_MS,
+  REFUSED,
+  SAVE_FAILED,
   summaryPrompt,
   SYSTEM_PROMPT,
   type ParsedSummary,
 } from './summary'
 
+export { CANCELLED, REFUSED, SAVE_FAILED }
+
 const edits = atom({ plugin: 'session-band', key: 'edits' } as const, 0)
 const prompts = atom({ plugin: 'session-band', key: 'prompts' } as const, 0)
-
-const REFUSED =
-  'Clear refused: the transcript is already gone, nothing to summarise. Run save-session first, or re-run /clear.'
-const CANCELLED = 'Clear cancelled: nothing was saved.'
-const SAVE_FAILED = 'Clear cancelled: the save step failed.'
 
 const reset = async ($: EngineInterface) => {
   await update($, edits, () => 0)
@@ -76,6 +77,13 @@ const saveSession = async ($: EngineInterface, summary: ParsedSummary): Promise<
   if (active.exitCode === 0 && active.stdout.trim() !== '') return active.stdout.trim()
 
   throw new Error('agent-session printed no path')
+}
+
+// The forked summary, or undefined when the fork is not answered or cannot be parsed, so the digest path takes over.
+async function forkedSummary($: EngineInterface): Promise<{ isAnswered: true; text: string } | undefined> {
+  const forked = await $.model.fork({ prompt: forkSummaryPrompt }).catch(() => undefined)
+  if (forked === undefined || !forked.isAnswered) return undefined
+  return parseReply(forked.text) === undefined ? undefined : { isAnswered: true, text: forked.text }
 }
 
 const fail = async (
@@ -135,7 +143,10 @@ export const register: Register = on => {
       return { text: REFUSED }
     }
 
-    const reply = await $.model.complete({
+    // A plugin clear (auto-clear) summarises the whole transcript through a fork, which keeps the session's effort
+    // and cache; a person's typed /clear keeps the digest path. A fork that is not answered falls back to the digest.
+    const forked = e.origin.kind === 'plugin' ? await forkedSummary($) : undefined
+    const reply = forked ?? await $.model.complete({
       model: 'sonnet',
       system: SYSTEM_PROMPT,
       prompt: summaryPrompt(buildDigest(messages)),
