@@ -173,3 +173,65 @@ test("pueue unreachable prints an unavailable feed and exits 0", () => {
 	const out = JSON.parse(run([], { bin: pueue.bin, home }));
 	assert.deepEqual(out, { tasks: [], unavailable: true });
 });
+
+test("outcome: Stashed and Locked are queued, not failed", () => {
+	assert.equal(outcomeOf("Stashed"), "queued");
+	assert.equal(outcomeOf({ Stashed: { enqueued_at: "2026-11-09T10:00:00Z" } }), "queued");
+	assert.equal(outcomeOf({ Locked: { enqueued_at: "2026-11-09T10:00:00Z" } }), "queued");
+});
+
+// A pending record file as Pi writes it, for one repo.
+const pendingJson = (runId, { session, startedAt = "2026-11-09T10:00:00Z" } = {}) =>
+	JSON.stringify({ runId, session, startedAt, files: [{ file: "a.ts" }] });
+
+// A repo with a .pi/agent-review/pending folder holding the given records (name -> json).
+function fakeRepo(records) {
+	const repo = mkdtempSync(join(tmpdir(), "pmf-repo-"));
+	const dir = join(repo, ".pi", "agent-review", "pending");
+	mkdirSync(dir, { recursive: true });
+	for (const [name, json] of Object.entries(records)) writeFileSync(join(dir, name), json);
+	return repo;
+}
+
+test("exit 3 with no pending record is reviewed and not counted as needing review", () => {
+	const repo = fakeRepo({});
+	const json = JSON.stringify({
+		tasks: { 20: pueueRow(20, `pi-view --session-id pueue-r-20 -p x`, Done({ Failed: 3 }), { path: repo }) },
+	});
+	const feed = JSON.parse(run([], { bin: fakePueue(json).bin, home: mkdtempSync(join(tmpdir(), "pmf-h-")) }));
+	assert.equal(feed.tasks[0].outcome, "reviewed");
+	assert.equal(feed.summary.review, 0);
+});
+
+test("on a path with a record, the newest exit-3 task is review and older ones are reviewed", () => {
+	const repo = fakeRepo({ "r.json": pendingJson("run-1") });
+	const json = JSON.stringify({
+		tasks: {
+			30: pueueRow(30, `pi-view --session-id pueue-old-30 -p x`, Done({ Failed: 3 }), { path: repo }),
+			31: pueueRow(31, `pi-view --session-id pueue-new-31 -p x`, Done({ Failed: 3 }), { path: repo }),
+		},
+	});
+	const feed = JSON.parse(run([], { bin: fakePueue(json).bin, home: mkdtempSync(join(tmpdir(), "pmf-h-")) }));
+	const byId = Object.fromEntries(feed.tasks.map((t) => [t.id, t]));
+	assert.equal(byId[31].outcome, "review");
+	assert.equal(byId[30].outcome, "reviewed");
+	assert.equal(feed.summary.review, 1);
+});
+
+test("a running task whose session wrote a pending record is review", () => {
+	const repo = fakeRepo({ "r.json": pendingJson("run-2", { session: "pueue-live-40" }) });
+	const json = JSON.stringify({
+		tasks: { 40: pueueRow(40, `pi-view --session-id pueue-live-40 -p x`, Running(), { path: repo }) },
+	});
+	const feed = JSON.parse(run([], { bin: fakePueue(json).bin, home: mkdtempSync(join(tmpdir(), "pmf-h-")) }));
+	assert.equal(feed.tasks[0].outcome, "review");
+});
+
+test("a missing pending folder is no record, not an error", () => {
+	const json = JSON.stringify({
+		tasks: { 50: pueueRow(50, `pi-view --session-id pueue-m-50 -p x`, Done({ Failed: 3 }), { path: "/tmp/pmf-no-such-repo" }) },
+	});
+	const feed = JSON.parse(run([], { bin: fakePueue(json).bin, home: mkdtempSync(join(tmpdir(), "pmf-h-")) }));
+	assert.equal(feed.tasks[0].outcome, "reviewed");
+	assert.equal(feed.unavailable, undefined);
+});

@@ -10,10 +10,11 @@
  * never printed. Pueue being unreachable prints `{ "tasks": [], "unavailable": true }`.
  */
 import { execFile } from "node:child_process";
-import { open, readdir } from "node:fs/promises";
+import { open, readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 
 import { emptyProgress, fold, sessionDir, sessionFileName } from "../session-band-plugin/hooks/pisession.ts";
+import { parsePending, pendingRecordFor, runningPendingFor } from "../session-band-plugin/hooks/review.ts";
 
 const PUEUE = process.env.PUEUE_BIN || "pueue";
 const DETAIL_ENTRIES = 200;
@@ -29,6 +30,8 @@ export function outcomeOf(status) {
 	if (name === "Paused") return "paused";
 	if (name === "Running") return "running";
 	if (name === "Killed") return "killed";
+	// Stashed and Locked are pueue's waiting states, not failures.
+	if (name === "Stashed" || name === "Locked") return "queued";
 	if (name !== "Done") return "failed";
 	const result = status.Done?.result;
 	if (result === "Success") return "success";
@@ -115,6 +118,51 @@ export function countTools(chunk) {
 	return (chunk.match(/"type":"toolCall"/g) ?? []).length;
 }
 
+// The pending review records in a task's repo, parsed. A missing folder or an unreadable
+// record counts as no record.
+async function pendingRecords(root) {
+	if (!root) return [];
+	let names;
+	try {
+		names = await readdir(`${root}/.pi/agent-review/pending`);
+	} catch {
+		return [];
+	}
+	const records = [];
+	for (const name of names.filter((n) => n.endsWith(".json"))) {
+		try {
+			const record = parsePending(await readFile(`${root}/.pi/agent-review/pending/${name}`, "utf8"));
+			if (record) records.push(record);
+		} catch {
+			// Unreadable: no record.
+		}
+	}
+	return records;
+}
+
+// Exit 3 says a review was once requested. A review is still waiting only when its record
+// is on disk: a running run's own record, or the newest exit-3 task's record on that path.
+// Every other exit-3 task was reviewed already.
+export function reconcileReviews(tasks, recordsByPath) {
+	const newestReview = new Map();
+	for (const task of tasks) {
+		if (task.outcome !== "review" || newestReview.has(task.path)) continue;
+		newestReview.set(task.path, task.id);
+	}
+	return tasks.map((task) => {
+		const records = recordsByPath.get(task.path) ?? [];
+		if (task.outcome === "running") {
+			const own = runningPendingFor({ sessionId: task.session }, records);
+			return own ? { ...task, outcome: "review" } : task;
+		}
+		if (task.outcome !== "review") return task;
+		const waiting =
+			newestReview.get(task.path) === task.id &&
+			pendingRecordFor({ task: { state: "Done" } }, records) !== undefined;
+		return waiting ? task : { ...task, outcome: "reviewed" };
+	});
+}
+
 /** The newest session file for `sessionId` under the task's working directory. */
 async function findSessionPath(cwd, sessionId) {
 	if (!cwd || !sessionId) return undefined;
@@ -199,10 +247,15 @@ async function main(argv) {
 		.sort((a, b) => b.id - a.id);
 	const described = [];
 	for (const task of rows) described.push(await describe(task));
-	const picked = pickDetail(described, wanted);
+	const recordsByPath = new Map();
+	for (const task of described) {
+		if (!recordsByPath.has(task.path)) recordsByPath.set(task.path, await pendingRecords(task.path));
+	}
+	const reconciled = reconcileReviews(described, recordsByPath);
+	const picked = pickDetail(reconciled, wanted);
 	const detail = picked ? { id: picked.id, entries: detailOf(picked.entries) } : undefined;
-	const tasks = described.map(({ entries, ...rest }) => rest);
-	process.stdout.write(`${JSON.stringify({ tasks, summary: summaryOf(described), detail })}\n`);
+	const tasks = reconciled.map(({ entries, ...rest }) => rest);
+	process.stdout.write(`${JSON.stringify({ tasks, summary: summaryOf(reconciled), detail })}\n`);
 	return 0;
 }
 
