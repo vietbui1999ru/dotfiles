@@ -151,7 +151,7 @@ if [[ $mode == tui ]]; then
       exit 1
     fi
     # `state` at the top is the terminal's; `status` is Pi's own report (null at first).
-    fields=$(jq -r '[(.state // ""), (.status.state // ""), (.status.turn // 0)] | @tsv' <<< "$info" 2>/dev/null)
+    fields=$(jq -r '[(.state // ""), (.status.state // ""), (.turn // 0)] | @tsv' <<< "$info" 2>/dev/null)
     term=${fields%%$'\t'*} rest=${fields#*$'\t'}
     state=${rest%%$'\t'*} turn=${rest##*$'\t'}
     if [[ $term == finished ]]; then

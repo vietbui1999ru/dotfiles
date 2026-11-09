@@ -174,8 +174,8 @@ test("tui mode: a terminal that finished with no exit file exits 1, even with ex
 });
 
 test("tui mode: turn 0 idle does not start pi-checks, turn 1 done does", () => {
-	const startup = JSON.stringify({ address: "t9", state: "live", status: { app: "pi", state: "idle", turn: 0 } });
-	const done = JSON.stringify({ address: "t9", state: "live", status: { app: "pi", state: "done", turn: 1 } });
+	const startup = JSON.stringify({ address: "t9", state: "live", status: { app: "pi", state: "idle" }, turn: 0 });
+	const done = JSON.stringify({ address: "t9", state: "live", status: { app: "pi", state: "done" }, turn: 1 });
 	const settledCalls = (box) => box.calls().filter((call) => call[0] === "pi-checks" && !call.includes("--no-steer"));
 
 	const early = sandbox({ getAnswers: [startup] });
