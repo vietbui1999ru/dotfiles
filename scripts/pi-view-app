@@ -14,8 +14,12 @@
 #
 # Settled means Pi's status has turn >= 1 and state idle or done. A fresh Pi reports
 # idle at turn 0 before it starts, so turn 0 never counts. After a settle holds for
-# PI_VIEW_APP_SETTLE seconds, pi-checks runs once for it. The exit code comes from the
-# exit file only: a killed terminal reports exit_code 0, so that field is never read.
+# PI_VIEW_APP_SETTLE seconds, pi-checks runs once for it.
+#
+# tui: the terminal runs Pi itself (through pi-pane-run), and its exit code arrives in
+# the exit file. view and live: only the viewer runs in the terminal; Pi runs in this
+# process, so it inherits this process's environment and pueue kills it with the task.
+# A killed terminal reports exit_code 0, so that field is never read.
 set -u
 
 zmodload zsh/datetime 2>/dev/null || true
@@ -92,29 +96,12 @@ if [[ $mode == tui ]]; then
   print -r -- "$prompt" >| $prompt_file
   program=(env "PROVENANCE_SESSION=$session_id" "$script_dir/pi-pane-run" "$run_token" $$ "$exit_file" "$prompt_file" "${tui_argv[@]}")
 else
-  # view and live: the terminal runs a generated shell that starts the viewer beside the
-  # Pi command, runs Pi in the foreground, and writes Pi's code to the exit file, so the
-  # code survives the terminal. The viewer is stopped when Pi ends.
+  # view and live: only the viewer goes in the terminal. Pi runs in this process below.
   if [[ $mode == live ]]; then
-    viewer=(node "$script_dir/pi-tail.mjs" --session-id "$session_id" --cwd "$PWD" --watch-pid $$ --input "$run_dir/${session_id}.in")
-    pi_cmd=(node "$script_dir/pi-live.mjs" -- "$@")
+    program=(node "$script_dir/pi-tail.mjs" --session-id "$session_id" --cwd "$PWD" --watch-pid $$ --input "$run_dir/${session_id}.in")
   else
-    viewer=(node "$script_dir/pi-tail.mjs" --session-id "$session_id" --cwd "$PWD" --watch-pid $$)
-    pi_cmd=("$@")
+    program=(node "$script_dir/pi-tail.mjs" --session-id "$session_id" --cwd "$PWD" --watch-pid $$)
   fi
-  rm -f -- $exit_file
-  runner=$run_dir/${session_id}.run.zsh
-  {
-    print -r -- '#!/usr/bin/env zsh'
-    print -r -- "${(q)viewer[@]} &"
-    print -r -- 'viewer_pid=$!'
-    print -r -- "${(q)pi_cmd[@]}"
-    print -r -- 'rc=$?'
-    print -r -- 'kill $viewer_pid 2>/dev/null'
-    print -r -- "print -r -- \$rc >| ${(q)exit_file}"
-    print -r -- 'exit $rc'
-  } >| $runner
-  program=(zsh $runner)
 fi
 
 # Start the terminal. Labels mark it as a Pi run; the window label is set now unless
@@ -150,7 +137,8 @@ if [[ $mode == tui ]]; then
       rm -f -- $exit_file $token_file
       exit 1
     fi
-    # `state` at the top is the terminal's; `status` is Pi's own report (null at first).
+    # `state` at the top is the terminal's; `status` is Pi's own report (null at first),
+    # and `turn` sits beside `status` at the top level.
     fields=$(jq -r '[(.state // ""), (.status.state // ""), (.turn // 0)] | @tsv' <<< "$info" 2>/dev/null)
     term=${fields%%$'\t'*} rest=${fields#*$'\t'}
     state=${rest%%$'\t'*} turn=${rest##*$'\t'}
@@ -176,18 +164,15 @@ if [[ $mode == tui ]]; then
   exit ${rc:-1}
 fi
 
-# view and live: the Pi command ran in the terminal, so its code is in the exit file.
-# Wait here for the terminal to end, then run the last checks.
-while [[ ! -e $exit_file ]]; do
-  info=$(hc_get "$address")
-  [[ -n $info ]] || break
-  [[ $(jq -r '.state // ""' <<< "$info" 2>/dev/null) == finished ]] && break
-  sleep $poll_seconds
-done
-rc=1
-[[ -r $exit_file ]] && rc=$(<$exit_file)
-rm -f -- $run_dir/${session_id}.run.zsh
+# view and live: run Pi here, in this process, so it sees this environment and pueue's
+# kill reaches it. The viewer in the terminal ends with the terminal, which is killed below.
+if [[ $mode == live ]]; then
+  node "$script_dir/pi-live.mjs" -- "$@"
+else
+  "$@"
+fi
+rc=$?
 node "$script_dir/pi-checks.mjs" "$PWD" "$session_id" --no-steer
 "$hc_bin" kill "$address" >/dev/null 2>&1 || true
-rm -f -- $pane_file $exit_file
-exit ${rc:-1}
+rm -f -- $pane_file
+exit $rc

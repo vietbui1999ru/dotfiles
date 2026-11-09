@@ -5,7 +5,7 @@
 // script asked for without a real terminal.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -261,4 +261,48 @@ test("pi-view inside an hc terminal hands off to pi-view-app", () => {
 	const box = viewSandbox();
 	box.run({ HC_TERMINAL_ID: "t3" });
 	assert.equal(box.reached(), true);
+});
+
+test("view mode: the terminal runs only the viewer, never the Pi command", () => {
+	const box = sandbox({ getAnswers: [] });
+	box.run(["--mode", "view", "--", "sh", "-c", "exit 0", "--session-id", "pueue-7-abcd"]);
+	const run = hcRunCall(box.calls());
+	const argv = run.join(" ");
+	assert.ok(argv.includes("pi-tail.mjs"), argv);
+	assert.ok(run.includes("--watch-pid"), argv);
+	assert.ok(!argv.includes("sh -c"), "the Pi command is not handed to the terminal");
+});
+
+test("view mode: the Pi command runs in this process with the caller's environment", () => {
+	const box = sandbox({ getAnswers: [] });
+	const seen = join(box.dir, "seen-env");
+	box.run(["--mode", "view", "--", "sh", "-c", `printf %s "$STUB_CALLER_VAR" > ${seen}`, "--session-id", "pueue-7-abcd"], {
+		STUB_CALLER_VAR: "from-caller",
+	});
+	assert.equal(readFileSync(seen, "utf8"), "from-caller");
+});
+
+test("view mode: the Pi command's exit code is the process's, and hc kill runs afterwards", () => {
+	const box = sandbox({ getAnswers: [] });
+	const result = box.run(["--mode", "view", "--", "sh", "-c", "exit 6", "--session-id", "pueue-7-abcd"]);
+	assert.equal(result.status, 6, result.stderr);
+	const kill = box.calls().find((call) => call[0] === "hc" && call[1] === "kill");
+	assert.ok(kill, "hc kill was called");
+	assert.equal(kill[2], "t9");
+});
+
+test("live mode: the viewer argv includes --input", () => {
+	const box = sandbox({ getAnswers: [] });
+	box.run(["--mode", "live", "--", "sh", "-c", "exit 0", "--session-id", "pueue-7-abcd"]);
+	const run = hcRunCall(box.calls());
+	assert.ok(run.includes("--input"), run.join(" "));
+	assert.ok(run.some((arg) => arg.endsWith("pueue-7-abcd.in")), run.join(" "));
+});
+
+test("view mode: no .run.zsh script remains in the run directory", () => {
+	const box = sandbox({ getAnswers: [] });
+	mkdirSync(box.runDir(), { recursive: true });
+	box.run(["--mode", "view", "--", "sh", "-c", "exit 0", "--session-id", "pueue-7-abcd"]);
+	const leftovers = readdirSync(box.runDir()).filter((name) => name.endsWith(".run.zsh"));
+	assert.deepEqual(leftovers, []);
 });
