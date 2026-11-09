@@ -98,4 +98,30 @@ git -C "$main" rev-parse --verify -q "refs/heads/$branch" >/dev/null \
   || fail "rm deleted the branch"
 [ "$(git -C "$main" branch --show-current)" = main ] || fail "rm moved the primary off main"
 
+# rm refuses a name with a slash or "..", before it touches anything: a name
+# like ../../.. resolves outside the worktrees directory.
+decoy="$main/.claude/worktrees/decoy-target"
+mkdir -p "$decoy" && git -C "$decoy" init -q \
+  && git -C "$decoy" -c user.name=t -c user.email=t@t commit -q --allow-empty -m keep \
+  && printf 'keep\n' >"$decoy/keep.txt" && git -C "$decoy" add keep.txt \
+  && git -C "$decoy" -c user.name=t -c user.email=t@t commit -q -m keep
+expect_refusal "rm with a path name" run_jw rm "../worktrees/decoy-target"
+expect_refusal "rm with a slash name" run_jw rm "a/b"
+[ -f "$decoy/keep.txt" ] || fail "rm with a path name removed a directory"
+
+# rm refuses a workspace holding gitignored content (node_modules, agent state),
+# names the entries, and removes nothing.
+ign="$main/.claude/worktrees/ign"
+run_jw new feat/ign >/dev/null || fail "jw new feat/ign failed"
+printf 'node_modules/\n' >"$ign/.gitignore"
+git -C "$ign" add .gitignore && git -C "$ign" -c user.name=t -c user.email=t@t commit -q -m "ignore" >/dev/null
+mkdir -p "$ign/node_modules/pkg" && printf 'x\n' >"$ign/node_modules/pkg/index.js"
+expect_refusal "rm with gitignored content" run_jw rm ign
+grep -q 'node_modules' "$dir/err" || fail "refusal did not name the ignored entry"
+[ -f "$ign/node_modules/pkg/index.js" ] || fail "rm deleted gitignored content"
+(cd "$main" && jj workspace list | grep -q '^ign: ') || fail "ignored-content refusal left jj"
+rm -rf "$ign/node_modules"
+run_jw rm ign >/dev/null || fail "rm ign failed after clearing ignored content"
+[ ! -e "$ign" ] || fail "ign directory survived rm"
+
 printf 'PASS: jw\n'

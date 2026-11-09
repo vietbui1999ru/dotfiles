@@ -60,30 +60,45 @@ cmd_new() {
 }
 
 cmd_rm() {
-  local name=${1:-} primary dir real
+  local name=${1:-} primary dir real entries dirty
   [ -n "$name" ] || usage
+  # The name must be one path component: "../x" or "a/b" resolve outside the
+  # workspaces directory and would point the removal at another checkout.
+  case "$name" in
+    */*|..|.) die "workspace name '$name' must not contain '/' or be '.' or '..'" ;;
+  esac
   primary=$(primary_checkout)
   dir="$primary/.claude/worktrees/$name"
   [ -d "$dir" ] || die "no workspace named '$name' at $dir"
 
-  local dirty
   dirty=$(git -C "$dir" status --porcelain) \
     || die "git status failed in $dir"
   [ -z "$dirty" ] \
     || die "workspace '$name' has uncommitted changes; commit or discard them first"
 
-  real=$(cd "$dir" && pwd -P)
-  (cd "$primary" && jj workspace forget "$name") || die "jj workspace forget failed"
+  # Gitignored content (node_modules, agent state) is not in git, so removal would
+  # destroy it. Refuse and name it so the human decides. .jj is jj's own state.
+  entries=$(git -C "$dir" status --porcelain --ignored | grep '^!! ' | grep -v '^!! \.jj/$' || true)
+  [ -z "$entries" ] \
+    || die "workspace '$name' holds gitignored content that removal would delete; remove or move it first:
+$entries"
 
+  real=$(cd "$dir" && pwd -P)
+  # Git goes first. `jj workspace forget` also drops the git worktree registration,
+  # after which `git worktree remove` cannot reach the files and leaves them behind.
   if git -C "$primary" worktree list --porcelain | grep -qxF "worktree $real"; then
     git -C "$primary" worktree remove "$dir" \
       || die "git worktree remove failed; the worktree is still at $dir"
   fi
+  (cd "$primary" && jj workspace forget "$name") || die "jj workspace forget failed"
   # jj leaves the workspace directory behind, holding only its own .jj state.
-  if [ -e "$dir" ]; then
-    rm -rf -- "$dir"
+  # Remove just that, then rmdir the directory, so anything unexpected fails loudly.
+  if [ -e "$dir/.jj" ]; then
+    rm -rf -- "$dir/.jj"
   fi
-  [ ! -e "$dir" ] || die "directory survived removal: $dir"
+  if [ -d "$dir" ]; then
+    rmdir -- "$dir" || die "directory not empty after removal: $dir"
+  fi
   git -C "$primary" worktree list --porcelain | grep -qxF "worktree $real" \
     && die "git worktree entry survived removal: $real"
 
