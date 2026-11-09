@@ -19,8 +19,9 @@ import {
 	props,
 	home,
 	nextCommand,
+	exec,
 } from "herdr";
-import { piRows, planSync, nextAddress, windowSpec, duration } from "./logic.js";
+import { piRows, planSync, nextAddress, windowSpec, duration, reviewRows, approveMessage } from "./logic.js";
 import { newDialog, newDialogState } from "./new-dialog.js";
 
 // The agents mod's spinner and icon set, so this section reads like its neighbour.
@@ -36,8 +37,14 @@ export default class PiFleet extends View {
 		this.opened = [];
 		this.windowCount = 0;
 		this.rows = [];
+		this.reviews = [];
 		this.sync(cx);
 		cx.timer.every(2000, (cx) => this.sync(cx));
+		this.readReviews(cx);
+		cx.timer.every(10000, (cx) => {
+			this.approveNote = undefined;
+			this.readReviews(cx);
+		});
 		cx.spawn(async (cx) => {
 			for (;;) {
 				const c = await nextCommand();
@@ -99,6 +106,82 @@ export default class PiFleet extends View {
 			width: 520,
 			props: { role: "new", folder: focused()?.cwd ?? home() },
 		});
+	}
+
+	// One read at a time. A failed read keeps the last rows.
+	async readReviews(cx) {
+		if (this.reviewBusy) return;
+		this.reviewBusy = true;
+		try {
+			const r = await exec(`${home()}/dotfiles/scripts/agent-review`, ["list", "--global", "--json", "--offline"], { timeout: 10000 });
+			if (r.code === 0) this.reviews = reviewRows(JSON.parse(r.stdout));
+		} catch {
+			// Keep the last rows; the next read tries again.
+		} finally {
+			this.reviewBusy = false;
+			cx.notify();
+		}
+	}
+
+	// One approve at a time. The macOS dialog it raises stays the person's last step.
+	async approve(cx, row) {
+		if (this.approving) return;
+		this.approving = row.runId;
+		this.approveNote = undefined;
+		cx.notify();
+		let text = "Approve failed";
+		try {
+			const r = await exec(`${home()}/dotfiles/scripts/agent-review`, ["approve", row.runId], { cwd: row.owner, timeout: 35000 });
+			text = approveMessage(r.code, r.stdout);
+		} catch {
+			// A program that cannot start, or a timeout: not approved.
+		}
+		this.approving = undefined;
+		this.approveNote = text ? { runId: row.runId, text } : undefined;
+		await this.readReviews(cx);
+	}
+
+	textButton(t, id, label, enabled, onClick) {
+		return div()
+			.id(id)
+			.flex_none()
+			.text_size(11)
+			.text_color(enabled ? t.accent : t.dim)
+			.when(enabled, (el) => el.cursor_pointer().hover((s) => s.text_color(t.foreground)).on_click(onClick))
+			.child(label);
+	}
+
+	reviewRow(t, row, now) {
+		const started = Date.parse(row.startedAt);
+		const waiting = this.approving === row.runId;
+		const note = this.approveNote?.runId === row.runId ? this.approveNote.text : null;
+		return v_flex()
+			.px(8)
+			.py(4)
+			.gap(2)
+			.child(
+				h_flex()
+					.gap(8)
+					.items_center()
+					.child(div().flex_1().min_w(0).truncate().text_color(t.foreground).child(row.name))
+					.when(!Number.isNaN(started), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - started))))
+					.child(this.textButton(t, `pi-diff-${row.runId}`, "Diff", true, () => run("terminal.open", { argv: ["nvim", "+AgentReview"], folder: row.owner, place: "tab" })))
+					.child(this.textButton(t, `pi-approve-${row.runId}`, waiting ? "Confirm in dialog…" : "Approve", !this.approving, (_e, cx) => this.approve(cx, row))),
+			)
+			.when(Boolean(note), (el) => el.child(div().text_size(11).text_color(t.blocked).child(note)));
+	}
+
+	// Nothing at all when no run is waiting.
+	reviewSection(t, now) {
+		if (this.reviews.length === 0) return [];
+		const title = h_flex()
+			.px(8)
+			.pt(12)
+			.pb(4)
+			.gap(6)
+			.child(div().text_size(11.5).font_medium().text_color(t.dim).child("Needs review"))
+			.child(div().text_size(11.5).text_color(t.blocked).child(String(this.reviews.length)));
+		return [title, ...this.reviews.map((row) => this.reviewRow(t, row, now))];
 	}
 
 	// A status mark drawn like the agents mod: a spinner, a ring for idle, a dot for done,
@@ -193,6 +276,6 @@ export default class PiFleet extends View {
 			.border_color(t.border)
 			.text_size(13)
 			.child(header)
-			.child(v_flex().id("pi-list").flex_1().min_h(0).px(8).overflow_y_scrollbar().mode("always").children(body));
+			.child(v_flex().id("pi-list").flex_1().min_h(0).px(8).overflow_y_scrollbar().mode("always").children([...body, ...this.reviewSection(t, now)]));
 	}
 }
