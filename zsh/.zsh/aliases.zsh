@@ -121,6 +121,39 @@ claude() { _with_mcp_keys claude "$@"; }
 opencode() { _with_mcp_keys opencode "$@"; }
 codex() { _with_mcp_keys codex "$@"; }
 
+# jj workspaces (docs/workflows/jj-workspaces-plan.md). jw creates a colocated
+# workspace under .claude/worktrees/ on a real branch; jwc and jwb launch claude
+# there through the wrapper above, so MCP keys are still injected.
+_jw_dir() {
+  local branch=$1 name=${1#*/} common
+  common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
+  print -r -- "${common:h}/.claude/worktrees/$name"
+}
+_jw_ensure() {
+  local dir
+  dir=$(_jw_dir "$1") || return 1
+  [[ -d $dir ]] || "$HOME/dotfiles/scripts/jw" new "$1" >/dev/null || return 1
+  print -r -- "$dir"
+}
+jwc() {
+  if [[ $# -ne 1 ]]; then
+    print -u2 'usage: jwc <branch>'
+    return 2
+  fi
+  local dir
+  dir=$(_jw_ensure "$1") || return
+  cd "$dir" && claude
+}
+jwb() {
+  if [[ $# -ne 2 ]]; then
+    print -u2 'usage: jwb <branch> <prompt>'
+    return 2
+  fi
+  local dir
+  dir=$(_jw_ensure "$1") || return
+  ( cd "$dir" && claude --bg "$2" )
+}
+
 # Claude Code, Codex and Pi through the opt-in Headroom proxy launchers (only
 # where Headroom is installed). Normal `claude`, `codex` and `pi` stay direct;
 # the workflow script probes proxy identity and readiness before routing any
