@@ -20,6 +20,24 @@ const term = (address, labels = {}, extra = {}) => ({
 	labels,
 });
 
+test("piRows skips terminals whose state is not live", () => {
+  const rows = piRows([
+    { ...term("t1", { "pi.session": "a" }), state: "exited" },
+    { ...term("t2", { "pi.session": "b" }), state: "live" },
+    term("t3", { "pi.session": "c" }),
+  ]);
+  assert.deepEqual(rows.map((r) => r.address), ["t2", "t3"]);
+});
+
+test("piRows carries created_ms as createdMs, undefined when absent", () => {
+  const [a, b] = piRows([
+    { ...term("t1", { "pi.session": "a" }), created_ms: 1234 },
+    term("t2", { "pi.session": "b" }),
+  ]);
+  assert.equal(a.createdMs, 1234);
+  assert.equal(b.createdMs, undefined);
+});
+
 test("piRows keeps only terminals labelled pi.session", () => {
 	const rows = piRows([
 		term("t3", { "pi.session": "a" }),

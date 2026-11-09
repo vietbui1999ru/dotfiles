@@ -2,12 +2,14 @@
 // open, where each window sits, and what pi-spawn is asked to start. No imports from
 // `herdr` or `gpui-*`, so Node can test it (scripts/pi-fleet-logic.test.mjs).
 
-// A terminal labelled pi.session is a Pi run. `terminals()` lists only live terminals.
+// A terminal labelled pi.session is a Pi run. A terminal with a state other than live
+// (as the shipped agents mod skips) is left out.
 export function piRows(terminals) {
   const rows = [];
   for (const t of terminals ?? []) {
     const labels = t.labels ?? {};
     if (!labels["pi.session"]) continue;
+    if (t.state && t.state !== "live") continue;
     const address = String(t.address);
     const slash = address.indexOf("/");
     rows.push({
@@ -17,6 +19,7 @@ export function piRows(terminals) {
       model: modelFrom(t.argv ?? []),
       status: t.status ?? null,
       isWindow: labels["pi.window"] === "1",
+      createdMs: t.created_ms,
     });
   }
   return rows.sort((a, b) => a.machine.localeCompare(b.machine) || a.address.localeCompare(b.address));
