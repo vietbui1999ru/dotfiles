@@ -20,12 +20,17 @@ usage() {
 tier="" model="" task_file="" cwd="" place="window" on=""
 while (( $# > 0 )); do
   case $1 in
-    --tier) tier=${2:-}; shift 2 ;;
-    --model) model=${2:-}; shift 2 ;;
-    --task-file) task_file=${2:-}; shift 2 ;;
-    --cwd) cwd=${2:-}; shift 2 ;;
-    --place) place=${2:-}; shift 2 ;;
-    --on) on=${2:-}; shift 2 ;;
+    --tier|--model|--task-file|--cwd|--place|--on)
+      (( $# >= 2 )) || { print -u2 -- "pi-spawn: $1 needs a value"; usage; exit 2 }
+      case $1 in
+        --tier) tier=$2 ;;
+        --model) model=$2 ;;
+        --task-file) task_file=$2 ;;
+        --cwd) cwd=$2 ;;
+        --place) place=$2 ;;
+        --on) on=$2 ;;
+      esac
+      shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) print -u2 -- "pi-spawn: unknown argument '$1'"; usage; exit 2 ;;
   esac

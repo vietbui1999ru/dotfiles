@@ -105,3 +105,15 @@ test("PI_VIEW_APP=1 is set in the environment of the pueue add call", () => {
 	box.run(["--tier", "high", "--task-file", box.task]);
 	assert.equal(box.queued()[0].viewApp, "1");
 });
+
+test("a value flag with no value exits 2 instead of looping", () => {
+	const box = sandbox();
+	const result = spawnSync("zsh", [SPAWN, "--tier"], {
+		encoding: "utf8",
+		timeout: 5000,
+		env: { PATH: "/usr/bin:/bin:/opt/homebrew/bin", HOME: box.dir },
+	});
+	assert.equal(result.status, 2, result.stderr);
+	assert.match(result.stderr, /--tier needs a value/);
+	assert.equal(box.queued().length, 0);
+});
