@@ -67,6 +67,13 @@ case "$DIRECTION" in
   right|down) ;;
   *) fail "--direction '$DIRECTION' is invalid; pass --direction right or --direction down" ;;
 esac
+# Inside a Herdr app terminal (hc) the handoff opens as a pi-spawn task in a window instead.
+# Without a Herdr pane, the only handoff left is that window, so --no-prompt is refused.
+if [ "${HERDR_ENV:-}" != 1 ] && [ -n "${HC_TERMINAL_ID:-}" ]; then
+  [ "$NO_PROMPT" -eq 0 ] || fail "--no-prompt is not available from a Herdr app terminal; omit it"
+  exec "$(dirname "$0")/pi-spawn" --model "${PANE_HANDOFF_MODEL:-$model_from_flag}" --place split --cwd "$REPO" --task-file "$SPEC"
+fi
+
 command -v herdr >/dev/null 2>&1 || \
   fail "herdr is not on PATH; install herdr or invoke from an environment where /opt/homebrew/bin is on PATH"
 command -v jq >/dev/null 2>&1 || \
