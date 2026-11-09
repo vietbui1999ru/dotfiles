@@ -71,7 +71,8 @@
     "cmd-ctrl-z": "pane.zoom",
     "cmd-ctrl-x": "pane.close",
     "cmd-ctrl-p": "pi-fleet.new",
-    "cmd-ctrl-o": "pi-fleet.next"
+    "cmd-ctrl-o": "pi-fleet.next",
+    "cmd-ctrl-m": "pi-fleet.monitor"
   },
   "terminal": {
     "cmd-f": "terminal.search",
