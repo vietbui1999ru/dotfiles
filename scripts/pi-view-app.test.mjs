@@ -211,3 +211,54 @@ test("a failed terminal.keep falls back to hc label pi.window=1", () => {
 	const label = box.calls().find((call) => call[0] === "hc" && call[1] === "label");
 	assert.deepEqual(label, ["hc", "label", "t9", "pi.window=1"]);
 });
+
+// pi-view hands off to pi-view-app only outside a Herdr pane. The focus check is stubbed
+// to pass, and the handoff target is replaced so a reached handoff is recorded.
+function viewSandbox() {
+	const dir = mkdtempSync(join(tmpdir(), "pi-view-handoff-"));
+	const bin = join(dir, "bin");
+	mkdirSync(bin);
+	const app = join(dir, "scripts");
+	mkdirSync(app);
+	copyFileSync(join(SCRIPTS, "pi-view"), join(app, "pi-view"));
+	chmodSync(join(app, "pi-view"), 0o755);
+	writeFileSync(join(app, "focus"), "#!/bin/sh\nexit 0\n");
+	chmodSync(join(app, "focus"), 0o755);
+	writeFileSync(join(app, "secret-get"), "#!/bin/sh\nexit 1\n");
+	chmodSync(join(app, "secret-get"), 0o755);
+	writeFileSync(join(app, "provenance"), "#!/bin/sh\nexit 0\n");
+	chmodSync(join(app, "provenance"), 0o755);
+	writeFileSync(join(app, "pi-view-app"), "#!/bin/sh\necho reached-app >> \"$HANDOFF_LOG\"\nexit 0\n");
+	chmodSync(join(app, "pi-view-app"), 0o755);
+	writeFileSync(join(bin, "hc"), "#!/bin/sh\nexit 0\n");
+	chmodSync(join(bin, "hc"), 0o755);
+	const log = join(dir, "handoff.log");
+	writeFileSync(log, "");
+	return {
+		run: (env) => spawnSync("zsh", [join(app, "pi-view"), "sh", "-c", "exit 0", "pi", "--session-id", "pueue-x", "-p", "hi"], {
+			encoding: "utf8",
+			timeout: 20000,
+			cwd: dir,
+			env: { PATH: `${bin}:/usr/bin:/bin:/opt/homebrew/bin`, HOME: dir, TMPDIR: `${dir}/`, PI_VIEW_SECRETS: join(dir, "none.env"), HANDOFF_LOG: log, ...env },
+		}),
+		reached: () => readFileSync(log, "utf8").includes("reached-app"),
+	};
+}
+
+test("pi-view inside a Herdr pane never reaches pi-view-app, even with an hc terminal", () => {
+	const box = viewSandbox();
+	box.run({ HERDR_ENV: "1", HC_TERMINAL_ID: "t3" });
+	assert.equal(box.reached(), false);
+});
+
+test("pi-view outside any terminal does not reach pi-view-app", () => {
+	const box = viewSandbox();
+	box.run({});
+	assert.equal(box.reached(), false);
+});
+
+test("pi-view inside an hc terminal hands off to pi-view-app", () => {
+	const box = viewSandbox();
+	box.run({ HC_TERMINAL_ID: "t3" });
+	assert.equal(box.reached(), true);
+});

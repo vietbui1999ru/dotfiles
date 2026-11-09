@@ -88,6 +88,13 @@ if [[ ${HERDR_ENV:-} == 1 ]] && (( $+commands[herdr] )) && [[ -n $session_id ]];
   in_herdr=1
 fi
 
+# Outside a Herdr pane but inside an hc terminal (or PI_VIEW_APP=1), the run opens as a
+# Herdr app window instead. pi-view-app takes over here and is exec'ed, so $$ stays the task's.
+if (( ! in_herdr )) && [[ -n ${HC_TERMINAL_ID:-} || ${PI_VIEW_APP:-} == 1 ]] && (( $+commands[hc] )) && [[ -n $session_id ]]; then
+  mode=view; (( tui )) && mode=tui; (( live )) && mode=live
+  exec "$script_dir/pi-view-app" --mode $mode -- "$@"
+fi
+
 if (( ! in_herdr )); then
   if (( live )); then
     node "$driver" -- "$@"
