@@ -109,10 +109,10 @@ test("windowSpec keys the window by address and keeps it", () => {
 });
 
 test("windowSpec cascades and wraps at 8", () => {
-	assert.deepEqual(windowSpec("t1", 0).at, { x: 80, y: 80 });
-	assert.deepEqual(windowSpec("t1", 1).at, { x: 104, y: 104 });
-	assert.deepEqual(windowSpec("t1", 7).at, { x: 80 + 24 * 7, y: 80 + 24 * 7 });
-	assert.deepEqual(windowSpec("t1", 8).at, { x: 80, y: 80 });
+	assert.deepEqual(windowSpec("t1", 0).at, { x: 340, y: 80 });
+	assert.deepEqual(windowSpec("t1", 1).at, { x: 364, y: 104 });
+	assert.deepEqual(windowSpec("t1", 7).at, { x: 340 + 24 * 7, y: 80 + 24 * 7 });
+	assert.deepEqual(windowSpec("t1", 8).at, { x: 340, y: 80 });
 });
 
 test("windowSpec is a drag bar over the terminal in a column", () => {

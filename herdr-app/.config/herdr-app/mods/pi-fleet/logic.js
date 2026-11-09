@@ -53,7 +53,7 @@ export function windowSpec(address, index) {
     keep: true,
     width: 720,
     height: 440,
-    at: { x: 80 + step, y: 80 + step },
+    at: { x: 340 + step, y: 80 + step },
     layout: {
       type: "column",
       children: [
