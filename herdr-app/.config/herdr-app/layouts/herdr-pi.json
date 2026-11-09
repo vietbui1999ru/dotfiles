@@ -179,6 +179,16 @@
           ]
         },
         {
+          "id": "ai-spend",
+          "type": "block",
+          "size": {
+            "px": 24
+          },
+          "content": {
+            "mod": "ai-spend"
+          }
+        },
+        {
           "id": "status",
           "type": "block",
           "size": {
