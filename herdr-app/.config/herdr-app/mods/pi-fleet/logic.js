@@ -18,6 +18,7 @@ export function piRows(terminals) {
       name: String(t.name ?? "").replace(/^pueue-/, ""),
       model: modelFrom(t.argv ?? []),
       status: t.status ?? null,
+      turn: t.turn,
       isWindow: labels["pi.window"] === "1",
       createdMs: t.created_ms,
     });
@@ -62,6 +63,12 @@ export function windowSpec(address, index) {
       ],
     },
   };
+}
+
+// True when a Pi run has taken at least one turn and is idle or done: the sidebar's Close
+// button shows only then, so a fresh or working Pi is never closed by mistake.
+export function canClose(row) {
+  return (row.turn ?? 0) >= 1 && (row.status === "idle" || row.status === "done");
 }
 
 // The address after `current`, wrapping. The first row when `current` is not listed.
@@ -131,4 +138,32 @@ export function approveMessage(code, stdout) {
   if (code === 0 && reply?.ok === true) return null;
   if (reply?.reason === "not-confirmed") return "Cancelled";
   return reply?.message || "Approve failed";
+}
+
+// The agent-review records the cleanup view offers to remove: landed runs and orphans
+// (no worktree). Oldest first. Each row names the repo the removal runs from.
+export function cleanupRows(entries) {
+  if (!Array.isArray(entries)) return [];
+  return entries
+    .filter((e) => e && (e.landed || e.orphan) && !e.processing && (e.owner ?? e.repo))
+    .map((e) => ({
+      runId: e.runId,
+      cwd: e.owner ?? e.repo,
+      name: e.name || e.branch || String(e.runId).slice(0, 8),
+      kind: e.orphan ? "orphan" : "landed",
+      startedAt: e.startedAt,
+    }))
+    .sort((a, b) => String(a.startedAt).localeCompare(String(b.startedAt)));
+}
+
+// What to show after a skip call: null when it went through, else the refusal's message.
+export function removeMessage(code, stdout) {
+  let reply;
+  try {
+    reply = JSON.parse(stdout);
+  } catch {
+    return "Remove failed";
+  }
+  if (code === 0 && reply?.ok === true) return null;
+  return reply?.message || "Remove failed";
 }

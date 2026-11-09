@@ -4,11 +4,14 @@ import { test } from "node:test";
 
 import {
 	approveMessage,
+	canClose,
+	cleanupRows,
 	duration,
 	modelFrom,
 	nextAddress,
 	piRows,
 	planSync,
+	removeMessage,
 	reviewRows,
 	spawnArgs,
 	taskFileName,
@@ -222,4 +225,42 @@ test("approveMessage is null only for an exit 0 with ok true", () => {
 	assert.equal(approveMessage(2, '{"ok":false,"reason":"not-confirmed","message":"x"}'), "Cancelled");
 	assert.equal(approveMessage(2, '{"ok":false,"reason":"tree-changed","message":"changed"}'), "changed");
 	assert.equal(approveMessage(1, "not json"), "Approve failed");
+});
+
+test("cleanupRows keeps landed and orphan runs with a directory, oldest first", () => {
+	const rows = cleanupRows([
+		{ runId: "new", landed: true, owner: "/w/a", branch: "x", startedAt: "2026-11-09" },
+		{ runId: "old", orphan: true, owner: null, repo: "/repo", name: "", branch: "b", startedAt: "2026-11-01" },
+		{ runId: "busy", landed: true, owner: "/w/c", processing: true, startedAt: "2026-11-02" },
+		{ runId: "open", owner: "/w/d", startedAt: "2026-11-03" },
+		{ runId: "nocwd", orphan: true, owner: null, repo: null, startedAt: "2026-11-04" },
+	]);
+	assert.deepEqual(rows.map((r) => r.runId), ["old", "new"]);
+	assert.equal(rows[0].cwd, "/repo");
+	assert.equal(rows[0].kind, "orphan");
+	assert.equal(rows[0].name, "b");
+	assert.equal(rows[1].kind, "landed");
+	assert.equal(rows[1].cwd, "/w/a");
+});
+
+test("cleanupRows names an unnamed run by its short id and handles non-arrays", () => {
+	assert.equal(cleanupRows([{ runId: "abcdef123456", landed: true, owner: "/w" }])[0].name, "abcdef12");
+	assert.deepEqual(cleanupRows(undefined), []);
+	assert.deepEqual(cleanupRows({}), []);
+});
+
+test("removeMessage is null only for an exit 0 with ok true", () => {
+	assert.equal(removeMessage(0, '{"ok":true}'), null);
+	assert.equal(removeMessage(2, '{"ok":false,"reason":"x","message":"Still open"}'), "Still open");
+	assert.equal(removeMessage(2, '{"ok":false}'), "Remove failed");
+	assert.equal(removeMessage(1, "not json"), "Remove failed");
+});
+
+test("canClose needs a settled run: a turn taken and idle or done", () => {
+	assert.equal(canClose({ turn: 1, status: "idle" }), true);
+	assert.equal(canClose({ turn: 3, status: "done" }), true);
+	assert.equal(canClose({ turn: 0, status: "idle" }), false);
+	assert.equal(canClose({ turn: 2, status: "working" }), false);
+	assert.equal(canClose({ turn: 2, status: "blocked" }), false);
+	assert.equal(canClose({ status: "idle" }), false);
 });
