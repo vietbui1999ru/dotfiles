@@ -142,6 +142,14 @@ export async function watchRunner({ pid, pane, intervalMs, isAlive, paneStatus, 
 	if ((await paneStatus(pane)) === "working") await report(pane);
 }
 
+/**
+ * Resolve once the runner is gone. A viewer without a herdr pane has nothing to report,
+ * so it only has to end with the runner that started it.
+ */
+export async function waitForRunnerExit({ pid, intervalMs, isAlive }) {
+	while (isAlive(pid)) await sleep(intervalMs);
+}
+
 const runnerAlive = (pid) => {
 	try {
 		process.kill(pid, 0);
@@ -201,6 +209,9 @@ async function main(argv) {
 
 	if (options.watchPid > 0 && options.pane) {
 		watchRunner({ pid: options.watchPid, pane: options.pane, intervalMs: 2000, isAlive: runnerAlive, paneStatus: herdrPaneStatus, report: reportKilled }).catch(() => {});
+	} else if (options.watchPid > 0) {
+		// Exit with the runner, so a finished run's viewer does not outlive it.
+		waitForRunnerExit({ pid: options.watchPid, intervalMs: 2000, isAlive: runnerAlive }).then(() => process.exit(0));
 	}
 
 	if (options.input) {
