@@ -45,6 +45,7 @@ export const OUTCOME_WORD = {
   paused: "Paused",
   success: "Done",
   review: "Needs review",
+  reviewed: "Reviewed",
   killed: "Killed",
   failed: "Failed",
 };

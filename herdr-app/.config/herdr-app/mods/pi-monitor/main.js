@@ -4,12 +4,13 @@
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { exec, theme, home } from "herdr";
+import { exec, theme, home, settings } from "herdr";
 import { elapsed, tokens, cost, capLines, firstLine, OUTCOME_WORD } from "./format.js";
 
 const POLL_MS = 3000;
 const SPIN = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-const GLYPH = { running: SPIN[0], queued: "○", paused: "‖", success: "●", review: "◐", killed: "✕", failed: "✕" };
+const GLYPH = { running: SPIN[0], queued: "○", paused: "‖", success: "●", review: "◐", reviewed: "●", killed: "✕", failed: "✕" };
+const MONO = () => settings().font_family ?? "JetBrains Mono";
 
 // The theme colour for each outcome. Review reads in the attention colour.
 const TONE = {
@@ -17,6 +18,7 @@ const TONE = {
 	queued: "idle",
 	paused: "dim",
 	success: "done",
+	reviewed: "done",
 	review: "blocked",
 	killed: "dim",
 	failed: "blocked",
@@ -28,6 +30,7 @@ export default class PiMonitor extends View {
 		this.selected = undefined;
 		this.thinking = false;
 		this.busy = false;
+		this.feedError = undefined;
 		this.poll(cx);
 		cx.timer.every(POLL_MS, (cx) => this.poll(cx));
 	}
@@ -36,12 +39,19 @@ export default class PiMonitor extends View {
 	async poll(cx) {
 		if (this.busy) return;
 		this.busy = true;
+		const args = this.selected !== undefined ? ["--task", String(this.selected)] : [];
 		try {
-			const r = await exec(`${home()}/dotfiles/scripts/pi-monitor-feed.mjs`, [], { timeout: 10000 });
+			const r = await exec("node", [`${home()}/dotfiles/scripts/pi-monitor-feed.mjs`, ...args], { timeout: 10000 });
 			const parsed = JSON.parse(r.stdout || "{}");
-			if (r.code === 0 && parsed && Array.isArray(parsed.tasks)) this.feed = parsed;
-		} catch {
-			// Keep the last good feed; the next poll tries again.
+			if (r.code === 0 && parsed && Array.isArray(parsed.tasks)) {
+				this.feed = parsed;
+				this.feedError = undefined;
+			} else {
+				this.feedError = `exit ${r.code}`;
+			}
+		} catch (err) {
+			// Keep the last good feed on screen; the next poll tries again.
+			this.feedError = String(err?.message ?? err).split("\n")[0].slice(0, 120);
 		} finally {
 			this.busy = false;
 			cx.notify();
@@ -82,7 +92,10 @@ export default class PiMonitor extends View {
 			.child(badge(s.queued, "queued", t.muted))
 			.child(badge(s.review, "needs review", t[TONE.review] ?? t.dim))
 			.child(badge(s.failed, "failed", t[TONE.failed] ?? t.dim))
-			.child(div().pl(6).text_size(11.5).text_color(t.dim).child(cost(s.cost)));
+			.child(div().pl(6).text_size(11.5).text_color(t.dim).child(cost(s.cost)))
+			.when(Boolean(this.feed) && Boolean(this.feedError), (el) =>
+				el.child(div().pl(6).text_size(11.5).text_color(t.blocked).child("Feed stale")),
+			);
 	}
 
 	// One card in the list: state glyph, #id, label, model, elapsed time, tokens and cost.
@@ -106,6 +119,7 @@ export default class PiMonitor extends View {
 			.hover((s) => s.bg(t.hover))
 			.on_click((_e, cx) => {
 				this.selected = task.id;
+				this.poll(cx);
 				cx.notify();
 			})
 			.child(
@@ -122,26 +136,38 @@ export default class PiMonitor extends View {
 					.gap(6)
 					.items_center()
 					.text_size(11)
-					.child(div().px(6).h(18).flex().items_center().rounded(4).bg(t.hover).text_color(t.muted).child(task.model ?? "model?"))
-					.child(div().text_color(t.dim).child(since))
+					.child(div().min_w(0).truncate().px(6).h(18).flex().items_center().rounded(4).bg(t.hover).text_color(t.muted).child(task.model ?? "model?"))
+					.child(div().flex_none().text_color(t.dim).child(since))
 					.child(div().flex_1())
-					.child(div().text_color(t.dim).child(`${tokens(task.tokens)} tok`))
-					.child(div().text_color(t.dim).child(cost(task.cost))),
+					.child(div().flex_none().text_color(t.dim).child(`${tokens(task.tokens)} tok`))
+					.child(div().flex_none().text_color(t.dim).child(cost(task.cost))),
 			);
 	}
 
 	list(t, now) {
 		const tasks = this.feed?.tasks ?? [];
+		if (!this.feed && this.feedError) return [this.failure(t)];
 		if (this.feed?.unavailable) return [div().p(16).text_size(12).text_color(t.dim).child("Pueue is not running")];
 		if (tasks.length === 0) return [div().p(16).text_size(12).text_color(t.dim).child("No Pi runs yet")];
 		return tasks.map((task) => this.card(t, task, now));
 	}
 
+	// Shown in place of the list or the detail when no feed has ever been read.
+	failure(t) {
+		return v_flex()
+			.p(16)
+			.gap(4)
+			.child(div().text_size(12).text_color(t.blocked).child("Could not read Pi runs"))
+			.child(div().text_size(11).text_color(t.dim).child(this.feedError));
+	}
+
 	// One transcript line for an entry, as the spec's kinds.
 	entry(t, e) {
 		if (e.kind === "thinking") {
-			if (!this.thinking) return null;
-			return div().text_size(12).italic().text_color(t.dim).truncate().child(firstLine(e.text));
+			if (!this.thinking) {
+				return div().text_size(12).italic().text_color(t.dim).truncate().child(firstLine(e.text));
+			}
+			return div().text_size(12).italic().text_color(t.dim).child(String(e.text ?? ""));
 		}
 		if (e.kind === "tool") {
 			const [name, ...rest] = e.text.split(" ");
@@ -149,14 +175,14 @@ export default class PiMonitor extends View {
 				.gap(6)
 				.items_center()
 				.child(div().flex_none().px(6).h(18).flex().items_center().rounded(4).bg(t.hover).text_size(11).font_semibold().text_color(t.accent).child(name))
-				.child(div().min_w(0).truncate().font_mono().text_size(11.5).text_color(t.muted).child(rest.join(" ")));
+				.child(div().min_w(0).truncate().font_family(MONO()).text_size(11.5).text_color(t.muted).child(rest.join(" ")));
 		}
 		if (e.kind === "output") {
 			return v_flex()
 				.pl(10)
 				.border_l(1.5)
 				.border_color(t.border)
-				.children(capLines(e.text).map((line) => div().font_mono().text_size(11).text_color(t.dim).child(line)));
+				.children(capLines(e.text).map((line) => div().font_family(MONO()).text_size(11).text_color(t.dim).child(line)));
 		}
 		if (e.kind === "error") {
 			return div()
@@ -170,10 +196,12 @@ export default class PiMonitor extends View {
 	}
 
 	detail(t, now) {
+		if (!this.feed && this.feedError) return this.failure(t).p(24);
 		if (this.feed?.unavailable) return div().p(24).text_color(t.dim).child("Pueue is not running");
 		const task = this.detailTask();
 		if (!task) return div().p(24).text_color(t.dim).child("No Pi runs yet");
-		const entries = this.feed?.detail?.id === task.id ? this.feed.detail.entries : [];
+		const loaded = this.feed?.detail?.id === task.id;
+		const entries = loaded ? this.feed.detail.entries : [];
 		const tone = t[TONE[task.outcome]] ?? t.dim;
 		const elapsedText = task.startMs ? elapsed((task.endMs ?? now) - task.startMs) : "";
 		const toggle = div()
@@ -225,7 +253,7 @@ export default class PiMonitor extends View {
 							.child(div().text_color(t.dim).child(`${task.files} files`)),
 					)
 					.when(Boolean(task.activity), (el) =>
-						el.child(div().truncate().font_mono().text_size(11.5).text_color(t.dim).child(task.activity)),
+						el.child(div().truncate().font_family(MONO()).text_size(11.5).text_color(t.dim).child(task.activity)),
 					),
 			)
 			.child(
@@ -264,6 +292,7 @@ export default class PiMonitor extends View {
 					.child(
 						v_flex()
 							.w(320)
+							.h_full()
 							.flex_none()
 							.min_h(0)
 							.border_r(1)
@@ -274,7 +303,9 @@ export default class PiMonitor extends View {
 									.id("pm-list")
 									.flex_1()
 									.min_h(0)
-									.p(8)
+									.pl(8)
+									.pr(14)
+									.py(8)
 									.gap(6)
 									.overflow_y_scrollbar()
 									.mode("always")
