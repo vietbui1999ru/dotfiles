@@ -69,7 +69,9 @@
     "cmd-ctrl-%": "pane.split:right",
     "cmd-ctrl-\"": "pane.split:down",
     "cmd-ctrl-z": "pane.zoom",
-    "cmd-ctrl-x": "pane.close"
+    "cmd-ctrl-x": "pane.close",
+    "cmd-ctrl-p": "pi-fleet.new",
+    "cmd-ctrl-o": "pi-fleet.next"
   },
   "terminal": {
     "cmd-f": "terminal.search",
