@@ -148,6 +148,20 @@ class GuardTest(HooksTest):
                 r = self.guard(str(self.wiki), "Bash", {"command": command}, session=f"gG{abs(hash(command))}")
                 self.assertIsNone(self.denied(r), command)
 
+    def test_guard_allows_read_only_bash_with_gt_inside_quotes(self):
+        # A ">" inside quotes is text, not a redirect: a read-only search must not be a write.
+        for command in ['rg "a > b" docs/', "echo 'x > y'", 'git log --format="%h > %s"',
+                        'rg "->" docs', "echo \"hi > out.txt\""]:
+            with self.subTest(command=command):
+                r = self.guard(str(self.wiki), "Bash", {"command": command}, session=f"gQ{abs(hash(command))}")
+                self.assertIsNone(self.denied(r), command)
+
+    def test_guard_denies_real_redirect_next_to_quoted_gt(self):
+        # A real redirect after a quoted ">" is still a write.
+        command = 'rg "a > b" docs/ > out.txt'
+        r = self.guard(str(self.wiki), "Bash", {"command": command}, session="gR")
+        self.assertEqual(self.deny_of(r)["permissionDecision"], "deny", command)
+
     def test_guard_allows_bash_writing_only_to_allowlisted_paths(self):
         target = self.board
         r = self.guard(str(self.wiki), "Bash", {"command": f"echo x >> {target}"}, session="gH")
