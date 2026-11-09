@@ -8,11 +8,16 @@ import { h_flex, v_flex, InputState, Input, TextareaState, Textarea } from "gpui
 import { exec, machines, writeTextFile, props, closeOverlay, home } from "herdr";
 import { taskFileName, spawnArgs } from "./logic.js";
 
+// A leading ~/ means this user's home folder; exec and the task file need a real path.
+const expandHome = (folder) => (folder.startsWith("~/") ? `${home()}/${folder.slice(2)}` : folder);
+
 const TIERS = ["high", "medium", "low"];
 
 export function newDialogState(p) {
 	const folder = InputState.new({ value: p?.folder ?? "" });
 	const task = TextareaState.new({ placeholder: "What should Pi do?", rows: 5 });
+	// The task gets the keyboard as the dialog opens, as the prompt mod's input does.
+	task.focus();
 	return {
 		machine: "local",
 		tier: "low",
@@ -57,18 +62,22 @@ function label(t, text) {
 // Refuse a submit with a reason the dialog shows, or start the run in a task.
 function submit(view, cx) {
 	const d = view.dialog;
+	if (d.busy) return;
 	const text = d.task.value().trim();
 	const folder = d.folder.value().trim();
 	if (!text) {
 		d.error = "Write a task first.";
+		cx.notify();
 		return;
 	}
 	if (!folder) {
 		d.error = "Choose a folder.";
+		cx.notify();
 		return;
 	}
 	d.busy = true;
 	d.error = null;
+	cx.notify();
 	cx.spawn(async (cx) => startRun(view, cx));
 }
 
@@ -76,24 +85,33 @@ function submit(view, cx) {
 // open with pi-spawn's own message (--on exits 2 until the machine mesh lands).
 export async function startRun(view, cx) {
 	const d = view.dialog;
+	// Captured before the first await: props() is read from the view, not the dialog.
+	const overlay = props().overlay;
 	const text = d.task.value().trim();
-	const folder = d.folder.value().trim();
+	const folder = expandHome(d.folder.value().trim());
 	const dir = `${home()}/.local/state/pi-fleet`;
 	const taskFile = `${dir}/${taskFileName(text, Date.now())}`;
-	await exec("mkdir", ["-p", dir]);
-	await writeTextFile(taskFile, text, null);
-	const r = await exec(
-		`${home()}/dotfiles/scripts/pi-spawn`,
-		spawnArgs({ tier: d.tier, taskFile, folder, machine: d.machine }),
-		{ timeout: 15000 },
-	);
-	d.busy = false;
-	if (r.code !== 0) {
-		d.error = (r.stderr || r.stdout || `pi-spawn exited ${r.code}`).trim();
+	try {
+		await exec("mkdir", ["-p", dir]);
+		await writeTextFile(taskFile, text, null);
+		const r = await exec(
+			`${home()}/dotfiles/scripts/pi-spawn`,
+			spawnArgs({ tier: d.tier, taskFile, folder, machine: d.machine }),
+			{ timeout: 15000 },
+		);
+		d.busy = false;
+		if (r.code !== 0) {
+			d.error = (r.stderr || r.stdout || `pi-spawn exited ${r.code}`).trim();
+			cx.notify();
+			return;
+		}
+		closeOverlay(overlay);
+	} catch (error) {
+		// exec and writeTextFile reject when a program cannot start: show it, do not hang.
+		d.busy = false;
+		d.error = String(error?.message ?? error);
 		cx.notify();
-		return;
 	}
-	closeOverlay(props().overlay);
 }
 
 // The dialog's element tree. `view` is the PiFleet instance, which owns the state.
