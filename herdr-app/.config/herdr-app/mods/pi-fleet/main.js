@@ -41,10 +41,7 @@ export default class PiFleet extends View {
 		this.sync(cx);
 		cx.timer.every(2000, (cx) => this.sync(cx));
 		this.readReviews(cx);
-		cx.timer.every(10000, (cx) => {
-			this.approveNote = undefined;
-			this.readReviews(cx);
-		});
+		cx.timer.every(10000, (cx) => this.readReviews(cx));
 		cx.spawn(async (cx) => {
 			for (;;) {
 				const c = await nextCommand();
@@ -137,7 +134,15 @@ export default class PiFleet extends View {
 			// A program that cannot start, or a timeout: not approved.
 		}
 		this.approving = undefined;
-		this.approveNote = text ? { runId: row.runId, text } : undefined;
+		const note = text ? { runId: row.runId, text } : undefined;
+		this.approveNote = note;
+		if (note) {
+			cx.timer.after(10000, (cx) => {
+				if (this.approveNote !== note) return;
+				this.approveNote = undefined;
+				cx.notify();
+			});
+		}
 		await this.readReviews(cx);
 	}
 
