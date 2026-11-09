@@ -3,11 +3,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+	approveMessage,
 	duration,
 	modelFrom,
 	nextAddress,
 	piRows,
 	planSync,
+	reviewRows,
 	spawnArgs,
 	taskFileName,
 	windowSpec,
@@ -193,4 +195,31 @@ test("duration formats minutes, hours and days as the agents mod does", () => {
   assert.equal(duration(12 * 60000), "12m");
   assert.equal(duration(3 * 3600000), "3h");
   assert.equal(duration(2 * 86400000), "2d");
+});
+
+const review = (over) => ({ runId: "abcdef123456", owner: "/w", branch: "b", name: "n", startedAt: "2026-11-02", ...over });
+
+test("reviewRows drops runs that cannot be approved", () => {
+	for (const over of [{ orphan: true }, { processing: true }, { error: true }, { landed: true }, { owner: null }]) {
+		assert.deepEqual(reviewRows([review(over)]), []);
+	}
+	assert.deepEqual(reviewRows("nope"), []);
+	assert.deepEqual(reviewRows([null]), []);
+});
+
+test("reviewRows names a run by name, then branch, then short id, oldest first", () => {
+	assert.equal(reviewRows([review()])[0].name, "n");
+	assert.equal(reviewRows([review({ name: "" })])[0].name, "b");
+	assert.equal(reviewRows([review({ name: "", branch: "" })])[0].name, "abcdef12");
+	const order = reviewRows([review({ runId: "new", startedAt: "2026-11-09" }), review({ runId: "old", startedAt: "2026-11-01" })]);
+	assert.deepEqual(order.map((r) => r.runId), ["old", "new"]);
+});
+
+test("approveMessage is null only for an exit 0 with ok true", () => {
+	assert.equal(approveMessage(0, '{"ok":true}'), null);
+	assert.equal(approveMessage(2, '{"ok":true}'), "Approve failed");
+	assert.equal(approveMessage(0, '{"ok":false}'), "Approve failed");
+	assert.equal(approveMessage(2, '{"ok":false,"reason":"not-confirmed","message":"x"}'), "Cancelled");
+	assert.equal(approveMessage(2, '{"ok":false,"reason":"tree-changed","message":"changed"}'), "changed");
+	assert.equal(approveMessage(1, "not json"), "Approve failed");
 });

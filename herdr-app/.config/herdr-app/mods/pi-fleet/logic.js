@@ -102,3 +102,33 @@ export function spawnArgs({ tier, taskFile, folder, machine }) {
   if (machine && machine !== "local") args.push("--on", machine);
   return args;
 }
+
+// The Pi runs a person can still approve, oldest first, from `agent-review list --json`.
+// An orphan has no worktree to act in; a landed, running or broken run has nothing to approve.
+export function reviewRows(entries) {
+  if (!Array.isArray(entries)) return [];
+  return entries
+    .filter((e) => e && e.owner && !e.orphan && !e.processing && !e.error && !e.landed)
+    .map((e) => ({
+      runId: e.runId,
+      owner: e.owner,
+      name: e.name || e.branch || String(e.runId).slice(0, 8),
+      branch: e.branch,
+      startedAt: e.startedAt,
+    }))
+    .sort((a, b) => String(a.startedAt).localeCompare(String(b.startedAt)));
+}
+
+// What to show after an approve call: null when it went through. Anything other than
+// an exit 0 with `ok: true` counts as not approved.
+export function approveMessage(code, stdout) {
+  let reply;
+  try {
+    reply = JSON.parse(stdout);
+  } catch {
+    return "Approve failed";
+  }
+  if (code === 0 && reply?.ok === true) return null;
+  if (reply?.reason === "not-confirmed") return "Cancelled";
+  return reply?.message || "Approve failed";
+}
