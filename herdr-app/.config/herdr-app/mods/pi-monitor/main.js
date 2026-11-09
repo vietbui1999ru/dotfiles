@@ -1,11 +1,12 @@
-// The Pi monitor: every Pi run on pueue, and the transcript of the one selected. Read-only:
-// no kill, pause or approve here. It polls scripts/pi-monitor-feed.mjs every 3 seconds and
-// never starts a second poll while one is running.
+// The Pi monitor: every Pi run on pueue, and the transcript of the one selected. The one write
+// it makes is the header's Clear finished, which removes finished tasks from pueue. No kill,
+// pause or approve here. It polls scripts/pi-monitor-feed.mjs every 3 seconds and never starts
+// a second poll while one is running.
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { exec, theme, home, settings } from "herdr";
-import { elapsed, tokens, cost, capLines, firstLine, OUTCOME_WORD } from "./format.js";
+import { elapsed, tokens, cost, capLines, firstLine, OUTCOME_WORD, clearableIds } from "./format.js";
 
 const POLL_MS = 3000;
 const SPIN = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -31,6 +32,8 @@ export default class PiMonitor extends View {
 		this.thinking = false;
 		this.busy = false;
 		this.feedError = undefined;
+		this.clearing = false;
+		this.clearNote = undefined;
 		this.poll(cx);
 		cx.timer.every(POLL_MS, (cx) => this.poll(cx));
 	}
@@ -56,6 +59,36 @@ export default class PiMonitor extends View {
 			this.busy = false;
 			cx.notify();
 		}
+	}
+
+	// Clear the finished tasks from pueue. One at a time; a failure shows in the header for 10
+	// seconds. A cleared selection goes back to the feed's pick.
+	async clearFinished(cx) {
+		if (this.clearing) return;
+		const ids = clearableIds(this.feed?.tasks);
+		if (ids.length === 0) return;
+		this.clearing = true;
+		cx.notify();
+		let failed = false;
+		try {
+			const r = await exec("pueue", ["remove", ...ids.map(String)], { timeout: 15000 });
+			failed = r.code !== 0;
+		} catch {
+			failed = true;
+		}
+		this.clearing = false;
+		if (this.selected !== undefined && ids.includes(this.selected)) this.selected = undefined;
+		if (failed) {
+			const note = {};
+			this.clearNote = note;
+			cx.timer.after(10000, (cx) => {
+				if (this.clearNote !== note) return;
+				this.clearNote = undefined;
+				cx.notify();
+			});
+		}
+		await this.poll(cx);
+		cx.notify();
 	}
 
 	// The task shown in detail: the selection, else the feed's pick.
@@ -88,6 +121,8 @@ export default class PiMonitor extends View {
 			.border_color(t.border)
 			.child(div().font_semibold().text_size(13).text_color(t.foreground).child("Pi monitor"))
 			.child(div().flex_1())
+			.when(clearableIds(this.feed?.tasks).length > 0, (el) => el.child(this.clearButton(t)))
+			.when(Boolean(this.clearNote), (el) => el.child(div().text_size(11.5).text_color(t.blocked).child("Clear failed")))
 			.child(badge(s.running, "running", t[TONE.running] ?? t.dim))
 			.child(badge(s.queued, "queued", t.muted))
 			.child(badge(s.review, "needs review", t[TONE.review] ?? t.dim))
@@ -96,6 +131,36 @@ export default class PiMonitor extends View {
 			.when(Boolean(this.feed) && Boolean(this.feedError), (el) =>
 				el.child(div().pl(6).text_size(11.5).text_color(t.blocked).child("Feed stale")),
 			);
+	}
+
+	// Two clicks, as the fleet's buttons: the first arms it, a second click within 3 seconds acts.
+	clearButton(t) {
+		const n = clearableIds(this.feed?.tasks).length;
+		const armed = this.armed === true;
+		return div()
+			.id("pm-clear")
+			.text_size(11.5)
+			.text_color(this.clearing ? t.dim : t.accent)
+			.cursor_pointer()
+			.hover((s) => s.text_color(t.foreground))
+			.on_click((_e, cx) => {
+				if (this.clearing) return;
+				if (!armed) {
+					const token = {};
+					this.armed = true;
+					this.armToken = token;
+					cx.notify();
+					cx.timer.after(3000, (cx) => {
+						if (this.armToken !== token) return;
+						this.armed = false;
+						cx.notify();
+					});
+					return;
+				}
+				this.armed = false;
+				this.clearFinished(cx);
+			})
+			.child(this.clearing ? "Clearing…" : armed ? `Clear finished ${n}?` : `Clear finished ${n}`);
 	}
 
 	// One card in the list: state glyph, #id, label, model, elapsed time, tokens and cost.
