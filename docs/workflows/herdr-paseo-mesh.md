@@ -59,8 +59,7 @@ URI. A bare `host:port?password=` or `user:pass@` form is rejected as
 ```sh
 # on the Mac
 paseo host add "tcp://100.116.136.75:6767?password=$(security find-generic-password -a "$USER" -s paseo-pve2 -w)" --label pve2
-# on pve2 (paseo is only on PATH with mise active)
-eval "$(mise activate bash)"
+# on pve2
 paseo host add "tcp://100.73.122.127:6767?password=<mac password>" --label mac
 paseo host ls     # both should show status online
 ```

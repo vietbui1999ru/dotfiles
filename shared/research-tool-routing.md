@@ -215,7 +215,6 @@ one way (Mac to pve2) in herdr. Setup and limits: `docs/workflows/herdr-paseo-me
 - Paseo: from the Mac, `p2 ls|send|wait` (a zsh function that reads the pve2
   password from the Keychain). To start an agent on the other host through the
   Paseo MCP tools, pass that host's `serverId` (from `paseo host ls --json`).
-- On pve2, `paseo` is on PATH only with mise active: `bash -lc 'eval "$(mise activate bash)"; paseo …'`.
 - Never print or log a daemon password. They live in the Mac Keychain
   (`paseo-mac`, `paseo-pve2`).
 
