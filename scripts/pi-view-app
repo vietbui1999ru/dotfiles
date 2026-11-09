@@ -31,7 +31,9 @@ usage() {
 mode=""
 while (( $# > 0 )); do
   case $1 in
-    --mode) mode=${2:-}; shift 2 ;;
+    --mode)
+      (( $# >= 2 )) || { print -u2 -- "pi-view-app: --mode needs a value"; usage; exit 2 }
+      mode=$2; shift 2 ;;
     --) shift; break ;;
     *) print -u2 -- "pi-view-app: unknown argument '$1'"; usage; exit 2 ;;
   esac

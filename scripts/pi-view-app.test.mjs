@@ -306,3 +306,10 @@ test("view mode: no .run.zsh script remains in the run directory", () => {
 	const leftovers = readdirSync(box.runDir()).filter((name) => name.endsWith(".run.zsh"));
 	assert.deepEqual(leftovers, []);
 });
+
+test("--mode with no value exits 2 instead of looping", () => {
+	const box = sandbox();
+	const result = box.run(["--mode"]);
+	assert.equal(result.status, 2);
+	assert.match(result.stderr, /--mode needs a value/);
+});
