@@ -49,3 +49,9 @@ export const OUTCOME_WORD = {
   killed: "Killed",
   failed: "Failed",
 };
+
+// The ids of finished tasks the monitor may clear: success, reviewed and killed. Tasks
+// that still need the person (review, failed) and any not yet finished are left out.
+export function clearableIds(tasks) {
+  return (tasks ?? []).filter((t) => ["success", "reviewed", "killed"].includes(t.outcome)).map((t) => t.id);
+}

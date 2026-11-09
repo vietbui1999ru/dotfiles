@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { capLines, cost, elapsed, firstLine, tokens } from "../herdr-app/.config/herdr-app/mods/pi-monitor/format.js";
+import { capLines, clearableIds, cost, elapsed, firstLine, tokens } from "../herdr-app/.config/herdr-app/mods/pi-monitor/format.js";
 
 test("elapsed gives <1m, minutes, hours and days", () => {
 	assert.equal(elapsed(30000), "<1m");
@@ -37,4 +37,20 @@ test("capLines keeps 12 lines and says how many were cut", () => {
 test("firstLine skips blank lines and trims", () => {
 	assert.equal(firstLine("\n\n  first thought  \nsecond"), "first thought");
 	assert.equal(firstLine(""), "");
+});
+
+test("clearableIds keeps success, reviewed and killed; not review, failed or unfinished", () => {
+	const tasks = [
+		{ id: 1, outcome: "success" },
+		{ id: 2, outcome: "reviewed" },
+		{ id: 3, outcome: "killed" },
+		{ id: 4, outcome: "review" },
+		{ id: 5, outcome: "failed" },
+		{ id: 6, outcome: "running" },
+		{ id: 7, outcome: "queued" },
+		{ id: 8, outcome: "paused" },
+	];
+	assert.deepEqual(clearableIds(tasks), [1, 2, 3]);
+	assert.deepEqual(clearableIds([]), []);
+	assert.deepEqual(clearableIds(undefined), []);
 });
