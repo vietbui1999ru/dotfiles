@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# jw: create and remove colocated jj workspaces under .claude/worktrees/.
+#
+#   jw new <branch>   create the workspace, attach HEAD to <branch>, print its path
+#   jw rm <name>      forget the workspace and remove its directory (never the branch)
+#
+# Runnable from any checkout of the repo: the primary checkout is found from
+# `git rev-parse --git-common-dir`. See docs/workflows/jj-workspaces-plan.md (M1).
+set -euo pipefail
+
+PROTECTED=(main master)
+NAME_LIMIT=16
+
+usage() {
+  cat >&2 <<'EOF'
+usage: jw new <branch>
+       jw rm <name>
+EOF
+  exit 2
+}
+
+die() {
+  printf 'jw: %s\n' "$*" >&2
+  exit 2
+}
+
+primary_checkout() {
+  local common
+  common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
+    || die "not inside a git work tree"
+  dirname "$common"
+}
+
+# The workspace name is the branch without its type prefix: feat/jj-ws -> jj-ws.
+workspace_name() {
+  printf '%s\n' "${1#*/}"
+}
+
+cmd_new() {
+  local branch=${1:-} name primary dir protected
+  [ -n "$branch" ] || usage
+  for protected in "${PROTECTED[@]}"; do
+    [ "$branch" != "$protected" ] || die "refusing protected branch '$branch'"
+  done
+  [ "${#branch}" -le "$NAME_LIMIT" ] \
+    || die "branch '$branch' is ${#branch} characters; the limit is $NAME_LIMIT"
+  name=$(workspace_name "$branch")
+  primary=$(primary_checkout)
+  dir="$primary/.claude/worktrees/$name"
+  [ ! -e "$dir" ] || die "target directory already exists: $dir"
+
+  git -C "$primary" fetch origin main || die "git fetch origin main failed in $primary"
+  mkdir -p "$primary/.claude/worktrees"
+  (cd "$primary" && jj workspace add --colocate --name "$name" -r main@origin \
+    ".claude/worktrees/$name") || die "jj workspace add failed"
+  (cd "$dir" && jj bookmark create "$branch" -r @-) || die "jj bookmark create failed"
+  (cd "$dir" && git switch "$branch") || die "git switch $branch failed"
+
+  printf '%s\n' "$dir"
+}
+
+cmd_rm() {
+  local name=${1:-} primary dir real entries dirty
+  [ -n "$name" ] || usage
+  # The name must be one path component: "../x" or "a/b" resolve outside the
+  # workspaces directory and would point the removal at another checkout.
+  case "$name" in
+    */*|..|.) die "workspace name '$name' must not contain '/' or be '.' or '..'" ;;
+  esac
+  primary=$(primary_checkout)
+  dir="$primary/.claude/worktrees/$name"
+  [ -d "$dir" ] || die "no workspace named '$name' at $dir"
+
+  dirty=$(git -C "$dir" status --porcelain) \
+    || die "git status failed in $dir"
+  [ -z "$dirty" ] \
+    || die "workspace '$name' has uncommitted changes; commit or discard them first"
+
+  # Gitignored content (node_modules, agent state) is not in git, so removal would
+  # destroy it. Refuse and name it so the human decides. .jj is jj's own state.
+  entries=$(git -C "$dir" status --porcelain --ignored | grep '^!! ' | grep -v '^!! \.jj/$' || true)
+  [ -z "$entries" ] \
+    || die "workspace '$name' holds gitignored content that removal would delete; remove or move it first:
+$entries"
+
+  real=$(cd "$dir" && pwd -P)
+  # Git goes first. `jj workspace forget` also drops the git worktree registration,
+  # after which `git worktree remove` cannot reach the files and leaves them behind.
+  if git -C "$primary" worktree list --porcelain | grep -qxF "worktree $real"; then
+    git -C "$primary" worktree remove "$dir" \
+      || die "git worktree remove failed; the worktree is still at $dir"
+  fi
+  (cd "$primary" && jj workspace forget "$name") || die "jj workspace forget failed"
+  # jj leaves the workspace directory behind, holding only its own .jj state.
+  # Remove just that, then rmdir the directory, so anything unexpected fails loudly.
+  if [ -e "$dir/.jj" ]; then
+    rm -rf -- "$dir/.jj"
+  fi
+  if [ -d "$dir" ]; then
+    rmdir -- "$dir" || die "directory not empty after removal: $dir"
+  fi
+  git -C "$primary" worktree list --porcelain | grep -qxF "worktree $real" \
+    && die "git worktree entry survived removal: $real"
+
+  printf '%s\n' "$dir"
+}
+
+case ${1:-} in
+  new) shift; cmd_new "$@" ;;
+  rm) shift; cmd_rm "$@" ;;
+  *) usage ;;
+esac

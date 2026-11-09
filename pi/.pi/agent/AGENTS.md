@@ -144,8 +144,20 @@ Still ask before push, force-push, merge, rebase, `reset --hard`, and deleting
 branches. The review gates (`agent-review`, `:AgentReview`) apply to what is
 pushed or merged, not to commits.
 
+Check a pull request's live state before you name it to the user or push more
+commits to its branch: `gh pr view <n>` or `gh pr list --state all`. The user
+merges pull requests mid-session, and a squash merge takes the branch as it was
+at that moment. If the pull request is already merged, put late commits on a
+fresh branch from `origin/main` and open a new pull request; never push to the
+merged branch or ask the user to act on the merged one. Archive SPEC.md (spec
+loop rule 7) before the final push a merge could pick up, so a draft spec never
+lands on `main`.
+
 jj is the default VCS for agent sessions, colocated with git so the git-based
-gates keep working. In a new worktree run `jj git init --colocate` once.
+gates keep working. Use jj for local history work. A new worktree is colocated
+once with `jj git init --colocate`: in Claude Code a hook does it on the first
+Bash call, because the worktree guard refuses every typed `jj git` command; Pi
+runs it itself.
 Agents commit only through the funnel, in git and jj mode alike:
 `$HOME/dotfiles/scripts/commit-funnel --worktree <session worktree> -F <message
 file> <path>...`, with the session worktree spelled out literally. It tracks and
@@ -154,11 +166,32 @@ and in jj mode moves the branch bookmark and reattaches git HEAD (`git switch`)
 for `spec` and the other git-based tools. In a `.claude/worktrees/` checkout a
 plain `git commit` or `jj commit` is blocked, and git refuses any other move of
 an existing branch (reset, rebase, merge, `update-ref`, branch deletion); those
-are the user's call, so ask. Do not run `jj bookmark move`, `jj tug` or other
-jj history rewrites yourself: jj runs no git hooks, so the branch guard cannot
-see them. Push with `jj git push -b <branch>` or `git push`. Never move or push
+are the user's call, so ask. Do not run `jj bookmark move`, `jj tug`, `jj
+abandon` or other jj history rewrites yourself: jj runs no git hooks, so the
+branch guard cannot see them. The exceptions are `jj squash` and `jj rebase`, to
+consolidate and reorder your own commits before you push them; jj's
+`immutable_heads()` refuses to rewrite pushed commits and `main`/`master`.
+Before each push, squash fixup and WIP commits into the coherent commits they
+belong to: once pushed, they are immutable. Push with `jj git push -b <branch>` or `git push origin <branch>`, and
+fetch with `jj git fetch` or `git fetch`; in a Claude Code worktree only the git
+forms pass the guard. Never move or push
 `main`/`master`, never pass `--ignore-immutable`, and never rewrite a branch that
 another worktree has checked out.
+
+New sessions start through `jw`, not `EnterWorktree`: `jwc <branch>` opens an interactive
+`claude` in a fresh colocated jj workspace under `.claude/worktrees/`, and `jwb <branch> <prompt>`
+starts a background job there. Such a session has no worktree marker, so the guard does not apply:
+`jj git fetch` and `jj git push -b <branch>` pass there, and git aimed at the primary checkout is
+still refused by the Bash hook. Remove a finished workspace with `jw rm <name>`; it refuses one
+holding uncommitted or gitignored content. A session that did enter a worktree through
+`EnterWorktree` or `isolation: "worktree"` is still guarded, and keeps the rules above.
+
+Agent provenance is recorded by tools, never by the model. Each agent write is logged
+to a local ledger outside the repo (`scripts/provenance`), and `commit-funnel` appends one
+`Agent:` and one `Agent-Paths:` trailer per model that wrote the committed paths, so
+`scripts/provenance-report` can compare model quality over time. Do not write these
+trailers yourself and do not add model or effort stamps to files. `Co-Authored-By` lines
+stay for GitHub display but are not authoritative: the `Agent:` trailers are the record.
 
 ## Repo tooling: mise
 

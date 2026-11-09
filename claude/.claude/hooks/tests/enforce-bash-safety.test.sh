@@ -60,4 +60,54 @@ blocked 'cat ~/secrets/.env' || fail "secrets read not blocked before log check"
 grep -q '"rule":"secrets-read"' "$SAFETY_LOG_DIR/bash-safety-blocks.jsonl" ||
 	fail "no secrets-read entry in the block log"
 
+# A session inside a worktree may not aim git or jj at the primary checkout: a
+# path that is not its own workspace. The shared checkout is the human's.
+WS=/Users/someone/repo/.claude/worktrees/feat-x
+PRIMARY=/Users/someone/repo
+# status_in <cwd> <command>: exit status of the hook for that command from that cwd.
+status_in() {
+	printf '{"tool_input":{"command":%s},"cwd":"%s"}' "$(printf '%s' "$2" | jq -Rs .)" "$1" |
+		"$HOOK" >/dev/null 2>&1
+	echo $?
+}
+blocked_in() { [ "$(status_in "$1" "$2")" = 2 ]; }
+allowed_in() { [ "$(status_in "$1" "$2")" = 0 ]; }
+
+for cmd in \
+	"git -C $PRIMARY status" \
+	"git -C $PRIMARY checkout main" \
+	"git -C $PRIMARY/ fetch origin" \
+	"git -C ~/repo status" \
+	"git -C \$HOME/repo status" \
+	"git --git-dir=$PRIMARY/.git status" \
+	"git --git-dir $PRIMARY/.git status" \
+	"git -R $PRIMARY status" \
+	"GIT_DIR=$PRIMARY/.git git status" \
+	"cd $PRIMARY && git status" \
+	"cd $PRIMARY; git checkout main" \
+	"jj -R $PRIMARY status" \
+	"jj --repository $PRIMARY status" \
+	"cd $PRIMARY && jj bookmark list" \
+	"git -C $WS/../.. status" \
+	"export GIT_DIR=$PRIMARY/.git && git status" \
+	"GIT_DIR=$PRIMARY/.git; git status" \
+	"git -C $WS/../../../repo status"; do
+	blocked_in "$WS" "$cmd" || fail "session aimed at primary not blocked: $cmd"
+done
+
+# Its own workspace, and read-only commands with no path, still pass.
+for cmd in \
+	"git -C $WS status" \
+	"git -C $WS/ log --oneline -1" \
+	"cd $WS && git status" \
+	"jj -R $WS status" \
+	"git status" \
+	"jj st" \
+	"git log --oneline -3"; do
+	allowed_in "$WS" "$cmd" || fail "session wrongly blocked: $cmd"
+done
+
+# Outside a worktree the same primary-aimed command is the human's own work.
+allowed_in "$PRIMARY" "git -C $PRIMARY status" || fail "primary checkout wrongly blocked"
+
 echo "enforce-bash-safety: ok"

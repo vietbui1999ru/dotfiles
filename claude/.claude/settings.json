@@ -486,7 +486,7 @@
       "**Protected IaC scopes**: IAM, RBAC, networking, quota, and node-pool resources; anything whose name or tag carries `prod` or `production` as a whole word or name segment",
       "### User-specific",
       "**Primary use of Claude Code**: software development (personal dotfiles management — mixed personal/hobby posture)",
-      "**Trusted repo**: this repo's working directory (/Users/vietquocbui/dotfiles/.claude/worktrees/ubuntu-2604-bootstrap) and its origin remote (github.com:vietbui1999ru/dotfiles.git), a PUBLIC repo — only this repo's own work should be pushed there; content ported from elsewhere is not its own work",
+      "**Trusted repo**: this repo's working directory (the dotfiles repo, /Users/vietquocbui/dotfiles, and its worktrees under .claude/worktrees/) and its origin remote (github.com:vietbui1999ru/dotfiles.git), a PUBLIC repo — only this repo's own work should be pushed there; content ported from elsewhere is not its own work",
       "**Org-specific CLIs**: None configured",
       "routine under current feature-branch/worktree prefix: git add by path, git commit, and non-force git push of the current branch (never main or master) is user pre-authorized (2026-10-10); does not cover force-push, deleting remote branches, merge, rebase, reset --hard, or running agent-review approve"
     ]

@@ -511,10 +511,19 @@ WRITE_BASH = re.compile(
 REDIRECT = re.compile(r"(?<![0-9&])>>?\s*(\S+)")
 
 
+QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
+
+
 def bash_writes(command: str) -> list[str]:
     """The targets a shell command writes to; an empty list means it does not write."""
     targets = []
+    # A ">" inside quotes is text, not a redirect. Find the quoted spans, then keep only the
+    # redirects whose ">" sits outside all of them. The target is read from the original text.
+    quoted = [m.span() for m in QUOTED.finditer(command)]
     for match in REDIRECT.finditer(command):
+        gt = match.start()
+        if any(start <= gt < end for start, end in quoted):
+            continue
         target = match.group(1).strip("'\"")
         if target != "/dev/null" and not target.startswith("&"):
             targets.append(target)

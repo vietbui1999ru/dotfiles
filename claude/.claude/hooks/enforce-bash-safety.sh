@@ -165,6 +165,51 @@ if echo "$CWD" | grep -qE '/\.claude/worktrees/'; then
   fi
 fi
 
+# ── git or jj aimed at the primary checkout from a worktree session ───────────
+# A session under */.claude/worktrees/* works only in its own workspace. Aiming git or jj
+# at another checkout (-C, -R, --git-dir, GIT_DIR=, a cd to another path first) reaches the
+# shared primary checkout. This matches command text, so it stops habit and accident, not a
+# deliberate bypass. A path inside the session's own worktree, and a command with no path, pass.
+# An aimed path is one of: -C/-R/--git-dir/--repository given a value, GIT_DIR= set, or a cd
+# to a path before the git/jj command. Each is checked against the session's worktree root.
+if echo "$CWD" | grep -qE '/\.claude/worktrees/'; then
+  WS_ROOT=$(echo "$CWD" | sed -E 's#(/\.claude/worktrees/[^/]+).*#\1#')
+  AIM_RE="${SEG}${WRAP}([^[:space:];&|()]*/)?(git|jj)${OPTS}[[:space:]]+(-C|-R|--git-dir|--repository|--work-tree)([[:space:]]*=[[:space:]]*|[[:space:]]+)[^[:space:];&|()]+"
+  AIM_ENV="(^|[;&|(\`])[[:space:]]*(export[[:space:]]+|${ASSIGN})GIT_DIR="
+  AIM_CD="(^|[;&|(])[[:space:]]*cd[[:space:]]+[^[:space:];&|()]+[[:space:]]*(&&|;)"
+  aimed=""
+  if echo "$CMD" | grep -qE "$AIM_RE|$AIM_ENV"; then
+    aimed=1
+  fi
+  if [ -z "$aimed" ] && echo "$CMD" | grep -qE "$AIM_CD" && echo "$CMD" | grep -qE "${SEG}${WRAP}([^[:space:];&|()]*/)?(git|jj)[[:space:]]"; then
+    aimed=1
+  fi
+  if [ -n "$aimed" ]; then
+    # Every aimed path must sit inside this session's own worktree.
+    targets=$(echo "$CMD" | grep -oE "(-C|-R|--git-dir|--repository|--work-tree)([[:space:]]*=[[:space:]]*|[[:space:]]+)[^[:space:];&|()]+|GIT_DIR=[^[:space:]]+|cd[[:space:]]+[^[:space:];&|()]+" \
+      | sed -E 's/^(-C|-R|--git-dir|--repository|--work-tree|GIT_DIR=|cd)[[:space:]]*=?[[:space:]]*//; s/^GIT_DIR=//' \
+      | sed -E "s/^[\"']//; s/[\"']\$//")
+    outside=""
+    while IFS= read -r t; do
+      [ -z "$t" ] && continue
+      # A ".." segment can climb out of the worktree even when the text starts inside it.
+      case "$t" in
+        *"/../"*|*/..|..|../*) outside=1; continue ;;
+      esac
+      case "$t" in
+        "$WS_ROOT"|"$WS_ROOT"/*) ;;
+        *) outside=1 ;;
+      esac
+    done <<< "$targets"
+    if [ -n "$outside" ] || [ -z "$targets" ]; then
+      echo "BLOCKED: git or jj aimed at another checkout from a worktree session."
+      echo "This session works only in its own workspace: $WS_ROOT."
+      echo "Run git and jj from there with no -C, -R, --git-dir, GIT_DIR= or cd to another path."
+      exit 2
+    fi
+  fi
+fi
+
 # ── agent-ref-guard overrides inside a worktree session ───────────────────────
 # COMMIT_FUNNEL=1 and AGENT_REF_GUARD=off switch off the reference-transaction hook; an agent
 # must not set them, and core.hooksPath would point git away from the hook. Those are the human's.
