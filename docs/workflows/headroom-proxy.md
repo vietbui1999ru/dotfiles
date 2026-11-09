@@ -1,6 +1,6 @@
 # Headroom proxy for agent panes
 
-Agent CLIs started in a herdr pane or an Orca terminal send their model traffic
+Agent CLIs started in a herdr pane, a Herdr app terminal or a Paseo terminal send their model traffic
 through [Headroom](https://github.com/chopratejas/headroom), a local proxy that
 compresses tool output and other context before it reaches the provider. On a
 Linux agent box every shell is routed, so tmux and a plain SSH session get it
@@ -13,7 +13,7 @@ too.
 | `launchd/.../com.vietbui.headroom-proxy.plist` | Proxy on `127.0.0.1:8787` for Claude Code (Anthropic) and Codex. Codex traffic from a ChatGPT login is detected and forwarded to `chatgpt.com/backend-api/codex`. |
 | `launchd/.../com.vietbui.headroom-zen.plist` | Proxy on `127.0.0.1:8788` for the OpenCode Go subscription (`opencode-go`). Both the OpenAI-style and the Anthropic-style upstreams point at Zen Go, because one proxy has a single upstream per API style. |
 | `systemd/.config/systemd/user/headroom-proxy.service`, `headroom-zen.service` | The same two proxies as systemd user units on Linux, stowed from the `systemd` package. The agents role enables and starts them, with `Restart=always` and logs in the journal. |
-| `zsh/.zsh/headroom.zsh` | On macOS, in herdr panes (`HERDR_ENV=1`) and Orca terminals (`ORCA_PANE_KEY` set), when 8787 answers `/livez` at shell start: exports `ANTHROPIC_BASE_URL` and `ENABLE_TOOL_SEARCH=true`, and wraps `codex` with `-c openai_base_url=...`. On Linux every shell matches while the user's own `headroom-proxy` unit is active and owns the 8787 socket, so herdr, tmux and plain SSH are all routed. Plain terminals on macOS are untouched. |
+| `zsh/.zsh/headroom.zsh` | On macOS, in herdr panes (`HERDR_ENV=1`), Herdr app terminals (`HC_TERMINAL_ID` set) and Paseo terminals (`PASEO_TERMINAL_ID` set), when 8787 answers `/livez` at shell start: exports `ANTHROPIC_BASE_URL` and `ENABLE_TOOL_SEARCH=true`, and wraps `codex` with `-c openai_base_url=...`. On Linux every shell matches while the user's own `headroom-proxy` unit is active and owns the 8787 socket, so herdr, tmux and plain SSH are all routed. Plain terminals on macOS are untouched. |
 | `scripts/pi-headroom-models` | Writes the `opencode-go` entry of Pi's machine-local `~/.pi/agent/models.json` so Pi uses 8788. `off` removes it. |
 | `scripts/headroom-doctor` | Read-only check: both ports, the unit state, which gate this shell matched, the two Claude Code variables, the `codex` wrapper and Pi's route. Exits 1 when a service is down or a routed shell is not routed. |
 
@@ -46,20 +46,6 @@ upload. `HEADROOM_TELEMETRY=off` is avoided because it also turns off the local
   `opencode.json` (stowed to every machine) or using `headroom wrap opencode`.
 - **`hclaude`** (`headroom wrap claude`) still works and reuses the running
   proxy on 8787.
-
-## Orca
-
-No Orca configuration is tracked. Orca keeps its settings in an app-owned SQLite
-document (`~/Library/Application Support/Orca/profiles/local-default/profile-state.db`,
-domain `settings`) that holds the account email, an organisation UUID and SSH
-targets, and the files beside it hold secrets (`orca-runtime.json` `authToken`,
-`*.key`, the e2ee keypair). Stowing any of that would publish account data and
-credentials, so the repo only documents it.
-
-Routing comes entirely from the shell: `headroom.zsh` sees `ORCA_PANE_KEY` in an
-Orca terminal, and Orca's `nativeChatInheritShellEnvironment: true` passes the
-pane's environment on to its native chat. Nothing needs to be configured in
-Orca itself. Verify with `scripts/headroom-doctor` in an Orca terminal.
 
 ## Install
 

@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
   Shared Headroom compression proxy for Claude Code and Codex (ChatGPT login is
-  detected and forwarded to chatgpt.com). herdr and Orca shells route to it via
+  detected and forwarded to chatgpt.com). herdr, Herdr app and Paseo shells route to it via
   zsh/.zsh/headroom.zsh. See docs/workflows/headroom-proxy.md.
 -->
 <plist version="1.0">
