@@ -46,8 +46,7 @@ export default class PiFleet extends View {
 		this.sync(cx);
 		cx.timer.every(2000, (cx) => this.sync(cx));
 		this.readReviews(cx);
-		cx.timer.every(10000, (cx) => this.readReviews(cx));
-		this.closeArm = undefined;
+		cx.timer.every(60000, (cx) => this.readReviews(cx));
 		cx.spawn(async (cx) => {
 			for (;;) {
 				const c = await nextCommand();
@@ -205,7 +204,7 @@ export default class PiFleet extends View {
 	// Close a settled Pi run: Ctrl+D quits an idle Pi with an empty input, so a half-typed
 	// message survives. Closing never approves anything.
 	closePi(row) {
-		hc(["keys", row.address, "ctrl+d"]);
+		hc(["keys", row.address, "ctrl+d"]).catch(() => {});
 	}
 
 	// One approve at a time. The macOS dialog it raises stays the person's last step.
@@ -328,9 +327,10 @@ export default class PiFleet extends View {
 			);
 			if (this.cleaning) {
 				out.push(
-					h_flex()
+					v_flex()
 						.px(8)
 						.pb(4)
+						.gap(2)
 						.child(
 							this.textButton(
 								t,
@@ -339,7 +339,8 @@ export default class PiFleet extends View {
 								!this.removing,
 								(_e, cx) => this.arm(cx, "all", () => this.removeAll(cx)),
 							),
-						),
+						)
+						.when(this.removeNote?.runId === "all", (el) => el.child(div().text_size(11).text_color(t.blocked).child(this.removeNote.text))),
 					...this.cleanup.map((row) => this.cleanRow(t, row, now)),
 				);
 			}
