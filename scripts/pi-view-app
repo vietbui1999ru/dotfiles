@@ -1,0 +1,193 @@
+#!/usr/bin/env zsh
+# pi-view-app — run a Pi dispatch as an hc terminal shown in a Herdr app window.
+#
+#   pi-view-app --mode tui|live|view -- <pi command…>
+#
+# Called by `exec` from scripts/pi-view when the dispatch runs outside a Herdr pane
+# but inside an hc terminal (or with PI_VIEW_APP=1). It is `exec`ed, so `$$` is still
+# the pueue task's process, as in pi-view.
+#
+# The terminal is started detached (--no-parent --outlive-parent) so it survives this
+# script, and a window block shows it. The window closes itself when the terminal
+# ends, so nothing here closes it. Like pi-view, a display failure never fails the
+# task: when hc cannot start the terminal, the command runs plainly.
+#
+# Settled means Pi's status has turn >= 1 and state idle or done. A fresh Pi reports
+# idle at turn 0 before it starts, so turn 0 never counts. After a settle holds for
+# PI_VIEW_APP_SETTLE seconds, pi-checks runs once for it. The exit code comes from the
+# exit file only: a killed terminal reports exit_code 0, so that field is never read.
+set -u
+
+zmodload zsh/datetime 2>/dev/null || true
+
+usage() {
+  print -u2 -- 'usage: pi-view-app --mode tui|live|view -- <pi command...>'
+}
+
+mode=""
+while (( $# > 0 )); do
+  case $1 in
+    --mode) mode=${2:-}; shift 2 ;;
+    --) shift; break ;;
+    *) print -u2 -- "pi-view-app: unknown argument '$1'"; usage; exit 2 ;;
+  esac
+done
+[[ $mode == tui || $mode == live || $mode == view ]] || { usage; exit 2 }
+[[ $# -gt 0 ]] || { usage; exit 2 }
+
+script_dir=${${0:A}:h}
+hc_bin=${HC_BIN_PATH:-hc}
+herdr_app_bin=${HERDR_APP_BIN_PATH:-herdr-app}
+settle_seconds=${PI_VIEW_APP_SETTLE:-15}
+poll_seconds=${PI_VIEW_APP_POLL:-2}
+
+# Pi's own session id names the terminal, the pane file, and the exit file.
+session_id=""
+argv=("$@")
+for (( index = 1; index <= $#; index++ )); do
+  [[ ${argv[index]} == --session-id ]] && session_id=${argv[index + 1]:-}
+done
+[[ -n $session_id ]] || { exec "$@" }
+
+run_dir=${TMPDIR:-/tmp}
+run_dir=${run_dir%/}/pi-view
+mkdir -p -- $run_dir
+pane_file=$run_dir/${session_id}.pane
+exit_file=$run_dir/${session_id}.exit
+prompt_file=$run_dir/${session_id}.prompt
+token_file=$run_dir/${session_id}.token
+rm -f -- $pane_file
+
+# hc terminal names: 1-32 of a-z 0-9 - _.
+name=${(L)session_id}
+name=${name//[^a-z0-9_-]/-}
+name=${name[1,32]}
+
+placement=${PI_VIEW_PLACE:-window}
+case $placement in
+  window|tab|split) ;;
+  *) placement=window ;;
+esac
+
+now_seconds() { print -r -- ${EPOCHSECONDS:-$(date +%s)} }
+
+# hc get --json for one terminal; empty when hc fails.
+hc_get() { "$hc_bin" get --json "$1" 2>/dev/null }
+
+# Emit the program hc runs inside the terminal.
+if [[ $mode == tui ]]; then
+  # Pi's -p is a flag; its message is handed over in a file, as pi-view does.
+  tui_argv=() prompt=""
+  for (( index = 1; index <= $#; index++ )); do
+    if [[ ${argv[index]} == -p || ${argv[index]} == --print ]]; then
+      prompt=${argv[index + 1]:-}
+      (( index++ ))
+    else
+      tui_argv+=("${argv[index]}")
+    fi
+  done
+  rm -f -- $exit_file
+  run_token=$(openssl rand -hex 8)
+  print -r -- "$run_token" >| $token_file
+  print -r -- "$prompt" >| $prompt_file
+  program=(env "PROVENANCE_SESSION=$session_id" "$script_dir/pi-pane-run" "$run_token" $$ "$exit_file" "$prompt_file" "${tui_argv[@]}")
+else
+  # view and live: the terminal runs a generated shell that starts the viewer beside the
+  # Pi command, runs Pi in the foreground, and writes Pi's code to the exit file, so the
+  # code survives the terminal. The viewer is stopped when Pi ends.
+  if [[ $mode == live ]]; then
+    viewer=(node "$script_dir/pi-tail.mjs" --session-id "$session_id" --cwd "$PWD" --watch-pid $$ --input "$run_dir/${session_id}.in")
+    pi_cmd=(node "$script_dir/pi-live.mjs" -- "$@")
+  else
+    viewer=(node "$script_dir/pi-tail.mjs" --session-id "$session_id" --cwd "$PWD" --watch-pid $$)
+    pi_cmd=("$@")
+  fi
+  rm -f -- $exit_file
+  runner=$run_dir/${session_id}.run.zsh
+  {
+    print -r -- '#!/usr/bin/env zsh'
+    print -r -- "${(q)viewer[@]} &"
+    print -r -- 'viewer_pid=$!'
+    print -r -- "${(q)pi_cmd[@]}"
+    print -r -- 'rc=$?'
+    print -r -- 'kill $viewer_pid 2>/dev/null'
+    print -r -- "print -r -- \$rc >| ${(q)exit_file}"
+    print -r -- 'exit $rc'
+  } >| $runner
+  program=(zsh $runner)
+fi
+
+# Start the terminal. Labels mark it as a Pi run; the window label is set now unless
+# the placement is a tab or split, which is applied after start.
+labels=(--label "pi.session=$session_id")
+[[ $placement == window ]] && labels+=(--label pi.window=1)
+started=$("$hc_bin" run --json --bg --no-parent --outlive-parent --no-notify \
+  --name "$name" --cwd "$PWD" "${labels[@]}" -- "${program[@]}" 2>/dev/null) || started=""
+address=$(jq -r '.address // empty' <<< "$started" 2>/dev/null)
+
+if [[ -z $address ]]; then
+  # The display failed: run the command plainly, so the task still runs.
+  rm -f -- $token_file $prompt_file
+  exec "$@"
+fi
+
+print -r -- "hc:$address" >| $pane_file
+
+if [[ $placement == tab || $placement == split ]]; then
+  place_flag=tab
+  [[ $placement == split ]] && place_flag=right
+  if ! "$herdr_app_bin" do terminal.keep --terminal "$address" --place $place_flag >/dev/null 2>&1; then
+    "$hc_bin" label "$address" pi.window=1 >/dev/null 2>&1 || true
+  fi
+fi
+
+if [[ $mode == tui ]]; then
+  settled_since="" checks_started=0
+  while [[ ! -e $exit_file ]]; do
+    info=$(hc_get "$address")
+    if [[ -z $info ]]; then
+      [[ -e $exit_file ]] && break
+      rm -f -- $exit_file $token_file
+      exit 1
+    fi
+    # `state` at the top is the terminal's; `status` is Pi's own report (null at first).
+    fields=$(jq -r '[(.state // ""), (.status.state // ""), (.status.turn // 0)] | @tsv' <<< "$info" 2>/dev/null)
+    term=${fields%%$'\t'*} rest=${fields#*$'\t'}
+    state=${rest%%$'\t'*} turn=${rest##*$'\t'}
+    if [[ $term == finished ]]; then
+      [[ -e $exit_file ]] && break
+      rm -f -- $exit_file $token_file
+      exit 1
+    fi
+    if (( turn >= 1 )) && [[ $state == idle || $state == done ]]; then
+      [[ -n $settled_since ]] || settled_since=$(now_seconds)
+      if (( checks_started == 0 && $(now_seconds) - settled_since >= settle_seconds )); then
+        checks_started=1
+        node "$script_dir/pi-checks.mjs" "$PWD" "$session_id" &!
+      fi
+    else
+      settled_since="" checks_started=0
+    fi
+    sleep $poll_seconds
+  done
+  rc=$(<$exit_file)
+  rm -f -- $exit_file $token_file $prompt_file
+  node "$script_dir/pi-checks.mjs" "$PWD" "$session_id" --no-steer
+  exit ${rc:-1}
+fi
+
+# view and live: the Pi command ran in the terminal, so its code is in the exit file.
+# Wait here for the terminal to end, then run the last checks.
+while [[ ! -e $exit_file ]]; do
+  info=$(hc_get "$address")
+  [[ -n $info ]] || break
+  [[ $(jq -r '.state // ""' <<< "$info" 2>/dev/null) == finished ]] && break
+  sleep $poll_seconds
+done
+rc=1
+[[ -r $exit_file ]] && rc=$(<$exit_file)
+rm -f -- $run_dir/${session_id}.run.zsh
+node "$script_dir/pi-checks.mjs" "$PWD" "$session_id" --no-steer
+"$hc_bin" kill "$address" >/dev/null 2>&1 || true
+rm -f -- $pane_file $exit_file
+exit ${rc:-1}
