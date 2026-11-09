@@ -1,0 +1,175 @@
+// Run: node --test scripts/pi-monitor-feed.test.mjs
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
+
+import { countTools, modelOf, outcomeOf, sessionIdOf } from "./pi-monitor-feed.mjs";
+
+const CLI = new URL("./pi-monitor-feed.mjs", import.meta.url).pathname;
+// Under a sentinel value, so a leak into the output is caught.
+const SECRET = "SENTINEL-ENV-VALUE-7731";
+
+// A pueue fake that prints the JSON file named by STUB_PUEUE_FILE, or fails.
+function fakePueue(json, { fail = false } = {}) {
+	const dir = mkdtempSync(join(tmpdir(), "pmf-"));
+	const bin = join(dir, "pueue");
+	const file = join(dir, "status.json");
+	writeFileSync(file, json);
+	writeFileSync(
+		bin,
+		fail
+			? "#!/bin/sh\nexit 1\n"
+			: `#!/bin/sh\ncat "${file}"\n`,
+	);
+	chmodSync(bin, 0o755);
+	return { bin, dir };
+}
+
+// A HOME with one Pi session file for `cwd` and `sessionId`, holding `lines` of JSONL.
+function fakeHome(cwd, sessionId, lines) {
+	const home = mkdtempSync(join(tmpdir(), "pmf-home-"));
+	const dirName = `--${cwd.replace(/^\/+/, "").replaceAll("/", "-")}--`;
+	const dir = join(home, ".pi", "agent", "sessions", dirName);
+	mkdirSync(dir, { recursive: true });
+	writeFileSync(join(dir, `2026-11-09T10-00-00_${sessionId}.jsonl`), lines.join("\n") + "\n");
+	return home;
+}
+
+const run = (args, { bin, home }) =>
+	execFileSync(process.execPath, [CLI, ...args], {
+		env: { ...process.env, PUEUE_BIN: bin, HOME: home },
+		encoding: "utf8",
+	});
+
+const assistantLine = (text, extra = {}) =>
+	JSON.stringify({
+		type: "message",
+		timestamp: "2026-11-09T10:00:05Z",
+		message: {
+			role: "assistant",
+			provider: "opencode-go",
+			model: "claude-haiku-5-5",
+			content: [{ type: "text", text }, ...(extra.tool ? [{ type: "toolCall", name: "bash", arguments: { command: "ls -la" } }] : [])],
+			usage: { totalTokens: 1200, cost: { total: 0.0042 } },
+			...(extra.error ? { stopReason: "error", errorMessage: extra.error } : {}),
+		},
+	});
+
+const pueueRow = (id, command, status, extra = {}) => ({
+	id,
+	label: `slice-${id}`,
+	command,
+	original_command: command,
+	path: extra.path ?? "/tmp/no-such-worktree",
+	status,
+	exit: extra.exit,
+	envs: { TOKEN: SECRET },
+});
+
+const Done = (result, start = "2026-11-09T10:00:00Z", end = "2026-11-09T10:01:00Z") => ({
+	Done: { enqueued_at: start, start, end, result },
+});
+const Running = (start = "2026-11-09T10:00:00Z") => ({ Running: { enqueued_at: start, start } });
+
+test("outcome: exit 3 on a failed task is review, not failed", () => {
+	assert.equal(outcomeOf(Done("Success")), "success");
+	assert.equal(outcomeOf(Done({ Failed: 3 })), "review");
+	assert.equal(outcomeOf(Done({ Failed: 1 })), "failed");
+	assert.equal(outcomeOf(Done("Killed")), "killed");
+	assert.equal(outcomeOf(Running()), "running");
+	assert.equal(outcomeOf("Queued"), "queued");
+	assert.equal(outcomeOf("Paused"), "paused");
+	assert.equal(outcomeOf("Killed"), "killed");
+});
+
+test("sessionIdOf and modelOf read the flags of a pi-view command", () => {
+	const cmd = `pi-view --tui pi --model opencode-go/deepseek-v4:medium --session-id pueue-x-1 -p "$(cat t)"`;
+	assert.equal(sessionIdOf(cmd), "pueue-x-1");
+	assert.deepEqual(modelOf(cmd), { model: "opencode-go/deepseek-v4", effort: "medium" });
+	assert.deepEqual(modelOf("pi --model opencode-go/x"), { model: "opencode-go/x", effort: undefined });
+});
+
+test("countTools counts toolCall blocks in a chunk", () => {
+	assert.equal(countTools(`{"type":"toolCall"}\n{"type":"text"}\n{"type":"toolCall"}`), 2);
+});
+
+test("the feed lists Pi tasks newest first, maps outcomes, and leaks no env or command", () => {
+	const cwd = "/tmp/pmf-wt";
+	const home = fakeHome(cwd, "pueue-slice-2", [assistantLine("hello there", { tool: true })]);
+	const json = JSON.stringify({
+		tasks: {
+			1: pueueRow(1, `pi-view --model opencode-go/a:low --session-id pueue-old-1 -p x`, Done("Success")),
+			2: pueueRow(2, `pi-view --model opencode-go/b:high --session-id pueue-slice-2 -p "$(cat t)"`, Running(), { path: cwd }),
+			3: pueueRow(3, `pi-view --model opencode-go/c --session-id pueue-q-3 -p x`, "Queued"),
+			4: pueueRow(4, `unrelated command with no session`, Done("Success")),
+		},
+	});
+	const pueue = fakePueue(json);
+	const out = run([], { bin: pueue.bin, home });
+	assert.ok(!out.includes(SECRET), "pueue envs must not reach the output");
+	assert.ok(!out.includes("pi-view --model"), "a task's full command must not reach the output");
+	const feed = JSON.parse(out);
+	assert.deepEqual(feed.tasks.map((t) => t.id), [3, 2, 1], "newest first, only session tasks");
+	const byId = Object.fromEntries(feed.tasks.map((t) => [t.id, t]));
+	assert.equal(byId[2].outcome, "running");
+	assert.equal(byId[3].outcome, "queued");
+	assert.equal(byId[2].session, "pueue-slice-2");
+	assert.equal(byId[2].model, "opencode-go/claude-haiku-5-5");
+	assert.equal(byId[2].tools, 1);
+	assert.equal(byId[2].files, 0);
+	assert.equal(byId[2].tokens, 1200);
+	assert.equal(byId[2].activity, "bash ls -la");
+	assert.equal(feed.summary.running, 1);
+	assert.equal(feed.summary.queued, 1);
+	assert.equal(feed.detail.id, 2, "the newest running task is the detail");
+	assert.ok(feed.detail.entries.some((e) => e.kind === "text" && e.text === "hello there"));
+});
+
+test("--task picks the named task for the detail", () => {
+	const json = JSON.stringify({
+		tasks: {
+			5: pueueRow(5, `pi-view --session-id pueue-a-5 -p x`, Done("Success")),
+			6: pueueRow(6, `pi-view --session-id pueue-b-6 -p x`, Running()),
+		},
+	});
+	const pueue = fakePueue(json);
+	const home = fakeHome("/tmp/no-such-worktree", "pueue-a-5", [assistantLine("from five")]);
+	const feed = JSON.parse(run(["--task", "5"], { bin: pueue.bin, home }));
+	assert.equal(feed.detail.id, 5);
+});
+
+test("transcript text is cut to 2000 characters", () => {
+	const long = "x".repeat(3000);
+	const json = JSON.stringify({ tasks: { 7: pueueRow(7, `pi-view --session-id pueue-l-7 -p x`, Done("Success")) } });
+	const home = fakeHome("/tmp/no-such-worktree", "pueue-l-7", [assistantLine(long)]);
+	const feed = JSON.parse(run([], { bin: fakePueue(json).bin, home }));
+	const text = feed.detail.entries.find((e) => e.kind === "text").text;
+	assert.equal(text.length, 2000);
+});
+
+test("a missing session file gives zero counts and empty entries, not an error", () => {
+	const json = JSON.stringify({ tasks: { 8: pueueRow(8, `pi-view --session-id pueue-none-8 -p x`, Running()) } });
+	const home = mkdtempSync(join(tmpdir(), "pmf-empty-"));
+	const feed = JSON.parse(run([], { bin: fakePueue(json).bin, home }));
+	assert.equal(feed.tasks[0].tokens, 0);
+	assert.equal(feed.tasks[0].cost, 0);
+	assert.equal(feed.tasks[0].tools, 0);
+	assert.deepEqual(feed.detail.entries, []);
+});
+
+test("an error turn is reported as an error entry", () => {
+	const json = JSON.stringify({ tasks: { 9: pueueRow(9, `pi-view --session-id pueue-e-9 -p x`, Done({ Failed: 1 })) } });
+	const home = fakeHome("/tmp/no-such-worktree", "pueue-e-9", [assistantLine("", { error: "rate limited" })]);
+	const feed = JSON.parse(run([], { bin: fakePueue(json).bin, home }));
+	assert.ok(feed.detail.entries.some((e) => e.kind === "error" && e.text === "rate limited"));
+});
+
+test("pueue unreachable prints an unavailable feed and exits 0", () => {
+	const home = mkdtempSync(join(tmpdir(), "pmf-down-"));
+	const pueue = fakePueue("", { fail: true });
+	const out = JSON.parse(run([], { bin: pueue.bin, home }));
+	assert.deepEqual(out, { tasks: [], unavailable: true });
+});
