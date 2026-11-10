@@ -24,6 +24,13 @@ import {
 	notify,
 } from "herdr";
 import { piRows, planSync, nextAddress, windowSpec, duration, reviewRows, approveMessage, cleanupRows, removeMessage, canClose } from "./logic.js";
+
+// Opens a run's changes in the Changes panel: picks the run for it, then shows the panel.
+function openRunChanges(run_) {
+	setShared("pi-changes.run", run_);
+	run("layout.select", { stack: "panel-body", child: "changes" });
+	run("layout.show", { id: "panel" });
+}
 import { newDialog, newDialogState } from "./new-dialog.js";
 
 // The agents mod's spinner and icon set, so this section reads like its neighbour.
@@ -259,7 +266,7 @@ export default class PiFleet extends View {
 					.items_center()
 					.child(div().flex_1().min_w(0).truncate().text_color(t.foreground).child(row.name))
 					.when(!Number.isNaN(started), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - started))))
-					.child(this.textButton(t, `pi-diff-${row.runId}`, "Diff", true, () => run("terminal.open", { argv: ["nvim", "+AgentReview"], folder: row.owner, place: "tab" })))
+					.child(this.textButton(t, `pi-diff-${row.runId}`, "Diff", true, () => openRunChanges({ runId: row.runId, cwd: row.owner, name: row.name })))
 					.child(this.textButton(t, `pi-approve-${row.runId}`, waiting ? "Confirm in dialog…" : "Approve", !this.approving, (_e, cx) => cx.spawn((cx) => this.approve(cx, row)))),
 			)
 			.when(Boolean(note), (el) => el.child(div().text_size(11).text_color(t.blocked).child(note)));
