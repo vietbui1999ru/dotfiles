@@ -121,3 +121,38 @@ export function terminalSegments(terminal, text, now) {
     ctxPct: typeof data.ctx === "number" ? data.ctx : null,
   };
 }
+
+// The leader's band state (mods/leader/logic.js: mapBandState, resizeBandState), or null. The
+// band draws it only when it has this shape; anything else leaves the band's own content.
+export function leaderBand(value) {
+  if (!value || typeof value !== "object" || value.v !== 1) return null;
+  if (value.mode !== "map" && value.mode !== "resize") return null;
+  if (!Array.isArray(value.lines)) return null;
+  for (const line of value.lines) {
+    if (!Array.isArray(line)) return null;
+    for (const g of line) {
+      if (!g || typeof g.group !== "string" || !Array.isArray(g.items)) return null;
+      for (const item of g.items) {
+        if (!item || typeof item.text !== "string" || typeof item.label !== "string") return null;
+      }
+    }
+  }
+  return value;
+}
+
+// The px a layout tree gives a node (the band, by id), or null. Reads the layout the way the
+// leader does, so the band can check it is back at its normal height.
+export function bandPx(root, id = "ai-spend") {
+  const node = findNode(root, id);
+  return typeof node?.size?.px === "number" ? node.size.px : null;
+}
+
+function findNode(root, id) {
+  if (!root || typeof root !== "object") return null;
+  if (root.id === id) return root;
+  for (const child of root.children ?? []) {
+    const hit = findNode(child, id);
+    if (hit) return hit;
+  }
+  return null;
+}
