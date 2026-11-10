@@ -113,7 +113,7 @@ export default class PiFleet extends View {
 		cx.spawn(async (cx) => {
 			for (;;) {
 				const c = await nextCommand();
-				if (c === "new") this.openNew();
+				if (c === "new") this.toggleNew();
 				if (c === "next") this.focusNext();
 				if (c === "monitor") this.openMonitor();
 				cx.notify();
@@ -220,20 +220,31 @@ export default class PiFleet extends View {
 		run("pane.focus", { pane: a.pane });
 	}
 
-	// Focus the Pi monitor if it is open, else split one in beside the focused pane.
+	// Close the Pi monitor if it is open, else split one in beside the focused pane.
 	openMonitor() {
 		const open = panes().find((p) => p.mod === "pi-monitor");
-		if (open) run("pane.focus", { pane: open.pane });
+		if (open) run("pane.close", { pane: open.pane });
 		else run("pane.split", { direction: "right", mod: "pi-monitor" });
 	}
 
 	openNew() {
-		openOverlay({
+		setShared("pi-fleet.dialog", openOverlay({
 			mod: "pi-fleet",
 			kind: "dialog",
 			width: 520,
 			props: { role: "new", folder: focused()?.cwd ?? home() },
-		});
+		}));
+	}
+
+	// Closes the new-run dialog when it is open, else opens it. A remembered id the app no longer
+	// holds is closed quietly and the dialog opens in its place.
+	toggleNew() {
+		const id = shared("pi-fleet.dialog");
+		setShared("pi-fleet.dialog", null);
+		if (id) {
+			try { closeOverlay(id); return; } catch { /* stale: the dialog is already gone */ }
+		}
+		this.openNew();
 	}
 
 	// One read at a time. A failed read keeps the last rows. The full list (not --offline)

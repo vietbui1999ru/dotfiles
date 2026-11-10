@@ -7,7 +7,7 @@
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { exec, home, terminals, watchFolder, openOverlay, closeOverlay, props, run, nextCommand, theme, setShared } from "herdr";
+import { exec, home, terminals, watchFolder, openOverlay, closeOverlay, props, run, nextCommand, theme, setShared, shared } from "herdr";
 import * as L from "./logic.js";
 
 const FOCUS = (h) => `${h}/dotfiles/scripts/focus`;
@@ -143,6 +143,7 @@ export default class Workspaces extends View {
 			for (;;) {
 				const c = await nextCommand();
 				if (c === "open") this.openPanel();
+				if (c === "toggle") this.togglePanel();
 				cx.notify();
 			}
 		});
@@ -158,8 +159,20 @@ export default class Workspaces extends View {
 		});
 	}
 
+	// Opens the panel and remembers its id, so the toggle can close it again.
 	openPanel() {
-		openOverlay({ mod: "workspaces", kind: "dialog", width: 640, props: { role: "panel", actions: props()?.actions } });
+		setShared("workspaces.panel", openOverlay({ mod: "workspaces", kind: "dialog", width: 640, props: { role: "panel", actions: props()?.actions } }));
+	}
+
+	// Closes the panel when it is open, else opens it. A remembered id the app no longer holds
+	// (the panel closed some other way) is closed quietly and a new panel opens in its place.
+	togglePanel() {
+		const id = shared("workspaces.panel");
+		setShared("workspaces.panel", null);
+		if (id) {
+			try { closeOverlay(id); return; } catch { /* stale: the panel is already gone */ }
+		}
+		this.openPanel();
 	}
 
 	async refreshBoard(cx) {
@@ -342,7 +355,10 @@ export default class Workspaces extends View {
 	// Keyboard: up/down move the selection over worktree rows, Enter runs the row's primary action
 	// (open), Escape closes the panel.
 	key(e) {
-		if (e.key === "escape") return closeOverlay(props().overlay);
+		if (e.key === "escape") {
+			setShared("workspaces.panel", null);
+			return closeOverlay(props().overlay);
+		}
 		const rows = this.allRows(), i = rows.findIndex((r) => r.path === this.selected);
 		if (e.key === "down" && rows.length) this.selected = rows[Math.min(rows.length - 1, i + 1)].path;
 		if (e.key === "up" && rows.length) this.selected = rows[Math.max(0, i - 1)].path;
