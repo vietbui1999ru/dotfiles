@@ -70,6 +70,7 @@
     "cmd-ctrl-\"": "pane.split:down",
     "cmd-ctrl-z": "pane.zoom",
     "cmd-ctrl-x": "pane.close",
+    "cmd-ctrl-w": "workspaces.toggle",
     "cmd-ctrl-p": "pi-fleet.new",
     "cmd-ctrl-o": "pi-fleet.next",
     "cmd-ctrl-m": "pi-fleet.monitor"
