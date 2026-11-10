@@ -13,6 +13,9 @@ import agentReview from "./index.ts";
 const cli = join(dirname(new URL(import.meta.url).pathname), "../../../../../scripts/agent-review");
 const dirs: string[] = [];
 const sessions: Array<() => Promise<unknown>> = [];
+// Gate events go to a temporary state dir, never the real toast log.
+process.env.XDG_STATE_HOME = realpathSync(mkdtempSync(join(tmpdir(), "agent-review-state-")));
+dirs.push(process.env.XDG_STATE_HOME);
 after(async () => {
 	for (const close of sessions) await close();
 	for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
