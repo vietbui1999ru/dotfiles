@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -197,6 +198,25 @@ def registry_path() -> Path:
     """Every repo that has had a pending review, one main-worktree path per line (Pi writes it)."""
     state = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
     return Path(state) / "agent-review" / "repos"
+
+
+def events_path() -> Path:
+    """One JSON line per gate decision; a Herdr mod turns new lines into toasts."""
+    state = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
+    return Path(state) / "herdr-mods" / "gate-events.jsonl"
+
+
+def record_event(action: str, outcome: str, target: str, message: str | None) -> None:
+    """Best-effort and silent: a failed write never changes the gate's reply or exit code."""
+    line = json.dumps({"ts": int(time.time() * 1000), "gate": "agent-review", "action": action,
+                       "outcome": outcome, "target": target, "message": message})
+    try:
+        path = events_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a") as stream:
+            stream.write(line + "\n")
+    except Exception:
+        pass
 
 
 def main_worktree(root: Path) -> Path:
@@ -443,14 +463,34 @@ def skip(run_id: str) -> int:
     return reply(True, runId=run_id, owner=str(owner))
 
 
-def command_skip(args: argparse.Namespace) -> int:
-    """One JSON line on stdout; exit 0 only on success."""
+def run_label(run_id: str) -> str:
+    """The run's name for a toast, else its short id. Read before deciding: approve deletes it."""
     try:
-        return skip(args.run_id)
+        owner = find_owner(repo_root(), run_id)
+        record = read_json(owner / ".pi" / "agent-review" / "pending" / f"{run_id}.json") if owner else None
+        return str((record or {}).get("name") or run_id[:8])
+    except BaseException:
+        return run_id[:8]
+
+
+def decide(action: str, gate, run_id: str) -> int:
+    """Run approve or skip: one JSON line on stdout, exit 0 only on success, one gate event."""
+    target = run_label(run_id)
+    try:
+        code = gate(run_id)
+        record_event(action, "ok", target, None)
+        return code
     except Refusal as refusal:
+        outcome = "cancelled" if refusal.reason == "not-confirmed" else "refused"
+        record_event(action, outcome, target, refusal.message)
         return reply(False, reason=refusal.reason, message=refusal.message)
     except BaseException as error:
+        record_event(action, "refused", target, type(error).__name__)
         return reply(False, reason="error", message=type(error).__name__)
+
+
+def command_skip(args: argparse.Namespace) -> int:
+    return decide("skip", skip, args.run_id)
 
 
 def command_list(args: argparse.Namespace) -> int:
@@ -484,13 +524,8 @@ def command_register(_args: argparse.Namespace) -> int:
 
 
 def command_approve(args: argparse.Namespace) -> int:
-    """One JSON line on stdout, nothing on stderr; exit 0 only on success."""
-    try:
-        return approve(args.run_id)
-    except Refusal as refusal:
-        return reply(False, reason=refusal.reason, message=refusal.message)
-    except BaseException as error:
-        return reply(False, reason="error", message=type(error).__name__)
+    """Nothing on stderr: the approve tests and every UI parse stdout alone."""
+    return decide("approve", approve, args.run_id)
 
 
 def command_mode(args: argparse.Namespace) -> int:

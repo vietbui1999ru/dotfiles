@@ -25,7 +25,9 @@ HUMAN = "Ready for approval: approve or deny in the session-band prompt or the /
 REJECT = "Reject or revoke (runs nothing): ~/dotfiles/scripts/spec reject SPEC.md"
 # The old directory name is kept so existing approval records stay valid.
 STATE = Path(os.path.expanduser("~")) / ".local" / "state" / "ac-run"
-KEEP_ENV = ("PATH", "HOME", "USER", "LANG", "LC_ALL", "TMPDIR", "TERM")
+# The session-band Approve and Deny buttons run these; each logs one gate event.
+GATE_ACTIONS = {"approve": "approve", "reject": "deny"}
+KEEP_ENV =("PATH", "HOME", "USER", "LANG", "LC_ALL", "TMPDIR", "TERM")
 SECTIONS = ("objective", "acceptance criteria", "boundaries", "open questions")
 SUBSECTIONS = ("always", "ask first", "never")
 AC_RE = re.compile(r"^- AC-(\d+):")
@@ -193,6 +195,25 @@ def spec_hash(spec):
     parts = [spec["rel"].strip(), spec["branch"].strip()]
     parts += [f"AC-{a['n']}\t{a['raw'].strip()}\t{a['baseline'].strip()}" for a in spec["acs"]]
     return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
+
+
+def events_path():
+    """One JSON line per gate decision; a Herdr mod turns new lines into toasts."""
+    state = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
+    return Path(state) / "herdr-mods" / "gate-events.jsonl"
+
+
+def record_event(action, outcome, target, message):
+    """Best-effort and silent: a failed write never changes the command's output or exit code."""
+    line = json.dumps({"ts": int(time.time() * 1000), "gate": "spec", "action": action,
+                       "outcome": outcome, "target": target, "message": message})
+    try:
+        path = events_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as stream:
+            stream.write(line + "\n")
+    except Exception:
+        pass
 
 
 def record_path(spec):
@@ -429,11 +450,18 @@ def main():
     args = ap.parse_args()
     handler = {"lint": cmd_lint, "approve": cmd_approve, "check": cmd_check,
                "reject": cmd_reject, "status": cmd_status, "show": cmd_show}[args.cmd]
+    message = None
     try:
-        return handler(args)
+        code = handler(args)
     except Usage as e:
         print("\n".join(e.args[0]), file=sys.stderr)
-        return 2
+        code, message = 2, e.args[0][0]
+    if args.cmd in GATE_ACTIONS:
+        spec = Path(args.spec).resolve()
+        record_event(GATE_ACTIONS[args.cmd], "ok" if code == 0 else "refused",
+                     f"{spec.parent.name}/{spec.name}",
+                     None if code == 0 else message or f"spec {args.cmd} exited {code}")
+    return code
 
 
 if __name__ == "__main__":

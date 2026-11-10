@@ -824,5 +824,56 @@ class SpecLoopCases(Fixture):
         self.assertEqual(rec["acs"], {})
 
 
+class SpecGateEvents(Fixture):
+    """approve and reject (the session-band buttons) log one gate event each; nothing else does."""
+
+    def setUp(self):
+        super().setUp()
+        self.state = self.tmp / "state"
+        self.env["XDG_STATE_HOME"] = str(self.state)
+
+    def events(self):
+        path = self.state / "herdr-mods" / "gate-events.jsonl"
+        return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+    def assert_event(self, event, action, outcome):
+        self.assertEqual(set(event), {"ts", "gate", "action", "outcome", "target", "message"})
+        self.assertIsInstance(event["ts"], int)
+        self.assertEqual((event["gate"], event["action"], event["outcome"], event["target"]),
+                         ("spec", action, outcome, "repo/SPEC.md"))
+
+    def test_approve_and_reject_log_ok(self):
+        self.approved([(1, "true")])
+        r = self.run_spec("reject", "SPEC.md")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        approve, reject = self.events()
+        self.assert_event(approve, "approve", "ok")
+        self.assert_event(reject, "deny", "ok")
+        self.assertIsNone(approve["message"])
+
+    def test_refused_approve_logs_the_lint_line(self):
+        self.init_repo()
+        self.write_spec([(1, "true")], branch="feat/other")
+        r = self.approve()
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        [event] = self.events()
+        self.assert_event(event, "approve", "refused")
+        self.assertIn("feat/other", event["message"])
+
+    def test_other_commands_log_nothing(self):
+        self.init_repo()
+        self.write_spec([(1, "true")])
+        for command in ("lint", "show", "status"):
+            self.run_spec(command, "SPEC.md")
+        self.assertEqual(self.events(), [])
+
+    def test_unwritable_state_dir_keeps_the_exit_code(self):
+        self.state.parent.mkdir(parents=True, exist_ok=True)
+        self.state.write_text("")  # a file where the state dir should be
+        r = self.approved([(1, "true")])
+        self.assertEqual(r.stderr, "")
+        self.assertIn("approved: record", r.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

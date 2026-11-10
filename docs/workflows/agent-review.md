@@ -458,6 +458,26 @@ agent that sees this refusal stops and reports it; these steps are the person's.
 
 Or drop the review instead: `agent-review skip <id>`.
 
+## Gate events
+
+Every `agent-review approve` and `agent-review skip` appends one JSON line to
+`${XDG_STATE_HOME:-~/.local/state}/herdr-mods/gate-events.jsonl`, whichever UI ran it
+(pi-fleet, session-band, `:AgentReview`, a shell):
+
+```json
+{"ts": 1762790400000, "gate": "agent-review", "action": "approve", "outcome": "ok", "target": "<run name or short id>", "message": null}
+```
+
+`action` is `approve` or `skip`. `outcome` is `ok`, `cancelled` (the person declined the
+dialog: `not-confirmed`) or `refused` (any other refusal; `message` holds the refusal text,
+next step included). A Herdr mod turns new lines into toasts. The write is best-effort: when
+it fails, the command's JSON reply, stdout, stderr and exit code are unchanged. The file is
+append-only and not rotated.
+
+`scripts/spec approve` and `scripts/spec reject` (the session-band spec Approve and Deny
+buttons) write the same line with `gate: "spec"`, `action: "approve"` or `"deny"`, outcome
+`ok` or `refused`, and `target` as `<folder>/SPEC.md`. Other `spec` commands write nothing.
+
 ## Known limits (document, don't solve)
 
 - **Review is post-hoc.** Tests and the verifier execute the agent's unreviewed code during the
