@@ -6,6 +6,7 @@ import { h_flex, v_flex } from "gpui-base";
 import { exec, run, theme, focused, home, readTextFile, openOverlay, closeOverlay, nextCommand, shared, setShared, layout } from "herdr";
 import { attachedJob, bandModel, bandPx, jobSession, leaderBand, resetText, terminalSegments } from "./format.js";
 import { ctxLevel, fitChips, openAlerts, pendingBlocks, queueHeld, sendItOn } from "./chips.js";
+import { PR_ARGV, prSummary } from "./prs.js";
 
 const POLL_MS = 60000;
 // The focused terminal changes with focus, so it is read on a shorter tick than the quota poll.
@@ -14,6 +15,8 @@ const TERMINAL_MS = 3000;
 const CHIPS_MS = 15000;
 // The safety-block and mistake-alert counts read the state files on a slower tick.
 const SAFETY_MS = 30000;
+// The PR chip asks gh at most this often per repo root (gh is a network call).
+const PRS_MS = 300000;
 // Width the band's terminal strip and quotas take before the chips get the rest of the band.
 const QUOTA_RESERVE_PX = 240;
 const TERMINAL_RESERVE_PX = 200;
@@ -39,6 +42,10 @@ export default class AiSpend extends View {
     this.width = null;
     this.chipsBusy = false;
     this.safetyBusy = false;
+    this.prs = null;
+    this.prsDir = null;
+    this.prsAt = 0;
+    this.prsBusy = false;
     this.recover();
     this.poll(cx);
     this.pollTerminal(cx);
@@ -48,6 +55,8 @@ export default class AiSpend extends View {
     cx.timer.every(TERMINAL_MS, (cx) => this.pollTerminal(cx));
     cx.timer.every(CHIPS_MS, (cx) => this.pollChips(cx));
     cx.timer.every(SAFETY_MS, (cx) => this.pollSafety(cx));
+    this.pollPrs(cx);
+    cx.timer.every(PRS_MS, (cx) => this.pollPrs(cx));
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
@@ -134,6 +143,33 @@ export default class AiSpend extends View {
         this.sendIt = false;
       } finally {
         this.chipsBusy = false;
+        cx.notify();
+      }
+    });
+  }
+
+  // The focused repo's open PRs (⑂) from gh, at most once per PRS_MS per repo root. A remote space
+  // (one with a machine) has no local repo to ask, so it has no PR chip.
+  pollPrs(cx) {
+    const space = focused();
+    const cwd = space?.cwd ?? null;
+    if (this.prsBusy) return;
+    if (!cwd || space?.machine) { this.prs = null; this.prsDir = null; return; }
+    this.prsBusy = true;
+    cx.spawn(async (cx) => {
+      try {
+        const root = await exec("git", ["rev-parse", "--show-toplevel"], { cwd, timeout: 5000 }).catch(() => null);
+        const top = root?.code === 0 ? root.stdout.trim() : "";
+        if (!top) { this.prs = null; this.prsDir = null; return; }
+        if (top === this.prsDir && Date.now() - this.prsAt < PRS_MS) return;
+        const gh = await exec("gh", PR_ARGV, { cwd: top, timeout: 20000 }).catch(() => null);
+        this.prs = prSummary(gh?.code === 0 ? gh.stdout : "");
+        this.prsDir = top;
+        this.prsAt = Date.now();
+      } catch {
+        this.prs = null;
+      } finally {
+        this.prsBusy = false;
         cx.notify();
       }
     });
@@ -270,6 +306,8 @@ export default class AiSpend extends View {
     // blocks are tooltip only. The glyphs match the flow visualizer's state set.
     if (this.blocks > 0) chips.push({ id: "blocks", rank: 2, text: `⊘${this.blocks}`, color: t.blocked, tip: "Bash-safety blocks waiting for a verdict (last 24h, all sessions). Judge them with scripts/safety-log." });
     if (this.alerts > 0) chips.push({ id: "alerts", rank: 2, text: `!${this.alerts}`, color: t.blocked, tip: `Open mistake alerts (last 24h, all sessions), newest first:\n${this.alertTip ?? ""}` });
+    const pr = this.prChip(t);
+    if (pr) chips.push(pr);
     if (chips.length === 0) return [];
     const kept = this.width === null ? chips : fitChips(chips, this.width, QUOTA_RESERVE_PX + TERMINAL_RESERVE_PX);
     if (kept.length === 0) return [];
@@ -281,6 +319,23 @@ export default class AiSpend extends View {
       }),
       div().h(14).w(1).flex_none().bg(t.border),
     ];
+  }
+
+  // The PR chip: open drafts and ready PRs as ⑂ D·R, rank 1. Blocked colour when a PR has failing
+  // checks, else muted. Hidden at 0 drafts and 0 ready, and when gh gave no list. A click opens
+  // gh's PR list in the repo root.
+  prChip(t) {
+    const pr = this.prs;
+    if (!pr || pr.error || (pr.drafts === 0 && pr.ready === 0)) return null;
+    const dir = this.prsDir;
+    return {
+      id: "prs",
+      rank: 1,
+      text: `⑂ ${pr.drafts}·${pr.ready}`,
+      color: pr.failing ? t.blocked : t.muted,
+      tip: pr.lines.join("\n"),
+      click: () => exec("gh", ["pr", "list", "--web"], { cwd: dir, timeout: 20000 }).catch(() => null),
+    };
   }
 
   // The focused terminal's context, model and branch, as one run of text. Empty when hidden.
