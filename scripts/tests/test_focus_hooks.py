@@ -119,6 +119,7 @@ class GuardTest(HooksTest):
         self.assertIn("acme-api:feat/x", reason)
         self.assertIn("scripts/focus switch", reason)
         self.assertIn("scripts/focus allow", reason)
+        self.assertIn("Agent: stop", reason)
 
     def test_guard_allows_focus_board_and_memory_and_plans(self):
         for target in [self.board, self.home / ".claude" / "projects" / "p" / "memory" / "m.md",
@@ -225,6 +226,7 @@ class PiDispatchTest(HooksTest):
         self.assertEqual(r.returncode, 1)
         self.assertIn("read-only session", r.stderr)
         self.assertIn("scripts/focus switch", r.stderr)
+        self.assertIn("Agent: stop", r.stderr)
 
     def test_pi_dispatch_writes_no_provenance_row_when_refused(self):
         ledger = self.home / ".claude" / "state"
