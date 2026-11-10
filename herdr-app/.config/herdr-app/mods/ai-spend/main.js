@@ -3,10 +3,11 @@
 
 import { View, div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { exec, run, theme, focused, home, readTextFile, openOverlay, closeOverlay, nextCommand, shared, setShared, layout } from "herdr";
+import { exec, run, theme, focused, home, readTextFile, openOverlay, closeOverlay, nextCommand, shared, setShared, layout, notify, watchFolder } from "herdr";
 import { attachedJob, bandModel, bandPx, jobSession, leaderBand, resetText, terminalSegments } from "./format.js";
 import { ctxLevel, fitChips, openAlerts, pendingBlocks, queueHeld, sendItOn } from "./chips.js";
 import { PR_ARGV, prSummary } from "./prs.js";
+import { gateToast, newEvents } from "./gates.js";
 
 const POLL_MS = 60000;
 // The focused terminal changes with focus, so it is read on a shorter tick than the quota poll.
@@ -24,6 +25,8 @@ const TERMINAL_RESERVE_PX = 200;
 const LOOKUP_MS = 30000;
 // The status line's snapshot folder (claude/.claude/statusline-command.sh).
 const STATE = () => `${home()}/.local/state/claude-tui`;
+// The gate-event log written by scripts/agent-review and scripts/spec (one JSON line each).
+const GATES = () => `${home()}/.local/state/herdr-mods`;
 const COLOR = { normal: "muted", attention: "working", error: "blocked" };
 // The band's normal height. The leader grows it to two hint lines while cmd-k is open.
 const BAND_PX = 24;
@@ -47,6 +50,9 @@ export default class AiSpend extends View {
     // Repo root -> { at, summary }, so each root asks gh at most once per PRS_MS across focus changes.
     this.prsCache = new Map();
     this.prsBusy = false;
+    // Events older than the mod's start never replay after a Herdr restart.
+    this.gatesSince = Date.now();
+    this.gatesBusy = false;
     this.recover();
     this.poll(cx);
     this.pollTerminal(cx);
@@ -56,6 +62,10 @@ export default class AiSpend extends View {
     cx.timer.every(TERMINAL_MS, (cx) => this.pollTerminal(cx));
     cx.timer.every(CHIPS_MS, (cx) => this.pollChips(cx));
     cx.timer.every(SAFETY_MS, (cx) => this.pollSafety(cx));
+    this.watchGates(cx);
+    this.pollGates(cx);
+    // The fallback when watching fails or the folder does not exist yet.
+    cx.timer.every(SAFETY_MS, (cx) => this.pollGates(cx));
     this.pollPrs(cx);
     // Ticks with the chips so the PR chip follows focus; the per-root cache limits the gh calls.
     cx.timer.every(CHIPS_MS, (cx) => this.pollPrs(cx));
@@ -206,6 +216,38 @@ export default class AiSpend extends View {
       } finally {
         this.safetyBusy = false;
         cx.notify();
+      }
+    });
+  }
+
+  // The gate-event log's folder is watched: a decision toasts at once. The SAFETY_MS timer still
+  // polls, for when the watch fails or the folder did not exist when the mod loaded.
+  watchGates(cx) {
+    cx.spawn(async (cx) => {
+      try {
+        for (;;) { await watchFolder(GATES()); this.pollGates(cx); }
+      } catch { /* no watch: the SAFETY_MS timer still polls */ }
+    });
+  }
+
+  // Reads the gate-event log and toasts one message per new event. Missing file reads as empty.
+  // One call at a time: the watch and the timer never toast the same line twice.
+  pollGates(cx) {
+    if (this.gatesBusy) return;
+    this.gatesBusy = true;
+    cx.spawn(async (_cx) => {
+      try {
+        const text = await readTextFile(`${GATES()}/gate-events.jsonl`).catch(() => null);
+        const events = newEvents(text, this.gatesSince);
+        for (const event of events) {
+          if (event.ts > this.gatesSince) this.gatesSince = event.ts;
+          const args = gateToast(event);
+          if (args) notify(args);
+        }
+      } catch {
+        /* unreadable log: try again on the next tick */
+      } finally {
+        this.gatesBusy = false;
       }
     });
   }
