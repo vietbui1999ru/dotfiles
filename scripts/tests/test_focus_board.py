@@ -103,6 +103,11 @@ class CapsTest(BoardTest):
         self.assertEqual(data["breaches"], [])
         self.assertIn("read_only", data)
 
+    def test_caps_json_names_the_board_path_under_focus_board(self):
+        self.write(board_text(work=["- acme-api:feat/x | stage: build"]))
+        code, out, _ = self.run_cli("status", "--json")
+        self.assertEqual(json.loads(out)["board"], str(self.board))
+
     def test_caps_no_board_is_one_line_and_allows(self):
         self.assertFalse(self.board.exists())
         code, out, _ = self.run_cli("status")

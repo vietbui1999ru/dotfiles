@@ -232,6 +232,7 @@ def state(board: Board) -> dict:
         "frozen": [describe(item) for item in board.items("Frozen")],
         "parked": [line[2:] for line in board.sections["Parked"] if line.startswith("- ")],
         "read_only": False,
+        "board": str(board_path()),
         "breaches": breaches(board),
         "paths": paths,
         "path_errors": path_errors,
