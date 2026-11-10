@@ -148,6 +148,8 @@ export function resizeBandState(sizes) {
   const pairs = [
     { keys: ["h", "l"], label: "sidebar −40 +40" },
     { keys: ["H", "L"], label: "panel +40 −40" },
+    { keys: ["j", "k"], label: "agents/focus divider down up" },
+    { keys: ["J", "K"], label: "spaces/agents divider down up" },
   ];
   const items = pairs.map((p) => ({ keys: p.keys, text: p.keys.join(" "), label: p.label }));
   return {
@@ -187,6 +189,37 @@ export function resizeTarget(key) {
   if (key === "H") return { node: PANEL, delta: RESIZE_STEP };
   if (key === "L") return { node: PANEL, delta: -RESIZE_STEP };
   return null;
+}
+
+// The sidebar's stacked blocks, top to bottom, sized by weight. Defaults match layouts/herdr-pi.json.
+export const SIDEBAR_BLOCKS = { spaces: 1, agents: 2, focus: 1 };
+export const WEIGHT_STEP = 0.25;
+export const WEIGHT_MIN = 0.25;
+
+// Up/down keys move a divider between two sidebar blocks: j/k the one between agents and focus,
+// J/K the one between spaces and agents. Down (j, J) grows the block above. Null for other keys.
+export function dividerTarget(key) {
+  if (key === "j") return { above: "agents", below: "focus", delta: WEIGHT_STEP };
+  if (key === "k") return { above: "agents", below: "focus", delta: -WEIGHT_STEP };
+  if (key === "J") return { above: "spaces", below: "agents", delta: WEIGHT_STEP };
+  if (key === "K") return { above: "spaces", below: "agents", delta: -WEIGHT_STEP };
+  return null;
+}
+
+// The pair's new weights after moving their divider by delta. The pair's sum is kept, so the other
+// blocks keep their share; neither side goes below WEIGHT_MIN. A non-finite weight reads as min.
+export function shiftWeights(above, below, delta) {
+  const a = Number.isFinite(above) ? above : WEIGHT_MIN;
+  const b = Number.isFinite(below) ? below : WEIGHT_MIN;
+  const d = Number.isFinite(delta) ? delta : 0;
+  const next = Math.min(a + b - WEIGHT_MIN, Math.max(WEIGHT_MIN, a + d));
+  return [next, a + b - next];
+}
+
+// The weight a node is sized by in a layout tree, or null when it has no weight.
+export function weightOf(root, id) {
+  const node = findNode(root, id);
+  return typeof node?.size?.weight === "number" ? node.size.weight : null;
 }
 
 // ----------------------------------------------------------------- panels

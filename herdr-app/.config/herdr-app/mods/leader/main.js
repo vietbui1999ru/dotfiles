@@ -2,8 +2,9 @@
 // Opened and closed by `mod.open:leader`, so cmd-k twice cancels. Pure logic (the key map,
 // resolveKey, the step math, the panel decision) lives in ./logic.js and is tested in Node.
 //
-// Resize mode (r) keeps the overlay open: h/l move the sidebar, H/L the panel, until Escape or
-// any other key. Each step starts from the node's live size in layout().
+// Resize mode (r) keeps the overlay open: h/l move the sidebar, H/L the panel, j/k the divider
+// between the agents and focus blocks, J/K the one between spaces and agents, until Escape or
+// any other key. Each step starts from the node's live size or weight in layout().
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
@@ -11,6 +12,7 @@ import { props, run, layout, closeOverlay, shared, setShared, theme, notify } fr
 import {
   GROUPS, BAND_ID, BAND_PX, BAND_HINTS_PX, rowsFor, resolveKey, resizeTarget, nextSize, panelAction,
   panelState, sizeOf, isHerdrPi, keyLabel, mapBandState, resizeBandState, hasBand,
+  dividerTarget, shiftWeights, weightOf, SIDEBAR_BLOCKS,
 } from "./logic.js";
 
 export default class Leader extends View {
@@ -78,15 +80,24 @@ export default class Leader extends View {
   resize(event, cx) {
     const key = event.modifiers?.shift && /^[a-z]$/.test(event.key) ? event.key.toUpperCase() : event.key;
     const target = resizeTarget(key);
-    if (!target) { closeOverlay(props().overlay); return; }
+    const divider = target ? null : dividerTarget(key);
+    if (!target && !divider) { closeOverlay(props().overlay); return; }
     if (!isHerdrPi(shared("layout"))) {
       notify({ title: "Resize works in herdr-pi", level: "info", timeout: 4000 });
       closeOverlay(props().overlay);
       return;
     }
-    const { node, delta } = target;
-    const current = sizeOf(this.layoutTree(), node.id) ?? node.start;
-    run("layout.resize", { id: node.id, px: nextSize(current, delta, node.min, node.max) });
+    const tree = this.layoutTree();
+    if (divider) {
+      const { above, below, delta } = divider;
+      const [a, b] = shiftWeights(weightOf(tree, above) ?? SIDEBAR_BLOCKS[above], weightOf(tree, below) ?? SIDEBAR_BLOCKS[below], delta);
+      run("layout.resize", { id: above, weight: a });
+      run("layout.resize", { id: below, weight: b });
+    } else {
+      const { node, delta } = target;
+      const current = sizeOf(tree, node.id) ?? node.start;
+      run("layout.resize", { id: node.id, px: nextSize(current, delta, node.min, node.max) });
+    }
     if (this.surface === "band") this.publishResize();
     cx.notify();
   }
@@ -113,9 +124,9 @@ export default class Leader extends View {
     return v_flex().id("leader").size_full().p(14).gap(8).bg(t.popover).border_1().border_color(t.border).rounded(10)
       .text_color(t.foreground).text_size(13).track_focus(this.handle)
       .on_key_down((e, cx) => { cx.stop_propagation(); this.onKey(e, cx); })
-      .child(div().text_size(11).text_color(t.dim).child(resizing ? "Resize · h/l sidebar · H/L panel · Esc done" : "Leader · press a key · Esc cancels"))
+      .child(div().text_size(11).text_color(t.dim).child(resizing ? "Resize · h/l sidebar · H/L panel · j/k J/K sidebar blocks · Esc done" : "Leader · press a key · Esc cancels"))
       .when(!resizing, (el) => el.child(v_flex().gap(10).children(GROUPS.map((group) => groupBlock(group, t)))))
-      .when(resizing, (el) => el.child(div().text_color(t.muted).child("Sidebar h smaller · l larger.  Panel H larger · L smaller.")));
+      .when(resizing, (el) => el.child(div().text_color(t.muted).child("Sidebar h smaller · l larger.  Panel H larger · L smaller.  Dividers j/J down · k/K up.")));
   }
 }
 
