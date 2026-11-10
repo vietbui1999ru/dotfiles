@@ -1,20 +1,6 @@
-export type PreviewTarget = {
-  path: string
-  bytes?: number
-  tracked?: boolean
-}
-
-export type PreviewFacts = {
-  command: string
-  reason: string
-  targets?: readonly PreviewTarget[]
-  totalBytes?: number
-  unexpandedGlobs?: readonly string[]
-  dryRun?: {
-    label: string
-    output: string
-  }
-}
+// Defined in the plugin's types contract, which must stay self-contained; re-exported for the hooks.
+import type { PreviewFacts, PreviewTarget } from '../types'
+export type { PreviewFacts, PreviewTarget }
 
 const MAX_LINES = 40
 

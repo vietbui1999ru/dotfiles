@@ -1,11 +1,9 @@
 import type { Worktree } from './worktrees'
 import type { ReviewFocus } from './review-sources'
 
-export type SpecState = 'draft' | 'approved' | 'stale' | 'invalid'
-export type SpecRow = { kind: 'spec'; key: string; worktree: string; branch: string; path: string; rel: string; state?: SpecState; error?: string }
-export type ReviewEntry = { runId: string; owner: string | null; branch: string; name: string; startedAt: string; processing: boolean; error: boolean; landed: boolean; decided: boolean; orphan: boolean }
-export type ReviewRow = { kind: 'review'; key: string; worktree: string | null; entry: ReviewEntry }
-export type GateRow = SpecRow | ReviewRow
+// Defined in the plugin's types contract, which must stay self-contained; re-exported for the hooks.
+import type { GateRow, ReviewEntry, ReviewRow, SpecRow, SpecState } from '../types'
+export type { GateRow, ReviewEntry, ReviewRow, SpecRow, SpecState }
 
 export const specArgv = (home: string, sub: 'status' | 'show' | 'approve' | 'reject' | 'check', spec: string): string[] => [`${home}/dotfiles/scripts/spec`, sub, spec]
 // $.process.run rejects a timeout over ten minutes, so cap it there.

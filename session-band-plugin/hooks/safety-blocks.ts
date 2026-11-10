@@ -3,22 +3,9 @@
 // the band counts this session's pending blocks, the pane lists them and marks through the CLI.
 import type { EngineInterface } from 'claude-code'
 
-// `noted` is the logger's own note (a built-in guard refusal); only a human's `ok` or `false-positive` clears a block.
-export type SafetyVerdict = 'ok' | 'false-positive' | 'noted'
-
-export type SafetyBlock = {
-  id: string
-  ts: string
-  session: string
-  cwd: string
-  transcript: string
-  rule: string
-  command: string
-  reason: string
-}
-
-/** One logged block with the human verdict it has, if any. */
-export type SafetyBlockRow = SafetyBlock & { verdict?: SafetyVerdict }
+// Defined in the plugin's types contract, which must stay self-contained; re-exported for the hooks.
+import type { SafetyBlock, SafetyBlockRow, SafetyVerdict } from '../types'
+export type { SafetyBlock, SafetyBlockRow, SafetyVerdict }
 
 export const BLOCKS_FILE = 'bash-safety-blocks.jsonl'
 export const VERDICTS_FILE = 'bash-safety-verdicts.jsonl'

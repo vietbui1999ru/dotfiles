@@ -3,19 +3,9 @@
 import type { Seg } from './band-text'
 import type { Tone } from './palette'
 
-/** One slot's item as `scripts/focus status --json` prints it: its key and stage. */
-export type FocusItem = { key: string; stage: string }
-
-/** The board as the focus script reports it. `read_only` is set only when a cwd was passed to status. */
-export type FocusState = {
-  work: FocusItem | null
-  hobby: FocusItem | null
-  frozen: FocusItem[]
-  parked: string[]
-  read_only?: boolean
-  breaches?: string[]
-  no_board?: boolean
-}
+// Defined in the plugin's types contract, which must stay self-contained; re-exported for the hooks.
+import type { FocusItem, FocusState } from '../types'
+export type { FocusItem, FocusState }
 
 /** The argv that reads the board for one cwd. The script path is the stowed one, never a relative path. */
 export const FOCUS_ARGV = (home: string, cwd: string): string[] => [`${home}/dotfiles/scripts/focus`, 'status', '--json', '--cwd', cwd]
