@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { countTools, modelOf, outcomeOf, sessionIdOf } from "./pi-monitor-feed.mjs";
+import { countTools, modelOf, outcomeOf, reconcileReviews, sessionIdOf } from "./pi-monitor-feed.mjs";
 
 const CLI = new URL("./pi-monitor-feed.mjs", import.meta.url).pathname;
 // Under a sentinel value, so a leak into the output is caught.
@@ -234,4 +234,41 @@ test("a missing pending folder is no record, not an error", () => {
 	const feed = JSON.parse(run([], { bin: fakePueue(json).bin, home: mkdtempSync(join(tmpdir(), "pmf-h-")) }));
 	assert.equal(feed.tasks[0].outcome, "reviewed");
 	assert.equal(feed.unavailable, undefined);
+});
+
+// reconcileReviews carries the waiting record's run id onto the task, so the monitor can open
+// that run's changes. A task that is no longer waiting carries none.
+test("a review task that still waits carries its record's runId", () => {
+	const tasks = [{ id: 7, path: "/repo", outcome: "review", session: "s7" }];
+	const records = new Map([["/repo", [{ runId: "11111111-2222-4333-8444-555555555555", startedAt: 1 }]]]);
+	const [task] = reconcileReviews(tasks, records);
+	assert.equal(task.outcome, "review");
+	assert.equal(task.reviewRunId, "11111111-2222-4333-8444-555555555555");
+});
+
+test("a running task that wrote its record carries that record's runId", () => {
+	const tasks = [{ id: 8, path: "/repo", outcome: "running", session: "pueue-live-8" }];
+	const records = new Map([["/repo", [{ runId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", session: "pueue-live-8" }]]]);
+	const [task] = reconcileReviews(tasks, records);
+	assert.equal(task.outcome, "review");
+	assert.equal(task.reviewRunId, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee");
+});
+
+test("a review task whose record is gone is reviewed, with no runId", () => {
+	const tasks = [{ id: 9, path: "/repo", outcome: "review", session: "s9" }];
+	const [task] = reconcileReviews(tasks, new Map());
+	assert.equal(task.outcome, "reviewed");
+	assert.equal(task.reviewRunId, undefined);
+});
+
+test("an older review task on the same path is reviewed, with no runId", () => {
+	const tasks = [
+		{ id: 12, path: "/repo", outcome: "review", session: "s12" },
+		{ id: 11, path: "/repo", outcome: "review", session: "s11" },
+	];
+	const records = new Map([["/repo", [{ runId: "11111111-2222-4333-8444-555555555555", startedAt: 1 }]]]);
+	const [newest, older] = reconcileReviews(tasks, records);
+	assert.equal(newest.reviewRunId, "11111111-2222-4333-8444-555555555555");
+	assert.equal(older.outcome, "reviewed");
+	assert.equal(older.reviewRunId, undefined);
 });
