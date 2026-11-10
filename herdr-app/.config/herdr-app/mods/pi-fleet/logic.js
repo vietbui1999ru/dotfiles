@@ -272,3 +272,20 @@ function clip(text) {
 	if (text.length <= REPORT_LIMIT) return { body: text.replace(/\s+$/, ""), cut: false };
 	return { body: text.slice(0, REPORT_LIMIT), cut: true };
 }
+
+// The folder reports are saved in, and the file the latest one is also written to.
+export function reportDir(home) {
+	return `${home}/.local/state/herdr-mods/reports`;
+}
+export function lastErrorPath(home) {
+	return `${home}/.local/state/herdr-mods/last-error.md`;
+}
+
+// <YYYYMMDD-HHMMSS>-<mod>-<action>.md, from a Date (local time). Two reports in one second get
+// the same name; the caller adds a suffix when a file already exists.
+export function reportFileName(mod, action, date = new Date()) {
+	const p = (n) => String(n).padStart(2, "0");
+	const stamp = `${date.getFullYear()}${p(date.getMonth() + 1)}${p(date.getDate())}-${p(date.getHours())}${p(date.getMinutes())}${p(date.getSeconds())}`;
+	const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "x";
+	return `${stamp}-${slug(mod)}-${slug(action)}.md`;
+}

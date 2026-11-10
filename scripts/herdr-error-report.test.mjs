@@ -72,3 +72,15 @@ test("the three copies of errorReport are identical, so no mod drifts", () => {
 	assert.equal(C.REPORT_LIMIT, W.REPORT_LIMIT);
 	assert.equal(F.REPORT_LIMIT, W.REPORT_LIMIT);
 });
+
+test("reportFileName is <YYYYMMDD-HHMMSS>-<mod>-<action>.md with slugs", () => {
+	const at = new Date(2026, 10, 10, 13, 4, 9);
+	assert.equal(W.reportFileName("workspaces", "cleanup", at), "20261110-130409-workspaces-cleanup.md");
+	assert.equal(W.reportFileName("pi-fleet", "Remove run", at), "20261110-130409-pi-fleet-remove-run.md");
+	assert.equal(W.reportFileName("", "", at), "20261110-130409-x-x.md");
+});
+
+test("the report folder and last-error file sit under ~/.local/state/herdr-mods", () => {
+	assert.equal(W.reportDir("/h"), "/h/.local/state/herdr-mods/reports");
+	assert.equal(W.lastErrorPath("/h"), "/h/.local/state/herdr-mods/last-error.md");
+});
