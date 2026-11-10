@@ -181,3 +181,36 @@ test("attentionText lists breaches and merged rows; empty when neither", () => {
 	assert.equal(L.attentionText([], 2), "2 merged to clean up");
 	assert.equal(L.attentionText(["x"], 1), "1 over cap · 1 merged to clean up");
 });
+
+test("parseLsofCwds reads n-lines as cwds, skips other fields, drops duplicates", () => {
+	const text = "p123\nfcwd\nn/r/d/.claude/worktrees/herdr-pi\np456\nfcwd\nn/r/d/x\nn/r/d/x\nf3\nn\n";
+	assert.deepEqual(L.parseLsofCwds(text), ["/r/d/.claude/worktrees/herdr-pi", "/r/d/x"]);
+});
+
+test("parseLsofCwds on empty input is an empty list", () => {
+	assert.deepEqual(L.parseLsofCwds(""), []);
+	assert.deepEqual(L.parseLsofCwds(undefined), []);
+});
+
+test("isAgentTerminal counts agent programs and agent-status terminals, not plain shells", () => {
+	assert.equal(L.isAgentTerminal({ agent: "zsh", program: { agent: false, shell: true } }), false, "a shell reports agent: zsh and is not an agent");
+	assert.equal(L.isAgentTerminal({ agent: "claude", program: { agent: true } }), true);
+	assert.equal(L.isAgentTerminal({ agent_status: "working", program: { agent: false } }), true);
+	assert.equal(L.isAgentTerminal({}), false);
+	assert.equal(L.isAgentTerminal(null), false);
+});
+
+test("cleanupRows never offers a merged managed worktree with a process cwd inside it", () => {
+	const repo = "/r/d";
+	const merged = { path: "/r/d/.claude/worktrees/herdr-pi", branch: "feat/herdr-pi", merged: "merged", prunable: false };
+	const rows = L.decorate(L.parseWorktrees(
+		"worktree /r/d\nbranch refs/heads/main\n\nworktree /r/d/.claude/worktrees/herdr-pi\nbranch refs/heads/feat/herdr-pi\n",
+	), { merged: { prMerged: ["feat/herdr-pi"], gitMerged: [] }, cwds: L.parseLsofCwds("p9\nn/r/d/.claude/worktrees/herdr-pi/src\n") });
+	assert.equal(rows[1].live, true, "a background process cwd makes the worktree live");
+	assert.deepEqual(L.cleanupRows(rows, repo), [], "live + merged is not offered");
+	assert.equal(merged.merged, "merged");
+});
+
+test("openBoardArgv percent-encodes the path, so spaces and slashes survive", () => {
+	assert.deepEqual(L.openBoardArgv("/a b/Focus.md"), ["open", "obsidian://open?path=%2Fa%20b%2FFocus.md"]);
+});

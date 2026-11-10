@@ -62,7 +62,7 @@ async function readRowState(row, changes, tracking) {
 }
 
 // One repo's worktrees with status, tracking, merged and live. Read-only git commands only.
-async function repoRows(repoPath, cwds) {
+async function repoRows(repoPath, cwds, unavailable) {
 	const wt = await exec("git", ["worktree", "list", "--porcelain"], { cwd: repoPath, timeout: 10000 }).catch(() => null);
 	if (!wt || wt.code !== 0) return { rows: [], error: "git worktree list failed" };
 	const rows = L.parseWorktrees(wt.stdout);
@@ -71,13 +71,22 @@ async function repoRows(repoPath, cwds) {
 	const gh = await prMerged(repoPath);
 	const merged = gh ? { prMerged: gh, gitMerged: [] } : { prMerged: null, gitMerged: await gitMergedFallback(repoPath) };
 	const decorated = L.decorate(rows, { changes, tracking, merged, cwds });
-	for (const r of decorated) r.jj = rows.find((x) => x.path === r.path)?.jj ?? false;
-	return { rows: decorated, error: null };
+	for (const r of decorated) {
+		r.jj = rows.find((x) => x.path === r.path)?.jj ?? false;
+		if (unavailable) r.live = true; // unknown live state: never offered for cleanup
+	}
+	return { rows: decorated, error: null, liveUnavailable: unavailable };
 }
 
-// Terminal cwds of agent terminals, for live state. Only terminals with an agent status count.
-function agentCwds() {
-	return (terminals() ?? []).filter((t) => t.agent_status ?? t.agent).map((t) => t.cwd).filter(Boolean);
+// Live cwds: agent terminals in Herdr, plus the cwds of running claude/pi/node processes (background
+// jobs and Pi runs started outside Herdr). `lsof` failing or missing means live state is unknown:
+// the caller then treats every managed worktree as live rather than assuming it is not.
+async function liveCwds() {
+	const herdr = (terminals() ?? []).filter(L.isAgentTerminal).map((t) => t.cwd).filter(Boolean);
+	const r = await exec("lsof", ["-a", "-d", "cwd", "-c", "claude", "-c", "pi", "-c", "node", "-Fn"], { timeout: 5000 }).catch(() => null);
+	// lsof exits 1 when nothing matches: an empty list, not a failure. Anything else is unavailable.
+	if (!r || (r.code !== 0 && r.code !== 1)) return { cwds: herdr, unavailable: true };
+	return { cwds: [...herdr, ...L.parseLsofCwds(r.stdout)], unavailable: false };
 }
 
 // --------------------------------------------------------------- actions (each argv, no shell)
@@ -165,9 +174,9 @@ export default class Workspaces extends View {
 		this.refreshing = true;
 		try {
 			await this.refreshBoard(cx);
-			const cwds = agentCwds(), repos = {};
+			const { cwds, unavailable } = await liveCwds(), repos = {};
 			for (const repo of this.board?.paths ? Object.keys(this.board.paths) : []) {
-				repos[repo] = await repoRows(this.board.paths[repo], cwds);
+				repos[repo] = await repoRows(this.board.paths[repo], cwds, unavailable);
 			}
 			this.repos = repos;
 		} finally {
@@ -224,8 +233,15 @@ export default class Workspaces extends View {
 			btn(`switch-${item.key}`, "Switch", () => this.doBoard(["switch", item.key], `switched to ${item.key}`)),
 			btn(`park-${item.key}`, "Park", () => this.doBoard(["park", item.key], `parked ${item.key}`)),
 			btn(`drop-${item.key}`, "Drop", () => this.doBoard(["drop", item.key], `dropped ${item.key}`)),
-			btn(`obsidian-${item.key}`, "Obsidian", () => exec("open", [L.openBoardArgv(`${home()}/repos/Obsidian/Focus.md`)[1]], { timeout: 10000 })),
+			btn(`obsidian-${item.key}`, "Obsidian", () => this.openBoardInObsidian()),
 		]);
+	}
+
+	// The board path comes from `focus status --json`, so FOCUS_BOARD is honoured.
+	openBoardInObsidian() {
+		if (!this.board?.board) { this.note = "No board path to open"; return; }
+		exec(L.openBoardArgv(this.board.board)[0], L.openBoardArgv(this.board.board).slice(1), { timeout: 10000 })
+			.then((r) => { if (r.code !== 0) this.note = (r.stderr || "open failed").trim(); });
 	}
 
 	async doBoard(args, label) {
@@ -244,8 +260,10 @@ export default class Workspaces extends View {
 			.child(div().flex_1().min_w(0).truncate().text_color(t.dim).text_size(11).child(name))
 			.when(ENABLED.has("new"), (e) => e.child(div().id(`new-${name}`).px(6).h(20).flex().items_center().rounded(5).text_size(11).text_color(t.accent).cursor_pointer().on_click(() => this.naming = { repo: name, repoPath }).child("New")));
 		if (data.error) return v_flex().gap(2).child(head).child(div().text_color(t.dim).text_size(11).child(data.error));
+		const liveNote = data.liveUnavailable ? div().text_color(t.dim).text_size(11).child("live check unavailable") : null;
 		const cleanable = ENABLED.has("cleanup") ? L.cleanupRows(data.rows, repoPath) : [];
 		return v_flex().gap(2).child(head)
+			.children(liveNote ? [liveNote] : [])
 			.children(data.rows.map((row) => this.worktreeRow(t, row)))
 			.when(cleanable.length > 0, (e) => e.child(this.cleanupBar(t, name, cleanable, repoPath)));
 	}

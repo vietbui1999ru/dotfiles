@@ -83,6 +83,22 @@ export function isInside(path, parent) {
 }
 const trimSlash = (s) => (s.length > 1 ? s.replace(/\/+$/, "") : s);
 
+// `lsof -a -d cwd -c claude -c pi -c node -Fn` prints one field per line; a cwd line starts with
+// `n`. Other lines (pid `p`, fd `f`, ...) are skipped. Duplicates drop, so the list is unique.
+export function parseLsofCwds(text) {
+	const cwds = new Set();
+	for (const line of String(text ?? "").split("\n")) {
+		if (line.startsWith("n") && line.length > 1) cwds.add(line.slice(1));
+	}
+	return [...cwds];
+}
+
+// A Herdr terminal runs an agent when its program is an agent (`program.agent`) or it reports an
+// agent status. A plain shell reports `agent: "zsh"`, so the bare `agent` field is not used.
+export function isAgentTerminal(t) {
+	return !!(t?.program?.agent || t?.agent_status);
+}
+
 // A worktree is live when an agent terminal's cwd sits in it. A nested worktree (the main
 // worktree contains .claude/worktrees/*) is also "inside" its parent, so a cwd counts for the
 // deepest worktree that holds it only. `allPaths` is every worktree path of the repo.
@@ -145,9 +161,10 @@ export function focusDropArgv(home, key) {
 	return [`${home}/dotfiles/scripts/focus`, "drop", key];
 }
 
-// `open obsidian://open?path=<board>`: the board opened in Obsidian.
+// The board file opened in Obsidian: open obsidian://open?path=<encoded board path>.
 export function openBoardArgv(boardPath) {
-	return ["open", `obsidian://open?path=${encodeURIComponent(boardPath)}`];
+	const url = "obsidian://open?path=" + encodeURIComponent(boardPath);
+	return ["open", url];
 }
 
 // The coding agents a new tab can start, by name.
