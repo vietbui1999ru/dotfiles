@@ -3,7 +3,7 @@
 
 import { View, div } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { exec, run, theme, focused, home, readTextFile } from "herdr";
+import { exec, run, theme, focused, home, readTextFile, openOverlay, closeOverlay, nextCommand, shared, setShared } from "herdr";
 import { attachedJob, bandModel, jobSession, resetText, terminalSegments } from "./format.js";
 
 const POLL_MS = 60000;
@@ -25,6 +25,23 @@ export default class AiSpend extends View {
     this.pollTerminal(cx);
     cx.timer.every(POLL_MS, (cx) => this.poll(cx));
     cx.timer.every(TERMINAL_MS, (cx) => this.pollTerminal(cx));
+    cx.spawn(async (cx) => {
+      for (;;) {
+        const c = await nextCommand();
+        if (c === "leader") this.toggleLeader();
+        cx.notify();
+      }
+    });
+  }
+
+  // Spike: opens the invisible band-surface leader, or closes it when it is already open.
+  toggleLeader() {
+    const id = shared("leader.overlay");
+    setShared("leader.overlay", null);
+    if (id) {
+      try { closeOverlay(id); return; } catch { /* stale id: the overlay is already gone */ }
+    }
+    setShared("leader.overlay", openOverlay({ mod: "leader", kind: "popup", frame: "none", width: 2, height: 2, props: { surface: "band" } }));
   }
 
   // One call at a time: a slow claude-tui never stacks up behind the timer.

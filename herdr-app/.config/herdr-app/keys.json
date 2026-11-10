@@ -78,6 +78,9 @@
     "cmd-ctrl-r": "workspaces.restart",
     "cmd-k": "mod.open:leader"
   },
+  "layout:herdr-pi": {
+    "cmd-k": "ai-spend.leader"
+  },
   "terminal": {
     "cmd-f": "terminal.search",
     "cmd-c": "terminal.copy",

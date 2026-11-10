@@ -14,6 +14,7 @@ export default class Leader extends View {
   init(_p, cx) {
     this.handle = cx.focus_handle();
     this.mode = "map";
+    this.surface = props()?.surface === "band" ? "band" : "popup";
     this.handle.focus();
   }
 
@@ -56,6 +57,7 @@ export default class Leader extends View {
   }
 
   onKey(event, cx) {
+    if (this.surface === "band") { console.log("leader band key", event.key); }
     if (event.key === "escape") { closeOverlay(props().overlay); return; }
     if (this.mode === "resize") { this.resize(event, cx); return; }
     const entry = resolveKey(event);
@@ -67,6 +69,10 @@ export default class Leader extends View {
 
   render() {
     const t = theme();
+    if (this.surface === "band") {
+      return div().id("leader").size_full().track_focus(this.handle)
+        .on_key_down((e, cx) => { cx.stop_propagation(); this.onKey(e, cx); });
+    }
     const resizing = this.mode === "resize";
     return v_flex().id("leader").size_full().p(14).gap(8).bg(t.popover).border_1().border_color(t.border).rounded(10)
       .text_color(t.foreground).text_size(13).track_focus(this.handle)
