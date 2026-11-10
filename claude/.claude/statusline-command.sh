@@ -33,16 +33,19 @@ IFS=$'\x1f' read -r cwd wt used left five seven style model < <(
 )
 
 # Current branch, unmarked: the status line marks a dirty tree, the band reads the branch only.
+# Read before the .drawn exit only for a Herdr terminal's snapshot; otherwise after it.
+branch_of() {
+  [ -n "$cwd" ] && git -C "$cwd" rev-parse --git-dir >/dev/null 2>&1 \
+    && git -C "$cwd" --no-optional-locks branch --show-current 2>/dev/null
+}
 br=""
-if [ -n "$cwd" ] && git -C "$cwd" rev-parse --git-dir >/dev/null 2>&1; then
-  br=$(git -C "$cwd" --no-optional-locks branch --show-current 2>/dev/null)
-fi
 
 # Per-terminal snapshot for the Herdr band (ai-spend), which shows the focused Claude terminal's
 # context, model and branch. Written every run, before the .drawn exit, so it stays current even
 # while the session band is on screen. Atomic, and skipped when the terminal id is not a plain name.
 term="${HC_TERMINAL_ID:-}"
 if [[ "$term" =~ ^[A-Za-z0-9._-]+$ ]]; then
+  br=$(branch_of)
   term_dir="$snap_dir/by-terminal"
   if mkdir -p "$term_dir" 2>/dev/null && tmp=$(mktemp "$term_dir/.term.XXXXXX" 2>/dev/null); then
     jq -n --arg used "$used" --arg model "${model#claude-}" --arg branch "$br" --argjson now "$(date +%s)" \
@@ -65,6 +68,7 @@ dir=${cwd##*/}; [ "$cwd" = "$HOME" ] && dir="~"
 out=$(c 34 "$dir")
 [ -n "$wt" ] && out+=" $(c 35 "wt:$wt")"
 
+[ -n "$br" ] || br=$(branch_of)
 if [ -n "$br" ]; then
   dirty=""; git -C "$cwd" --no-optional-locks diff --quiet HEAD 2>/dev/null || dirty="*"
   out+=" $(c "$([ -n "$dirty" ] && echo 33 || echo 32)" "[$br$dirty]")"

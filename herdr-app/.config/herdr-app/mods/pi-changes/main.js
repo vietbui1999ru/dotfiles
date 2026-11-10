@@ -72,7 +72,8 @@ export default class Changes extends View {
       this.setLines([]); this.message = ""; this.input.set_value(""); this.error = null; this.note = null; this.watched = null; this.closed = false; this.limited = false;
       this.run = picked; this.gone = false;
     }
-    if (picked) return this.refreshRun(picked, on, context, cx);
+    // A run's review refs live in a repo on this machine, whatever terminal has focus.
+    if (picked) return this.refreshRun(picked, null, context, cx);
     if (!cwd) return;
     this.loading = true;
     cx.spawn(async (cx) => {
