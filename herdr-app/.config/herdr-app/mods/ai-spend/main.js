@@ -139,7 +139,7 @@ export default class AiSpend extends View {
     });
   }
 
-  // The pending bash-safety blocks (⛔) and the open mistake alerts (⚠) over the last day, across
+  // The pending bash-safety blocks (⊘) and the open mistake alerts (!) over the last day, across
   // every session. Read only: the band never writes the state files. Missing files read as empty.
   pollSafety(cx) {
     if (this.safetyBusy) return;
@@ -265,10 +265,11 @@ export default class AiSpend extends View {
     const chips = [];
     if (this.sendIt) chips.push({ id: "send-it", text: "⇉ send-it", color: t.blocked });
     if (this.held) chips.push({ id: "pi-held", text: `π held ${this.held}`, color: t.working, click: () => run("pi-fleet.monitor") });
-    // ⛔ and ⚠ are rank 2: they drop after the unranked chips when the band is narrow. Neither has a
-    // click: scripts/safety-log has no read-only list subcommand, so the blocks are tooltip only.
-    if (this.blocks > 0) chips.push({ id: "blocks", rank: 2, text: `⛔${this.blocks}`, color: t.blocked, tip: "Bash-safety blocks waiting for a verdict (last 24h, all sessions). Judge them with scripts/safety-log." });
-    if (this.alerts > 0) chips.push({ id: "alerts", rank: 2, text: `⚠${this.alerts}`, color: t.blocked, tip: `Open mistake alerts (last 24h, all sessions), newest first:\n${this.alertTip ?? ""}` });
+    // ⊘ (blocks) and ! (alerts) are rank 2: they drop after the unranked chips when the band is
+    // narrow. Neither has a click: scripts/safety-log has no read-only list subcommand, so the
+    // blocks are tooltip only. The glyphs match the flow visualizer's state set.
+    if (this.blocks > 0) chips.push({ id: "blocks", rank: 2, text: `⊘${this.blocks}`, color: t.blocked, tip: "Bash-safety blocks waiting for a verdict (last 24h, all sessions). Judge them with scripts/safety-log." });
+    if (this.alerts > 0) chips.push({ id: "alerts", rank: 2, text: `!${this.alerts}`, color: t.blocked, tip: `Open mistake alerts (last 24h, all sessions), newest first:\n${this.alertTip ?? ""}` });
     if (chips.length === 0) return [];
     const kept = this.width === null ? chips : fitChips(chips, this.width, QUOTA_RESERVE_PX + TERMINAL_RESERVE_PX);
     if (kept.length === 0) return [];
