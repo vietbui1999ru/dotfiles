@@ -156,6 +156,9 @@ export default class Workspaces extends View {
 		cx.timer.every(10000, (cx) => this.refreshBoard(cx));
 		cx.timer.every(30000, (cx) => this.refresh(cx));
 		if (this.isPanel) this.watchBoard(cx);
+		// Key commands reach every copy of this mod. Only the sidebar copy handles them: if the
+		// panel copy did too, one toggle would close the panel and then reopen it.
+		if (this.isPanel) return;
 		cx.spawn(async (cx) => {
 			for (;;) {
 				const c = await nextCommand();
