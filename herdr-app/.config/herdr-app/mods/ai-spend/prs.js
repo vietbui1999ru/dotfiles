@@ -1,8 +1,9 @@
 // Pure logic for the band's PR chip: no herdr or gpui imports, so the tests can load it.
 // A port of session-band's draft-prs.ts (GH_ARGV, rollup, pickPrs, prLine), GitHub only.
 
-// The gh argv (after `gh`). Merged and closed PRs come back too; prSummary keeps the open ones.
-export const PR_ARGV = ["pr", "list", "--state", "all", "--limit", "30", "--json", "number,title,headRefName,url,isDraft,state,mergedAt,updatedAt,statusCheckRollup"];
+// The gh argv (after `gh`). Only open PRs are asked for: the chip counts nothing else, and a list of
+// every state would let recently merged PRs push older open ones past the limit.
+export const PR_ARGV = ["pr", "list", "--state", "open", "--limit", "30", "--json", "number,title,headRefName,url,isDraft,state,mergedAt,updatedAt,statusCheckRollup"];
 
 // Shown lines are capped so the tooltip stays short.
 const MAX_LINES = 6;

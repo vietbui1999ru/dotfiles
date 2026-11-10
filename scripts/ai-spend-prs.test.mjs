@@ -23,8 +23,8 @@ const pr = (number, extra = {}) => ({
 });
 const list = (...prs) => JSON.stringify(prs);
 
-test("PR_ARGV lists every state so merged and closed PRs can be filtered", () => {
-  assert.deepEqual(PR_ARGV.slice(0, 3), ["pr", "list", "--state"]);
+test("PR_ARGV asks gh for open PRs only, so merged ones cannot crowd out the limit", () => {
+  assert.deepEqual(PR_ARGV.slice(0, 4), ["pr", "list", "--state", "open"]);
   assert.ok(PR_ARGV.join(" ").includes("statusCheckRollup"));
 });
 

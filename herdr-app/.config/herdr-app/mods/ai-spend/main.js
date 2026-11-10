@@ -44,7 +44,8 @@ export default class AiSpend extends View {
     this.safetyBusy = false;
     this.prs = null;
     this.prsDir = null;
-    this.prsAt = 0;
+    // Repo root -> { at, summary }, so each root asks gh at most once per PRS_MS across focus changes.
+    this.prsCache = new Map();
     this.prsBusy = false;
     this.recover();
     this.poll(cx);
@@ -56,7 +57,8 @@ export default class AiSpend extends View {
     cx.timer.every(CHIPS_MS, (cx) => this.pollChips(cx));
     cx.timer.every(SAFETY_MS, (cx) => this.pollSafety(cx));
     this.pollPrs(cx);
-    cx.timer.every(PRS_MS, (cx) => this.pollPrs(cx));
+    // Ticks with the chips so the PR chip follows focus; the per-root cache limits the gh calls.
+    cx.timer.every(CHIPS_MS, (cx) => this.pollPrs(cx));
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
@@ -161,11 +163,14 @@ export default class AiSpend extends View {
         const root = await exec("git", ["rev-parse", "--show-toplevel"], { cwd, timeout: 5000 }).catch(() => null);
         const top = root?.code === 0 ? root.stdout.trim() : "";
         if (!top) { this.prs = null; this.prsDir = null; return; }
-        if (top === this.prsDir && Date.now() - this.prsAt < PRS_MS) return;
-        const gh = await exec("gh", PR_ARGV, { cwd: top, timeout: 20000 }).catch(() => null);
-        this.prs = prSummary(gh?.code === 0 ? gh.stdout : "");
+        let hit = this.prsCache.get(top);
+        if (!hit || Date.now() - hit.at >= PRS_MS) {
+          const gh = await exec("gh", PR_ARGV, { cwd: top, timeout: 20000 }).catch(() => null);
+          hit = { at: Date.now(), summary: prSummary(gh?.code === 0 ? gh.stdout : "") };
+          this.prsCache.set(top, hit);
+        }
+        this.prs = hit.summary;
         this.prsDir = top;
-        this.prsAt = Date.now();
       } catch {
         this.prs = null;
       } finally {
