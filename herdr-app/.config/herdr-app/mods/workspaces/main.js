@@ -164,9 +164,17 @@ export default class Workspaces extends View {
 				const c = await nextCommand();
 				if (c === "open") this.openPanel();
 				if (c === "toggle") this.togglePanel();
+				if (c === "restart") await this.restartApp();
 				cx.notify();
 			}
 		});
+	}
+
+	// Quits Herdr and opens it again. Terminals live in herdr-core, so they survive the restart.
+	// A detached shell waits until the app process is gone, then reopens it.
+	async restartApp() {
+		await exec("/bin/sh", ["-c", "nohup /bin/sh -c 'while pgrep -xq Herdr; do sleep 0.2; done; open -a Herdr' >/dev/null 2>&1 &"]);
+		run("app.quit");
 	}
 
 	// The board file's folder is watched: a write from focus (or Obsidian) re-reads at once.
