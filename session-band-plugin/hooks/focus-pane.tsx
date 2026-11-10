@@ -1,9 +1,8 @@
 import { atom, read, update, type EngineInterface, type Register } from 'claude-code'
 
-import { FOCUS_ARGV, parseFocus, type FocusState } from './focus'
+import type { FocusPaneState } from '../types'
+import { FOCUS_ARGV, parseFocus } from './focus'
 import { ACTIONS, keyOf, pick, pipeline, rowId, rows, slotLine, step } from './focus-pane-logic'
-
-type FocusPaneState = { loading: boolean; state?: FocusState; selected?: string; error?: string }
 
 const view = atom({ plugin: 'session-band', key: 'focusPane' } as const, { loading: false } as FocusPaneState)
 

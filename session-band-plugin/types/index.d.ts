@@ -68,8 +68,36 @@ export type DraftPr = { number: number; title: string; branch: string; url: stri
 export type ForgeId = 'github' | 'gitlab'
 export type DraftPrsState = { loading: boolean; selected?: number; prs?: DraftPr[]; error?: string; forge?: ForgeId }
 
+// The validator requires this contract to be self-contained (no imports), so the types the state
+// below uses live here, and the hooks that own them re-export them from '../types'.
+
+// A bash-safety block (hooks/safety-blocks.ts). `noted` is the logger's own note (a built-in
+// guard refusal); only a human's `ok` or `false-positive` clears a block.
+export type SafetyVerdict = 'ok' | 'false-positive' | 'noted'
+export type SafetyBlock = { id: string; ts: string; session: string; cwd: string; transcript: string; rule: string; command: string; reason: string }
+/** One logged block with the human verdict it has, if any. */
+export type SafetyBlockRow = SafetyBlock & { verdict?: SafetyVerdict }
+
 // The Blocks pane: this session's bash-safety blocks, newest first, with any human verdict.
-export type SafetyBlocksState = { loading: boolean; rows: import('../hooks/safety-blocks').SafetyBlockRow[]; selected?: string }
+export type SafetyBlocksState = { loading: boolean; rows: SafetyBlockRow[]; selected?: string }
+
+// The gates pane (hooks/gates.ts, gates.tsx): specs awaiting approval and Pi runs awaiting review.
+export type SpecState = 'draft' | 'approved' | 'stale' | 'invalid'
+export type SpecRow = { kind: 'spec'; key: string; worktree: string; branch: string; path: string; rel: string; state?: SpecState; error?: string }
+export type ReviewEntry = { runId: string; owner: string | null; branch: string; name: string; startedAt: string; processing: boolean; error: boolean; landed: boolean; decided: boolean; orphan: boolean }
+export type ReviewRow = { kind: 'review'; key: string; worktree: string | null; entry: ReviewEntry }
+export type GateRow = SpecRow | ReviewRow
+export type GatesState = { rows: GateRow[]; headers: Record<string, string>; selected?: string; detail?: string; busy: string[]; last: Record<string, string>; confirm?: string; reviewsUnavailable?: boolean; hideOrphans?: boolean }
+
+// The focus board (hooks/focus.ts) as `scripts/focus status --json` prints it, and its pane.
+// `read_only` is set only when a cwd was passed to status.
+export type FocusItem = { key: string; stage: string }
+export type FocusState = { work: FocusItem | null; hobby: FocusItem | null; frozen: FocusItem[]; parked: string[]; read_only?: boolean; breaches?: string[]; no_board?: boolean }
+export type FocusPaneState = { loading: boolean; state?: FocusState; selected?: string; error?: string }
+
+// The blast-radius preview of a refused command (hooks/preview.ts).
+export type PreviewTarget = { path: string; bytes?: number; tracked?: boolean }
+export type PreviewFacts = { command: string; reason: string; targets?: readonly PreviewTarget[]; totalBytes?: number; unexpandedGlobs?: readonly string[]; dryRun?: { label: string; output: string } }
 
 export type HistoryState = {
   tasks: PueueTask[]
@@ -113,7 +141,7 @@ declare module 'claude-code' {
       history: HistoryState
       worktrees: WorktreeState
       draftPrs: DraftPrsState
-      gates: import('../hooks/gates.tsx').GatesState
+      gates: GatesState
       /** This session's own turn, so a patch landing waits while it is mid-turn. */
       'review-turn': { started: boolean }
       review: {
@@ -134,8 +162,11 @@ declare module 'claude-code' {
         checks?: Record<string, string>
       }
       sendIt: boolean
-      safetyBlocks: import('../hooks/safety-blocks.tsx').SafetyBlocksState
-      blastFacts: import('../hooks/preview').PreviewFacts | null
+      safetyBlocks: SafetyBlocksState
+      blastFacts: PreviewFacts | null
+      /** True after a failed auto-clear save: compaction is back on until a later clear succeeds. */
+      autoClearSaveFailed: boolean
+      focusPane: FocusPaneState
     }
   }
 }

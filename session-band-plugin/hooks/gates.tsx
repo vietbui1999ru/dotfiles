@@ -8,7 +8,9 @@ import { FOCUS_ACTION, FOCUS_REFUSED, JUMP_KEYS, nextPane, PANE_TITLES, switchSt
 import { PALETTE } from './palette'
 import { parseWorktrees } from './worktrees'
 
-export type GatesState = { rows: GateRow[]; headers: Record<string, string>; selected?: string; detail?: string; busy: string[]; last: Record<string, string>; confirm?: string; reviewsUnavailable?: boolean; hideOrphans?: boolean }
+// Defined in the plugin's types contract, which must stay self-contained; re-exported for the hooks.
+import type { GatesState } from '../types'
+export type { GatesState }
 const view = atom({ plugin: 'session-band', key: 'gates' } as const, { rows: [], headers: {}, busy: [], last: {} } as GatesState)
 // Rows the pane shows and moves through; `h` hides the "(no worktree)" orphan group.
 const visible = (state: GatesState): GateRow[] => state.hideOrphans ? state.rows.filter(row => row.worktree !== null) : state.rows
