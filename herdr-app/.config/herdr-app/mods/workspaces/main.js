@@ -178,7 +178,8 @@ export default class Workspaces extends View {
 
 	// Opens the panel and remembers its id, so the toggle can close it again.
 	openPanel() {
-		setShared("workspaces.panel", openOverlay({ mod: "workspaces", kind: "dialog", width: 640, props: { role: "panel", actions: props()?.actions } }));
+		// A share of the window (up to 1): most of it, so full names and paths fit.
+		setShared("workspaces.panel", openOverlay({ mod: "workspaces", kind: "dialog", width: 0.85, height: 0.85, props: { role: "panel", actions: props()?.actions } }));
 	}
 
 	// Closes the panel when it is open, else opens it. A remembered id the app no longer holds
@@ -229,18 +230,26 @@ export default class Workspaces extends View {
 			.when(!!item, (e) => e.child(div().text_color(t.dim).text_size(11).child(item.stage)));
 		const attention = L.attentionText(this.board?.breaches ?? [], this.mergedCount());
 		return v_flex().id("focus-block").size_full().px(12).py(8).gap(4).cursor_pointer().on_click(() => this.openPanel())
+			.tooltip(this.fullText())
 			.child(slot("Work", this.board?.work))
 			.child(slot("Hobby", this.board?.hobby))
 			.when(!!attention, (e) => e.child(div().text_color(t.accent).text_size(11).truncate().child(attention)));
+	}
+
+	// The whole sidebar text, for the hover tooltip: the lines the block cuts short.
+	fullText() {
+		const slot = (label, item) => `${label}: ${item ? `${item.key}${item.stage ? ` (${item.stage})` : ""}` : "—"}`;
+		const attention = L.attentionText(this.board?.breaches ?? [], this.mergedCount());
+		return [slot("Work", this.board?.work), slot("Hobby", this.board?.hobby), attention].filter(Boolean).join("\n");
 	}
 
 	// Board section: Work, Hobby, Frozen with stages; breaches; Parked lines.
 	boardSection(t) {
 		const b = this.board;
 		if (!b) return div().text_color(t.dim).child(this.boardError ? `No focus board: ${this.boardError}` : "Reading the board…");
-		const line = (label, item) => h_flex().h(22).gap(8).items_center()
+		const line = (label, item) => h_flex().min_h(22).gap(8).items_center()
 			.child(div().w(56).text_color(t.dim).text_size(11).child(label))
-			.child(div().flex_1().min_w(0).truncate().child(item ? item.key : "—"))
+			.child(div().flex_1().min_w(0).child(item ? item.key : "—"))
 			.when(!!item && ENABLED.has("board"), (e) => e.child(this.stageButtons(t, item)))
 			.when(!!item && ENABLED.has("board"), (e) => e.child(this.boardButtons(t, item)))
 			.when(!!item && !ENABLED.has("board"), (e) => e.child(div().text_color(t.dim).text_size(11).child(item.stage)));
@@ -297,7 +306,7 @@ export default class Workspaces extends View {
 	repoTree(t, name, data) {
 		const repoPath = this.board.paths[name];
 		const head = h_flex().h(24).gap(8).items_center()
-			.child(div().flex_1().min_w(0).truncate().text_color(t.dim).text_size(11).child(name))
+			.child(div().flex_1().min_w(0).text_color(t.dim).text_size(11).child(name))
 			.when(ENABLED.has("new"), (e) => e.child(div().id(`new-${name}`).px(6).h(20).flex().items_center().rounded(5).text_size(11).text_color(t.accent).cursor_pointer().on_click(() => this.naming = { repo: name, repoPath }).child("New")));
 		if (data.error) return v_flex().gap(2).child(head).child(div().text_color(t.dim).text_size(11).child(data.error));
 		const liveNote = data.liveUnavailable ? div().text_color(t.dim).text_size(11).child("live check unavailable") : null;
@@ -314,12 +323,12 @@ export default class Workspaces extends View {
 			row.ahead != null ? `↑${row.ahead} ↓${row.behind}` : null, MERGED_TAG[row.merged] ?? null,
 			row.live ? "live" : null, row.prunable ? "prunable" : null].filter(Boolean).join("  ");
 		const selected = this.selected === row.path;
-		return h_flex().id(`wt-${row.path}`).h(26).px(6).gap(8).items_center().rounded(6)
+		return h_flex().id(`wt-${row.path}`).min_h(26).px(6).gap(8).items_center().rounded(6)
 			.when(selected, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover))
 			.on_click(() => { this.selected = row.path; })
 			.child(div().w(18).text_color(row.live ? t.ansi2 : t.dim).child(row.live ? "●" : "○"))
-			.child(div().flex_1().min_w(0).truncate().child(label))
-			.child(div().text_color(t.dim).text_size(11).truncate().child(parts))
+			.child(div().flex_1().min_w(0).child(label))
+			.child(div().text_color(t.dim).text_size(11).min_w(0).child(parts))
 			.when(ENABLED.has("open"), (e) => e
 				.child(this.openButton(t, row, "Open", null))
 				.child(this.openButton(t, row, "Claude", "claude"))
@@ -403,7 +412,7 @@ export default class Workspaces extends View {
 	render() {
 		const t = theme();
 		if (!this.isPanel) return this.block(t);
-		return v_flex().id("workspaces").size_full().min_h(0).p(12).gap(10).bg(t.background).text_color(t.foreground).text_size(13)
+		return v_flex().id("workspaces").size_full().min_h(0).p(12).gap(10).bg(t.background).text_color(t.foreground).text_size(13).overflow_y_scrollbar()
 			.on_key_down((e) => this.key(e))
 			.child(div().text_size(15).child("Workspaces"))
 			.child(this.boardSection(t))
@@ -438,7 +447,7 @@ export default class Workspaces extends View {
 	refusalList(t) {
 		return v_flex().gap(4)
 			.children(this.refusals.map((r) => h_flex().id(`refused-${r.path}`).gap(8).items_center()
-				.child(div().w(120).flex_none().min_w(0).truncate().text_color(t.dim).text_size(11).child(r.path.split("/").pop()))
+				.child(div().w(160).flex_none().min_w(0).text_color(t.dim).text_size(11).child(r.path))
 				.child(div().flex_1().min_w(0).text_color(t.accent).text_size(11).child(r.message))
 				.child(this.copyButton(t, `copy-refused-${r.path}`, () => this.copyCleanupRow(r)))))
 			.child(h_flex().justify_end().child(this.copyButton(t, "copy-refused-all", () => this.copyCleanupAll(), "Copy all")));
