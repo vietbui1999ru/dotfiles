@@ -449,9 +449,12 @@ def deny_message(board: Board) -> str:
     info = state(board)
     work = info["work"]["key"] if info["work"] else "none"
     hobby = info["hobby"]["key"] if info["hobby"] else "none"
-    return (f"focus: read-only session. Focus items: {work}, {hobby}. "
-            f"Switch: scripts/focus switch <key>. "
-            f"Unblock once: scripts/focus allow <worktree> --session <sid> --blocker \"<reason>\"")
+    return (f"focus: read-only session (it started outside the focus worktree). "
+            f"Focus items: {work}, {hobby}. "
+            f"Agent: stop; do not retry this write another way. Tell the person, who can: "
+            f"start a session in the focus worktree (jwc <branch>), or run scripts/focus switch <key>, "
+            f"or, if the focus item is blocked by this worktree, "
+            f"scripts/focus allow <worktree> --session <sid> --blocker \"<reason>\".")
 
 
 def summary_line(board: Board, writable: bool) -> str:

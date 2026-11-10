@@ -205,6 +205,7 @@ if echo "$CWD" | grep -qE '/\.claude/worktrees/'; then
       echo "BLOCKED: git or jj aimed at another checkout from a worktree session."
       echo "This session works only in its own workspace: $WS_ROOT."
       echo "Run git and jj from there with no -C, -R, --git-dir, GIT_DIR= or cd to another path."
+      echo "Agent: stop; do not reach that checkout another way (cd, a copy, a script). Tell the person what you needed there and the command they can run themselves."
       exit 2
     fi
   fi

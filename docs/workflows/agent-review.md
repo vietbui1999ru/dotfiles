@@ -440,6 +440,24 @@ Add to `~/.claude/trial/manifest.json` (consolidation Phase 7): name `agent-revi
 `.pi/agent-review/decisions/`, compared with `pi-diff-review`'s `decisions.jsonl` count over the
 same window.
 
+## tree-changed
+
+`agent-review approve` refuses with `tree-changed` when the working tree no longer matches the
+tree Pi's run ended with (`endTree`). The usual cause is a review fix made before approving,
+committed or not: the check hashes the working tree, so a commit does not hide the change. An
+agent that sees this refusal stops and reports it; these steps are the person's.
+
+1. Save any uncommitted fix (commit it, or copy it aside). List what differs from the run's end:
+   `git diff --name-status refs/agent-review/<id>/end` and `git status --short`.
+2. Put the run's files back: `git checkout refs/agent-review/<id>/end -- <files>`, and remove
+   any file you added that the run's end does not have. The `end` ref is the commit Pi
+   snapshotted, so its tree is `endTree`.
+3. Approve: `agent-review approve <id>`.
+4. Reapply the fixes: `git checkout HEAD -- <files>` if they were committed, or restore the
+   saved copy.
+
+Or drop the review instead: `agent-review skip <id>`.
+
 ## Known limits (document, don't solve)
 
 - **Review is post-hoc.** Tests and the verifier execute the agent's unreviewed code during the
