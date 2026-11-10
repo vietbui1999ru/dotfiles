@@ -13,12 +13,13 @@ export function gateToast(event) {
   if (typeof event.target !== "string") return null;
   if (!GATES.has(event.gate) || !ACTIONS.has(event.action) || !OUTCOMES.has(event.outcome)) return null;
   const { gate, action, outcome, target, message } = event;
-  if (action === "skip" || action === "deny") {
-    if (outcome !== "ok") return null;
-    return { title: action === "skip" ? "Skipped" : "Spec denied", body: target, level: "info", timeout: 5000 };
+  if (outcome === "ok") {
+    if (action === "skip") return { title: "Skipped", body: target, level: "info", timeout: 5000 };
+    if (action === "deny") return { title: "Spec denied", body: target, level: "info", timeout: 5000 };
+    return { title: gate === "spec" ? "Spec approved" : "Approved", body: target, level: "success", timeout: 5000 };
   }
-  if (outcome === "ok") return { title: gate === "spec" ? "Spec approved" : "Approved", body: target, level: "success", timeout: 5000 };
-  if (outcome === "cancelled") return { title: "Approval cancelled", body: target, level: "warning", timeout: 5000 };
+  // A refused or cancelled skip or deny toasts too, the same as a refused approve.
+  if (outcome === "cancelled") return { title: action === "skip" ? "Skip cancelled" : "Approval cancelled", body: target, level: "warning", timeout: 5000 };
   return {
     title: gate === "spec" ? "Spec refused" : "agent-review refused",
     body: typeof message === "string" ? message : target,

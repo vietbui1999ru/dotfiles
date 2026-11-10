@@ -26,6 +26,12 @@ test("gateToast: skip and deny ok map to Skipped and Spec denied", () => {
   assert.deepEqual(gateToast(event({ gate: "spec", action: "deny" })), { title: "Spec denied", body: "pi-live-a3f9", level: "info", timeout: 5000 });
 });
 
+test("gateToast: refused and cancelled skip or deny still toast", () => {
+  assert.deepEqual(gateToast(event({ action: "skip", outcome: "refused", message: "already decided" })), { title: "agent-review refused", body: "already decided", level: "error", timeout: 10000 });
+  assert.deepEqual(gateToast(event({ action: "skip", outcome: "cancelled" })), { title: "Skip cancelled", body: "pi-live-a3f9", level: "warning", timeout: 5000 });
+  assert.deepEqual(gateToast(event({ gate: "spec", action: "deny", outcome: "refused", message: "spec reject exited 1" })), { title: "Spec refused", body: "spec reject exited 1", level: "error", timeout: 10000 });
+});
+
 test("gateToast: malformed events are null", () => {
   assert.equal(gateToast(null), null);
   assert.equal(gateToast(event({ outcome: "done" })), null);
