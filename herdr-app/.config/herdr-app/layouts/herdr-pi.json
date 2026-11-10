@@ -63,6 +63,16 @@
               "content": {
                 "mod": "pi-fleet"
               }
+            },
+            {
+              "id": "focus",
+              "type": "block",
+              "size": {
+                "px": 84
+              },
+              "content": {
+                "mod": "workspaces"
+              }
             }
           ]
         },

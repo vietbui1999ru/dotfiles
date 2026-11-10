@@ -199,16 +199,43 @@ def breaches(board: Board) -> list[str]:
     return out
 
 
+def board_repos(board: Board) -> list[str]:
+    """The repos named by Work, Hobby and Frozen items, in board order, each once."""
+    seen: list[str] = []
+    for name in ("Work", "Hobby", "Frozen"):
+        for item in board.items(name):
+            repo = item["key"].split(":", 1)[0]
+            if repo not in seen:
+                seen.append(repo)
+    return seen
+
+
+def repo_paths(board: Board) -> tuple[dict[str, str], list[str]]:
+    """Main worktree path per board repo, plus the repos repo_path() cannot resolve uniquely."""
+    paths: dict[str, str] = {}
+    errors: list[str] = []
+    for repo in board_repos(board):
+        try:
+            paths[repo] = str(repo_path(repo))
+        except SystemExit:
+            errors.append(repo)
+    return paths, errors
+
+
 def state(board: Board) -> dict:
     work = board.items("Work")
     hobby = board.items("Hobby")
+    paths, path_errors = repo_paths(board)
     return {
         "work": describe(work[0]) if work else None,
         "hobby": describe(hobby[0]) if hobby else None,
         "frozen": [describe(item) for item in board.items("Frozen")],
         "parked": [line[2:] for line in board.sections["Parked"] if line.startswith("- ")],
         "read_only": False,
+        "board": str(board_path()),
         "breaches": breaches(board),
+        "paths": paths,
+        "path_errors": path_errors,
     }
 
 

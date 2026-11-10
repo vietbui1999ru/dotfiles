@@ -103,6 +103,11 @@ class CapsTest(BoardTest):
         self.assertEqual(data["breaches"], [])
         self.assertIn("read_only", data)
 
+    def test_caps_json_names_the_board_path_under_focus_board(self):
+        self.write(board_text(work=["- acme-api:feat/x | stage: build"]))
+        code, out, _ = self.run_cli("status", "--json")
+        self.assertEqual(json.loads(out)["board"], str(self.board))
+
     def test_caps_no_board_is_one_line_and_allows(self):
         self.assertFalse(self.board.exists())
         code, out, _ = self.run_cli("status")
@@ -198,6 +203,49 @@ class LifecycleTest(BoardTest):
         git("branch", "feat/focus")
         git("worktree", "add", "-q", str(repo / "wt"), "feat/focus")
         return repo
+
+
+class PathsTest(BoardTest):
+    """`status --json` names each board repo's main worktree (the Workspaces panel reads it)."""
+
+    def make_repo(self, name, under="repos"):
+        repo = self.tmp / under / name
+        (repo / ".git").mkdir(parents=True)
+        return repo
+
+    def test_paths_lists_work_and_frozen_repos(self):
+        work = self.make_repo("acme-api")
+        frozen = self.make_repo("acme-web")
+        self.write(board_text(work=["- acme-api:feat/x | stage: build"], frozen=["- acme-web:feat/y | stage: plan"]))
+        code, out, _ = self.run_cli("status", "--json")
+        data = json.loads(out)
+        self.assertEqual(data["paths"], {"acme-api": str(work), "acme-web": str(frozen)})
+        self.assertEqual(data["path_errors"], [])
+
+    def test_paths_parked_free_text_adds_nothing(self):
+        self.make_repo("acme-api")
+        self.write(board_text(work=["- acme-api:feat/x | stage: build"], parked=["- other-repo:feat/z", "- free text, odd spacing"]))
+        code, out, _ = self.run_cli("status", "--json")
+        data = json.loads(out)
+        self.assertEqual(list(data["paths"]), ["acme-api"])
+        self.assertNotIn("other-repo", data["paths"])
+
+    def test_paths_items_keep_key_and_stage_only(self):
+        self.make_repo("acme-api")
+        self.write(board_text(work=["- acme-api:feat/x | stage: build"], hobby=["- acme-api:feat/h: a note"]))
+        code, out, _ = self.run_cli("status", "--json")
+        data = json.loads(out)
+        self.assertEqual(set(data["work"]), {"key", "stage"})
+        self.assertEqual(set(data["hobby"]), {"key", "stage"})
+
+    def test_paths_clash_is_left_out_and_named(self):
+        self.make_repo("acme-api", under="repos")
+        self.make_repo("acme-api", under="repos/second")
+        self.write(board_text(work=["- acme-api:feat/x | stage: build"]))
+        code, out, _ = self.run_cli("status", "--json")
+        data = json.loads(out)
+        self.assertEqual(data["paths"], {})
+        self.assertEqual(data["path_errors"], ["acme-api"])
 
 
 if __name__ == "__main__":
