@@ -262,8 +262,22 @@ def confirm(root: Path, run_id: str, files: list[str]) -> bool:
     return result.returncode == 0 and result.stdout.strip() == "Approve"
 
 
+# The next step for a refusal, appended to its message. It names the person's step and
+# tells an agent to stop: these refusals are gates, not obstacles to route around.
+NEXT = {
+    "tree-changed": "Agents: stop and report this. Person: put the run's files back, approve, then "
+                    "reapply the fixes, or run `agent-review skip <id>`. "
+                    "Steps: docs/workflows/agent-review.md#tree-changed.",
+    "already-decided": "Person: open Pi in its worktree to consume the decision, "
+                       "or run `agent-review skip <id>`.",
+    "not-confirmed": "Only the person can approve, in the dialog.",
+}
+
+
 class Refusal(Exception):
     def __init__(self, reason: str, message: str) -> None:
+        if reason in NEXT:
+            message = f"{message}. {NEXT[reason]}"
         super().__init__(message)
         self.reason, self.message = reason, message
 
