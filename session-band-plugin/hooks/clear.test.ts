@@ -167,7 +167,7 @@ test('a plugin clear summarises through a fork, not the digest', async ($, on) =
   await edit($)
   const result = await $.command.run(pluginClear)
 
-  expect(result.text).toBe('Session saved: .agents/sessions/20261007_cc_general_goal.md')
+  expect(result.text).toBe('Auto-clear saved: .agents/sessions/20261007_cc_general_goal.md')
   expect(world.modelPrompt).toBeUndefined()
   expect(world.saveStdin).toContain('## Completed')
 })

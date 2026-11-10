@@ -42,6 +42,7 @@ test('shouldSkipCompact holds only for an auto compaction below the ceiling in a
 
 test('readClearResult reads a saved path, a failure, or a clean clear', () => {
   expect(readClearResult('Session saved: .agents/sessions/x.md')).toEqual({ kind: 'saved', path: '.agents/sessions/x.md' })
+  expect(readClearResult('Auto-clear saved: .agents/sessions/x.md')).toEqual({ kind: 'saved', path: '.agents/sessions/x.md' })
   expect(readClearResult('Clear cancelled: nothing was saved.')).toEqual({ kind: 'failed', text: 'Clear cancelled: nothing was saved.' })
   expect(readClearResult('Clear cancelled: the save step failed.').kind).toBe('failed')
   expect(readClearResult('Clear refused: the transcript is already gone, nothing to summarise. Run save-session first, or re-run /clear.').kind).toBe('failed')

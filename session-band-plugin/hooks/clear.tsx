@@ -165,7 +165,8 @@ export const register: Register = on => {
       await reset($)
       // The answer's text, not a toast: /clear ends the session and the toast went with it.
       const result = await next(e)
-      return { ...result, text: `Session saved: ${path}` }
+      // A plugin clear says so: the next session's transcript otherwise shows it as a typed /clear.
+      return { ...result, text: `${e.origin.kind === 'plugin' ? 'Auto-clear saved' : 'Session saved'}: ${path}` }
     } catch (error) {
       return fail($, e, next, String(error))
     }

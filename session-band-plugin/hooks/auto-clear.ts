@@ -49,7 +49,8 @@ export const shouldSkipCompact = (c: CompactCheck): boolean =>
 
 export type ClearResult = { kind: 'saved'; path: string } | { kind: 'failed'; text: string } | { kind: 'cleared' }
 
-const SAVED = /^Session saved: (.+)$/
+// "Auto-clear saved" is a plugin clear's wording (clear.tsx); a typed /clear says "Session saved".
+const SAVED = /^(?:Session|Auto-clear) saved: (.+)$/
 
 // The /clear command's text: a saved path, one of the failure texts, or a clean clear (no real work, or a recent save).
 export const readClearResult = (text: string): ClearResult => {
