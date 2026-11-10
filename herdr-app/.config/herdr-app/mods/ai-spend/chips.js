@@ -70,3 +70,63 @@ export function fitChips(chips, width, reserved = 0) {
   }
   return kept;
 }
+
+// The safety and mistake chips read the last day, across every session (open Q3).
+export const WINDOW_MS = 24 * 60 * 60 * 1000;
+
+// JSON-lines text to objects; malformed lines and non-objects read as nothing.
+function objects(text) {
+  if (typeof text !== "string" || text === "") return [];
+  return text.split("\n").flatMap((line) => {
+    if (!line.trim()) return [];
+    try {
+      const value = JSON.parse(line);
+      return value !== null && typeof value === "object" && !Array.isArray(value) ? [value] : [];
+    } catch {
+      return [];
+    }
+  });
+}
+
+const str = (value) => (typeof value === "string" ? value : "");
+
+// Ports of safety-blocks.ts parseBlocks + parseVerdicts + judge + pendingCount, restricted to the
+// blocks whose ts falls in the window. `blockTexts` are the rotated then current block logs.
+// Returns the number of blocks no human has judged yet.
+export function pendingBlocks(blockTexts, verdictText, now, windowMs = WINDOW_MS) {
+  const verdicts = new Map();
+  for (const entry of objects(verdictText)) {
+    const id = str(entry.id);
+    const verdict = str(entry.verdict);
+    if (id && (verdict === "ok" || verdict === "false-positive" || verdict === "noted")) verdicts.set(id, verdict);
+  }
+  const seen = new Set();
+  let pending = 0;
+  for (const body of blockTexts) {
+    for (const entry of objects(body)) {
+      const id = str(entry.id);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      const at = Date.parse(str(entry.ts));
+      if (Number.isNaN(at) || at < now - windowMs) continue;
+      if (!verdicts.has(id)) pending += 1;
+    }
+  }
+  return pending;
+}
+
+// Ports of mistake-alerts.ts parseAlerts: this window's open alerts, newest first, as
+// { fingerprint, at, cwd } objects. Bad JSON reads as none.
+export function openAlerts(text, now, windowMs = WINDOW_MS) {
+  let parsed;
+  try {
+    parsed = JSON.parse(typeof text === "string" && text !== "" ? text : "{}");
+  } catch {
+    return [];
+  }
+  const alerts = Array.isArray(parsed?.alerts) ? parsed.alerts : [];
+  return alerts
+    .filter((a) => a && a.status === "open" && typeof a.at === "number" && a.at >= now - windowMs)
+    .sort((a, b) => b.at - a.at)
+    .map((a) => ({ fingerprint: str(a.fingerprint), at: a.at, cwd: str(a.cwd) }));
+}
