@@ -156,14 +156,25 @@ export default class Workspaces extends View {
 		cx.timer.every(10000, (cx) => this.refreshBoard(cx));
 		cx.timer.every(30000, (cx) => this.refresh(cx));
 		if (this.isPanel) this.watchBoard(cx);
+		// Key commands reach every copy of this mod. Only the sidebar copy handles them: if the
+		// panel copy did too, one toggle would close the panel and then reopen it.
+		if (this.isPanel) return;
 		cx.spawn(async (cx) => {
 			for (;;) {
 				const c = await nextCommand();
 				if (c === "open") this.openPanel();
 				if (c === "toggle") this.togglePanel();
+				if (c === "restart") await this.restartApp();
 				cx.notify();
 			}
 		});
+	}
+
+	// Quits Herdr and opens it again. Terminals live in herdr-core, so they survive the restart.
+	// A detached shell waits until the app process is gone, then reopens it.
+	async restartApp() {
+		await exec("/bin/sh", ["-c", "nohup /bin/sh -c 'while pgrep -xq Herdr; do sleep 0.2; done; open -a Herdr' >/dev/null 2>&1 &"]);
+		run("app.quit");
 	}
 
 	// The board file's folder is watched: a write from focus (or Obsidian) re-reads at once.
