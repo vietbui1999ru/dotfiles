@@ -1,7 +1,7 @@
 // Run: node --test scripts/pi-ai-spend-format.test.mjs
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { bandModel, costLabel, quotaLabel, quotaView, resetText } from "../herdr-app/.config/herdr-app/mods/ai-spend/format.js";
+import { bandModel, costLabel, quotaLabel, quotaView, resetText, terminalSegments, TERMINAL_MAX_AGE_MS } from "../herdr-app/.config/herdr-app/mods/ai-spend/format.js";
 
 test("costLabel: computed is approximate, reported is exact, null and missing are unknown", () => {
   assert.equal(costLabel({ cost_usd: 28.6667, cost_source: "computed" }), "≈$28.67");
@@ -118,4 +118,41 @@ test("bandModel: a subscription with no quota is shown when it has a cost", () =
   assert.equal(groups[0].name, "Go");
   assert.equal(groups[0].quotas.length, 0);
   assert.equal(groups[0].today, "$—");
+});
+
+// The focused terminal's snapshot, written by the status line per terminal. Hidden when the focus
+// is not a Claude terminal, the file is missing or stale, or it is malformed.
+const NOW = Date.parse("2026-11-09T12:00:00Z");
+const snap = (over = {}) => JSON.stringify({ ctx: 70, model: "opus-4", branch: "feat/x", updated: NOW / 1000, ...over });
+
+test("terminalSegments: a fresh snapshot gives ctx, model and branch", () => {
+  assert.deepEqual(terminalSegments("t1r", snap(), NOW), { ctx: "ctx 70%", model: "opus-4", branch: "feat/x", ctxPct: 70 });
+});
+
+test("terminalSegments: no focused terminal, or an id that is not a plain name, shows nothing", () => {
+  assert.equal(terminalSegments(null, snap(), NOW), null);
+  assert.equal(terminalSegments("", snap(), NOW), null);
+  assert.equal(terminalSegments("../evil", snap(), NOW), null);
+  assert.equal(terminalSegments("a/b", snap(), NOW), null);
+});
+
+test("terminalSegments: a missing or unreadable file shows nothing", () => {
+  assert.equal(terminalSegments("t1r", null, NOW), null);
+  assert.equal(terminalSegments("t1r", "", NOW), null);
+  assert.equal(terminalSegments("t1r", "{not json", NOW), null);
+  assert.equal(terminalSegments("t1r", JSON.stringify({ ctx: 5 }), NOW), null);
+});
+
+test("terminalSegments: a snapshot older than five minutes is hidden, a fresh one is shown", () => {
+  const stale = NOW / 1000 - TERMINAL_MAX_AGE_MS / 1000 - 1;
+  assert.equal(terminalSegments("t1r", snap({ updated: stale }), NOW), null);
+  const fresh = NOW / 1000 - TERMINAL_MAX_AGE_MS / 1000 + 5;
+  assert.notEqual(terminalSegments("t1r", snap({ updated: fresh }), NOW), null);
+});
+
+test("terminalSegments: a snapshot with no context keeps its model and branch", () => {
+  const got = terminalSegments("t1r", snap({ ctx: null, model: "", branch: "main" }), NOW);
+  assert.equal(got.ctx, null);
+  assert.equal(got.model, null);
+  assert.equal(got.branch, "main");
 });

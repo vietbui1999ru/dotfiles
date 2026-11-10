@@ -3,18 +3,23 @@
 
 import { View, div } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { exec, run, theme } from "herdr";
-import { bandModel, resetText } from "./format.js";
+import { exec, run, theme, focused, home, readTextFile } from "herdr";
+import { bandModel, resetText, terminalSegments } from "./format.js";
 
 const POLL_MS = 60000;
+// The focused terminal changes with focus, so it is read on a shorter tick than the quota poll.
+const TERMINAL_MS = 3000;
 const COLOR = { normal: "muted", attention: "working", error: "blocked" };
 
 export default class AiSpend extends View {
   init(_props, cx) {
     this.model = null;
     this.busy = false;
+    this.terminal = null;
     this.poll(cx);
+    this.pollTerminal(cx);
     cx.timer.every(POLL_MS, (cx) => this.poll(cx));
+    cx.timer.every(TERMINAL_MS, (cx) => this.pollTerminal(cx));
   }
 
   // One call at a time: a slow claude-tui never stacks up behind the timer.
@@ -29,6 +34,24 @@ export default class AiSpend extends View {
         this.model = bandModel(1, "");
       } finally {
         this.busy = false;
+        cx.notify();
+      }
+    });
+  }
+
+  // The focused Claude terminal's context, model and branch. Read on the same timer, but on its
+  // own, so a failed quota call never hides them. Hidden when the focus is not a Claude terminal.
+  pollTerminal(cx) {
+    cx.spawn(async (cx) => {
+      const terminal = focused()?.terminal ?? null;
+      try {
+        const text = terminal && /^[A-Za-z0-9._-]+$/.test(terminal)
+          ? await readTextFile(`${home()}/.local/state/claude-tui/by-terminal/${terminal}.json`)
+          : null;
+        this.terminal = terminalSegments(terminal, text, Date.now());
+      } catch {
+        this.terminal = null;
+      } finally {
         cx.notify();
       }
     });
@@ -75,11 +98,27 @@ export default class AiSpend extends View {
       .cursor_pointer()
       .hover((s) => s.bg(t.hover))
       .on_click(() => run("terminal.open", { argv: ["claude-tui"], place: "tab" }));
-    if (!this.model) return band;
+    const focus = this.terminalStrip(t);
+    if (!this.model) return band.children(focus);
     if (this.model.message) return band.px(10).text_color(t.dim).child(this.model.message);
-    return band.children(this.model.groups.flatMap((g, i) => [
-      ...(i > 0 ? [div().h(14).w(1).flex_none().bg(t.border)] : []),
-      this.group(t, g, now),
-    ]));
+    return band.children([
+      ...focus,
+      ...this.model.groups.flatMap((g, i) => [
+        ...(i > 0 ? [div().h(14).w(1).flex_none().bg(t.border)] : []),
+        this.group(t, g, now),
+      ]),
+    ]);
+  }
+
+  // The focused terminal's context, model and branch, as one run of text. Empty when hidden.
+  terminalStrip(t) {
+    const s = this.terminal;
+    if (!s) return [];
+    const parts = [s.ctx, s.model, s.branch].filter(Boolean);
+    if (parts.length === 0) return [];
+    return [
+      div().id("spend-terminal").flex_none().px(10).whitespace_nowrap().text_color(t.muted).child(parts.join(" · ")),
+      div().h(14).w(1).flex_none().bg(t.border),
+    ];
   }
 }
