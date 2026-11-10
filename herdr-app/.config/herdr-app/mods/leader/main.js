@@ -3,34 +3,12 @@
 // resolveKey, the step math, the panel decision) lives in ./logic.js and is tested in Node.
 //
 // Resize mode (r) keeps the overlay open: h/l move the sidebar, H/L the panel, until Escape or
-// any other key. Its sizes are kept in shared("leader.sizes") and start from herdr-pi.json.
+// any other key. Each step starts from the node's live size in layout().
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { props, run, layout, closeOverlay, shared, setShared, readTextFile, theme, notify, home, exec } from "herdr";
-import { GROUPS, rowsFor, resolveKey, resizeTarget, nextSize, panelAction, panelState, sizeOf, isHerdrPi, SIDEBAR, PANEL } from "./logic.js";
-
-const PI_LAYOUT = (home) => `${home}/.config/herdr-app/layouts/herdr-pi.json`;
-
-// The name of the layout the window shows, from `herdr-app status` ("" when it cannot be read).
-async function shownLayout() {
-  const r = await exec("herdr-app", ["status"], { timeout: 5000 }).catch(() => null);
-  try { return JSON.parse(r?.stdout ?? "null")?.layout ?? ""; } catch { return ""; }
-}
-
-// The running px for each resizable node. Seeded from the herdr-pi layout file once, then
-// kept in shared state so repeated presses (and a reopened overlay) continue from the last size.
-async function currentSizes(home) {
-  const known = shared("leader.sizes");
-  if (known) return known;
-  let sizes = { sidebar: SIDEBAR.start, panel: PANEL.start };
-  try {
-    const parsed = JSON.parse((await readTextFile(PI_LAYOUT(home))) ?? "null");
-    sizes = { sidebar: sizeOf(parsed, "sidebar") ?? SIDEBAR.start, panel: sizeOf(parsed, "panel") ?? PANEL.start };
-  } catch { /* no layout file: keep the defaults */ }
-  setShared("leader.sizes", sizes);
-  return sizes;
-}
+import { props, run, layout, closeOverlay, shared, theme, notify } from "herdr";
+import { GROUPS, rowsFor, resolveKey, resizeTarget, nextSize, panelAction, panelState, sizeOf, isHerdrPi } from "./logic.js";
 
 export default class Leader extends View {
   init(_p, cx) {
@@ -60,26 +38,26 @@ export default class Leader extends View {
     try { return layout(); } catch { return null; }
   }
 
-  // Resize mode: one step per press, sizes kept in shared state. Any other key closes.
-  async resize(key, cx) {
+  // Resize mode: one step per press from the node's live size (so a drag in between is kept).
+  // Any other key closes. A shifted letter may arrive as "h" with shift, so normalise it.
+  resize(event, cx) {
+    const key = event.modifiers?.shift && /^[a-z]$/.test(event.key) ? event.key.toUpperCase() : event.key;
     const target = resizeTarget(key);
     if (!target) { closeOverlay(props().overlay); return; }
-    if (!isHerdrPi(await shownLayout())) {
+    if (!isHerdrPi(shared("layout"))) {
       notify({ title: "Resize works in herdr-pi", level: "info", timeout: 4000 });
       closeOverlay(props().overlay);
       return;
     }
-    const sizes = await currentSizes(home());
-    const name = target.node.id === "sidebar" ? "sidebar" : "panel";
-    const px = nextSize(sizes[name], target.delta, target.node.min, target.node.max);
-    setShared("leader.sizes", { ...sizes, [name]: px });
-    run("layout.resize", { id: target.node.id, px });
+    const { node, delta } = target;
+    const current = sizeOf(this.layoutTree(), node.id) ?? node.start;
+    run("layout.resize", { id: node.id, px: nextSize(current, delta, node.min, node.max) });
     cx.notify();
   }
 
   onKey(event, cx) {
     if (event.key === "escape") { closeOverlay(props().overlay); return; }
-    if (this.mode === "resize") { this.resize(event.key, cx); return; }
+    if (this.mode === "resize") { this.resize(event, cx); return; }
     const entry = resolveKey(event);
     if (!entry) { closeOverlay(props().overlay); return; }
     if (entry.mode === "resize") { this.mode = "resize"; cx.notify(); return; }
