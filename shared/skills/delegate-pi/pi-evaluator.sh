@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Council evaluator seam: invokes pi/Codex for one dimension, emits VOTE:/REASON: for bin/council to parse.
+# Council evaluator seam: invokes pi/Codex for one dimension, emits VOTE:/REASON: for the council engine to parse.
 
 set -euo pipefail
 
