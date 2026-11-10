@@ -252,6 +252,15 @@ class BashHookCases(unittest.TestCase):
             self.assertIn("commit-funnel", r.stderr)
             self.assertEqual(self.run_hook(cmd, outside).returncode, 0, cmd)
 
+    def test_bash_hook_aimed_checkout_tells_agent_to_stop(self):
+        # Fake hook cwd values only; the hook reads the string and touches no file.
+        base = os.path.join(tempfile.gettempdir(), "refguard-cwd")
+        inside = os.path.join(base, ".claude", "worktrees", "w")
+        r = self.run_hook(f"git -C {base} status", inside)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("aimed at another checkout", r.stderr)
+        self.assertIn("Agent: stop", r.stderr)
+
     def test_bash_hook_blocks_hookspath_spellings(self):
         # Config keys are case-insensitive, and env-based config never names core.hooksPath.
         base = os.path.join(tempfile.gettempdir(), "refguard-cwd")
