@@ -1,7 +1,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, Scrollbar, v_virtual_list } from "gpui-base";
-import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, settings, shared, setShared, run } from "herdr";
-import { runFrom, refsFor, rangeArgs, RUN_READ } from "./logic.js";
+import { spaces, panes, focused, exec, readTextFile, writeTextFile, watchFolder, theme, settings, shared, setShared, run, home, notify } from "herdr";
+import { runFrom, refsFor, rangeArgs, RUN_READ, errorReport, reportDir, lastErrorPath, reportFileName } from "./logic.js";
 
 function location() {
   const space = spaces().find((s) => s.active), f = focused();
@@ -21,6 +21,31 @@ const countLines = (text) => text ? text.split("\n").length - Number(text.endsWi
 // Numbers each diff line once, so a frame only draws the rows on screen.
 // The colour of a file's status letter: added green, deleted and conflicted red, else modified.
 const STATUS_COLOR = (t) => ({ A: t.ansi2, D: t.ansi1, U: t.ansi1 });
+
+// Copy an error report: write it to the reports folder and to last-error.md, put it on the
+// clipboard through herdr-copy, and toast the path. A failed copy still leaves the file.
+async function copyReport(report, action) {
+  const dir = reportDir(home());
+  await exec("mkdir", ["-p", dir]);
+  let path = `${dir}/${reportFileName("pi-changes", action)}`;
+  for (let n = 2; (await readTextFile(path)) !== null; n++) path = `${dir}/${reportFileName("pi-changes", action).replace(/\.md$/, `-${n}.md`)}`;
+  await writeTextFile(path, report, null);
+  const last = lastErrorPath(home());
+  await writeTextFile(last, report, await readTextFile(last));
+  const copied = await exec(`${home()}/dotfiles/scripts/herdr-copy`, [path], { timeout: 10000 }).then((r) => r.code === 0).catch(() => false);
+  notify({ title: copied ? "Error report copied" : "Error report saved", body: copied ? path : `Copy failed. The report is at ${path}`, level: copied ? "info" : "warning", timeout: 8000 });
+  return path;
+}
+
+// A git call that failed, as the report needs it: argv, folder, exit code and output.
+function gitFailure(argv, cwd, r, fallback) {
+  return { argv, cwd, code: r?.code ?? 1, stdout: r?.stdout ?? "", stderr: r?.stderr || fallback };
+}
+
+// The folder a failed read was run from, for a report's target when the root is not known yet.
+function cwdOrRun() {
+  return location().cwd ?? "";
+}
 
 function diffRows(lines) {
   let old = 0, next = 0;
@@ -69,7 +94,7 @@ export default class Changes extends View {
     const { cwd, on } = location(), context = key(), picked = pickedRun();
     if (context !== this.context) {
       this.context = context; this.root = null; this.files = []; this.open = null;
-      this.setLines([]); this.message = ""; this.input.set_value(""); this.error = null; this.note = null; this.watched = null; this.closed = false; this.limited = false;
+      this.setLines([]); this.message = ""; this.input.set_value(""); this.error = null; this.note = null; this.failure = null; this.watched = null; this.closed = false; this.limited = false;
       this.run = picked; this.gone = false;
     }
     // A run's review refs live in a repo on this machine, whatever terminal has focus.
@@ -82,13 +107,14 @@ export default class Changes extends View {
         if (key() !== context) return;
         if (top.code !== 0) { this.root = null; this.files = []; this.setLines([]); this.open = null; this.error = "Not a git repository"; return; }
         const root = top.stdout.trim(), git = (args) => exec("git", [...READ, ...args], { cwd: root, on });
-        const status = await git(["status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all"]);
-        if (status.code !== 0) throw new Error(status.stderr);
+        const statusArgs = ["status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all"];
+        const status = await git(statusArgs);
+        if (status.code !== 0) throw Object.assign(new Error(status.stderr), { raw: gitFailure(["git", ...READ, ...statusArgs], root, status, "git status failed") });
         const head = await git(["rev-parse", "--verify", "HEAD"]);
         const stats = {};
         const results = head.code === 0 ? [await git(["diff", "HEAD", "--numstat", "-z", "--no-renames"])] : [await git(["diff", "--cached", "--numstat", "-z", "--no-renames"]), await git(["diff", "--numstat", "-z", "--no-renames"])];
         for (const result of results) {
-          if (result.code !== 0) throw new Error(result.stderr);
+          if (result.code !== 0) throw Object.assign(new Error(result.stderr), { raw: gitFailure(["git", "diff"], root, result, "git diff failed") });
           for (const entry of result.stdout.split("\0")) {
             const [a, d, ...parts] = entry.split("\t");
             if (!parts.length) continue;
@@ -113,9 +139,9 @@ export default class Changes extends View {
         if (!this.open && !this.closed && files.length) this.open = files[0].path;
         if (this.open) {
           try { await this.load(this.open, context); }
-          catch { if (key() === context) this.setLines(["Cannot preview this diff (too large or unreadable)"]); }
+          catch (e) { if (key() === context) { this.setLines(["Cannot preview this diff (too large or unreadable)"]); this.failed({ action: "preview", target: this.open, raw: e.raw, text: "Cannot preview this diff (too large or unreadable)" }); } }
         }
-      } catch (e) { if (key() === context) this.error = String(e); }
+      } catch (e) { if (key() === context) { this.error = String(e); this.failed({ action: "changes", target: this.root ?? cwdOrRun(), raw: e.raw, text: this.error }); } }
       finally { this.loading = false; cx.notify(); }
     });
   }
@@ -140,7 +166,7 @@ export default class Changes extends View {
           return;
         }
         const listed = await exec("git", rangeArgs(refs), { cwd: root, on });
-        if (listed.code !== 0) throw new Error(listed.stderr);
+        if (listed.code !== 0) throw Object.assign(new Error(listed.stderr), { raw: gitFailure(["git", ...rangeArgs(refs)], root, listed, "git diff failed") });
         const files = [];
         for (const entry of listed.stdout.split("\0")) {
           const [a, d, ...parts] = entry.split("\t");
@@ -155,9 +181,9 @@ export default class Changes extends View {
         if (!this.open && !this.closed && files.length) this.open = files[0].path;
         if (this.open) {
           try { await this.load(this.open, context); }
-          catch { if (key() === context) this.setLines(["Cannot preview this diff (too large or unreadable)"]); }
+          catch (e) { if (key() === context) { this.setLines(["Cannot preview this diff (too large or unreadable)"]); this.failed({ action: "preview", target: this.open, raw: e.raw, text: "Cannot preview this diff (too large or unreadable)" }); } }
         }
-      } catch (e) { if (key() === context) this.error = String(e); }
+      } catch (e) { if (key() === context) { this.error = String(e); this.failed({ action: "changes", target: this.root ?? cwdOrRun(), raw: e.raw, text: this.error }); } }
       finally { this.loading = false; cx.notify(); }
     });
   }
@@ -168,8 +194,9 @@ export default class Changes extends View {
     let lines;
     const run = this.run ? refsFor(this.run.runId) : null;
     if (run) {
+      const argv = ["git", ...rangeArgs(run, path)];
       const r = await exec("git", rangeArgs(run, path), { cwd: root, on });
-      if (r.code !== 0) throw new Error(r.stderr);
+      if (r.code !== 0) throw Object.assign(new Error(r.stderr), { raw: gitFailure(argv, root, r, "git diff failed") });
       const all = r.stdout.replace(/\n$/, "").split("\n"), first = all.findIndex((l) => l.startsWith("@@"));
       lines = first < 0 ? [file.binary ? "Binary file changed" : "No text diff available"] : all.slice(first);
     } else if (file.fresh || (!this.hasHead && file.status === "A")) {
@@ -181,8 +208,9 @@ export default class Changes extends View {
         lines = [`@@ -0,0 +1,${file.add} @@`, ...text.slice(0, 400000).replace(/\n$/, "").split("\n").slice(0, 1500).map(l => `+${l}`)];
       }
     } else {
-      const r = await exec("git", [...READ, "diff", ...(this.hasHead ? ["HEAD"] : []), "--no-ext-diff", "--no-textconv", "--no-color", "--", path], { cwd: root, on });
-      if (r.code !== 0) throw new Error(r.stderr);
+      const argv = ["git", ...READ, "diff", ...(this.hasHead ? ["HEAD"] : []), "--no-ext-diff", "--no-textconv", "--no-color", "--", path];
+      const r = await exec("git", argv.slice(1), { cwd: root, on });
+      if (r.code !== 0) throw Object.assign(new Error(r.stderr), { raw: gitFailure(argv, root, r, "git diff failed") });
       const all = r.stdout.replace(/\n$/, "").split("\n"), first = all.findIndex((l) => l.startsWith("@@"));
       lines = first < 0 ? [file.binary ? "Binary file changed" : "No text diff available"] : all.slice(first);
     }
@@ -194,13 +222,26 @@ export default class Changes extends View {
     this.diffWidth = Math.max(300, ...lines.map(line => line.length * 7 + 50));
   }
 
+  // A failure the panel shows with a Copy control. `raw` is the git call's data when there is one.
+  failed(f) {
+    this.failure = f;
+    this.note = f.text;
+  }
+
+  async copyFailure() {
+    const f = this.failure;
+    if (!f) return;
+    const text = errorReport({ mod: "pi-changes", action: f.action, target: f.target, argv: f.raw?.argv, cwd: f.raw?.cwd, code: f.raw?.code, stdout: f.raw?.stdout, stderr: f.raw?.stderr ?? f.text, hint: "Check the folder is a git repository and the file can be read, then select it again." });
+    await copyReport(text, f.action);
+  }
+
   pick(path, cx) {
-    this.open = this.open === path ? null : path; this.setLines([]); this.note = null;
+    this.open = this.open === path ? null : path; this.setLines([]); this.note = null; this.failure = null;
     this.closed = !this.open;
     const context = this.context;
     if (this.open) cx.spawn(async (cx) => {
       try { await this.load(path, context); }
-      catch (e) { if (key() === context && this.open === path) this.note = `Cannot preview this diff (too large or unreadable): ${e}`; }
+      catch (e) { if (key() === context && this.open === path) this.failed({ action: "preview", target: path, raw: e.raw, text: `Cannot preview this diff (too large or unreadable): ${e}` }); }
       cx.notify();
     });
     cx.notify();
@@ -299,7 +340,8 @@ export default class Changes extends View {
             (range) => this.rows.slice(range.start, range.end).map((row) => this.diffRow(row, t))).size_full())))
         .child(Scrollbar.vertical("changes-diff").viewport_from_layout().absolute().inset_0())
         .when(!this.open && this.files.length > 0, (e) => e.child(div().absolute().top(6).px(12).text_color(t.dim).child("Select a file to view its changes"))))
-      .when(Boolean(this.note), (e) => e.child(div().px(10).pb(8).text_size(11).text_color(t.ansi1).child(this.note)))
+      .when(Boolean(this.note), (e) => e.child(h_flex().px(10).pb(8).gap(6).items_center().child(div().flex_1().min_w(0).text_size(11).text_color(t.ansi1).child(this.note))
+        .when(!!this.failure, (x) => x.child(div().id("changes-copy").flex_none().text_size(11).text_color(t.accent).cursor_pointer().hover((s) => s.text_color(t.foreground)).on_click((_e, cx) => { this.copyFailure().catch(() => {}); cx.notify(); }).child("Copy")))))
       // A run is read-only: the commit row shows only in the working-tree view.
       .when(!inRun, (e) => e.child(h_flex().flex_none().p(10).gap(8).border_t(1).border_color(t.border)
         .child(div().id("commit-message").flex_1().min_w(0).h(32).px(10).flex().items_center().rounded(8).border_1().border_color(this.typing ? t.accent : t.border).cursor_text().on_mouse_down("left", (_e, cx) => cx.stop_propagation()).child(Input.new(this.input).h_full().text_size(12).text_color(t.foreground)))
