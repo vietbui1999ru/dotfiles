@@ -1,13 +1,16 @@
-// The Pi agents section of the sidebar: one two-line row per Pi run, a + to start a new
-// one, a monitor button, and the window sync. Opened by herdr-pi.json beneath the agents
-// mod. A copy opened with props { role: "new" } is the dialog instead (new-dialog.js): it
-// runs no sync or command loop.
+// The Agents section of the sidebar: one list of every terminal agent (Claude, Codex, Pi,
+// others) with Herdr's status, grouping and click-to-focus. A Pi run keeps its own second
+// line (model, elapsed time) and its window, and its review actions sit in Needs review.
+// Opened by herdr-pi.json as the one sidebar list. A copy opened with props { role: "new" }
+// is the dialog instead (new-dialog.js): it runs no sync or command loop.
 // Key commands (keys.json): pi-fleet.new opens the dialog, pi-fleet.next focuses the next run,
 // pi-fleet.monitor opens the Pi monitor beside the focused pane.
 
-import { View, div, svg } from "gpui-kit";
+import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import {
+	closeOverlay,
+	agents,
 	terminals,
 	focused,
 	panes,
@@ -16,6 +19,7 @@ import {
 	openOverlay,
 	shared,
 	setShared,
+	setAgentOrder,
 	props,
 	home,
 	nextCommand,
@@ -23,7 +27,7 @@ import {
 	hc,
 	notify,
 } from "herdr";
-import { piRows, planSync, nextAddress, windowSpec, duration, reviewRows, approveMessage, cleanupRows, removeMessage, canClose } from "./logic.js";
+import { piRows, planSync, nextAddress, windowSpec, duration, reviewRows, approveMessage, cleanupRows, removeMessage, canClose, mergeAgentRows, displayedOrder, subTree, pinnedFirst, byUrgency, pruneChanged } from "./logic.js";
 
 // Opens a run's changes in the Changes panel: picks the run for it, then shows the panel.
 function openRunChanges(run_) {
@@ -36,6 +40,47 @@ import { newDialog, newDialogState } from "./new-dialog.js";
 // The agents mod's spinner and icon set, so this section reads like its neighbour.
 const ICON = "mods/workspace-chrome";
 
+const RANK = { blocked: 4, done: 3, working: 2, idle: 1 };
+const SECTION = { 4: "Needs you", 3: "Done", 2: "Working", 1: "Idle" };
+const SECTION_STATUS = { 4: "blocked", 3: "done", 2: "working" };
+const SORTS = [
+	{ id: "priority", label: "Priority", icon: "clock" },
+	{ id: "grouped", label: "Grouped by space", icon: "layers" },
+];
+const sortOf = () => SORTS.find((s) => s.id === shared("agents.sort")) ?? SORTS[0];
+// A sub-agent's status as its row shows it: an error counts as blocked, done reads as idle
+// (the parent's done is the news, as in the built-in list).
+const kidStatus = (k, listed) => {
+	const s = listed.get(k.address) ?? k.status;
+	return s === "error" ? "blocked" : s === "done" ? "idle" : s;
+};
+
+// The agent's icon from the app's program table: a one-color glyph or a picture.
+function icon(p, size, color) {
+	if (!p?.icon) return null;
+	return p.tint ? svg(p.icon).size(size).flex_none().text_color(color) : image(p.icon).w(size).h(size).flex_none();
+}
+
+
+// The stored state-change map. A missing store, or one that is not JSON, reads as empty.
+function readChanged() {
+	try {
+		const parsed = JSON.parse(localStorage.getItem("changed") ?? "{}");
+		return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+	} catch {
+		return {};
+	}
+}
+
+// Pins the person set on a row whose terminal was offline, kept until it comes back.
+function readPins() {
+	try {
+		const parsed = JSON.parse(localStorage.getItem("pins") ?? "[]");
+		return Array.isArray(parsed) ? parsed : [];
+	} catch {
+		return [];
+	}
+}
 
 export default class PiFleet extends View {
 	init(_props, cx) {
@@ -43,9 +88,18 @@ export default class PiFleet extends View {
 			this.dialog = newDialogState(props());
 			return;
 		}
+		// The sort menu is its own popup copy of this mod: it draws the menu and runs no loop.
+		if (props()?.sortMenu) return;
 		this.opened = [];
 		this.windowCount = 0;
 		this.rows = [];
+		this.agentList = [];
+		this.changed = readChanged();
+		this.pendingPins = readPins();
+		this.migratingPins = new Set();
+		this.folded = new Set();
+		this.listed = new Map();
+		this.hovered = null;
 		this.reviews = [];
 		this.cleanup = [];
 		this.cleaning = false;
@@ -53,6 +107,7 @@ export default class PiFleet extends View {
 		this.removeNote = undefined;
 		this.sync(cx);
 		cx.timer.every(2000, (cx) => this.sync(cx));
+		cx.timer.every(30000, (cx) => cx.notify());
 		this.readReviews(cx);
 		cx.timer.every(60000, (cx) => this.readReviews(cx));
 		cx.spawn(async (cx) => {
@@ -77,7 +132,63 @@ export default class PiFleet extends View {
 		}
 		this.opened = plan.opened.concat(plan.open);
 		if (plan.dismissed.length !== dismissed.length) setShared("pi-fleet.dismissed", plan.dismissed);
+		this.agentList = agents();
+		this.listed = new Map(this.agentList.map((a) => [a.address, a.status]));
+		this.migratePins(terminals());
+		this.stamp(this.agentList, Date.now());
 		cx.notify();
+	}
+
+	// Stamp each agent whose status changed, so its row can show how long it has been in
+	// that state. Done and idle count as one: looking at a finished agent is not new work.
+	stamp(list, now) {
+		let dirty = false;
+		for (const a of list) {
+			const s = a.status === "done" ? "idle" : a.status;
+			if (this.changed[a.address]?.s === s) continue;
+			this.changed[a.address] = { s, at: now };
+			dirty = true;
+		}
+		// Drop addresses no longer listed, so the map does not grow forever.
+		const pruned = pruneChanged(this.changed, list.map((a) => a.address));
+		if (Object.keys(pruned).length !== Object.keys(this.changed).length) {
+			this.changed = pruned;
+			dirty = true;
+		}
+		if (dirty) localStorage.setItem("changed", JSON.stringify(this.changed));
+	}
+
+	// Pins (terminal.pin, the same label the built-in list reads): keep an offline pin until its
+	// terminal returns, and keep each pending until core echoes the label, so a failed write
+	// does not erase the old pin.
+	migratePins(all) {
+		const listed = new Map(all.filter((t) => t.state === "live").map((t) => [t.address, t]));
+		const pending = this.pendingPins.filter((address) => {
+			const terminal = listed.get(address);
+			if (!terminal) return true;
+			if (terminal.labels?.["herdr.pinned"]) return false;
+			if (!this.migratingPins.has(address)) {
+				this.migratingPins.add(address);
+				run("terminal.pin", { terminal: address, pinned: true });
+			}
+			return true;
+		});
+		if (pending.length === this.pendingPins.length) return;
+		this.pendingPins = pending;
+		if (pending.length) localStorage.setItem("pins", JSON.stringify(pending));
+		else localStorage.removeItem("pins");
+	}
+
+	// Pin or unpin a row. Storing the address keeps the pin across an offline spell.
+	togglePin(address, pinned) {
+		run("terminal.pin", { terminal: address, pinned });
+		if (pinned) {
+			if (!this.pendingPins.includes(address)) this.pendingPins = [...this.pendingPins, address];
+		} else {
+			this.pendingPins = this.pendingPins.filter((a) => a !== address);
+		}
+		if (this.pendingPins.length) localStorage.setItem("pins", JSON.stringify(this.pendingPins));
+		else localStorage.removeItem("pins");
 	}
 
 	// A window row: take it out of the dismissed list and open its window; the person
@@ -96,11 +207,17 @@ export default class PiFleet extends View {
 		run("pane.focus", { terminal: row.address });
 	}
 
+	// Pi-fleet.next: the Pi run after the focused terminal; the Pi list is the Pi runs only.
 	focusNext() {
 		const address = nextAddress(this.rows, focused()?.terminal);
 		const row = this.rows.find((r) => r.address === address);
 		if (row) this.focusRow(row);
 		else notify({ title: "No Pi runs", timeout: 3000 });
+	}
+
+	// A non-Pi agent row: focus its pane, as Herdr's own list does.
+	focusAgent(a) {
+		run("pane.focus", { pane: a.pane });
 	}
 
 	// Focus the Pi monitor if it is open, else split one in beside the focused pane.
@@ -300,6 +417,238 @@ export default class PiFleet extends View {
 			.when(Boolean(note), (el) => el.child(div().text_size(11).text_color(t.blocked).child(note)));
 	}
 
+	// A status mark drawn like the agents mod: a spinner, a ring for idle, a dot for done.
+	// `compact` blocked is a "!" chip; otherwise the built-in "Needs you" text chip.
+	mark(t, st) {
+		if (st === "working") return svg(`${ICON}/spinner.svg`).size(12).mx(1).flex_none().text_color(t.working).spin(900);
+		if (st === "idle") return div().size(7).mx(3).flex_none().rounded(4).border(1.5).border_color(t.idle ?? t.dim);
+		return div().size(7).mx(3).flex_none().rounded(4).bg(t[st] ?? t.dim);
+	}
+
+	// A status chip: the "!" mark where a header already says "Needs you" (compact), else the text.
+	status(t, a, compact = false) {
+		if (a.status === "working") return this.mark(t, "working");
+		if (a.status === "blocked" && compact) return div().size(14).flex_none().rounded(4).bg(t.blocked + "26").text_size(10.5).font_bold().text_color(t.blocked).flex().items_center().justify_center().child("!");
+		if (a.status === "blocked") return div().flex_none().px(6).h(18).rounded(5).bg(t.blocked + "26").text_size(10.5).font_semibold().text_color(t.blocked).flex().items_center().child("Needs you");
+		if (a.status === "idle") return this.mark(t, "idle");
+		return div().size(7).mx(3).flex_none().rounded(4).bg(a.status === "done" ? t.done : t.dim + "00");
+	}
+
+	// The fold chevron on a row with sub-agents; folded, it carries the count coloured by the most
+	// urgent one. Click folds the row's children without focusing the row.
+	fold(t, a, subs) {
+		const top = subs.reduce((m, s) => {
+			const st = kidStatus(s.t, this.listed);
+			return (RANK[st] ?? 0) > (RANK[m] ?? 0) ? st : m;
+		}, null);
+		const open = !this.folded.has(a.address);
+		return div()
+			.id(`fold-${a.address}`)
+			.h(18)
+			.px(3)
+			.gap(3)
+			.flex()
+			.items_center()
+			.rounded(4)
+			.text_size(11)
+			.text_color(open ? t.dim : (t[top] ?? t.dim))
+			.cursor_pointer()
+			.hover((s) => s.bg(t.hover).text_color(t.foreground))
+			.on_click((_e, cx) => {
+				cx.stop_propagation();
+				if (open) this.folded.add(a.address);
+				else this.folded.delete(a.address);
+				cx.notify();
+			})
+			.child(svg(`${ICON}/chevron-${open ? "down" : "right"}.svg`).size(11).flex_none())
+			.when(!open, (el) => el.child(String(subs.length)));
+	}
+
+	// A pin button, shown on hover; a pinned row shows the unpin mark.
+	pinButton(t, a, pinned) {
+		return div()
+			.id(`pin-${a.address}`)
+			.flex_none()
+			.p(2)
+			.rounded(4)
+			.text_color(t.dim)
+			.cursor_pointer()
+			.hover((s) => s.bg(t.hover).text_color(t.foreground))
+			.tooltip(pinned ? "Unpin" : "Pin to the top")
+			.on_click((_e, cx) => {
+				cx.stop_propagation();
+				this.togglePin(a.address, !pinned);
+				// The row moves away from under the pointer, and no hover-out comes.
+				this.hovered = null;
+				cx.notify();
+			})
+			.child(svg(`${ICON}/${pinned ? "pin-off" : "pin"}.svg`).size(13));
+	}
+
+	// The sort menu: a popup copy of this mod. Picking a sort writes the shared key the list reads.
+	sortMenu(t) {
+		const on = sortOf().id;
+		return v_flex()
+			.w_full()
+			.p(5)
+			.bg(t.popover)
+			.text_size(12.8)
+			.child(div().px(8).pt(4).pb(6).text_size(11).text_color(t.dim).child("Sort agents"))
+			.children(SORTS.map((s) => h_flex()
+				.id(`sort-${s.id}`)
+				.h(31)
+				.px(8)
+				.gap(9)
+				.rounded(7)
+				.items_center()
+				.text_color(t.foreground)
+				.hover((el) => el.bg(t.hover))
+				.on_click(() => {
+					setShared("agents.sort", s.id);
+					closeOverlay(props().overlay);
+				})
+				.child(svg(`${ICON}/${s.icon}.svg`).size(14).flex_none().text_color(t.muted))
+				.child(div().flex_1().child(s.label))
+				.when(s.id === on, (el) => el.child(svg(`${ICON}/check.svg`).size(14).flex_none().text_color(t.foreground)))));
+	}
+
+	// One sub-agent row under its parent: tree lines, icon, name, status. Click focuses it.
+	subRow(t, s) {
+		const k = s.t;
+		const st = kidStatus(k, this.listed);
+		const pic = icon(k.program, 14, t.foreground);
+		return h_flex()
+			.id(`sub-${k.address}`)
+			.pl(39)
+			.pr(8)
+			.rounded(8)
+			.h(26)
+			.flex_none()
+			.gap(0)
+			.items_center()
+			.text_size(12.5)
+			.hover((el) => el.bg(t.hover))
+			.on_click(() => (this.listed.has(k.address) ? run("pane.focus", { terminal: k.address }) : run("terminal.peek", { terminal: k.address })))
+			.children(s.lines.map((l) => div().self_start().mt(-4).w(9).h(17).mr(4).flex_none()
+				.when(Boolean(l), (el) => el.border_l(1.5).border_color(t.input))
+				.when(l === "└" || l === "├", (el) => el.border_b(1.5).rounded_bl(6))))
+			.when(Boolean(pic), (el) => el.child(div().mr(8).child(pic)))
+			.child(div().flex_1().truncate().text_color(t.muted).child(k.name || k.template || k.program?.name || k.address))
+			.child(this.status(t, { status: st }, true));
+	}
+
+	// Two lines for a Pi run: name (and machine) on top, model and elapsed time dim beneath.
+	// A settled run shows Close at the right, which takes two clicks. Clicking the row
+	// focuses the run's window (or its pane, when it is not a window).
+	piRow(t, row, now, agent, extra) {
+		const st = row.status ?? agent?.status ?? "idle";
+		const since = row.createdMs !== undefined ? duration(now - row.createdMs) : null;
+		const detail = since ? `${row.model} · ${since}` : row.model;
+		const armed = this.armed?.key === `close:${row.address}`;
+		return h_flex()
+			.id(`pi-${row.address}`)
+			.px(8)
+			.py(4)
+			.gap(9)
+			.items_center()
+			.rounded(8)
+			.cursor_pointer()
+			.hover((s) => s.bg(t.hover))
+			.on_hover((on, cx) => {
+				if (on) this.hovered = row.address;
+				else if (this.hovered === row.address) this.hovered = null;
+				cx.notify();
+			})
+			.on_click(() => this.focusRow(row))
+			.child(h_flex().w(14).flex_none().items_center().justify_center().child(this.mark(t, st)))
+			.child(
+				v_flex()
+					.flex_1()
+					.min_w(0)
+					.child(
+						h_flex()
+							.gap(5)
+							.items_center()
+							.child(div().min_w(0).truncate().text_color(st === "idle" ? t.muted : t.foreground).child(row.name || row.address))
+							.when(row.machine !== "local", (el) => el.child(div().flex_none().text_size(10).text_color(t.dim).child(row.machine))),
+					)
+					.child(div().truncate().text_size(11).text_color(t.dim).child(detail)),
+			)
+			.when(extra.fold, (el) => el.child(extra.fold))
+			.when(this.hovered === row.address, (el) => el.child(extra.pin))
+			.when(st === "blocked", (el) => el.child(this.status(t, { status: st }, extra.compact)))
+			.when(canClose(row), (el) =>
+				el.child(
+					div()
+						.id(`pi-close-${row.address}`)
+						.flex_none()
+						.text_size(11)
+						.text_color(t.dim)
+						.cursor_pointer()
+						.hover((s) => s.text_color(t.foreground))
+						.on_click((_e, cx) => {
+							// Keep the click from also focusing the row.
+							cx.stop_propagation();
+							this.arm(cx, `close:${row.address}`, () => this.closePi(row));
+						})
+						.child(armed ? "Close?" : "Close"),
+				),
+			);
+	}
+
+	// One non-Pi agent: its icon, name, status. Click focuses its pane.
+	agentRow(t, a, extra) {
+		const pic = icon(a.program, 16, t.foreground);
+		const idle = a.status === "idle" && !a.focused;
+		const name = a.title || a.program?.name || a.address;
+		return h_flex()
+			.id(`ag-${a.address}`)
+			.px(8)
+			.h(30)
+			.flex_none()
+			.rounded(8)
+			.items_center()
+			.gap(9)
+			.when(a.focused, (el) => el.bg(t.selected))
+			.cursor_pointer()
+			.hover((s) => s.bg(t.hover))
+			.on_hover((on, cx) => {
+				if (on) this.hovered = a.address;
+				else if (this.hovered === a.address) this.hovered = null;
+				cx.notify();
+			})
+			.on_click(() => this.focusAgent(a))
+			.when(Boolean(pic), (el) => el.child(pic))
+			.child(div().flex_1().min_w(0).truncate().text_color(idle ? t.muted : t.foreground).child(name))
+			.when(extra.fold, (el) => el.child(extra.fold))
+			.when(this.hovered === a.address, (el) => el.child(extra.pin))
+			.child(this.status(t, a, extra.compact));
+	}
+
+	// A group's header: its label and count; click folds the group.
+	groupHeader(t, g) {
+		const open = !this.folded.has(g.id);
+		return h_flex()
+			.id(`grp-${g.id}`)
+			.px(8)
+			.pt(8)
+			.h(30)
+			.flex_none()
+			.gap(6)
+			.items_center()
+			.text_size(11)
+			.font_medium()
+			.cursor_pointer()
+			.hover((s) => s.text_color(t.foreground))
+			.on_click((_e, cx) => {
+				if (open) this.folded.add(g.id);
+				else this.folded.delete(g.id);
+				cx.notify();
+			})
+			.child(div().truncate().text_color(t[g.status] ?? t.dim).child(g.label))
+			.child(div().text_color(t.dim).child(String(g.members.length)));
+	}
+
 	// Nothing at all when no run is waiting or ready to clear.
 	reviewSection(t, now) {
 		if (this.reviews.length === 0 && this.cleanup.length === 0) return [];
@@ -357,69 +706,62 @@ export default class PiFleet extends View {
 		return out;
 	}
 
-	// A status mark drawn like the agents mod: a spinner, a ring for idle, a dot for done,
-	// a "!" chip for blocked.
-	mark(t, st) {
-		if (st === "working") return svg(`${ICON}/spinner.svg`).size(12).mx(1).flex_none().text_color(t.working).spin(900);
-		if (st === "blocked") return div().size(14).flex_none().rounded(4).bg(t.blocked + "26").text_size(10.5).font_bold().text_color(t.blocked).flex().items_center().justify_center().child("!");
-		if (st === "idle") return div().size(7).mx(3).flex_none().rounded(4).border(1.5).border_color(t.idle ?? t.dim);
-		return div().size(7).mx(3).flex_none().rounded(4).bg(t[st] ?? t.dim);
-	}
-
-	// Two lines: name (and machine) on top, model and elapsed time dim beneath. A settled
-	// run shows Close at the right, which takes two clicks.
-	row(t, row, now) {
-		const st = row.status ?? "idle";
-		const since = row.createdMs !== undefined ? duration(now - row.createdMs) : null;
-		const detail = since ? `${row.model} · ${since}` : row.model;
-		const armed = this.armed?.key === `close:${row.address}`;
-		return h_flex()
-			.id(`pi-${row.address}`)
-			.px(8)
-			.py(4)
-			.gap(9)
-			.items_center()
-			.rounded(8)
-			.cursor_pointer()
-			.hover((s) => s.bg(t.hover))
-			.on_click(() => this.focusRow(row))
-			.child(h_flex().w(14).flex_none().items_center().justify_center().child(this.mark(t, st)))
-			.child(
-				v_flex()
-					.flex_1()
-					.min_w(0)
-					.child(
-						h_flex()
-							.gap(5)
-							.items_center()
-							.child(div().min_w(0).truncate().text_color(st === "idle" ? t.muted : t.foreground).child(row.name || row.address))
-							.when(row.machine !== "local", (el) => el.child(div().flex_none().text_size(10).text_color(t.dim).child(row.machine))),
-					)
-					.child(div().truncate().text_size(11).text_color(t.dim).child(detail)),
-			)
-			.when(canClose(row), (el) =>
-				el.child(
-					div()
-						.id(`pi-close-${row.address}`)
-						.flex_none()
-						.text_size(11)
-						.text_color(t.dim)
-						.cursor_pointer()
-						.hover((s) => s.text_color(t.foreground))
-						.on_click((_e, cx) => {
-							// Keep the click from also focusing the row.
-							cx.stop_propagation();
-							this.arm(cx, `close:${row.address}`, () => this.closePi(row));
-						})
-						.child(armed ? "Close?" : "Close"),
-				),
-			);
-	}
-
 	render() {
 		const t = theme();
 		if (props()?.role === "new") return newDialog(this, t);
+		if (props()?.sortMenu) return this.sortMenu(t);
 		const now = Date.now();
+		const sort = sortOf();
+		const byPriority = sort.id === "priority";
+		const all = terminals();
+		const entries = mergeAgentRows(this.agentList, this.rows);
+		// Pinned agents: the pin label on the agent or the Pi terminal.
+		const pinLabel = new Map(all.map((k) => [k.address, Boolean(k.labels?.["herdr.pinned"])]));
+		const withPin = entries.map((e) => ({ ...e, pinned: Boolean(e.agent?.pinned) || pinLabel.get(e.address) === true }));
+		// A sub-agent with a pane is also in agents(); where a tree shows it, it has no row of its
+		// own, unless it is pinned. Only live children of a listed row nest.
+		const nested = new Set(withPin.flatMap((e) => subTree(all, e.address).map((s) => s.t.address)));
+		const top = withPin.filter((e) => e.pinned || !nested.has(e.address));
+		// Priority: the most urgent first, then the most recent change first (the built-in rule).
+		// An entry's rank: its agent's status, or working/idle for a Pi run with no status yet;
+		// a parent takes its most urgent sub-agent's place.
+		const rankOf = (e) => {
+			const own = RANK[e.agent?.status ?? e.pi?.status ?? "idle"] ?? 1;
+			return Math.max(own, ...subTree(all, e.address).map((s) => RANK[kidStatus(s.t, this.listed)] ?? 0));
+		};
+		const stampOf = (e) => this.stamped(e);
+		const ordered = pinnedFirst(byPriority ? [...top].sort(byUrgency(rankOf, stampOf)) : top);
+		setAgentOrder(displayedOrder(ordered));
+
+		// Each top entry with its sub-agents, folded or open.
+		const withKids = (e) => {
+			const subs = subTree(all, e.address);
+			const extra = {
+				fold: subs.length > 0 ? this.fold(t, e.agent ?? { address: e.address }, subs) : null,
+				pin: this.pinButton(t, { address: e.address }, e.pinned),
+				compact: byPriority && !e.pinned,
+			};
+			const row = e.pi ? this.piRow(t, e.pi, now, e.agent, extra) : this.agentRow(t, e.agent, extra);
+			if (this.folded.has(e.address)) return [row];
+			return [row, ...subs.map((s) => this.subRow(t, s))];
+		};
+
+		// Groups: a Pinned group at the top, then priority sections or spaces in list order.
+		const pinned = ordered.filter((e) => e.pinned);
+		const rest = ordered.filter((e) => !e.pinned);
+		const groups = pinned.length ? [{ id: "pinned", label: "Pinned", status: null, members: pinned }] : [];
+		for (const e of rest) {
+			const r = rankOf(e) || RANK.idle;
+			const id = byPriority ? `sec-${r}` : `sp-${e.agent?.space ?? "pi"}`;
+			const label = byPriority ? SECTION[r] : e.agent?.space_name ?? "Pi runs";
+			const status = byPriority ? SECTION_STATUS[r] : null;
+			if (groups.at(-1)?.id === id) groups.at(-1).members.push(e);
+			else groups.push({ id, label, status, members: [e] });
+		}
+		const body = ordered.length
+			? groups.flatMap((g) => [this.groupHeader(t, g), ...(this.folded.has(g.id) ? [] : g.members.flatMap(withKids))])
+			: [div().px(12).text_size(12).text_color(t.dim).child("No agents yet. Agents show up here when they report their status.")];
+
 		const header = h_flex()
 			.px(16)
 			.h(41)
@@ -428,11 +770,22 @@ export default class PiFleet extends View {
 			.flex_none()
 			.items_center()
 			.justify_between()
-			.child(div().text_size(11.5).font_medium().text_color(t.dim).child("Pi agents"))
+			.child(div().text_size(11.5).font_medium().text_color(t.dim).child("Agents"))
 			.child(
 				h_flex()
 					.gap(10)
 					.items_center()
+					.child(
+						div()
+							.id("ag-sort")
+							.text_size(11)
+							.text_color(t.dim)
+							.cursor_pointer()
+							.hover((s) => s.text_color(t.foreground))
+							.on_click(() => openOverlay({ mod: "pi-fleet", kind: "popup", width: 200, height: 140, props: { sortMenu: true } }))
+							.tooltip(`Sort agents: ${sort.label}`)
+							.child(svg(`${ICON}/${sort.icon}.svg`).size(14)),
+					)
 					.child(
 						div()
 							.id("pi-monitor")
@@ -456,9 +809,6 @@ export default class PiFleet extends View {
 							.child(svg(`${ICON}/plus.svg`).size(14)),
 					),
 			);
-		const body = this.rows.length
-			? this.rows.map((row) => this.row(t, row, now))
-			: [div().px(12).text_size(12).text_color(t.dim).child("No Pi runs yet.")];
 		return v_flex()
 			.id("pi-fleet")
 			.size_full()
@@ -469,5 +819,12 @@ export default class PiFleet extends View {
 			.text_size(13)
 			.child(header)
 			.child(v_flex().id("pi-list").flex_1().min_h(0).px(8).overflow_y_scrollbar().mode("always").children([...body, ...this.reviewSection(t, now)]));
+	}
+
+	// When an agent's status last changed (ms), 0 when not seen yet. A Pi terminal and an agent
+	// share an address, so either reads the same stamp.
+	stamped(e) {
+		const key = e.agent?.address ?? e.pi?.address ?? e.address;
+		return this.changed[key]?.at ?? 0;
 	}
 }

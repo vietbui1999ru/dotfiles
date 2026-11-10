@@ -167,3 +167,64 @@ export function removeMessage(code, stdout) {
   if (code === 0 && reply?.ok === true) return null;
   return reply?.message || "Remove failed";
 }
+
+// One list for every terminal agent. `agents` is agents() in Herdr's order; each Pi run
+// (from piRows) that the agent list already holds is marked, not repeated, so a Pi terminal
+// shows once with its status and place. A Pi run the agent list lacks (no status reported
+// yet) is appended after them, so no run disappears. Returns { address, pi, agent } entries
+// in list order: `agent` is the agents() entry or null, `pi` the piRows row or null.
+export function mergeAgentRows(agents, piRowList) {
+  const piByAddress = new Map((piRowList ?? []).map((r) => [r.address, r]));
+  const seen = new Set();
+  const out = [];
+  for (const agent of agents ?? []) {
+    seen.add(agent.address);
+    out.push({ address: agent.address, pi: piByAddress.get(agent.address) ?? null, agent });
+  }
+  for (const r of piRowList ?? []) {
+    if (!seen.has(r.address)) out.push({ address: r.address, pi: r, agent: null });
+  }
+  return out;
+}
+
+// The address order of a displayed list, for setAgentOrder. Duplicates drop out.
+export function displayedOrder(entries) {
+  return [...new Set((entries ?? []).map((e) => e.address))];
+}
+
+// Sub-agents of one parent, depth first: each child with the tree lines drawn in front of
+// it ("│" runs down past a sibling, "├" or "└" ends at the child). Only live children count.
+// `terminals` are the terminal records; a child names its parent by `parent`.
+export function subTree(terminals, address, lead = []) {
+  const kids = (terminals ?? []).filter((k) => k.parent === address && (!k.state || k.state === "live"));
+  return kids.flatMap((k, i) => {
+    const last = i === kids.length - 1;
+    return [
+      { t: k, lines: [...lead, last ? "└" : "├"] },
+      ...subTree(terminals, k.address, [...lead, last ? "" : "│"]),
+    ];
+  });
+}
+
+// Pinned entries first, in their order, then the rest in theirs. Splits on `pinned`.
+export function pinnedFirst(list) {
+  const pinned = list.filter((a) => a.pinned);
+  return [...pinned, ...list.filter((a) => !a.pinned)];
+}
+
+// Priority order: higher rank first, then the tie-break. `stamp` is when the row's state last
+// changed (ms, 0 when not seen), so a larger stamp is a more recent change. The built-in list
+// sorts the most recently changed first within a rank; an unseen row (stamp 0) comes last.
+export function byUrgency(rankOf, stampOf) {
+  return (x, y) => rankOf(y) - rankOf(x) || stampOf(y) - stampOf(x);
+}
+
+// The change map without addresses that are no longer listed, so it cannot grow forever.
+export function pruneChanged(changed, listed) {
+  const keep = new Set(listed ?? []);
+  const out = {};
+  for (const [address, entry] of Object.entries(changed ?? {})) {
+    if (keep.has(address)) out[address] = entry;
+  }
+  return out;
+}
