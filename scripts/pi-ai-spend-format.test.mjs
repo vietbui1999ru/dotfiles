@@ -174,6 +174,10 @@ test("attachedJob: no match for a prefix of the id, a non-attach process, or emp
   assert.equal(attachedJob(ps, null), null);
 });
 
+test("jobSession: a cleared job's live session is resumeSessionId, not its first sessionId", () => {
+  assert.equal(jobSession('{"sessionId":"09fe1e70-d5c5","resumeSessionId":"0b4ea689-8dc7"}'), "0b4ea689-8dc7");
+});
+
 test("jobSession: reads a plain sessionId, rejects malformed JSON and unsafe ids", () => {
   assert.equal(jobSession('{"sessionId":"09fe1e70-d5c5-4001"}'), "09fe1e70-d5c5-4001");
   assert.equal(jobSession('{"sessionId":"../x"}'), null);

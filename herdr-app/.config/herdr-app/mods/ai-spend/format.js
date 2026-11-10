@@ -81,12 +81,15 @@ export function attachedJob(psText, terminal) {
   return null;
 }
 
-// The session id in a job's ~/.claude/jobs/<job>/state.json (Claude Code's own, undocumented
-// layout), or null when the file is missing, malformed or the id is not a plain name.
+// The current session id in a job's ~/.claude/jobs/<job>/state.json (Claude Code's own,
+// undocumented layout), or null when the file is missing, malformed or the id is not a plain name.
+// `resumeSessionId` is the live one: a /clear starts a new session, and `sessionId` stays the
+// job's first. Before any clear the two are equal, so `sessionId` is only a fallback.
 export function jobSession(text) {
   if (typeof text !== "string") return null;
   try {
-    const id = JSON.parse(text)?.sessionId;
+    const state = JSON.parse(text);
+    const id = state?.resumeSessionId ?? state?.sessionId;
     return typeof id === "string" && /^[A-Za-z0-9_-]+$/.test(id) ? id : null;
   } catch {
     return null;
