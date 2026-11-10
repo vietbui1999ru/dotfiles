@@ -68,3 +68,29 @@ export function bandModel(code, stdout) {
   }
   return { groups };
 }
+
+// A snapshot older than this is hidden: the Claude session that wrote it is no longer drawing.
+export const TERMINAL_MAX_AGE_MS = 5 * 60 * 1000;
+
+// The focused terminal's context, model and branch, from the status line's per-terminal snapshot
+// (claude/.claude/statusline-command.sh). Returns null when the terminal has no usable snapshot:
+// no focused terminal, a terminal id that is not a plain name, unreadable or malformed JSON, or a
+// snapshot older than TERMINAL_MAX_AGE_MS. The band then shows none of these segments.
+export function terminalSegments(terminal, text, now) {
+  if (!terminal || !/^[A-Za-z0-9._-]+$/.test(terminal)) return null;
+  if (typeof text !== "string" || text === "") return null;
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!data || typeof data !== "object" || typeof data.updated !== "number") return null;
+  if (now - data.updated * 1000 > TERMINAL_MAX_AGE_MS) return null;
+  return {
+    ctx: typeof data.ctx === "number" ? `ctx ${Math.round(data.ctx)}%` : null,
+    model: typeof data.model === "string" && data.model !== "" ? data.model : null,
+    branch: typeof data.branch === "string" && data.branch !== "" ? data.branch : null,
+    ctxPct: typeof data.ctx === "number" ? data.ctx : null,
+  };
+}

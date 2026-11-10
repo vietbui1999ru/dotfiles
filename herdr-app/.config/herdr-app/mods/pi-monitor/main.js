@@ -5,7 +5,7 @@
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { exec, theme, home, settings } from "herdr";
+import { exec, theme, home, settings, run, setShared } from "herdr";
 import { elapsed, tokens, cost, capLines, firstLine, OUTCOME_WORD, clearableIds } from "./format.js";
 
 const POLL_MS = 3000;
@@ -133,6 +133,25 @@ export default class PiMonitor extends View {
 			);
 	}
 
+	// Opens a waiting review's changes in the Changes panel, on the review's own folder. Stops the
+	// click so the card does not also select the task.
+	changesButton(t, task) {
+		return div()
+			.id(`pm-changes-${task.id}`)
+			.flex_none()
+			.text_size(11)
+			.text_color(t.accent)
+			.cursor_pointer()
+			.hover((s) => s.text_color(t.foreground))
+			.on_click((_e, cx) => {
+				cx.stop_propagation();
+				setShared("pi-changes.run", { runId: task.reviewRunId, cwd: task.path, name: task.label || task.session || task.reviewRunId.slice(0, 8) });
+				run("layout.select", { stack: "panel-body", child: "changes" });
+				run("layout.show", { id: "panel" });
+			})
+			.child("Changes");
+	}
+
 	// Two clicks, as the fleet's buttons: the first arms it, a second click within 3 seconds acts.
 	clearButton(t) {
 		const n = clearableIds(this.feed?.tasks).length;
@@ -194,7 +213,8 @@ export default class PiMonitor extends View {
 					.child(div().text_color(tone).when(task.outcome === "running", (el) => el.frames(SPIN, 90)).child(glyph))
 					.child(div().flex_none().text_size(11).text_color(t.dim).child(`#${task.id}`))
 					.child(div().flex_1().min_w(0).truncate().font_semibold().text_color(t.foreground).child(task.label || task.session || ""))
-					.child(div().flex_none().text_size(11).text_color(tone).child(OUTCOME_WORD[task.outcome] ?? task.outcome)),
+					.child(div().flex_none().text_size(11).text_color(tone).child(OUTCOME_WORD[task.outcome] ?? task.outcome))
+					.when(task.outcome === "review" && Boolean(task.reviewRunId), (el) => el.child(this.changesButton(t, task))),
 			)
 			.child(
 				h_flex()

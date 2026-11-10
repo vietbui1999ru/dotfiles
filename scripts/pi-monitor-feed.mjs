@@ -153,13 +153,11 @@ export function reconcileReviews(tasks, recordsByPath) {
 		const records = recordsByPath.get(task.path) ?? [];
 		if (task.outcome === "running") {
 			const own = runningPendingFor({ sessionId: task.session }, records);
-			return own ? { ...task, outcome: "review" } : task;
+			return own ? { ...task, outcome: "review", reviewRunId: own.runId } : task;
 		}
 		if (task.outcome !== "review") return task;
-		const waiting =
-			newestReview.get(task.path) === task.id &&
-			pendingRecordFor({ task: { state: "Done" } }, records) !== undefined;
-		return waiting ? task : { ...task, outcome: "reviewed" };
+		const waiting = newestReview.get(task.path) === task.id ? pendingRecordFor({ task: { state: "Done" } }, records) : undefined;
+		return waiting ? { ...task, reviewRunId: waiting.runId } : { ...task, outcome: "reviewed" };
 	});
 }
 

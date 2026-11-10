@@ -169,7 +169,7 @@
                       "id": "changes",
                       "type": "block",
                       "content": {
-                        "mod": "changes"
+                        "mod": "pi-changes"
                       }
                     }
                   ]
