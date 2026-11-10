@@ -40,21 +40,29 @@ branch_of() {
 }
 br=""
 
-# Per-terminal snapshot for the Herdr band (ai-spend), which shows the focused Claude terminal's
-# context, model and branch. Written every run, before the .drawn exit, so it stays current even
-# while the session band is on screen. Atomic, and skipped when the terminal id is not a plain name.
+# Snapshots for the Herdr band (ai-spend), which shows the focused Claude terminal's context, model
+# and branch. by-terminal/<HC_TERMINAL_ID> serves a Claude running in the Herdr terminal itself.
+# by-session/<session_id> serves a background job: its status line runs in the job's process, which
+# has no HC_TERMINAL_ID, and ai-spend maps the terminal to the job through `claude attach`.
+# Written every run, before the .drawn exit, so they stay current while the session band is on
+# screen. Atomic, and skipped when the id is not a plain name.
+write_snap() { # write_snap <subdir> <id>
+  local dir="$snap_dir/$1" tmp
+  mkdir -p "$dir" 2>/dev/null && tmp=$(mktemp "$dir/.snap.XXXXXX" 2>/dev/null) || return 0
+  jq -n --arg used "$used" --arg model "${model#claude-}" --arg branch "$br" --argjson now "$(date +%s)" \
+    '{ctx: (if $used == "" then null else ($used | tonumber | round) end), model: $model, branch: $branch, updated: $now}' >"$tmp" \
+    && mv -f "$tmp" "$dir/$2.json" || rm -f "$tmp"
+}
 term="${HC_TERMINAL_ID:-}"
-if [[ "$term" =~ ^[A-Za-z0-9._-]+$ ]]; then
+sid=$(jq -r '.session_id // empty' <<<"$input")
+term_ok=""; [[ "$term" =~ ^[A-Za-z0-9._-]+$ ]] && term_ok=1
+sid_ok=""; [[ "$sid" =~ ^[A-Za-z0-9_-]+$ ]] && sid_ok=1
+if [ -n "$term_ok$sid_ok" ]; then
   br=$(branch_of)
-  term_dir="$snap_dir/by-terminal"
-  if mkdir -p "$term_dir" 2>/dev/null && tmp=$(mktemp "$term_dir/.term.XXXXXX" 2>/dev/null); then
-    jq -n --arg used "$used" --arg model "${model#claude-}" --arg branch "$br" --argjson now "$(date +%s)" \
-      '{ctx: (if $used == "" then null else ($used | tonumber | round) end), model: $model, branch: $branch, updated: $now}' >"$tmp" \
-      && mv -f "$tmp" "$term_dir/$term.json" || rm -f "$tmp"
-  fi
+  [ -n "$term_ok" ] && write_snap by-terminal "$term"
+  [ -n "$sid_ok" ] && write_snap by-session "$sid"
 fi
 
-sid=$(jq -r '.session_id // empty' <<<"$input")
 hb="${TMPDIR:-/tmp}/session-band-${sid}.drawn"
 if [[ "$sid" =~ ^[A-Za-z0-9_-]+$ ]] && [ -f "$hb" ]; then
   mtime=$(stat -f %m "$hb" 2>/dev/null || stat -c %Y "$hb")

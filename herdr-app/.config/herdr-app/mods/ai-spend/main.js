@@ -4,11 +4,15 @@
 import { View, div } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { exec, run, theme, focused, home, readTextFile } from "herdr";
-import { bandModel, resetText, terminalSegments } from "./format.js";
+import { attachedJob, bandModel, jobSession, resetText, terminalSegments } from "./format.js";
 
 const POLL_MS = 60000;
 // The focused terminal changes with focus, so it is read on a shorter tick than the quota poll.
 const TERMINAL_MS = 3000;
+// How long a terminal's attached-job lookup (one ps call) is reused.
+const LOOKUP_MS = 30000;
+// The status line's snapshot folder (claude/.claude/statusline-command.sh).
+const STATE = () => `${home()}/.local/state/claude-tui`;
 const COLOR = { normal: "muted", attention: "working", error: "blocked" };
 
 export default class AiSpend extends View {
@@ -16,6 +20,7 @@ export default class AiSpend extends View {
     this.model = null;
     this.busy = false;
     this.terminal = null;
+    this.sessions = new Map();
     this.poll(cx);
     this.pollTerminal(cx);
     cx.timer.every(POLL_MS, (cx) => this.poll(cx));
@@ -44,17 +49,36 @@ export default class AiSpend extends View {
   pollTerminal(cx) {
     cx.spawn(async (cx) => {
       const terminal = focused()?.terminal ?? null;
+      const now = Date.now();
       try {
-        const text = terminal && /^[A-Za-z0-9._-]+$/.test(terminal)
-          ? await readTextFile(`${home()}/.local/state/claude-tui/by-terminal/${terminal}.json`)
-          : null;
-        this.terminal = terminalSegments(terminal, text, Date.now());
+        const plain = terminal && /^[A-Za-z0-9._-]+$/.test(terminal);
+        const text = plain ? await readTextFile(`${STATE()}/by-terminal/${terminal}.json`) : null;
+        let seg = terminalSegments(terminal, text, now);
+        if (plain && !seg) seg = await this.attachedSegments(terminal, now);
+        this.terminal = seg;
       } catch {
         this.terminal = null;
       } finally {
         cx.notify();
       }
     });
+  }
+
+  // A background job attached in this terminal, whose status line has no HC_TERMINAL_ID:
+  // terminal -> `claude attach <job>` (ps) -> session id (the job's state.json) -> its by-session
+  // snapshot. The mapping is cached per terminal and redone every LOOKUP_MS, so a plain shell does
+  // not run ps on every tick and a re-attach to another job is picked up.
+  async attachedSegments(terminal, now) {
+    let hit = this.sessions.get(terminal);
+    if (!hit || now - hit.at >= LOOKUP_MS) {
+      const ps = await exec("ps", ["axeww", "-o", "command="], { timeout: 5000 }).catch(() => null);
+      const job = attachedJob(ps?.code === 0 ? ps.stdout : "", terminal);
+      const sid = job ? jobSession(await readTextFile(`${home()}/.claude/jobs/${job}/state.json`)) : null;
+      hit = { sid, at: now };
+      this.sessions.set(terminal, hit);
+    }
+    if (!hit.sid) return null;
+    return terminalSegments(terminal, await readTextFile(`${STATE()}/by-session/${hit.sid}.json`), now);
   }
 
   quota(t, q) {

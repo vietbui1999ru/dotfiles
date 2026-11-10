@@ -1,7 +1,7 @@
 // Run: node --test scripts/pi-ai-spend-format.test.mjs
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { bandModel, costLabel, quotaLabel, quotaView, resetText, terminalSegments, TERMINAL_MAX_AGE_MS } from "../herdr-app/.config/herdr-app/mods/ai-spend/format.js";
+import { attachedJob, bandModel, costLabel, jobSession, quotaLabel, quotaView, resetText, terminalSegments, TERMINAL_MAX_AGE_MS } from "../herdr-app/.config/herdr-app/mods/ai-spend/format.js";
 
 test("costLabel: computed is approximate, reported is exact, null and missing are unknown", () => {
   assert.equal(costLabel({ cost_usd: 28.6667, cost_source: "computed" }), "≈$28.67");
@@ -155,4 +155,28 @@ test("terminalSegments: a snapshot with no context keeps its model and branch", 
   assert.equal(got.ctx, null);
   assert.equal(got.model, null);
   assert.equal(got.branch, "main");
+});
+
+test("attachedJob: finds the attach client whose environment names the terminal", () => {
+  const ps = [
+    "/bin/zsh -l HC_TERMINAL_ID=t14 HOME=/u",
+    "claude attach 1111aaaa TERM=x HC_TERMINAL_ID=t2",
+    "/opt/bin/claude attach 09fe1e70 TERM=x HC_TERMINAL_ID=t14 HOME=/u",
+  ].join("\n");
+  assert.equal(attachedJob(ps, "t14"), "09fe1e70");
+  assert.equal(attachedJob(ps, "t2"), "1111aaaa");
+});
+
+test("attachedJob: no match for a prefix of the id, a non-attach process, or empty input", () => {
+  const ps = "claude attach 09fe1e70 HC_TERMINAL_ID=t140\nclaude --bg HC_TERMINAL_ID=t14";
+  assert.equal(attachedJob(ps, "t14"), null);
+  assert.equal(attachedJob("", "t14"), null);
+  assert.equal(attachedJob(ps, null), null);
+});
+
+test("jobSession: reads a plain sessionId, rejects malformed JSON and unsafe ids", () => {
+  assert.equal(jobSession('{"sessionId":"09fe1e70-d5c5-4001"}'), "09fe1e70-d5c5-4001");
+  assert.equal(jobSession('{"sessionId":"../x"}'), null);
+  assert.equal(jobSession("{not json"), null);
+  assert.equal(jobSession(null), null);
 });

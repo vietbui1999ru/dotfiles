@@ -69,6 +69,30 @@ export function bandModel(code, stdout) {
   return { groups };
 }
 
+// The background Claude job a Herdr terminal is attached to. `psText` is `ps axeww -o command=`
+// output, one process per line with its environment appended: the match is a `claude attach <job>`
+// client whose environment has HC_TERMINAL_ID=<terminal>. Null when there is none.
+export function attachedJob(psText, terminal) {
+  if (!terminal || typeof psText !== "string") return null;
+  for (const line of psText.split("\n")) {
+    const m = /^(?:\S*\/)?claude attach ([A-Za-z0-9_-]+)(?:\s|$)/.exec(line);
+    if (m && line.split(/\s+/).includes(`HC_TERMINAL_ID=${terminal}`)) return m[1];
+  }
+  return null;
+}
+
+// The session id in a job's ~/.claude/jobs/<job>/state.json (Claude Code's own, undocumented
+// layout), or null when the file is missing, malformed or the id is not a plain name.
+export function jobSession(text) {
+  if (typeof text !== "string") return null;
+  try {
+    const id = JSON.parse(text)?.sessionId;
+    return typeof id === "string" && /^[A-Za-z0-9_-]+$/.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
 // A snapshot older than this is hidden: the Claude session that wrote it is no longer drawing.
 export const TERMINAL_MAX_AGE_MS = 5 * 60 * 1000;
 
