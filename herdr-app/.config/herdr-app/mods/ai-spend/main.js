@@ -5,10 +5,16 @@ import { View, div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { exec, run, theme, focused, home, readTextFile, openOverlay, closeOverlay, nextCommand, shared, setShared, layout } from "herdr";
 import { attachedJob, bandModel, bandPx, jobSession, leaderBand, resetText, terminalSegments } from "./format.js";
+import { ctxLevel, fitChips, queueHeld, sendItOn } from "./chips.js";
 
 const POLL_MS = 60000;
 // The focused terminal changes with focus, so it is read on a shorter tick than the quota poll.
 const TERMINAL_MS = 3000;
+// The attention chips (queue held, send-it) are read on their own tick, one call in flight each.
+const CHIPS_MS = 15000;
+// Width the band's terminal strip and quotas take before the chips get the rest of the band.
+const QUOTA_RESERVE_PX = 240;
+const TERMINAL_RESERVE_PX = 200;
 // How long a terminal's attached-job lookup (one ps call) is reused.
 const LOOKUP_MS = 30000;
 // The status line's snapshot folder (claude/.claude/statusline-command.sh).
@@ -23,11 +29,17 @@ export default class AiSpend extends View {
     this.busy = false;
     this.terminal = null;
     this.sessions = new Map();
+    this.held = null;
+    this.sendIt = false;
+    this.width = null;
+    this.chipsBusy = false;
     this.recover();
     this.poll(cx);
     this.pollTerminal(cx);
+    this.pollChips(cx);
     cx.timer.every(POLL_MS, (cx) => this.poll(cx));
     cx.timer.every(TERMINAL_MS, (cx) => this.pollTerminal(cx));
+    cx.timer.every(CHIPS_MS, (cx) => this.pollChips(cx));
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
@@ -95,6 +107,30 @@ export default class AiSpend extends View {
     });
   }
 
+  // The queue held count (pueue) and the focused repo's send-it state. The repo is the focused
+  // terminal's folder; a remote space has no local cwd, so it has no send-it chip.
+  pollChips(cx) {
+    if (this.chipsBusy) return;
+    this.chipsBusy = true;
+    cx.spawn(async (cx) => {
+      try {
+        const pue = await exec("pueue", ["status", "--json"], { timeout: 5000 }).catch(() => ({ code: 1, stdout: "" }));
+        this.held = queueHeld(pue.code, pue.stdout);
+        const cwd = focused()?.cwd ?? null;
+        const root = cwd ? await exec("git", ["rev-parse", "--show-toplevel"], { cwd, timeout: 5000 }).catch(() => null) : null;
+        const top = root?.code === 0 ? root.stdout.trim() : "";
+        const text = top ? await readTextFile(`${top}/.claude/settings.local.json`) : null;
+        this.sendIt = sendItOn(text);
+      } catch {
+        this.held = null;
+        this.sendIt = false;
+      } finally {
+        this.chipsBusy = false;
+        cx.notify();
+      }
+    });
+  }
+
   // A background job attached in this terminal, whose status line has no HC_TERMINAL_ID:
   // terminal -> `claude attach <job>` (ps) -> session id (the job's state.json) -> its by-session
   // snapshot. The mapping is cached per terminal and redone every LOOKUP_MS, so a plain shell does
@@ -156,10 +192,13 @@ export default class AiSpend extends View {
       .hover((s) => s.bg(t.hover))
       .on_click(() => run("terminal.open", { argv: ["claude-tui"], place: "tab" }));
     const focus = this.terminalStrip(t);
-    if (!this.model) return band.children(focus);
+    const chips = this.chipRow(t);
+    const measure = (size) => { this.width = size.width; };
+    if (!this.model) return band.on_size_change(measure).children([...focus, ...chips]);
     if (this.model.message) return band.px(10).text_color(t.dim).child(this.model.message);
-    return band.children([
+    return band.on_size_change(measure).children([
       ...focus,
+      ...chips,
       ...this.model.groups.flatMap((g, i) => [
         ...(i > 0 ? [div().h(14).w(1).flex_none().bg(t.border)] : []),
         this.group(t, g, now),
@@ -182,14 +221,37 @@ export default class AiSpend extends View {
       .text_size(11.5).children([...lines, div().text_color(t.dim).child(note)]);
   }
 
+  // The attention chips that have something to say: send-it (red) and the held Pi queue
+  // (working). Each is a flex_none span; they drop by rank only when the band is narrow.
+  chipRow(t) {
+    const chips = [];
+    if (this.sendIt) chips.push({ id: "send-it", text: "⇉ send-it", color: t.blocked });
+    if (this.held) chips.push({ id: "pi-held", text: `π held ${this.held}`, color: t.working, click: () => run("pi-fleet.monitor") });
+    if (chips.length === 0) return [];
+    const kept = this.width === null ? chips : fitChips(chips, this.width, QUOTA_RESERVE_PX + TERMINAL_RESERVE_PX);
+    if (kept.length === 0) return [];
+    return [
+      ...kept.map((chip) => {
+        const el = div().id(`spend-${chip.id}`).flex_none().px(8).whitespace_nowrap().text_color(chip.color).child(chip.text);
+        return chip.click ? el.cursor_pointer().on_click((_e, cx) => { cx.stop_propagation(); chip.click(); }) : el;
+      }),
+      div().h(14).w(1).flex_none().bg(t.border),
+    ];
+  }
+
   // The focused terminal's context, model and branch, as one run of text. Empty when hidden.
   terminalStrip(t) {
     const s = this.terminal;
     if (!s) return [];
-    const parts = [s.ctx, s.model, s.branch].filter(Boolean);
-    if (parts.length === 0) return [];
+    const rest = [s.model, s.branch].filter(Boolean);
+    if (!s.ctx && rest.length === 0) return [];
+    const ctxColor = t[ctxLevel(s.ctxPct) ?? "muted"];
+    const parts = [
+      ...(s.ctx ? [div().id("spend-ctx").flex_none().text_color(ctxColor).child(s.ctx)] : []),
+      ...(rest.length ? [div().flex_none().child(rest.join(" · "))] : []),
+    ];
     return [
-      div().id("spend-terminal").flex_none().px(10).whitespace_nowrap().text_color(t.muted).child(parts.join(" · ")),
+      h_flex().id("spend-terminal").flex_none().px(10).gap(6).whitespace_nowrap().text_color(t.muted).children(parts.flatMap((p, i) => (i > 0 ? [div().flex_none().text_color(t.dim).child("·"), p] : [p]))),
       div().h(14).w(1).flex_none().bg(t.border),
     ];
   }
