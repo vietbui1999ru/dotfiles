@@ -7,6 +7,8 @@ import {
 	canClose,
 	cleanupRows,
 	duration,
+	displayedOrder,
+	mergeAgentRows,
 	modelFrom,
 	nextAddress,
 	piRows,
@@ -263,4 +265,53 @@ test("canClose needs a settled run: a turn taken and idle or done", () => {
 	assert.equal(canClose({ turn: 2, status: "working" }), false);
 	assert.equal(canClose({ turn: 2, status: "blocked" }), false);
 	assert.equal(canClose({ status: "idle" }), false);
+});
+
+// --- One merged agent list (mergeAgentRows, displayedOrder) ---
+
+test("a Pi terminal appears once in the merged list, not twice", () => {
+	const agents = [{ address: "t1", status: "working" }, { address: "t2", status: "idle" }];
+	const pi = piRows([term("t2", { "pi.session": "s" }, { argv: ["pi", "--model", "a/b"] })]);
+	const merged = mergeAgentRows(agents, pi);
+	assert.deepEqual(merged.map((e) => e.address), ["t1", "t2"]);
+	assert.equal(merged.filter((e) => e.address === "t2").length, 1);
+	assert.equal(merged[1].pi?.address, "t2");
+	assert.equal(merged[1].agent?.status, "idle");
+});
+
+test("a non-Pi agent keeps its status and position in the merged list", () => {
+	const agents = [
+		{ address: "claude-1", status: "blocked" },
+		{ address: "pi-1", status: "working" },
+		{ address: "codex-1", status: "done" },
+	];
+	const pi = piRows([term("pi-1", { "pi.session": "s" })]);
+	const merged = mergeAgentRows(agents, pi);
+	assert.deepEqual(merged.map((e) => e.address), ["claude-1", "pi-1", "codex-1"]);
+	const claude = merged[0];
+	assert.equal(claude.pi, null);
+	assert.equal(claude.agent.status, "blocked");
+	assert.equal(merged[2].pi, null);
+	assert.equal(merged[2].agent.status, "done");
+});
+
+test("a Pi run with no agent status is appended, so no run disappears", () => {
+	const agents = [{ address: "t1", status: "idle" }];
+	const pi = piRows([term("t9", { "pi.session": "s" })]);
+	const merged = mergeAgentRows(agents, pi);
+	assert.deepEqual(merged.map((e) => e.address), ["t1", "t9"]);
+	assert.equal(merged[1].agent, null);
+	assert.equal(merged[1].pi.address, "t9");
+});
+
+test("displayedOrder is the order of the merged list, with duplicates dropped", () => {
+	const entries = [
+		{ address: "b" },
+		{ address: "a" },
+		{ address: "b" },
+		{ address: "c" },
+	];
+	assert.deepEqual(displayedOrder(entries), ["b", "a", "c"]);
+	assert.deepEqual(displayedOrder(mergeAgentRows([{ address: "x" }, { address: "y" }], [])).map((x) => x), ["x", "y"]);
+	assert.deepEqual(displayedOrder(null), []);
 });

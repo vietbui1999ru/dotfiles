@@ -167,3 +167,27 @@ export function removeMessage(code, stdout) {
   if (code === 0 && reply?.ok === true) return null;
   return reply?.message || "Remove failed";
 }
+
+// One list for every terminal agent. `agents` is agents() in Herdr's order; each Pi run
+// (from piRows) that the agent list already holds is marked, not repeated, so a Pi terminal
+// shows once with its status and place. A Pi run the agent list lacks (no status reported
+// yet) is appended after them, so no run disappears. Returns { address, pi, agent } entries
+// in list order: `agent` is the agents() entry or null, `pi` the piRows row or null.
+export function mergeAgentRows(agents, piRowList) {
+  const piByAddress = new Map((piRowList ?? []).map((r) => [r.address, r]));
+  const seen = new Set();
+  const out = [];
+  for (const agent of agents ?? []) {
+    seen.add(agent.address);
+    out.push({ address: agent.address, pi: piByAddress.get(agent.address) ?? null, agent });
+  }
+  for (const r of piRowList ?? []) {
+    if (!seen.has(r.address)) out.push({ address: r.address, pi: r, agent: null });
+  }
+  return out;
+}
+
+// The address order of a displayed list, for setAgentOrder. Duplicates drop out.
+export function displayedOrder(entries) {
+  return [...new Set((entries ?? []).map((e) => e.address))];
+}
