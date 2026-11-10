@@ -16,6 +16,10 @@ import {
 	removeMessage,
 	reviewRows,
 	spawnArgs,
+	byUrgency,
+	pinnedFirst,
+	pruneChanged,
+	subTree,
 	taskFileName,
 	windowSpec,
 } from "../herdr-app/.config/herdr-app/mods/pi-fleet/logic.js";
@@ -314,4 +318,68 @@ test("displayedOrder is the order of the merged list, with duplicates dropped", 
 	assert.deepEqual(displayedOrder(entries), ["b", "a", "c"]);
 	assert.deepEqual(displayedOrder(mergeAgentRows([{ address: "x" }, { address: "y" }], [])).map((x) => x), ["x", "y"]);
 	assert.deepEqual(displayedOrder(null), []);
+});
+
+// --- Sub-agent trees, pins, sort tie-break, pruning (slice 1b) ---
+
+test("subTree nests a child under its parent, not at the top level", () => {
+	const terminals = [
+		{ address: "p", parent: null, state: "live" },
+		{ address: "c1", parent: "p", state: "live" },
+		{ address: "c2", parent: "p", state: "live" },
+		{ address: "g1", parent: "c1", state: "live" },
+	];
+	const tree = subTree(terminals, "p");
+	assert.deepEqual(tree.map((s) => s.t.address), ["c1", "g1", "c2"]);
+	assert.deepEqual(tree[0].lines, ["├"]);
+	assert.deepEqual(tree[1].lines, ["│", "└"]);
+	assert.deepEqual(tree[2].lines, ["└"]);
+	// The parent is not its own child, and a top-level row is never listed as a child.
+	assert.equal(subTree(terminals, "c2").length, 0);
+});
+
+test("subTree leaves out children that are not live", () => {
+	const terminals = [
+		{ address: "p", state: "live" },
+		{ address: "gone", parent: "p", state: "exited" },
+		{ address: "up", parent: "p", state: "live" },
+	];
+	assert.deepEqual(subTree(terminals, "p").map((s) => s.t.address), ["up"]);
+});
+
+test("subTree returns nothing for an agent with no children or no list", () => {
+	assert.deepEqual(subTree([{ address: "a", state: "live" }], "a"), []);
+	assert.deepEqual(subTree(undefined, "a"), []);
+});
+
+test("pinnedFirst puts pinned agents ahead, each group in its own order", () => {
+	const list = [
+		{ address: "a", pinned: false },
+		{ address: "b", pinned: true },
+		{ address: "c", pinned: false },
+		{ address: "d", pinned: true },
+	];
+	assert.deepEqual(pinnedFirst(list).map((x) => x.address), ["b", "d", "a", "c"]);
+	assert.deepEqual(pinnedFirst([]), []);
+});
+
+test("byUrgency sorts a higher rank first, then the more recent change", () => {
+	const rank = { a: 1, b: 3, c: 1, d: 3 };
+	const stamp = { a: 500, b: 100, c: 900, d: 200 };
+	const sorted = ["a", "b", "c", "d"].sort(byUrgency((k) => rank[k], (k) => stamp[k]));
+	assert.deepEqual(sorted, ["d", "b", "c", "a"]);
+});
+
+test("byUrgency puts an unseen row (stamp 0) last within its rank", () => {
+	const rank = { seen: 2, unseen: 2 };
+	const stamp = { seen: 50, unseen: 0 };
+	const sorted = ["unseen", "seen"].sort(byUrgency((k) => rank[k], (k) => stamp[k]));
+	assert.deepEqual(sorted, ["seen", "unseen"]);
+});
+
+test("pruneChanged removes addresses that are no longer listed and keeps present ones", () => {
+	const changed = { t1: { s: "idle", at: 1 }, gone: { s: "working", at: 2 } };
+	assert.deepEqual(pruneChanged(changed, ["t1", "t9"]), { t1: { s: "idle", at: 1 } });
+	assert.deepEqual(pruneChanged(changed, []), {});
+	assert.deepEqual(pruneChanged(undefined, ["t1"]), {});
 });
