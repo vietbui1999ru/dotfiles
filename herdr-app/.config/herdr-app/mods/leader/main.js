@@ -7,8 +7,11 @@
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { props, run, layout, closeOverlay, shared, theme, notify } from "herdr";
-import { GROUPS, rowsFor, resolveKey, resizeTarget, nextSize, panelAction, panelState, sizeOf, isHerdrPi } from "./logic.js";
+import { props, run, layout, closeOverlay, shared, setShared, theme, notify } from "herdr";
+import {
+  GROUPS, BAND_ID, BAND_PX, BAND_HINTS_PX, rowsFor, resolveKey, resizeTarget, nextSize, panelAction,
+  panelState, sizeOf, isHerdrPi, keyLabel, mapBandState, resizeBandState, hasBand,
+} from "./logic.js";
 
 export default class Leader extends View {
   init(_p, cx) {
@@ -16,6 +19,20 @@ export default class Leader extends View {
     this.mode = "map";
     this.surface = props()?.surface === "band" ? "band" : "popup";
     this.handle.focus();
+    if (this.surface === "band") {
+      setShared("leader.band", mapBandState());
+      // Grow the band to two hint lines, if it is in this layout.
+      if (hasBand(this.layoutTree())) run("layout.resize", { id: BAND_ID, px: BAND_HINTS_PX });
+    }
+  }
+
+  // The band surface closes into the band: clear the shared state and shrink the band back.
+  // Runs on every close, including a crash-free Esc. Popup surface has nothing to clear.
+  async close() {
+    if (this.surface !== "band") return;
+    setShared("leader.band", null);
+    setShared("leader.overlay", null);
+    if (hasBand(this.layoutTree())) run("layout.resize", { id: BAND_ID, px: BAND_PX });
   }
 
   // Close this overlay first, then run the command, so a command that opens its own overlay
@@ -39,6 +56,23 @@ export default class Leader extends View {
     try { return layout(); } catch { return null; }
   }
 
+  // Entering resize mode. On the band surface the band shrinks back to one line, and the band
+  // shows the live sizes instead of the map.
+  enterResize(cx) {
+    this.mode = "resize";
+    if (this.surface === "band") {
+      this.publishResize();
+      run("layout.resize", { id: BAND_ID, px: BAND_PX });
+    }
+    cx.notify();
+  }
+
+  // Publishes the resize state with the live panel and sidebar sizes.
+  publishResize() {
+    const tree = this.layoutTree();
+    setShared("leader.band", resizeBandState({ sidebar: sizeOf(tree, "sidebar"), panel: sizeOf(tree, "panel") }));
+  }
+
   // Resize mode: one step per press from the node's live size (so a drag in between is kept).
   // Any other key closes. A shifted letter may arrive as "h" with shift, so normalise it.
   resize(event, cx) {
@@ -53,22 +87,24 @@ export default class Leader extends View {
     const { node, delta } = target;
     const current = sizeOf(this.layoutTree(), node.id) ?? node.start;
     run("layout.resize", { id: node.id, px: nextSize(current, delta, node.min, node.max) });
+    if (this.surface === "band") this.publishResize();
     cx.notify();
   }
 
   onKey(event, cx) {
-    if (this.surface === "band") { console.log("leader band key", event.key); }
     if (event.key === "escape") { closeOverlay(props().overlay); return; }
     if (this.mode === "resize") { this.resize(event, cx); return; }
     const entry = resolveKey(event);
     if (!entry) { closeOverlay(props().overlay); return; }
-    if (entry.mode === "resize") { this.mode = "resize"; cx.notify(); return; }
+    if (entry.mode === "resize") { this.enterResize(cx); return; }
     if (entry.mode === "panel") { this.panel(entry, cx); return; }
     this.dispatch(entry, cx);
   }
 
   render() {
     const t = theme();
+    // The band surface draws nothing: the band (ai-spend) shows the hints, and this copy only
+    // holds the keyboard.
     if (this.surface === "band") {
       return div().id("leader").size_full().track_focus(this.handle)
         .on_key_down((e, cx) => { cx.stop_propagation(); this.onKey(e, cx); });
@@ -89,9 +125,4 @@ function groupBlock(group, t) {
   if (!rows.length) return div();
   return v_flex().gap(3).child(div().text_size(10).font_semibold().text_color(t.dim).child(group.toUpperCase()))
     .child(v_flex().gap(2).children(rows.map((e) => h_flex().gap(10).child(div().w(34).font_semibold().text_color(t.accent).child(keyLabel(e.key))).child(div().text_color(t.muted).child(e.label)))));
-}
-
-// Shows a key the way it is pressed: the plain key name, with Tab spelled out.
-function keyLabel(key) {
-  return key === "Tab" ? "Tab" : key;
 }
