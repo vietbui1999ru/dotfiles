@@ -5,13 +5,15 @@ import { View, div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { exec, run, theme, focused, home, readTextFile, openOverlay, closeOverlay, nextCommand, shared, setShared, layout } from "herdr";
 import { attachedJob, bandModel, bandPx, jobSession, leaderBand, resetText, terminalSegments } from "./format.js";
-import { ctxLevel, fitChips, queueHeld, sendItOn } from "./chips.js";
+import { ctxLevel, fitChips, openAlerts, pendingBlocks, queueHeld, sendItOn } from "./chips.js";
 
 const POLL_MS = 60000;
 // The focused terminal changes with focus, so it is read on a shorter tick than the quota poll.
 const TERMINAL_MS = 3000;
 // The attention chips (queue held, send-it) are read on their own tick, one call in flight each.
 const CHIPS_MS = 15000;
+// The safety-block and mistake-alert counts read the state files on a slower tick.
+const SAFETY_MS = 30000;
 // Width the band's terminal strip and quotas take before the chips get the rest of the band.
 const QUOTA_RESERVE_PX = 240;
 const TERMINAL_RESERVE_PX = 200;
@@ -31,15 +33,21 @@ export default class AiSpend extends View {
     this.sessions = new Map();
     this.held = null;
     this.sendIt = false;
+    this.blocks = 0;
+    this.alerts = 0;
+    this.alertTip = null;
     this.width = null;
     this.chipsBusy = false;
+    this.safetyBusy = false;
     this.recover();
     this.poll(cx);
     this.pollTerminal(cx);
     this.pollChips(cx);
+    this.pollSafety(cx);
     cx.timer.every(POLL_MS, (cx) => this.poll(cx));
     cx.timer.every(TERMINAL_MS, (cx) => this.pollTerminal(cx));
     cx.timer.every(CHIPS_MS, (cx) => this.pollChips(cx));
+    cx.timer.every(SAFETY_MS, (cx) => this.pollSafety(cx));
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
@@ -126,6 +134,36 @@ export default class AiSpend extends View {
         this.sendIt = false;
       } finally {
         this.chipsBusy = false;
+        cx.notify();
+      }
+    });
+  }
+
+  // The pending bash-safety blocks (⊘) and the open mistake alerts (!) over the last day, across
+  // every session. Read only: the band never writes the state files. Missing files read as empty.
+  pollSafety(cx) {
+    if (this.safetyBusy) return;
+    this.safetyBusy = true;
+    cx.spawn(async (cx) => {
+      try {
+        const state = `${home()}/.claude/state`;
+        const [rotated, current, verdicts, alerts] = await Promise.all([
+          readTextFile(`${state}/bash-safety-blocks.jsonl.1`).catch(() => null),
+          readTextFile(`${state}/bash-safety-blocks.jsonl`).catch(() => null),
+          readTextFile(`${state}/bash-safety-verdicts.jsonl`).catch(() => null),
+          readTextFile(`${state}/mistake-alerts.json`).catch(() => null),
+        ]);
+        const now = Date.now();
+        this.blocks = pendingBlocks([rotated, current], verdicts, now);
+        const open = openAlerts(alerts, now);
+        this.alerts = open.length;
+        this.alertTip = open.slice(0, 3).map((a) => a.fingerprint).join("\n") || null;
+      } catch {
+        this.blocks = 0;
+        this.alerts = 0;
+        this.alertTip = null;
+      } finally {
+        this.safetyBusy = false;
         cx.notify();
       }
     });
@@ -227,13 +265,19 @@ export default class AiSpend extends View {
     const chips = [];
     if (this.sendIt) chips.push({ id: "send-it", text: "⇉ send-it", color: t.blocked });
     if (this.held) chips.push({ id: "pi-held", text: `π held ${this.held}`, color: t.working, click: () => run("pi-fleet.monitor") });
+    // ⊘ (blocks) and ! (alerts) are rank 2: they drop after the unranked chips when the band is
+    // narrow. Neither has a click: scripts/safety-log has no read-only list subcommand, so the
+    // blocks are tooltip only. The glyphs match the flow visualizer's state set.
+    if (this.blocks > 0) chips.push({ id: "blocks", rank: 2, text: `⊘${this.blocks}`, color: t.blocked, tip: "Bash-safety blocks waiting for a verdict (last 24h, all sessions). Judge them with scripts/safety-log." });
+    if (this.alerts > 0) chips.push({ id: "alerts", rank: 2, text: `!${this.alerts}`, color: t.blocked, tip: `Open mistake alerts (last 24h, all sessions), newest first:\n${this.alertTip ?? ""}` });
     if (chips.length === 0) return [];
     const kept = this.width === null ? chips : fitChips(chips, this.width, QUOTA_RESERVE_PX + TERMINAL_RESERVE_PX);
     if (kept.length === 0) return [];
     return [
       ...kept.map((chip) => {
         const el = div().id(`spend-${chip.id}`).flex_none().px(8).whitespace_nowrap().text_color(chip.color).child(chip.text);
-        return chip.click ? el.cursor_pointer().on_click((_e, cx) => { cx.stop_propagation(); chip.click(); }) : el;
+        const tipped = chip.tip ? el.tooltip(chip.tip) : el;
+        return chip.click ? tipped.cursor_pointer().on_click((_e, cx) => { cx.stop_propagation(); chip.click(); }) : tipped;
       }),
       div().h(14).w(1).flex_none().bg(t.border),
     ];
