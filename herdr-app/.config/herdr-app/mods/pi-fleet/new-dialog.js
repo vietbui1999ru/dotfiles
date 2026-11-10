@@ -5,7 +5,7 @@
 
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
-import { exec, machines, writeTextFile, props, closeOverlay, home } from "herdr";
+import { exec, machines, writeTextFile, props, closeOverlay, home, setShared } from "herdr";
 import { taskFileName, spawnArgs } from "./logic.js";
 
 // A leading ~/ means this user's home folder; exec and the task file need a real path.
@@ -105,6 +105,7 @@ export async function startRun(view, cx) {
 			cx.notify();
 			return;
 		}
+		setShared("pi-fleet.dialog", null);
 		closeOverlay(overlay);
 	} catch (error) {
 		// exec and writeTextFile reject when a program cannot start: show it, do not hang.
@@ -122,6 +123,7 @@ export function newDialog(view, t) {
 		.id("pi-new-dialog")
 		.on_key_down((e, cx) => {
 			if (e.key === "escape") {
+				setShared("pi-fleet.dialog", null);
 				closeOverlay(props().overlay);
 				cx.stop_propagation();
 			}
@@ -183,7 +185,10 @@ export function newDialog(view, t) {
 						.border_color(t.input)
 						.bg(t.raised)
 						.cursor_pointer()
-						.on_click(() => closeOverlay(props().overlay))
+						.on_click(() => {
+							setShared("pi-fleet.dialog", null);
+							closeOverlay(props().overlay);
+						})
 						.child("Cancel"),
 				)
 				.child(

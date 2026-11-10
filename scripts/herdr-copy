@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Copies a file's text to the clipboard. Herdr mods call this through `exec`, which gives no
+# stdin, and the mod API has no clipboard write, so the report is written to a file first.
+# Usage: herdr-copy <file>
+set -euo pipefail
+
+if [ "$#" -ne 1 ]; then
+	echo "usage: herdr-copy <file>" >&2
+	exit 2
+fi
+if [ ! -f "$1" ]; then
+	echo "herdr-copy: no such file: $1" >&2
+	exit 1
+fi
+pbcopy < "$1"

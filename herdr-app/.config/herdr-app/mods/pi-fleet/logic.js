@@ -228,3 +228,64 @@ export function pruneChanged(changed, listed) {
   }
   return out;
 }
+
+// --------------------------------------------------------------- error reports
+
+// The text of a copyable error report (Markdown), for pasting into an agent session. The same
+// function is copied into the pi-fleet and pi-changes logic.js files (mods import nothing from
+// outside their folder); scripts/herdr-error-report.test.mjs fails if the copies drift apart.
+// Every field is optional except mod and action; a missing one is left out, never printed as
+// "undefined". Output fields are cut at REPORT_LIMIT characters with a note.
+export const REPORT_LIMIT = 4000;
+
+export function errorReport(fields = {}) {
+	const { mod, action, target, argv, cwd, code, stdout, stderr, context, hint, time } = fields;
+	const out = [`# ${mod}: ${action} failed`, ""];
+	const line = (label, value) => { if (value !== undefined && value !== null && value !== "") out.push(`${label}: ${value}`); };
+	line("When", time ?? new Date().toString());
+	line("Target", target);
+	line("Working folder", cwd);
+	if (Array.isArray(argv) && argv.length) out.push(`Command: \`${shellLine(argv)}\``);
+	line("Exit code", code);
+	for (const [label, text] of [["stdout", stdout], ["stderr", stderr]]) {
+		if (text === undefined || text === null || text === "") continue;
+		const { body, cut } = clip(String(text));
+		out.push("", `${label}:`, "```", body, "```");
+		if (cut) out.push(`(${label} truncated to ${REPORT_LIMIT} characters)`);
+	}
+	if (context) out.push("", "Context:", "```", clip(String(context)).body, "```");
+	if (hint) out.push("", `Next step: ${hint}`);
+	out.push("", "Paste this into an agent session to investigate.");
+	return out.join("\n") + "\n";
+}
+
+// The argv as a line a shell would accept: each word quoted unless it is plainly safe, so the
+// command can be re-run as written.
+export function shellLine(argv) {
+	return argv.map((word) => {
+		const s = String(word);
+		return /^[A-Za-z0-9_\/.,:=+@%-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`;
+	}).join(" ");
+}
+
+function clip(text) {
+	if (text.length <= REPORT_LIMIT) return { body: text.replace(/\s+$/, ""), cut: false };
+	return { body: text.slice(0, REPORT_LIMIT), cut: true };
+}
+
+// The folder reports are saved in, and the file the latest one is also written to.
+export function reportDir(home) {
+	return `${home}/.local/state/herdr-mods/reports`;
+}
+export function lastErrorPath(home) {
+	return `${home}/.local/state/herdr-mods/last-error.md`;
+}
+
+// <YYYYMMDD-HHMMSS>-<mod>-<action>.md, from a Date (local time). Two reports in one second get
+// the same name; the caller adds a suffix when a file already exists.
+export function reportFileName(mod, action, date = new Date()) {
+	const p = (n) => String(n).padStart(2, "0");
+	const stamp = `${date.getFullYear()}${p(date.getMonth() + 1)}${p(date.getDate())}-${p(date.getHours())}${p(date.getMinutes())}${p(date.getSeconds())}`;
+	const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "x";
+	return `${stamp}-${slug(mod)}-${slug(action)}.md`;
+}

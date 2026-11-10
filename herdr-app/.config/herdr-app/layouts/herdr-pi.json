@@ -68,8 +68,9 @@
               "id": "focus",
               "type": "block",
               "size": {
-                "px": 84
+                "weight": 1
               },
+              "min": 84,
               "content": {
                 "mod": "workspaces"
               }

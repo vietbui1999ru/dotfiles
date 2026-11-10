@@ -26,8 +26,10 @@ import {
 	exec,
 	hc,
 	notify,
+	readTextFile,
+	writeTextFile,
 } from "herdr";
-import { piRows, planSync, nextAddress, windowSpec, duration, reviewRows, approveMessage, cleanupRows, removeMessage, canClose, mergeAgentRows, displayedOrder, subTree, pinnedFirst, byUrgency, pruneChanged } from "./logic.js";
+import { piRows, planSync, nextAddress, windowSpec, duration, reviewRows, approveMessage, cleanupRows, removeMessage, canClose, mergeAgentRows, displayedOrder, subTree, pinnedFirst, byUrgency, pruneChanged, errorReport, reportDir, lastErrorPath, reportFileName } from "./logic.js";
 
 // Opens a run's changes in the Changes panel: picks the run for it, then shows the panel.
 function openRunChanges(run_) {
@@ -82,6 +84,26 @@ function readPins() {
 	}
 }
 
+// Copy an error report: write it to the reports folder and to last-error.md, put it on the
+// clipboard through herdr-copy, and toast the path. A failed copy still leaves the file.
+async function copyReport(report, action) {
+	const dir = reportDir(home());
+	await exec("mkdir", ["-p", dir]);
+	let path = `${dir}/${reportFileName("pi-fleet", action)}`;
+	for (let n = 2; (await readTextFile(path)) !== null; n++) path = `${dir}/${reportFileName("pi-fleet", action).replace(/\.md$/, `-${n}.md`)}`;
+	await writeTextFile(path, report, null);
+	const last = lastErrorPath(home());
+	await writeTextFile(last, report, await readTextFile(last));
+	const copied = await exec(`${home()}/dotfiles/scripts/herdr-copy`, [path], { timeout: 10000 }).then((r) => r.code === 0).catch(() => false);
+	notify({ title: copied ? "Error report copied" : "Error report saved", body: copied ? path : `Copy failed. The report is at ${path}`, level: copied ? "info" : "warning", timeout: 8000 });
+	return path;
+}
+
+// The report for a failed call: `raw` is what exec returned (or what threw), kept by the caller.
+function failureReport(action, target, raw, fallback, hint) {
+	return errorReport({ mod: "pi-fleet", action, target, argv: raw?.argv, cwd: raw?.cwd, code: raw?.code, stdout: raw?.stdout, stderr: raw?.stderr ?? fallback, hint });
+}
+
 export default class PiFleet extends View {
 	init(_props, cx) {
 		if (props()?.role === "new") {
@@ -113,7 +135,7 @@ export default class PiFleet extends View {
 		cx.spawn(async (cx) => {
 			for (;;) {
 				const c = await nextCommand();
-				if (c === "new") this.openNew();
+				if (c === "new") this.toggleNew();
 				if (c === "next") this.focusNext();
 				if (c === "monitor") this.openMonitor();
 				cx.notify();
@@ -220,20 +242,31 @@ export default class PiFleet extends View {
 		run("pane.focus", { pane: a.pane });
 	}
 
-	// Focus the Pi monitor if it is open, else split one in beside the focused pane.
+	// Close the Pi monitor if it is open, else split one in beside the focused pane.
 	openMonitor() {
 		const open = panes().find((p) => p.mod === "pi-monitor");
-		if (open) run("pane.focus", { pane: open.pane });
+		if (open) run("pane.close", { pane: open.pane });
 		else run("pane.split", { direction: "right", mod: "pi-monitor" });
 	}
 
 	openNew() {
-		openOverlay({
+		setShared("pi-fleet.dialog", openOverlay({
 			mod: "pi-fleet",
 			kind: "dialog",
 			width: 520,
 			props: { role: "new", folder: focused()?.cwd ?? home() },
-		});
+		}));
+	}
+
+	// Closes the new-run dialog when it is open, else opens it. A remembered id the app no longer
+	// holds is closed quietly and the dialog opens in its place.
+	toggleNew() {
+		const id = shared("pi-fleet.dialog");
+		setShared("pi-fleet.dialog", null);
+		if (id) {
+			try { closeOverlay(id); return; } catch { /* stale: the dialog is already gone */ }
+		}
+		this.openNew();
 	}
 
 	// One read at a time. A failed read keeps the last rows. The full list (not --offline)
@@ -242,14 +275,19 @@ export default class PiFleet extends View {
 		if (this.reviewBusy) return;
 		this.reviewBusy = true;
 		try {
-			const r = await exec(`${home()}/dotfiles/scripts/agent-review`, ["list", "--global", "--json"], { timeout: 30000 });
+			const argv = ["list", "--global", "--json"];
+			const r = await exec(`${home()}/dotfiles/scripts/agent-review`, argv, { timeout: 30000 });
 			if (r.code === 0) {
 				const entries = JSON.parse(r.stdout);
 				this.reviews = reviewRows(entries);
 				this.cleanup = cleanupRows(entries);
+				this.readNote = undefined;
+			} else {
+				this.readNote = { text: (r.stderr || r.stdout || `agent-review exited ${r.code}`).trim(), raw: { argv: [`${home()}/dotfiles/scripts/agent-review`, ...argv], cwd: null, code: r.code, stdout: r.stdout, stderr: r.stderr } };
 			}
-		} catch {
-			// Keep the last rows; the next read tries again.
+		} catch (e) {
+			// Keep the last rows; the next read tries again. The failure is still reported.
+			this.readNote = { text: String(e?.message ?? e), raw: { argv: [`${home()}/dotfiles/scripts/agent-review`, "list", "--global", "--json"], cwd: null, code: 1, stdout: "", stderr: String(e?.message ?? e) } };
 		} finally {
 			this.reviewBusy = false;
 			cx.notify();
@@ -280,25 +318,29 @@ export default class PiFleet extends View {
 		this.removeNote = undefined;
 		cx.notify();
 		let text = "Remove failed";
+		let raw = null;
 		try {
-			const r = await exec(`${home()}/dotfiles/scripts/agent-review`, ["skip", row.runId], { cwd: row.cwd, timeout: 15000 });
+			const argv = [`${home()}/dotfiles/scripts/agent-review`, "skip", row.runId];
+			const r = await exec(argv[0], argv.slice(1), { cwd: row.cwd, timeout: 15000 });
 			text = removeMessage(r.code, r.stdout);
-		} catch {
+			raw = { argv, cwd: row.cwd, code: r.code, stdout: r.stdout, stderr: r.stderr };
+		} catch (e) {
 			// A program that cannot start, or a timeout: not removed.
+			raw = { argv: [`${home()}/dotfiles/scripts/agent-review`, "skip", row.runId], cwd: row.cwd, code: 1, stdout: "", stderr: String(e?.message ?? e) };
 		}
 		this.removing = undefined;
 		if (text === null) {
 			this.cleanup = this.cleanup.filter((r) => r.runId !== row.runId);
 			return null;
 		}
-		return text;
+		return { text, raw };
 	}
 
 	// Remove one row, then re-read the list once.
 	async removeRow(cx, row) {
 		if (this.removing) return;
-		const text = await this.removeOne(cx, row);
-		if (text) this.showRemoveNote(cx, { runId: row.runId, text });
+		const failed = await this.removeOne(cx, row);
+		if (failed) this.showRemoveNote(cx, { runId: row.runId, text: failed.text, raw: failed.raw, name: row.name });
 		await this.readReviews(cx);
 	}
 
@@ -307,15 +349,28 @@ export default class PiFleet extends View {
 		if (this.removing) return;
 		const rows = [...this.cleanup];
 		let removed = 0;
-		let first;
+		const failures = [];
 		for (const row of rows) {
-			const text = await this.removeOne(cx, row);
-			if (text === null) removed += 1;
-			else if (first === undefined) first = text;
+			const failed = await this.removeOne(cx, row);
+			if (failed === null) removed += 1;
+			else failures.push({ row, ...failed });
 			cx.notify();
 		}
-		if (first !== undefined) this.showRemoveNote(cx, { runId: "all", text: `Removed ${removed} of ${rows.length}. ${first}` });
+		if (failures.length) this.showRemoveNote(cx, { runId: "all", text: `Removed ${removed} of ${rows.length}. ${failures[0].text}`, failures });
 		await this.readReviews(cx);
+	}
+
+	// The Copy for a failed removal: one report per failed row (a batch lists them all).
+	async copyRemove(note) {
+		const parts = (note.failures ?? [{ text: note.text, raw: note.raw, row: { name: note.name } }]).map((f) =>
+			failureReport("remove", f.row?.name ?? note.runId, f.raw, f.text, "Check the run in agent-review, then remove it again."));
+		await copyReport(parts.join("\n---\n\n"), "remove");
+	}
+
+	async copyRead() {
+		const n = this.readNote;
+		if (!n) return;
+		await copyReport(failureReport("review read", "agent-review list", n.raw, n.text, "Run agent-review list --global by hand to see the error."), "review-read");
 	}
 
 	showRemoveNote(cx, note) {
@@ -334,20 +389,28 @@ export default class PiFleet extends View {
 	}
 
 	// One approve at a time. The macOS dialog it raises stays the person's last step.
+	async copyApprove(note) {
+		await copyReport(failureReport("approve", note.name ?? note.runId, note.raw, note.text, "Check the run in agent-review, then approve it again."), "approve");
+	}
+
 	async approve(cx, row) {
 		if (this.approving) return;
 		this.approving = row.runId;
 		this.approveNote = undefined;
 		cx.notify();
 		let text = "Approve failed";
+		let raw = null;
 		try {
-			const r = await exec(`${home()}/dotfiles/scripts/agent-review`, ["approve", row.runId], { cwd: row.owner, timeout: 35000 });
+			const argv = [`${home()}/dotfiles/scripts/agent-review`, "approve", row.runId];
+			const r = await exec(argv[0], argv.slice(1), { cwd: row.owner, timeout: 35000 });
 			text = approveMessage(r.code, r.stdout);
-		} catch {
+			raw = { argv, cwd: row.owner, code: r.code, stdout: r.stdout, stderr: r.stderr };
+		} catch (e) {
 			// A program that cannot start, or a timeout: not approved.
+			raw = { argv: [`${home()}/dotfiles/scripts/agent-review`, "approve", row.runId], cwd: row.owner, code: 1, stdout: "", stderr: String(e?.message ?? e) };
 		}
 		this.approving = undefined;
-		const note = text ? { runId: row.runId, text } : undefined;
+		const note = text ? { runId: row.runId, text, raw, name: row.name } : undefined;
 		this.approveNote = note;
 		if (note) {
 			cx.timer.after(10000, (cx) => {
@@ -357,6 +420,13 @@ export default class PiFleet extends View {
 			});
 		}
 		await this.readReviews(cx);
+	}
+
+	// A failure line with a Copy control beside it.
+	noteLine(t, id, text, onCopy) {
+		return h_flex().gap(6).items_center()
+			.child(div().flex_1().min_w(0).text_size(11).text_color(t.blocked).child(text))
+			.child(this.textButton(t, id, "Copy", true, (_e, cx) => { onCopy().catch(() => {}); cx.notify(); }));
 	}
 
 	textButton(t, id, label, enabled, onClick) {
@@ -386,7 +456,7 @@ export default class PiFleet extends View {
 					.child(this.textButton(t, `pi-diff-${row.runId}`, "Diff", true, () => openRunChanges({ runId: row.runId, cwd: row.owner, name: row.name })))
 					.child(this.textButton(t, `pi-approve-${row.runId}`, waiting ? "Confirm in dialog…" : "Approve", !this.approving, (_e, cx) => cx.spawn((cx) => this.approve(cx, row)))),
 			)
-			.when(Boolean(note), (el) => el.child(div().text_size(11).text_color(t.blocked).child(note)));
+			.when(Boolean(note), (el) => el.child(this.noteLine(t, `pi-approve-copy-${row.runId}`, note, () => this.copyApprove(this.approveNote))));
 	}
 
 	cleanRow(t, row, now) {
@@ -414,7 +484,7 @@ export default class PiFleet extends View {
 						),
 					),
 			)
-			.when(Boolean(note), (el) => el.child(div().text_size(11).text_color(t.blocked).child(note)));
+			.when(Boolean(note), (el) => el.child(this.noteLine(t, `pi-remove-copy-${row.runId}`, note, () => this.copyRemove(this.removeNote))));
 	}
 
 	// A status mark drawn like the agents mod: a spinner, a ring for idle, a dot for done.
@@ -651,8 +721,9 @@ export default class PiFleet extends View {
 
 	// Nothing at all when no run is waiting or ready to clear.
 	reviewSection(t, now) {
-		if (this.reviews.length === 0 && this.cleanup.length === 0) return [];
 		const out = [];
+		if (this.readNote) out.push(v_flex().px(8).pt(12).pb(4).child(this.noteLine(t, "pi-read-copy", `Review list failed: ${this.readNote.text}`, () => this.copyRead())));
+		if (this.reviews.length === 0 && this.cleanup.length === 0) return out;
 		if (this.reviews.length > 0) {
 			out.push(
 				h_flex()
@@ -698,7 +769,7 @@ export default class PiFleet extends View {
 								(_e, cx) => this.arm(cx, "all", () => cx.spawn((cx) => this.removeAll(cx))),
 							),
 						)
-						.when(this.removeNote?.runId === "all", (el) => el.child(div().text_size(11).text_color(t.blocked).child(this.removeNote.text))),
+						.when(this.removeNote?.runId === "all", (el) => el.child(this.noteLine(t, "pi-remove-all-copy", this.removeNote.text, () => this.copyRemove(this.removeNote)))),
 					...this.cleanup.map((row) => this.cleanRow(t, row, now)),
 				);
 			}

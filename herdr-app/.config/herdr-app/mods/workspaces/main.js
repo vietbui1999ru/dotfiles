@@ -7,7 +7,7 @@
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { exec, home, terminals, watchFolder, openOverlay, closeOverlay, props, run, nextCommand, theme, setShared } from "herdr";
+import { exec, home, terminals, watchFolder, openOverlay, closeOverlay, props, run, nextCommand, theme, setShared, shared, readTextFile, writeTextFile, notify } from "herdr";
 import * as L from "./logic.js";
 
 const FOCUS = (h) => `${h}/dotfiles/scripts/focus`;
@@ -94,7 +94,7 @@ async function liveCwds() {
 // Board actions: re-read the board after each one.
 async function boardAction(h, argv, label) {
 	const r = await exec(argv[0], argv.slice(1), { timeout: 20000 }).catch((e) => ({ code: 1, stderr: String(e), stdout: "" }));
-	return { ok: r.code === 0, message: r.code === 0 ? label : (r.stderr || r.stdout || "failed").trim() };
+	return { ok: r.code === 0, message: r.code === 0 ? label : (r.stderr || r.stdout || "failed").trim(), raw: { argv, cwd: null, code: r.code, stdout: r.stdout, stderr: r.stderr } };
 }
 
 // Open a worktree: a terminal tab there, its changes in the Changes panel, and a coding agent.
@@ -111,8 +111,9 @@ function openWorktree(h, row, agent) {
 async function newWorktree(h, repo, repoPath, rawBranch) {
 	const branch = L.validBranch(rawBranch);
 	if (!branch) return { ok: false, message: "That is not a usable branch name" };
-	const r = await exec(L.jwNewArgv(h, branch)[0], L.jwNewArgv(h, branch).slice(1), { cwd: repoPath, timeout: 120000 }).catch((e) => ({ code: 1, stderr: String(e), stdout: "" }));
-	if (r.code !== 0) return { ok: false, message: (r.stderr || r.stdout || "jw new failed").trim() };
+	const argv = L.jwNewArgv(h, branch);
+	const r = await exec(argv[0], argv.slice(1), { cwd: repoPath, timeout: 120000 }).catch((e) => ({ code: 1, stderr: String(e), stdout: "" }));
+	if (r.code !== 0) return { ok: false, message: (r.stderr || r.stdout || "jw new failed").trim(), raw: { argv, cwd: repoPath, code: r.code, stdout: r.stdout, stderr: r.stderr } };
 	return { ok: true, message: `created ${branch}`, offerSwitch: { repo, branch } };
 }
 
@@ -122,9 +123,25 @@ async function cleanupAll(h, rowsToClean, repoPath) {
 	for (const row of rowsToClean) {
 		const argv = L.jwRemoveArgv(h, row);
 		const r = await exec(argv[0], argv.slice(1), { cwd: repoPath, timeout: 60000 }).catch((e) => ({ code: 1, stderr: String(e), stdout: "" }));
-		results.push({ path: row.path, ok: r.code === 0, message: r.code === 0 ? "removed" : (r.stderr || r.stdout || "refused").trim() });
+		results.push({ path: row.path, ok: r.code === 0, message: r.code === 0 ? "removed" : (r.stderr || r.stdout || "refused").trim(), raw: { argv, cwd: repoPath, code: r.code, stdout: r.stdout, stderr: r.stderr } });
 	}
 	return results;
+}
+
+// Copy an error report: write it to the reports folder and to last-error.md, put it on the
+// clipboard through herdr-copy, and toast the path. A failed copy still leaves the file.
+// `report` is errorReport(...) text; `mod` and `action` name it. Returns the saved path.
+async function copyReport(report, mod, action) {
+	const dir = L.reportDir(home());
+	await exec("mkdir", ["-p", dir]);
+	let path = `${dir}/${L.reportFileName(mod, action)}`;
+	for (let n = 2; (await readTextFile(path)) !== null; n++) path = `${dir}/${L.reportFileName(mod, action).replace(/\.md$/, `-${n}.md`)}`;
+	await writeTextFile(path, report, null);
+	const last = L.lastErrorPath(home());
+	await writeTextFile(last, report, await readTextFile(last));
+	const copied = await exec(`${home()}/dotfiles/scripts/herdr-copy`, [path], { timeout: 10000 }).then((r) => r.code === 0).catch(() => false);
+	notify({ title: copied ? "Error report copied" : "Error report saved", body: copied ? path : `Copy failed. The report is at ${path}`, level: copied ? "info" : "warning", timeout: 8000 });
+	return path;
 }
 
 // --------------------------------------------------------------- view
@@ -143,6 +160,7 @@ export default class Workspaces extends View {
 			for (;;) {
 				const c = await nextCommand();
 				if (c === "open") this.openPanel();
+				if (c === "toggle") this.togglePanel();
 				cx.notify();
 			}
 		});
@@ -158,8 +176,21 @@ export default class Workspaces extends View {
 		});
 	}
 
+	// Opens the panel and remembers its id, so the toggle can close it again.
 	openPanel() {
-		openOverlay({ mod: "workspaces", kind: "dialog", width: 640, props: { role: "panel", actions: props()?.actions } });
+		// A share of the window (up to 1): most of it, so full names and paths fit.
+		setShared("workspaces.panel", openOverlay({ mod: "workspaces", kind: "dialog", width: 0.85, height: 0.85, props: { role: "panel", actions: props()?.actions } }));
+	}
+
+	// Closes the panel when it is open, else opens it. A remembered id the app no longer holds
+	// (the panel closed some other way) is closed quietly and a new panel opens in its place.
+	togglePanel() {
+		const id = shared("workspaces.panel");
+		setShared("workspaces.panel", null);
+		if (id) {
+			try { closeOverlay(id); return; } catch { /* stale: the panel is already gone */ }
+		}
+		this.openPanel();
 	}
 
 	async refreshBoard(cx) {
@@ -199,18 +230,26 @@ export default class Workspaces extends View {
 			.when(!!item, (e) => e.child(div().text_color(t.dim).text_size(11).child(item.stage)));
 		const attention = L.attentionText(this.board?.breaches ?? [], this.mergedCount());
 		return v_flex().id("focus-block").size_full().px(12).py(8).gap(4).cursor_pointer().on_click(() => this.openPanel())
+			.tooltip(this.fullText())
 			.child(slot("Work", this.board?.work))
 			.child(slot("Hobby", this.board?.hobby))
 			.when(!!attention, (e) => e.child(div().text_color(t.accent).text_size(11).truncate().child(attention)));
+	}
+
+	// The whole sidebar text, for the hover tooltip: the lines the block cuts short.
+	fullText() {
+		const slot = (label, item) => `${label}: ${item ? `${item.key}${item.stage ? ` (${item.stage})` : ""}` : "—"}`;
+		const attention = L.attentionText(this.board?.breaches ?? [], this.mergedCount());
+		return [slot("Work", this.board?.work), slot("Hobby", this.board?.hobby), attention].filter(Boolean).join("\n");
 	}
 
 	// Board section: Work, Hobby, Frozen with stages; breaches; Parked lines.
 	boardSection(t) {
 		const b = this.board;
 		if (!b) return div().text_color(t.dim).child(this.boardError ? `No focus board: ${this.boardError}` : "Reading the board…");
-		const line = (label, item) => h_flex().h(22).gap(8).items_center()
+		const line = (label, item) => h_flex().min_h(22).gap(8).items_center()
 			.child(div().w(56).text_color(t.dim).text_size(11).child(label))
-			.child(div().flex_1().min_w(0).truncate().child(item ? item.key : "—"))
+			.child(div().flex_1().min_w(0).child(item ? item.key : "—"))
 			.when(!!item && ENABLED.has("board"), (e) => e.child(this.stageButtons(t, item)))
 			.when(!!item && ENABLED.has("board"), (e) => e.child(this.boardButtons(t, item)))
 			.when(!!item && !ENABLED.has("board"), (e) => e.child(div().text_color(t.dim).text_size(11).child(item.stage)));
@@ -239,16 +278,26 @@ export default class Workspaces extends View {
 
 	// The board path comes from `focus status --json`, so FOCUS_BOARD is honoured.
 	openBoardInObsidian() {
-		if (!this.board?.board) { this.note = "No board path to open"; return; }
-		exec(L.openBoardArgv(this.board.board)[0], L.openBoardArgv(this.board.board).slice(1), { timeout: 10000 })
-			.then((r) => { if (r.code !== 0) this.note = (r.stderr || "open failed").trim(); });
+		if (!this.board?.board) { this.setNote("No board path to open"); return; }
+		const argv = L.openBoardArgv(this.board.board);
+		exec(argv[0], argv.slice(1), { timeout: 10000 })
+			.then((r) => { if (r.code !== 0) this.setNote((r.stderr || "open failed").trim(), { mod: "workspaces", action: "open board", target: this.board.board, raw: { argv, cwd: null, code: r.code, stdout: r.stdout, stderr: r.stderr } }); })
+			.catch((e) => this.setNote(String(e), { mod: "workspaces", action: "open board", target: this.board.board, raw: { argv, cwd: null, code: 1, stdout: "", stderr: String(e) } }));
+	}
+
+	// The note line, and when the failure can be reported, the raw data the Copy button needs.
+	// A plain note (no failure) clears any earlier one.
+	setNote(message, failure = null) {
+		this.note = message;
+		this.failure = failure;
+		this.refusals = null;
 	}
 
 	async doBoard(args, label) {
 		if (this.busy) return;
 		this.busy = true;
 		const r = await boardAction(home(), [FOCUS(home()), ...args], label);
-		this.note = r.message;
+		this.setNote(r.message, r.ok ? null : { mod: "workspaces", action: `board ${args[0]}`, target: args.slice(1).join(" "), raw: r.raw, hint: "Fix the board or the named item, then try again." });
 		this.busy = false;
 		await this.refreshBoard({ notify: () => {} });
 	}
@@ -257,7 +306,7 @@ export default class Workspaces extends View {
 	repoTree(t, name, data) {
 		const repoPath = this.board.paths[name];
 		const head = h_flex().h(24).gap(8).items_center()
-			.child(div().flex_1().min_w(0).truncate().text_color(t.dim).text_size(11).child(name))
+			.child(div().flex_1().min_w(0).text_color(t.dim).text_size(11).child(name))
 			.when(ENABLED.has("new"), (e) => e.child(div().id(`new-${name}`).px(6).h(20).flex().items_center().rounded(5).text_size(11).text_color(t.accent).cursor_pointer().on_click(() => this.naming = { repo: name, repoPath }).child("New")));
 		if (data.error) return v_flex().gap(2).child(head).child(div().text_color(t.dim).text_size(11).child(data.error));
 		const liveNote = data.liveUnavailable ? div().text_color(t.dim).text_size(11).child("live check unavailable") : null;
@@ -274,12 +323,12 @@ export default class Workspaces extends View {
 			row.ahead != null ? `↑${row.ahead} ↓${row.behind}` : null, MERGED_TAG[row.merged] ?? null,
 			row.live ? "live" : null, row.prunable ? "prunable" : null].filter(Boolean).join("  ");
 		const selected = this.selected === row.path;
-		return h_flex().id(`wt-${row.path}`).h(26).px(6).gap(8).items_center().rounded(6)
+		return h_flex().id(`wt-${row.path}`).min_h(26).px(6).gap(8).items_center().rounded(6)
 			.when(selected, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover))
 			.on_click(() => { this.selected = row.path; })
 			.child(div().w(18).text_color(row.live ? t.ansi2 : t.dim).child(row.live ? "●" : "○"))
-			.child(div().flex_1().min_w(0).truncate().child(label))
-			.child(div().text_color(t.dim).text_size(11).truncate().child(parts))
+			.child(div().flex_1().min_w(0).child(label))
+			.child(div().text_color(t.dim).text_size(11).min_w(0).child(parts))
 			.when(ENABLED.has("open"), (e) => e
 				.child(this.openButton(t, row, "Open", null))
 				.child(this.openButton(t, row, "Claude", "claude"))
@@ -290,7 +339,7 @@ export default class Workspaces extends View {
 	openButton(t, row, label, agent) {
 		return div().id(`open-${row.path}-${label}`).px(6).h(20).flex().items_center().rounded(5).text_size(11).text_color(t.accent).cursor_pointer()
 			.hover((s) => s.text_color(t.foreground))
-			.on_click(() => { this.note = openWorktree(home(), row, agent).message; })
+			.on_click(() => { this.setNote(openWorktree(home(), row, agent).message); })
 			.child(label);
 	}
 
@@ -310,9 +359,43 @@ export default class Workspaces extends View {
 		this.busy = true;
 		const results = await cleanupAll(home(), rows, repoPath);
 		const refused = results.filter((r) => !r.ok);
-		this.note = refused.length ? `${refused.length} refused: ${refused.map((r) => `${r.path.split("/").pop()} (${r.message})`).join("; ")}` : `Removed ${results.length}`;
+		this.setNote(refused.length ? `${refused.length} refused: ${refused.map((r) => `${r.path.split("/").pop()} (${r.message})`).join("; ")}` : `Removed ${results.length}`);
+		this.refusals = refused.length ? refused.map((r) => ({ path: r.path, message: r.message, raw: r.raw })) : null;
 		this.busy = false;
 		await this.refresh({ notify: () => {} });
+	}
+
+	// The report for one refused cleanup row: what jw said, plus git's view of the worktree at
+	// report time (read-only), and what jw asked for.
+	async cleanupReport(refusal) {
+		const cwd = refusal.path;
+		const status = await exec("git", ["status", "--short"], { cwd, timeout: 10000 }).catch((e) => ({ code: 1, stdout: "", stderr: String(e) }));
+		const stash = await exec("git", ["stash", "list"], { cwd, timeout: 10000 }).catch((e) => ({ code: 1, stdout: "", stderr: String(e) }));
+		const context = [`$ git status --short`, status.stdout || status.stderr || "(no output)", `$ git stash list`, stash.stdout || stash.stderr || "(no stashes)"].join("\n");
+		return L.errorReport({
+			mod: "workspaces", action: "cleanup", target: refusal.path, argv: refusal.raw?.argv, cwd: refusal.raw?.cwd, code: refusal.raw?.code,
+			stdout: refusal.raw?.stdout, stderr: refusal.raw?.stderr ?? refusal.message, context,
+			hint: "Commit, stash or remove the uncommitted or ignored files in this worktree, then clean up again.",
+		});
+	}
+
+	async copyCleanupRow(refusal) {
+		const text = await this.cleanupReport(refusal);
+		await copyReport(text, "workspaces", "cleanup");
+	}
+
+	async copyCleanupAll() {
+		const parts = [];
+		for (const r of this.refusals ?? []) parts.push(await this.cleanupReport(r));
+		if (parts.length) await copyReport(parts.join("\n---\n\n"), "workspaces", "cleanup-all");
+	}
+
+	// The Copy control for the current failure note (board, open board, new worktree).
+	async copyFailure() {
+		const f = this.failure;
+		if (!f) return;
+		const text = L.errorReport({ mod: f.mod, action: f.action, target: f.target, argv: f.raw?.argv, cwd: f.raw?.cwd, code: f.raw?.code, stdout: f.raw?.stdout, stderr: f.raw?.stderr ?? this.note, hint: f.hint });
+		await copyReport(text, f.mod, f.action);
 	}
 
 	async runNew() {
@@ -320,7 +403,7 @@ export default class Workspaces extends View {
 		if (!n) return;
 		this.busy = true;
 		const r = await newWorktree(home(), n.repo, n.repoPath, this.branchName);
-		this.note = r.message;
+		this.setNote(r.message, r.ok ? null : { mod: "workspaces", action: "new worktree", target: `${n.repo}:${this.branchName}`, raw: r.raw, hint: "Fix the branch name or the repo, then try again." });
 		this.busy = false;
 		if (r.ok) { this.naming = null; this.branchName = ""; this.offer = r.offerSwitch; }
 		await this.refresh({ notify: () => {} });
@@ -329,24 +412,50 @@ export default class Workspaces extends View {
 	render() {
 		const t = theme();
 		if (!this.isPanel) return this.block(t);
-		return v_flex().id("workspaces").size_full().min_h(0).p(12).gap(10).bg(t.background).text_color(t.foreground).text_size(13)
+		return v_flex().id("workspaces").size_full().min_h(0).p(12).gap(10).bg(t.background).text_color(t.foreground).text_size(13).overflow_y_scrollbar()
 			.on_key_down((e) => this.key(e))
 			.child(div().text_size(15).child("Workspaces"))
 			.child(this.boardSection(t))
 			.children(this.naming ? [this.namePrompt(t)] : [])
 			.children(this.offer ? [this.offerSwitch(t)] : [])
-			.children(this.note ? [div().text_color(t.dim).text_size(11).child(this.note)] : [])
+			.children(this.note ? [this.noteLine(t)] : [])
+			.children(this.refusals?.length ? [this.refusalList(t)] : [])
 			.children(Object.entries(this.repos).map(([name, data]) => this.repoTree(t, name, data)));
 	}
 
 	// Keyboard: up/down move the selection over worktree rows, Enter runs the row's primary action
 	// (open), Escape closes the panel.
 	key(e) {
-		if (e.key === "escape") return closeOverlay(props().overlay);
+		if (e.key === "escape") {
+			setShared("workspaces.panel", null);
+			return closeOverlay(props().overlay);
+		}
 		const rows = this.allRows(), i = rows.findIndex((r) => r.path === this.selected);
 		if (e.key === "down" && rows.length) this.selected = rows[Math.min(rows.length - 1, i + 1)].path;
 		if (e.key === "up" && rows.length) this.selected = rows[Math.max(0, i - 1)].path;
-		if (e.key === "enter" && i >= 0 && L.primaryAction("worktree", ENABLED) === "open") this.note = openWorktree(home(), rows[i], null).message;
+		if (e.key === "enter" && i >= 0 && L.primaryAction("worktree", ENABLED) === "open") this.setNote(openWorktree(home(), rows[i], null).message);
+	}
+
+	// A note line; a failure that can be reported gets a Copy control beside it.
+	noteLine(t) {
+		return h_flex().gap(8).items_center()
+			.child(div().flex_1().min_w(0).text_color(t.dim).text_size(11).child(this.note))
+			.when(!!this.failure, (e) => e.child(this.copyButton(t, "copy-note", () => this.copyFailure())));
+	}
+
+	// The refused cleanup rows: each with its own message and Copy, then one Copy for the batch.
+	refusalList(t) {
+		return v_flex().gap(4)
+			.children(this.refusals.map((r) => h_flex().id(`refused-${r.path}`).gap(8).items_center()
+				.child(div().w(160).flex_none().min_w(0).text_color(t.dim).text_size(11).child(r.path))
+				.child(div().flex_1().min_w(0).text_color(t.accent).text_size(11).child(r.message))
+				.child(this.copyButton(t, `copy-refused-${r.path}`, () => this.copyCleanupRow(r)))))
+			.child(h_flex().justify_end().child(this.copyButton(t, "copy-refused-all", () => this.copyCleanupAll(), "Copy all")));
+	}
+
+	copyButton(t, id, onClick, label = "Copy") {
+		return div().id(id).flex_none().px(6).h(20).flex().items_center().rounded(5).text_size(11).text_color(t.accent).cursor_pointer()
+			.hover((s) => s.text_color(t.foreground)).on_click((_e, cx) => { onClick().catch(() => {}); cx.notify(); }).child(label);
 	}
 
 	namePrompt(t) {
