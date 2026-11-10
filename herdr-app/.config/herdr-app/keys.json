@@ -75,7 +75,8 @@
     "cmd-ctrl-o": "pi-fleet.next",
     "cmd-ctrl-m": "pi-fleet.monitor",
     "cmd-ctrl-l": {"command": "layout.switch", "args": {"name": "herdr-pi"}},
-    "cmd-ctrl-r": "workspaces.restart"
+    "cmd-ctrl-r": "workspaces.restart",
+    "cmd-k": "mod.open:leader"
   },
   "terminal": {
     "cmd-f": "terminal.search",

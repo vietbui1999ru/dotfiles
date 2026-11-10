@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { refsFor, rangeArgs, runFrom, RUN_READ } from "../herdr-app/.config/herdr-app/mods/pi-changes/logic.js";
+import { nextIndex, halfPageTarget } from "../herdr-app/.config/herdr-app/mods/pi-changes/logic.js";
 
 const ID = "11111111-2222-4333-8444-555555555555";
 
@@ -72,4 +73,34 @@ test("a file's diff is the same range, limited to that path", () => {
 
 test("the read switches match the working-tree view, so a read writes nothing under .git", () => {
 	assert.deepEqual(RUN_READ, ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "diff.autoRefreshIndex=false"]);
+});
+
+test("j/k move the file selection by one and clamp at both ends", () => {
+	assert.equal(nextIndex(5, 0, 1), 1);
+	assert.equal(nextIndex(5, 3, -1), 2);
+	assert.equal(nextIndex(5, 4, 1), 4);
+	assert.equal(nextIndex(5, 0, -1), 0);
+});
+
+test("with no file picked yet, j starts at the top and k at the bottom", () => {
+	assert.equal(nextIndex(5, -1, 1), 0);
+	assert.equal(nextIndex(5, -1, -1), 4);
+	assert.equal(nextIndex(5, undefined, 1), 0);
+});
+
+test("an empty file list has no selection", () => {
+	assert.equal(nextIndex(0, 0, 1), -1);
+	assert.equal(nextIndex(0, -1, -1), -1);
+});
+
+test("ctrl-d and ctrl-u move the diff by half a page and clamp", () => {
+	assert.equal(halfPageTarget(200, 0, 20, 1), 10);
+	assert.equal(halfPageTarget(200, 10, 20, -1), 0);
+	assert.equal(halfPageTarget(200, 195, 20, 1), 199);
+	assert.equal(halfPageTarget(200, 2, 20, -1), 0);
+});
+
+test("an empty diff and an unknown page size scroll nowhere harmful", () => {
+	assert.equal(halfPageTarget(0, 0, 20, 1), 0);
+	assert.equal(halfPageTarget(5, 0, undefined, 1), 1);
 });

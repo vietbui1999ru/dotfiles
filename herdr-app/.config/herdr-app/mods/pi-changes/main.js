@@ -1,7 +1,11 @@
 import { View, div } from "gpui-kit";
-import { v_flex, h_flex, InputState, Input, Scrollbar, v_virtual_list } from "gpui-base";
-import { spaces, panes, focused, exec, readTextFile, writeTextFile, watchFolder, theme, settings, shared, setShared, run, home, notify } from "herdr";
-import { runFrom, refsFor, rangeArgs, RUN_READ, errorReport, reportDir, lastErrorPath, reportFileName } from "./logic.js";
+import { v_flex, h_flex, InputState, Input, Scrollbar, v_virtual_list, VirtualListScrollHandle } from "gpui-base";
+import { spaces, panes, focused, exec, readTextFile, writeTextFile, watchFolder, theme, settings, shared, setShared, run, home, notify, nextCommand } from "herdr";
+import { runFrom, refsFor, rangeArgs, RUN_READ, errorReport, reportDir, lastErrorPath, reportFileName, nextIndex, halfPageTarget } from "./logic.js";
+
+// The diff rows a half page covers: the visible height in 20 px rows, from the panel's
+// default diff area. An estimate, so ctrl-d and ctrl-u move about half a screen.
+const PAGE_ROWS = 20;
 
 function location() {
   const space = spaces().find((s) => s.active), f = focused();
@@ -63,6 +67,7 @@ function diffRows(lines) {
 export default class Changes extends View {
   init(_props, cx) {
     this.files = []; this.rows = []; this.diffWidth = 0; this.message = ""; this.handle = cx.focus_handle();
+    this.scroll = VirtualListScrollHandle.new(); this.top = 0;
     this.input = InputState.new({ placeholder: "Commit message" });
     this.input.on("change", (_e, cx) => {
       const hadMessage = Boolean(this.message.trim());
@@ -74,6 +79,14 @@ export default class Changes extends View {
     this.input.on("blur", (_e, cx) => { this.typing = false; cx.notify(); });
     this.refresh(cx);
     cx.timer.every(10000, (cx) => this.refresh(cx));
+    // pane.go and a closing popup send "focus": take the keyboard.
+    cx.spawn(async (cx) => {
+      for (;;) {
+        const c = await nextCommand();
+        if (c === "focus") this.handle.focus();
+        cx.notify();
+      }
+    });
   }
 
   watch(root, cx) {
@@ -247,6 +260,39 @@ export default class Changes extends View {
     cx.notify();
   }
 
+  // Opens a file's diff without the click toggle: j/k move the selection and always show a diff.
+  open1(path, cx) {
+    if (this.open === path) return;
+    this.open = path; this.closed = false; this.setLines([]); this.note = null; this.failure = null; this.top = 0;
+    const context = this.context;
+    cx.spawn(async (cx) => {
+      try { await this.load(path, context); }
+      catch (e) { if (key() === context && this.open === path) this.failed({ action: "preview", target: path, raw: e.raw, text: `Cannot preview this diff (too large or unreadable): ${e}` }); }
+      cx.notify();
+    });
+    cx.notify();
+  }
+
+  // j/k: move the file selection by one and open that file's diff.
+  moveFile(delta, cx) {
+    const at = this.files.findIndex((f) => f.path === this.open);
+    const next = nextIndex(this.files.length, at, delta);
+    if (next < 0) return;
+    this.open1(this.files[next].path, cx);
+  }
+
+  // ctrl-d / ctrl-u: half a page through the diff. g / G: the top and bottom of it.
+  scrollDiff(direction, cx) {
+    this.top = halfPageTarget(this.rows.length, this.top, PAGE_ROWS, direction);
+    this.scroll.scroll_to_item(this.top);
+    cx.notify();
+  }
+  scrollDiffEdge(bottom, cx) {
+    if (bottom) this.scroll.scroll_to_bottom(); else this.scroll.scroll_to_item(0);
+    this.top = bottom ? Math.max(0, this.rows.length - 1) : 0;
+    cx.notify();
+  }
+
   // Back to the working-tree view: clears the picked run, so the next refresh lists the tree.
   showWorkingTree(cx) {
     setShared("pi-changes.run", null);
@@ -310,15 +356,30 @@ export default class Changes extends View {
     return inRun ? "No changes in this run" : "No uncommitted changes";
   }
 
+  // Keyboard focus. While typing a commit message, only Escape is ours: the input has the rest.
+  onKey(e, cx) {
+    if (e.key === "escape" && this.typing) { this.typing = false; this.handle.focus(); cx.stop_propagation(); cx.notify(); return; }
+    if (this.typing) return;
+    const ctrl = Boolean(e.modifiers?.control);
+    if (ctrl && e.key === "d") { cx.stop_propagation(); this.scrollDiff(1, cx); return; }
+    if (ctrl && e.key === "u") { cx.stop_propagation(); this.scrollDiff(-1, cx); return; }
+    if (e.key === "j" || e.key === "down") { cx.stop_propagation(); this.moveFile(1, cx); return; }
+    if (e.key === "k" || e.key === "up") { cx.stop_propagation(); this.moveFile(-1, cx); return; }
+    if (e.key === "g" && !e.modifiers?.shift) { cx.stop_propagation(); this.scrollDiffEdge(false, cx); return; }
+    if (e.key === "G" || (e.key === "g" && e.modifiers?.shift)) { cx.stop_propagation(); this.scrollDiffEdge(true, cx); return; }
+    // `c` starts the commit message, which the working-tree view shows (a run is read-only).
+    if (e.key === "c" && !this.run) { cx.stop_propagation(); this.input.focus(); cx.notify(); return; }
+    if (e.key === "h" || e.key === "escape") { cx.stop_propagation(); run("pane.go", { direction: "left" }); }
+  }
+
   render(cx) {
     if (key() !== this.context) this.refresh(cx);
     const t = theme(), add = this.files.reduce((n, f) => n + f.add, 0), del = this.files.reduce((n, f) => n + f.del, 0);
     const inRun = Boolean(this.run);
     const enabled = Boolean(!inRun && this.message.trim() && this.root && !this.busy && !this.loading);
-    return v_flex().id("changes").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13).track_focus(this.handle)
-      .on_key_down((e, cx) => {
-        if (e.key === "escape" && this.typing) { this.typing = false; this.handle.focus(); cx.stop_propagation(); cx.notify(); }
-      })
+    const focused = this.handle.is_focused();
+    return v_flex().id("changes").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(focused ? t.accent : t.border).text_color(t.foreground).text_size(13).track_focus(this.handle)
+      .on_key_down((e, cx) => this.onKey(e, cx))
       .child(inRun ? this.runHeader(t, add, del) : h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
         .child(div().font_semibold().child("Changes"))
         .child(div().px(5).py(1).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).child(`${this.files.length} files`))
@@ -337,7 +398,7 @@ export default class Changes extends View {
       .child(div().flex_1().min_h(0).relative().font_family(settings().font_family ?? "JetBrains Mono").text_size(11)
         .child(div().id("changes-diff-x").size_full().overflow_x_scrollbar()
           .child(div().w_full().min_w(this.diffWidth).h_full().child(v_virtual_list("changes-diff", this.rows.length, 20, (i) => String(i),
-            (range) => this.rows.slice(range.start, range.end).map((row) => this.diffRow(row, t))).size_full())))
+            (range) => this.rows.slice(range.start, range.end).map((row) => this.diffRow(row, t))).track_scroll(this.scroll).size_full())))
         .child(Scrollbar.vertical("changes-diff").viewport_from_layout().absolute().inset_0())
         .when(!this.open && this.files.length > 0, (e) => e.child(div().absolute().top(6).px(12).text_color(t.dim).child("Select a file to view its changes"))))
       .when(Boolean(this.note), (e) => e.child(h_flex().px(10).pb(8).gap(6).items_center().child(div().flex_1().min_w(0).text_size(11).text_color(t.ansi1).child(this.note))

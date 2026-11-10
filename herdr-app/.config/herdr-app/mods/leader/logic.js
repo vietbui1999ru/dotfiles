@@ -1,0 +1,160 @@
+// Pure logic for the leader mod: the key map behind cmd-k, how a key press resolves to an
+// entry, the resize step math, and the panel toggle decision. No imports from `herdr` or
+// `gpui-*`, so Node can test it (scripts/leader-logic.test.mjs).
+//
+// An entry is { label, group, command, args? } for a one-shot command, or { label, group,
+// mode: "resize" | "panel" ... } for a key that keeps the overlay open or needs the panel state.
+
+export const GROUPS = ["Panes", "Tabs", "Spaces", "Panels", "Pi", "App"];
+
+const dir = (key, label, command, args) => ({ key, label, group: "Panes", command, args });
+
+// Keys are the printed key (`"h"`, `"H"`, `"1"`, `"Tab"`, `"]"`). A shifted letter is listed
+// once in its capital form; resolveKey also accepts the lowercase letter with a shift modifier.
+export const LEADER_MAP = {
+  h: dir("h", "Focus left", "pane.go", { direction: "left" }),
+  j: dir("j", "Focus down", "pane.go", { direction: "down" }),
+  k: dir("k", "Focus up", "pane.go", { direction: "up" }),
+  l: dir("l", "Focus right", "pane.go", { direction: "right" }),
+  H: dir("H", "Swap left", "pane.swap", { direction: "left" }),
+  J: dir("J", "Swap down", "pane.swap", { direction: "down" }),
+  K: dir("K", "Swap up", "pane.swap", { direction: "up" }),
+  L: dir("L", "Swap right", "pane.swap", { direction: "right" }),
+  s: { key: "s", label: "Split right", group: "Panes", command: "pane.split", args: { direction: "right" } },
+  v: { key: "v", label: "Split down", group: "Panes", command: "pane.split", args: { direction: "down" } },
+  x: { key: "x", label: "Close pane", group: "Panes", command: "pane.close" },
+  z: { key: "z", label: "Zoom pane", group: "Panes", command: "pane.zoom" },
+  r: { key: "r", label: "Resize mode", group: "Panes", mode: "resize" },
+
+  n: { key: "n", label: "Next tab", group: "Tabs", command: "tab.next" },
+  p: { key: "p", label: "Previous tab", group: "Tabs", command: "tab.prev" },
+  1: { key: "1", label: "Tab 1", group: "Tabs", command: "tab.select", args: { index: 1 } },
+  2: { key: "2", label: "Tab 2", group: "Tabs", command: "tab.select", args: { index: 2 } },
+  3: { key: "3", label: "Tab 3", group: "Tabs", command: "tab.select", args: { index: 3 } },
+  4: { key: "4", label: "Tab 4", group: "Tabs", command: "tab.select", args: { index: 4 } },
+  5: { key: "5", label: "Tab 5", group: "Tabs", command: "tab.select", args: { index: 5 } },
+  6: { key: "6", label: "Tab 6", group: "Tabs", command: "tab.select", args: { index: 6 } },
+  7: { key: "7", label: "Tab 7", group: "Tabs", command: "tab.select", args: { index: 7 } },
+  8: { key: "8", label: "Tab 8", group: "Tabs", command: "tab.select", args: { index: 8 } },
+  9: { key: "9", label: "Tab 9", group: "Tabs", command: "tab.select", args: { index: 9 } },
+
+  "]": { key: "]", label: "Next space", group: "Spaces", command: "space.next" },
+  "[": { key: "[", label: "Previous space", group: "Spaces", command: "space.prev" },
+  w: { key: "w", label: "Workspaces", group: "Spaces", command: "workspaces.toggle" },
+
+  e: { key: "e", label: "Files panel", group: "Panels", mode: "panel", child: "files" },
+  c: { key: "c", label: "Changes panel", group: "Panels", mode: "panel", child: "changes" },
+  Tab: { key: "Tab", label: "Other panel", group: "Panels", mode: "panel", child: "other" },
+  b: { key: "b", label: "Toggle sidebar", group: "Panels", command: "layout.toggle", args: { id: "sidebar" } },
+
+  a: { key: "a", label: "New agent", group: "Pi", command: "pi-fleet.new" },
+  o: { key: "o", label: "Next agent", group: "Pi", command: "pi-fleet.next" },
+  m: { key: "m", label: "Monitor", group: "Pi", command: "pi-fleet.monitor" },
+
+  g: { key: "g", label: "Herdr-pi layout", group: "App", command: "layout.switch", args: { name: "herdr-pi" } },
+  G: { key: "G", label: "Next layout", group: "App", command: "layout.switch" },
+  R: { key: "R", label: "Restart Herdr", group: "App", command: "workspaces.restart" },
+};
+
+// The leader key's entry for a key event, or null for a key it does not own. Shifted letters
+// arrive as "H" or as "h" with the shift modifier; both resolve to the capital entry.
+export function resolveKey(event) {
+  if (!event || typeof event.key !== "string") return null;
+  let key = event.key;
+  // GPUI spells named keys in lowercase ("tab"); the map uses the printed name ("Tab").
+  if (key === "tab") key = "Tab";
+  if (event.modifiers?.shift && isLower(key)) key = key.toUpperCase();
+  return Object.prototype.hasOwnProperty.call(LEADER_MAP, key) ? LEADER_MAP[key] : null;
+}
+
+// Only a lowercase ASCII letter counts as a letter to shift; digits and punctuation do not.
+function isLower(key) {
+  return key.length === 1 && key >= "a" && key <= "z";
+}
+
+// The map as rows for drawing: the entries of one group, in map order.
+export function rowsFor(group) {
+  return Object.values(LEADER_MAP).filter((e) => e.group === group);
+}
+
+// ----------------------------------------------------------------- resize
+
+export const SIDEBAR = { id: "sidebar", min: 44, max: 480, start: 268 };
+export const PANEL = { id: "panel", min: 280, max: 900, start: 368 };
+export const RESIZE_STEP = 40;
+
+// The next size for a node: current + delta, clamped to its min and max. A non-finite input
+// keeps the current size (never NaN in a layout).
+export function nextSize(current, delta, min, max) {
+  const base = Number.isFinite(current) ? current : min;
+  const next = base + (Number.isFinite(delta) ? delta : 0);
+  return Math.min(max, Math.max(min, Math.round(next)));
+}
+
+// The resize key's effect: which node, and the new px. Keys h/l resize the sidebar, H/L the
+// panel. Returns null for any other key.
+export function resizeTarget(key) {
+  if (key === "h") return { node: SIDEBAR, delta: -RESIZE_STEP };
+  if (key === "l") return { node: SIDEBAR, delta: RESIZE_STEP };
+  if (key === "H") return { node: PANEL, delta: RESIZE_STEP };
+  if (key === "L") return { node: PANEL, delta: -RESIZE_STEP };
+  return null;
+}
+
+// ----------------------------------------------------------------- panels
+
+// What a panel key does, from the panel's state. `state` is { open, active } where `open`
+// is whether the panel node is shown and `active` is the stack child showing (or null).
+// `child` is "files" | "changes" | "other". Returns the list of commands to run in order.
+//
+//   closed                     → open on child                (e / c / Tab does nothing)
+//   open, showing child        → hide the panel
+//   open, showing the other    → switch to child
+//   Tab "other" while open     → switch to the other child
+//   Tab "other" while closed   → nothing
+export function panelAction(state, child, otherOf = (c) => (c === "files" ? "changes" : "files")) {
+  const open = Boolean(state?.open);
+  const active = state?.active ?? null;
+  if (child === "other") {
+    if (!open) return [];
+    const target = otherOf(active ?? "files");
+    return [{ command: "layout.select", args: { stack: "panel-body", child: target } }];
+  }
+  if (open && active === child) return [{ command: "layout.hide", args: { id: "panel" } }];
+  const select = { command: "layout.select", args: { stack: "panel-body", child } };
+  const show = { command: "layout.show", args: { id: "panel" } };
+  return open ? [select] : [select, show];
+}
+
+// ------------------------------------------------------------- layout reading
+
+// The node with this id in a layout tree (from layout()), or null.
+export function findNode(root, id) {
+  if (!root || typeof root !== "object") return null;
+  if (root.id === id) return root;
+  for (const child of root.children ?? []) {
+    const hit = findNode(child, id);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+// The panel's state for panelAction: whether the panel node is shown, and which stack child
+// is active. A layout without the panel gives { open: false, active: null }.
+export function panelState(root) {
+  const panel = findNode(root, "panel");
+  if (!panel) return { open: false, active: null };
+  const body = findNode(panel, "panel-body");
+  return { open: !panel.hidden, active: body?.active ?? null };
+}
+
+// The px a node is sized to in a layout tree, or null when it has no fixed px.
+export function sizeOf(root, id) {
+  const node = findNode(root, id);
+  return typeof node?.size?.px === "number" ? node.size.px : null;
+}
+
+// Whether the active layout is herdr-pi, the only layout the resize keys apply to.
+export function isHerdrPi(name) {
+  return name === "herdr-pi";
+}
