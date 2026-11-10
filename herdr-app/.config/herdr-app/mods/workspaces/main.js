@@ -170,10 +170,15 @@ export default class Workspaces extends View {
 		});
 	}
 
-	// Quits Herdr and opens it again. Terminals live in herdr-core, so they survive the restart.
-	// A detached shell waits until the app process is gone, then reopens it.
+	// Quits Herdr and opens it again into the herdr-pi layout. Terminals live in herdr-core, so they
+	// survive the restart. A detached shell waits until the app process is gone, reopens it, then
+	// waits (up to 20 s) until the app answers and switches to herdr-pi. It runs herdr-app by
+	// absolute path: a detached shell may not have the person's PATH.
 	async restartApp() {
-		await exec("/bin/sh", ["-c", "nohup /bin/sh -c 'while pgrep -xq Herdr; do sleep 0.2; done; open -a Herdr' >/dev/null 2>&1 &"]);
+		const app = `${home()}/.local/bin/herdr-app`;
+		const reopen = `while pgrep -xq Herdr; do sleep 0.2; done; open -a Herdr; `
+			+ `for i in $(seq 40); do ${app} do layout.switch --name herdr-pi >/dev/null 2>&1 && break; sleep 0.5; done`;
+		await exec("/bin/sh", ["-c", `nohup /bin/sh -c "${reopen}" >/dev/null 2>&1 &`]);
 		run("app.quit");
 	}
 
