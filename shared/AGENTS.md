@@ -270,6 +270,33 @@ Keys live in `~/secrets/.env`, which nothing sources. Never read or source that 
 7. When rule 1 applies, after the rule 5 checks pass and before the PR is marked ready or merged, archive the spec as the branch's last commit: `git mv SPEC.md docs/specs/<YYYY-MM-DD>-<slug>.md`. `<YYYY-MM-DD>` is the date SPEC.md was first committed; `<slug>` is the branch name without its type prefix (`feat/multi-provider-usage` becomes `2026-10-20-multi-provider-usage.md`). Commit message: `docs(specs): archive the <slug> spec under docs/specs`. Approval records live outside the repo and are unaffected.
 <!-- spec-loop:end -->
 
+## Gates
+
+<!-- gates:start -->
+Gates are the focus scripts and focus guard, `agent-review`, the worktree and workspace guard,
+diff review, and every approval prompt (spec approve, permission prompts, approval dialogs).
+They exist so the person decides.
+
+- **One refusal means stop.** When a gate refuses, do not get the same effect another way: no
+  other tool, no copy, no hand edit, no env override, no `scripts/focus allow`, no checkout of
+  a guarded file. Do not suggest such workarounds to the person either.
+- **Hand over the unblock.** Report what was blocked (quote the gate's message), why, and the
+  exact commands the person can run, in the order they run them. Then wait.
+- **The documented workflow is not a bypass.** Taking the next documented step (commit through
+  the funnel, `scripts/focus switch` for a follow-up branch of the current focus item,
+  `jw new`) is allowed; say so in one line.
+
+When the focus item is done and the session should keep working:
+
+- **Follow-up of the same item: do it.** Once the item's PR is merged, run
+  `scripts/focus drop <done key>` (never `--yes`). Then run
+  `scripts/focus switch <repo>:<branch>` and `jw new <branch>`, say so in one line, and tell
+  the person to continue in a session started there (`jwc <branch>`): a session can write only
+  where it started.
+- **Anything else: hand it over.** New work outside the item, or any step a gate refuses, goes to
+  the person as exact commands, for example `scripts/focus switch <new key>`, `jwc <branch>`.
+<!-- gates:end -->
+
 ## Shell tools — modern CLI first
 
 Use `eza` (not `ls`), `rg` (not `grep`), `bat` (not `cat`), `fd` (not `find`) when

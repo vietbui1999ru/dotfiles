@@ -100,10 +100,37 @@ One person supervises many worktrees, so the board caps open work. The board is
   Frozen. A breach shows in `focus status` and must be cleared before new work starts.
 - **Refuse, park or switch.** When asked for work outside the focus item, say so and offer
   `scripts/focus park <key>` or `scripts/focus switch <key>`. Never just start it.
-- **Blocker exception.** Use `scripts/focus allow <worktree> --session <sid> --blocker "<reason>"`
-  only when the focus item is blocked by that other worktree. It lets this session write there
-  until it ends and records the blocker on the board.
+- **Blocker exception.** `scripts/focus allow <worktree> --session <sid> --blocker "<reason>"`
+  is the person's command, for when the focus item is blocked by that other worktree. An agent
+  proposes it with the filled-in command and never runs it to keep working (see Gates).
 - **NEXT names the focus item.** Every `NEXT:` line names the focus item it moves forward.
+
+## Gates
+
+<!-- gates:start -->
+Gates are the focus scripts and focus guard, `agent-review`, the worktree and workspace guard,
+diff review, and every approval prompt (spec approve, permission prompts, approval dialogs).
+They exist so the person decides.
+
+- **One refusal means stop.** When a gate refuses, do not get the same effect another way: no
+  other tool, no copy, no hand edit, no env override, no `scripts/focus allow`, no checkout of
+  a guarded file. Do not suggest such workarounds to the person either.
+- **Hand over the unblock.** Report what was blocked (quote the gate's message), why, and the
+  exact commands the person can run, in the order they run them. Then wait.
+- **The documented workflow is not a bypass.** Taking the next documented step (commit through
+  the funnel, `scripts/focus switch` for a follow-up branch of the current focus item,
+  `jw new`) is allowed; say so in one line.
+
+When the focus item is done and the session should keep working:
+
+- **Follow-up of the same item: do it.** Once the item's PR is merged, run
+  `scripts/focus drop <done key>` (never `--yes`). Then run
+  `scripts/focus switch <repo>:<branch>` and `jw new <branch>`, say so in one line, and tell
+  the person to continue in a session started there (`jwc <branch>`): a session can write only
+  where it started.
+- **Anything else: hand it over.** New work outside the item, or any step a gate refuses, goes to
+  the person as exact commands, for example `scripts/focus switch <new key>`, `jwc <branch>`.
+<!-- gates:end -->
 
 ## Code discipline: YAGNI
 
