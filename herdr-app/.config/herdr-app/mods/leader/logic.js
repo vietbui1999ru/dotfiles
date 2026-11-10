@@ -7,6 +7,14 @@
 
 export const GROUPS = ["Panes", "Tabs", "Spaces", "Panels", "Pi", "App"];
 
+// The band's id and its heights: 24px normally, 48px while the hints show (two lines).
+export const BAND_ID = "ai-spend";
+export const BAND_PX = 24;
+export const BAND_HINTS_PX = 48;
+
+// The two hint lines the band shows, as groups. Every group appears once.
+export const HINT_LINES = [["Panes", "Tabs", "Spaces"], ["Panels", "Pi", "App"]];
+
 const dir = (key, label, command, args) => ({ key, label, group: "Panes", command, args });
 
 // Keys are the printed key (`"h"`, `"H"`, `"1"`, `"Tab"`, `"]"`). A shifted letter is listed
@@ -75,6 +83,86 @@ function isLower(key) {
 // The map as rows for drawing: the entries of one group, in map order.
 export function rowsFor(group) {
   return Object.values(LEADER_MAP).filter((e) => e.group === group);
+}
+
+// Shows a key the way it is pressed: the plain key name, with Tab spelled out.
+export function keyLabel(key) {
+  return key === "Tab" ? "Tab" : key;
+}
+
+// The band's hint items for one group: runs of three or more digit-free consecutive keys that
+// share a command (h j k l, the 1–9 tab keys) become one item; every other key is its own item.
+// `label` is the first word of the first label, lowercased ("Focus left" -> "focus").
+export function hintItems(group) {
+  const rows = rowsFor(group);
+  const items = [];
+  let i = 0;
+  while (i < rows.length) {
+    const e = rows[i];
+    let j = i + 1;
+    if (!e.mode) {
+      while (j < rows.length && sameRun(e, rows[j])) j++;
+    }
+    if (j - i >= 3) {
+      const run = rows.slice(i, j);
+      items.push({ keys: run.map((r) => r.key), text: runText(run), label: firstWord(e.label) });
+      i = j;
+    } else {
+      items.push({ keys: [e.key], text: keyLabel(e.key), label: firstWord(e.label) });
+      i += 1;
+    }
+  }
+  return items;
+}
+
+// Two entries share a hint item when they run the same command: the four focus keys differ only
+// in direction, and the tab keys only in index. A key with a mode or no command never merges.
+function sameRun(a, b) {
+  return !a.mode && !b.mode && Boolean(a.command) && a.command === b.command && a.group === b.group;
+}
+
+// "h j k l", or "1–9" for consecutive digits.
+function runText(run) {
+  const keys = run.map((r) => r.key);
+  if (keys.every((k, n) => /^[0-9]$/.test(k) && Number(k) === Number(keys[0]) + n)) return `${keys[0]}–${keys.at(-1)}`;
+  return keys.map(keyLabel).join(" ");
+}
+
+function firstWord(label) {
+  return String(label ?? "").split(" ")[0].toLowerCase();
+}
+
+// The band's map state: the hint lines, one list of items per group.
+export function mapBandState() {
+  return {
+    v: 1,
+    mode: "map",
+    lines: HINT_LINES.map((gs) => gs.map((g) => ({ group: g, items: hintItems(g) }))),
+    note: "Esc cancels",
+  };
+}
+
+// The band's resize state: sidebar and panel, each with its key pair, and the live sizes.
+// `sizes` is { sidebar, panel } (px, or null when unknown) and is passed through.
+export function resizeBandState(sizes) {
+  const pairs = [
+    { keys: ["h", "l"], label: "sidebar −40 +40" },
+    { keys: ["H", "L"], label: "panel +40 −40" },
+  ];
+  const items = pairs.map((p) => ({ keys: p.keys, text: p.keys.join(" "), label: p.label }));
+  return {
+    v: 1,
+    mode: "resize",
+    lines: [[{ group: "Resize", items }]],
+    note: "Esc done",
+    sizes: { sidebar: sizes?.sidebar ?? null, panel: sizes?.panel ?? null },
+  };
+}
+
+// Whether the band is in the layout and shown: the ai-spend node exists and is not hidden.
+export function hasBand(root) {
+  const band = findNode(root, BAND_ID);
+  return Boolean(band) && !band.hidden;
 }
 
 // ----------------------------------------------------------------- resize

@@ -2,9 +2,9 @@
 // `claude-tui status --json`. Polled once a minute; a click opens the claude-tui dashboard.
 
 import { View, div } from "gpui-kit";
-import { h_flex } from "gpui-base";
-import { exec, run, theme, focused, home, readTextFile } from "herdr";
-import { attachedJob, bandModel, jobSession, resetText, terminalSegments } from "./format.js";
+import { h_flex, v_flex } from "gpui-base";
+import { exec, run, theme, focused, home, readTextFile, openOverlay, closeOverlay, nextCommand, shared, setShared, layout } from "herdr";
+import { attachedJob, bandModel, bandPx, jobSession, leaderBand, resetText, terminalSegments } from "./format.js";
 
 const POLL_MS = 60000;
 // The focused terminal changes with focus, so it is read on a shorter tick than the quota poll.
@@ -14,6 +14,8 @@ const LOOKUP_MS = 30000;
 // The status line's snapshot folder (claude/.claude/statusline-command.sh).
 const STATE = () => `${home()}/.local/state/claude-tui`;
 const COLOR = { normal: "muted", attention: "working", error: "blocked" };
+// The band's normal height. The leader grows it to two hint lines while cmd-k is open.
+const BAND_PX = 24;
 
 export default class AiSpend extends View {
   init(_props, cx) {
@@ -21,10 +23,39 @@ export default class AiSpend extends View {
     this.busy = false;
     this.terminal = null;
     this.sessions = new Map();
+    this.recover();
     this.poll(cx);
     this.pollTerminal(cx);
     cx.timer.every(POLL_MS, (cx) => this.poll(cx));
     cx.timer.every(TERMINAL_MS, (cx) => this.pollTerminal(cx));
+    cx.spawn(async (cx) => {
+      for (;;) {
+        const c = await nextCommand();
+        if (c === "leader") this.toggleLeader();
+        cx.notify();
+      }
+    });
+  }
+
+  // Crash recovery: a leader that never closed leaves its shared state and a taller band behind.
+  // Clear the state, and shrink the band back if it is not at its normal height.
+  recover() {
+    setShared("leader.band", null);
+    setShared("leader.overlay", null);
+    let tree = null;
+    try { tree = layout(); } catch { tree = null; }
+    const px = bandPx(tree);
+    if (px !== null && px !== BAND_PX) run("layout.resize", { id: "ai-spend", px: BAND_PX });
+  }
+
+  // Opens the invisible band-surface leader (the keyboard holder), or closes it when it is open.
+  toggleLeader() {
+    const id = shared("leader.overlay");
+    setShared("leader.overlay", null);
+    if (id) {
+      try { closeOverlay(id); return; } catch { /* stale id: the overlay is already gone */ }
+    }
+    setShared("leader.overlay", openOverlay({ mod: "leader", kind: "popup", frame: "none", width: 2, height: 2, props: { surface: "band" } }));
   }
 
   // One call at a time: a slow claude-tui never stacks up behind the timer.
@@ -109,9 +140,11 @@ export default class AiSpend extends View {
   render() {
     const t = theme();
     const now = Date.now();
+    const hints = leaderBand(shared("leader.band"));
+    if (hints) return this.hintBand(t, hints);
     const band = h_flex()
       .id("ai-spend")
-      .h(24)
+      .h(BAND_PX)
       .w_full()
       .min_w(0)
       .items_center()
@@ -132,6 +165,21 @@ export default class AiSpend extends View {
         this.group(t, g, now),
       ]),
     ]);
+  }
+
+  // The leader's hints, drawn in place of the band's content while cmd-k is open: one row per
+  // line, each group a dim label then its keys and what they do. Resize mode ends with the sizes.
+  hintBand(t, hints) {
+    const lines = hints.lines.map((line) => h_flex().h(20).items_center().gap(18).whitespace_nowrap().overflow_hidden()
+      .children(line.map((g) => h_flex().flex_none().gap(8).items_center()
+        .child(div().w(56).flex_none().text_size(10).font_semibold().text_color(t.dim).child(g.group.toUpperCase()))
+        .children(g.items.map((item) => h_flex().flex_none().gap(4)
+          .child(div().font_semibold().text_color(t.accent).child(item.text))
+          .child(div().text_color(t.muted).child(item.label)))))));
+    const sizes = hints.sizes ? `sidebar ${hints.sizes.sidebar ?? "—"} · panel ${hints.sizes.panel ?? "—"}` : null;
+    const note = [hints.note, sizes].filter(Boolean).join("   ");
+    return v_flex().id("ai-spend").h_full().w_full().min_w(0).px(10).py(2).bg(t.chrome).border_t(1).border_color(t.border)
+      .text_size(11.5).children([...lines, div().text_color(t.dim).child(note)]);
   }
 
   // The focused terminal's context, model and branch, as one run of text. Empty when hidden.
