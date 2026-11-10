@@ -74,12 +74,17 @@
     "cmd-ctrl-p": "pi-fleet.new",
     "cmd-ctrl-o": "pi-fleet.next",
     "cmd-ctrl-m": "pi-fleet.monitor",
-    "cmd-ctrl-l": {"command": "layout.switch", "args": {"name": "herdr-pi"}},
+    "cmd-ctrl-l": {
+      "command": "layout.switch",
+      "args": {
+        "name": "herdr-pi"
+      }
+    },
     "cmd-ctrl-r": "workspaces.restart",
-    "cmd-k": "mod.open:leader"
+    "cmd-;": "mod.open:leader"
   },
   "layout:herdr-pi": {
-    "cmd-k": "ai-spend.leader"
+    "cmd-;": "ai-spend.leader"
   },
   "terminal": {
     "cmd-f": "terminal.search",
