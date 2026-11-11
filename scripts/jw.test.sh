@@ -124,4 +124,41 @@ rm -rf "$ign/node_modules"
 run_jw rm ign >/dev/null || fail "rm ign failed after clearing ignored content"
 [ ! -e "$ign" ] || fail "ign directory survived rm"
 
+# new refuses names outside the allow-list; rm refuses non-plain workspace names.
+for bad in wip/x feat/../x feat/Upper feat/-x 'feat/a b' feat/abcdefghijkl; do
+  expect_refusal "new $bad" run_jw new "$bad"
+done
+[ -z "$(ls "$main/.claude/worktrees" | grep -v decoy-target)" ] || fail "a refused name left a workspace"
+expect_refusal "rm with an uppercase name" run_jw rm Bad_Name
+
+# --full is refused in any position until full mode (S4) exists.
+expect_refusal "new --full" run_jw new --full feat/full
+expect_refusal "new --full=10m" run_jw new feat/full --full=10m
+[ ! -e "$main/.claude/worktrees/full" ] || fail "--full created a workspace"
+
+# bg: creates the workspace, then runs claude --bg there with the prompt as one word.
+mkdir -p "$dir/bin"
+printf '#!/bin/sh\npwd -P >"%s/claude.out"\nfor a; do printf "[%%s]\\n" "$a"; done >>"%s/claude.out"\n' \
+  "$dir" "$dir" >"$dir/bin/claude"
+chmod +x "$dir/bin/claude"
+bgws="$main/.claude/worktrees/bgx"
+prompt='do a; then b | c $(id)'
+export SECRETS_ENV="$dir/no-secrets.env"  # the plain path; with-secrets has its own tests
+(cd "$main" && PATH="$dir/bin:$PATH" "$JW" bg feat/bgx "$prompt") || fail "jw bg failed"
+[ "$(sed -n 1p "$dir/claude.out")" = "$bgws" ] || fail "bg ran claude outside $bgws"
+[ "$(sed -n 2p "$dir/claude.out")" = "[--bg]" ] || fail "bg did not pass --bg"
+[ "$(sed -n 3p "$dir/claude.out")" = "[$prompt]" ] || fail "bg split or changed the prompt"
+[ "$(wc -l <"$dir/claude.out")" -eq 3 ] || fail "bg passed extra arguments"
+
+# bg reuses a workspace on the same branch and refuses one on another branch.
+(cd "$main" && PATH="$dir/bin:$PATH" "$JW" bg feat/bgx again) || fail "bg on an existing workspace failed"
+expect_refusal "bg branch mismatch" run_jw bg fix/bgx hi
+expect_refusal "bg empty prompt" run_jw bg feat/bgx ''
+: >"$dir/claude.out"
+expect_refusal "bg option-shaped prompt" run_jw bg feat/bgx '--settings={"sandbox":{"enabled":false}}'
+expect_refusal "bg dash prompt" run_jw bg feat/bgx '-p'
+[ ! -s "$dir/claude.out" ] || fail "an option-shaped prompt reached claude"
+expect_refusal "bg bad branch" run_jw bg main hi
+run_jw rm bgx >/dev/null || fail "rm bgx failed"
+
 printf 'PASS: jw\n'

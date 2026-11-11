@@ -20,6 +20,10 @@ Every external command is reached through an env seam, so tests use stub binarie
 PI_QUEUE_PUEUE, PI_QUEUE_GH, PI_QUEUE_AC_RUN, PI_QUEUE_PI_OUTCOME, PI_QUEUE_HERDR,
 PI_QUEUE_CLAUDE, PI_QUEUE_PI_VIEW. PI_QUEUE_STATE holds the events log and step
 files (`~/.local/state/pi-queue` by default).
+
+Person-only since S2b: Claude's Bash sandbox has no access to the pueue socket,
+and pi-queue's shell executor runs arbitrary template steps outside any sandbox,
+so it is not a trusted launcher. Agents queue Pi through scripts/pi-dispatch.
 """
 
 import argparse

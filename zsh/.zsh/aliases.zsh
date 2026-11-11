@@ -122,8 +122,9 @@ opencode() { _with_mcp_keys opencode "$@"; }
 codex() { _with_mcp_keys codex "$@"; }
 
 # jj workspaces (docs/workflows/jj-workspaces-plan.md). jw creates a colocated
-# workspace under .claude/worktrees/ on a real branch; jwc and jwb launch claude
-# there through the wrapper above, so MCP keys are still injected.
+# workspace under .claude/worktrees/ on a real branch. jwc launches claude there
+# through the wrapper above, so MCP keys are still injected; jwb calls `jw bg`,
+# which injects the same two keys itself (agents call jw bg directly).
 _jw_dir() {
   local branch=$1 name=${1#*/} common
   common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
@@ -149,9 +150,7 @@ jwb() {
     print -u2 'usage: jwb <branch> <prompt>'
     return 2
   fi
-  local dir
-  dir=$(_jw_ensure "$1") || return
-  ( cd "$dir" && claude --bg "$2" )
+  "$HOME/dotfiles/scripts/jw" bg "$1" "$2"
 }
 
 # Claude Code, Codex and Pi through the opt-in Headroom proxy launchers (only

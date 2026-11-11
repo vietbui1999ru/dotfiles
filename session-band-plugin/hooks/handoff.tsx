@@ -1,7 +1,7 @@
 import { atom, read, update, type EngineInterface, type Register } from 'claude-code'
 
 import { emptyProgress, fold, sessionDir, sessionFileName, type PiProgress } from './pisession'
-import { parsePiCommand, parseStatus, type Task } from './pueue'
+import { dispatchCwd, isDispatchCall, parsePiCommand, parseStatus, type Task } from './pueue'
 import { finishNotice, type TrackedTask } from './handoff'
 import { daemonState, queueBadge } from './lifecycle'
 
@@ -37,7 +37,8 @@ const labelledIn = (command: string, label: string | undefined) =>
 
 export const trackedFrom = (tasks: readonly Task[], startedMs: number, cwd: string, root: string, command = ''): TrackedTask[] =>
   tasks.flatMap(task => {
-    const ours = inside(task.cwd, cwd) || inside(task.cwd, root) || labelledIn(command, task.label)
+    const target = dispatchCwd(command)
+    const ours = inside(task.cwd, cwd) || inside(task.cwd, root) || labelledIn(command, task.label) || (!!target && task.cwd === target)
     if ((task.createdMs ?? -Infinity) < startedMs || !ours) return []
     const parsed = parsePiCommand(task.command)
     if (!parsed.model) return []
@@ -129,7 +130,7 @@ export const register: Register = on => {
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const startedMs = await $.clock.now()
     const result = await next(e)
-    if ('deny' in result || !e.command.includes('pueue add')) return result
+    if ('deny' in result || !isDispatchCall(e.command)) return result
     const status = await $.process.run(['pueue', 'status', '--json']).catch(() => undefined)
     if (!status || status.exitCode !== 0) return result
     const [cwd, root, nowMs] = await Promise.all([$.session.cwd(), $.session.root(), $.clock.now()])

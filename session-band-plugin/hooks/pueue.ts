@@ -82,6 +82,18 @@ export const parseStatus = (json: string): Task[] => {
 // pueue executes a shell command. This deliberately accepts an absolute pi path too.
 export const isPiDispatch = (command: string): boolean => /(?:^|[\s;&|])(?:\S*\/)?pi(?:\s|$)/.test(command) && /(?:^|\s)(?:-p|--prompt)(?:\s|=)/.test(command)
 
+// S2b: agents queue Pi through scripts/pi-dispatch, which runs `pueue add` itself, so the
+// Bash command names pi-dispatch rather than pueue. Both shapes are dispatch calls.
+const PI_DISPATCH_ADD = /(?:^|[\s;&|/])pi-dispatch\s+add(?:\s|$)/
+export const isDispatchCall = (command: string): boolean => command.includes('pueue add') || PI_DISPATCH_ADD.test(command)
+
+/** The --cwd of a pi-dispatch add call: the worktree its pueue task runs in. */
+export const dispatchCwd = (command: string): string | undefined => {
+  if (!PI_DISPATCH_ADD.test(command)) return undefined
+  const match = command.match(/--cwd(?:\s+|=)(?:"([^"]+)"|'([^']+)'|(\S+))/)
+  return match ? (match[1] ?? match[2] ?? match[3])?.replace(/\/+$/, '') : undefined
+}
+
 export const parseAddResult = (stdout: string): number | undefined => {
   const match = stdout.trim().match(/^(\d+)$/)
   return match ? Number(match[1]) : undefined
