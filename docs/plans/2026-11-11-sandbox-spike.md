@@ -281,3 +281,20 @@ These go beyond the parent plan's tables. They come from the probe 3 schema and 
 - **App opens.** `do` takes a JSON object only; the `--key value` form is refused. An app open that sets `argv` must also give a worktree `folder`, because the default is the focused terminal's folder. `pane.split` has no `folder` argument, so it opens shells only. A `task` without an `argv` is refused, because it would be typed into a shell.
 - **No `$TMPDIR` source** for `put` or `shot`, following #291: exempt launchers see the person's TMPDIR, not the sandbox's. Sources stay inside the repository.
 - **No trust in inherited env** (fix/hsafe-env). herdr-safe runs unsandboxed, so it takes no trusted path from the environment. `HOME` comes from the password database, the `HERDR_SAFE_*` test overrides are gone, the shebang is `/usr/bin/python3 -I` rather than a `PATH` lookup, and git runs with a scrubbed env, so `GIT_DIR` and `GIT_CONFIG_*` are dropped. `hc` and `herdr-app` keep the user env, which they need to reach herdr-core. None of this was exploitable while the exemption drops on any env prefix. It is defense in depth for the day that changes.
+
+## S4 probes (2026-11-11)
+
+Step 0 of the S4 plan (full mode). Probe 4 above covered only `claude -p`. These probes cover what `jwc` needs. They ran from the person's unsandboxed terminal in this worktree, with `--permission-mode default`. The throwaway kit was `detect` (nested-Seatbelt refusal, as in S2b) and `hooklog`, a PreToolUse hook on Bash that logs the `CLAUDE_FULL_WS` value its own process sees.
+
+| Id | Launch | Result |
+|---|---|---|
+| 4a-c | Interactive `claude`, no overlay (control) | SANDBOXED |
+| 4a | Interactive `claude --settings '{"sandbox":{"enabled":false}}'`, inline JSON | UNSANDBOXED. An inline overlay switches the user-level sandbox off in an interactive session, so `jwc` needs no temp file. |
+| 4b | `claude --resume <4a id>` without the overlay | SANDBOXED. Full mode does not survive a relaunch, because it belongs to the launch and not to the session. |
+| 4c | `CLAUDE_FULL_WS=probe claude --settings <overlay with sandbox off and the hook>` | UNSANDBOXED. Every hook call logged `CLAUDE_FULL_WS=probe`, so a hook sees the env claude was launched with. |
+| 4d | In 4c, ask the agent to `export CLAUDE_FULL_WS=forged`, then run Bash | Claude refused to run the export, and every later hook line still read `probe`. |
+
+### Decisions from the results
+
+- **S4 proceeds as planned.** `jwc` launches `CLAUDE_FULL_WS=<ws> claude --settings '{"sandbox":{"enabled":false}}'`.
+- **The expiry hook can key on `CLAUDE_FULL_WS`.** 4d confirmed this only partly: the forge was refused before it ran. The hook stays safe even if a forge does run, for two reasons. A Bash child cannot change its parent claude process's environment, and hooks are spawned by that parent. And the hook decides from the marker in protected gate state, not from the variable alone. Unsetting the variable could only skip the expiry check. It cannot remove the sandbox, because that was decided at launch.
