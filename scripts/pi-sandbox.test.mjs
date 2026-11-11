@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, existsSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -43,6 +43,30 @@ test("Pi's extensions, the focus board and review decisions are read-only", () =
 test("a system repo's harness folders are read-only", () => {
 	assert.ok(!writes("echo x > scripts/tool.sh"));
 	assert.ok(!writes("mkdir -p shared && echo x > shared/rule.md"));
+});
+
+// A previous run can write .jj/repo and .git in its worktree; a planted pointer must not widen
+// the next run's write grant to another directory.
+const launch = (cwd) =>
+	spawnSync("zsh", [SCRIPT, "true"], { cwd, encoding: "utf8", env: { ...process.env, HOME: home, PI_VIEW_SECRETS: join(root, "no-secrets") } });
+
+test("refuses a .jj/repo pointer that leaves the repo", () => {
+	const planted = join(root, "planted");
+	mkdirSync(join(planted, ".jj"), { recursive: true });
+	spawnSync("git", ["init", "-q"], { cwd: planted });
+	writeFileSync(join(planted, ".jj/repo"), "../../home");
+	const result = launch(planted);
+	assert.equal(result.status, 1);
+	assert.match(result.stderr, /jj store .* is outside/);
+});
+
+test("refuses a .git pointer into a repo the folder is not a worktree of", () => {
+	const forged = join(root, "forged");
+	mkdirSync(forged, { recursive: true });
+	writeFileSync(join(forged, ".git"), `gitdir: ${join(repo, ".git")}\n`);
+	const result = launch(forged);
+	assert.equal(result.status, 1);
+	assert.match(result.stderr, /not a worktree of/);
 });
 
 test("refuses to run without a command", () => {
