@@ -224,6 +224,9 @@ test("a hard-linked task file and a loose snapshot folder are refused", async ()
 	mkdirSync(snapDir, { recursive: true });
 	chmod(snapDir, 0o770);
 	refused(loose, loose.run(["add", "--tier", "high", "--task-file", loose.task]), /mode 0700/);
+	// A HOME inside $TMPDIR would put the snapshot where a sandboxed agent can write.
+	const inTmp = sandbox();
+	refused(inTmp, inTmp.run(["add", "--tier", "high", "--task-file", inTmp.task], { TMPDIR: inTmp.dir }), /inside the worktree or \$TMPDIR/);
 });
 
 test("the queued task reads a private snapshot, so swapping the file after queueing changes nothing", async () => {

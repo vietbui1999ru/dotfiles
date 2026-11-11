@@ -161,6 +161,10 @@ snap_dir=$HOME/.local/state/pi-dispatch/tasks
 mkdir -p -m 700 -- "$snap_dir" || refuse "cannot create $snap_dir"
 [[ ! -L $snap_dir && -O $snap_dir && $(stat -f %Lp "$snap_dir") == 700 ]] \
   || refuse "$snap_dir must be a real folder you own with mode 0700"
+# HOME is trusted like everywhere in the harness (an env prefix drops the sandbox exemption,
+# S2b probe 1b), but the snapshot must never sit where a sandboxed agent can write.
+[[ ${snap_dir:A} != $cwd/* && ${snap_dir:A} != $tmp/* ]] \
+  || refuse "$snap_dir lies inside the worktree or \$TMPDIR"
 snapshot=${snap_dir:A}/$slug.md
 python3 -I -c '
 import fcntl, os, re, stat, sys
