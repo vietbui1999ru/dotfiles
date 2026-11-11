@@ -260,3 +260,12 @@ The host check printed `UNSANDBOXED` (the terminal itself was unsandboxed). The 
 ### Still open before the S2b settings patch lands
 
 - **1d' and 1d'' at the sandbox layer.** A command substitution or a pipe after an exempt launcher was not tested past blast-radius. Blast-radius protects Claude only. If Claude Code matched `stub *` against the raw text, `stub "$(cmd)"` would run `cmd` unsandboxed. The `;` result suggests the command is parsed rather than glob-matched, but that is inference. Re-probe both from an interactive overlay session, where the blast-radius prompt can be answered, before the patch is applied.
+
+### Patch split (2026-11-11)
+
+The person split the S2b settings patch in two, because `herdr-safe` is not built yet and removing the herdr sockets now would cut every agent off from `hc` and `herdr-app`:
+
+- **Patch A**, `docs/patches/sandbox/settings-s2b-a.patch`: exempts `jw new`, `jw rm`, `jw bg` and `pi-dispatch` by absolute path, removes the pueue socket from `allowUnixSockets`, and adds the `Bash(*scripts/jw*--full*)` deny.
+- **Patch B**, which ships with herdr-safe: exempts `herdr-safe` and removes both herdr sockets.
+
+Patch A is gated on the 1d' and 1d'' re-probe above. Until that result is recorded here, do not apply it. The kit is a throwaway: `detect`, `stub` and an overlay that exempts `stub *`, run from the person's terminal in an interactive `claude --settings <overlay>` session. A pass means `stub "$(detect)"` receives `SANDBOXED` as its argument, and `stub ok | detect` prints `SANDBOXED`.
