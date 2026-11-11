@@ -32,7 +32,8 @@ function sandbox({ routing = ROUTING, settings = SETTINGS } = {}) {
 	chmodSync(pueue, 0o755);
 	const routingFile = join(dir, "routing.env");
 	writeFileSync(routingFile, routing);
-	const settingsFile = join(dir, "pi-settings.json");
+	mkdirSync(join(dir, ".pi", "agent"), { recursive: true });
+	const settingsFile = join(dir, ".pi", "agent", "settings.json");
 	if (settings !== null) writeFileSync(settingsFile, settings);
 	const repo = join(dir, "repo");
 	mkdirSync(repo);
@@ -55,7 +56,7 @@ function sandbox({ routing = ROUTING, settings = SETTINGS } = {}) {
 			encoding: "utf8",
 			timeout: 20000,
 			cwd,
-			env: { PATH: `${bin}:/usr/bin:/bin:/opt/homebrew/bin`, HOME: dir, PI_ROUTING_ENV: routingFile, PI_DISPATCH_SETTINGS: settingsFile, STUB_LOG: log, ...env },
+			env: { PATH: `${bin}:/usr/bin:/bin:/opt/homebrew/bin`, HOME: dir, PI_ROUTING_ENV: routingFile, STUB_LOG: log, ...env },
 		}),
 		queued: () => readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line)),
 	};
@@ -208,6 +209,21 @@ test("--task-file must be an allow-listed regular file", () => {
 	const plan = join(box.dir, ".claude", "plans", "p.md");
 	writeFileSync(plan, "x\n");
 	assert.equal(box.run(["add", "--tier", "high", "--task-file", plan]).status, 0, "a plan in ~/.claude/plans is allowed");
+});
+
+test("a hard-linked task file and a loose snapshot folder are refused", async () => {
+	const { chmodSync: chmod, linkSync } = await import("node:fs");
+	const box = sandbox();
+	const outside = join(box.dir, "outside.env");
+	writeFileSync(outside, "KEY=v\n");
+	const linked = join(box.wt, "linked.md");
+	linkSync(outside, linked);
+	refused(box, box.run(["add", "--tier", "high", "--task-file", linked]), /changed or failed its checks/);
+	const loose = sandbox();
+	const snapDir = join(loose.dir, ".local", "state", "pi-dispatch", "tasks");
+	mkdirSync(snapDir, { recursive: true });
+	chmod(snapDir, 0o770);
+	refused(loose, loose.run(["add", "--tier", "high", "--task-file", loose.task]), /mode 0700/);
 });
 
 test("the queued task reads a private snapshot, so swapping the file after queueing changes nothing", async () => {

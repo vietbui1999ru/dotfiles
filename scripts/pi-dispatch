@@ -12,7 +12,7 @@
 # and its checks are the boundary: the model must be in Pi's enabledModels, --cwd a linked
 # worktree under <repo>/.claude/worktrees/ on a feature branch, and the task file an allow-
 # listed regular file (the pueue task cats it outside any sandbox). Pi itself runs under
-# pi-sandbox through pi-view. PI_DISPATCH_SETTINGS overrides ~/.pi/agent/settings.json.
+# pi-sandbox through pi-view. Trusted paths come from $HOME only, never from other env.
 #
 # The task text is read by the pueue task itself (`$(cat ...)` inside the command), so the
 # text never sits in pueue's stored command. Outside a Herdr pane the task opens as a
@@ -103,7 +103,7 @@ base_model=${model%%:*}
 thinking=${model#$base_model}
 [[ -z $thinking || $thinking == :(off|minimal|low|medium|high|xhigh) ]] \
   || refuse "unknown thinking level '$thinking' in --model"
-pi_settings=${PI_DISPATCH_SETTINGS:-$HOME/.pi/agent/settings.json}
+pi_settings=$HOME/.pi/agent/settings.json
 python3 -I -c 'import json,sys; sys.exit(sys.argv[2] not in (json.load(open(sys.argv[1])).get("enabledModels") or []))' \
   "$pi_settings" "$base_model" 2>/dev/null \
   || refuse "model '$base_model' is not in enabledModels of $pi_settings"
@@ -157,8 +157,10 @@ session_id=pueue-$slug
 # sandbox-writable) before pueue runs `cat`. So snapshot it now: open once without following
 # a symlink, re-check the real path of the open file, and copy the bytes into a folder no
 # sandbox can write. The task cats that copy.
-snap_dir=${PI_DISPATCH_STATE:-$HOME/.local/state/pi-dispatch}/tasks
+snap_dir=$HOME/.local/state/pi-dispatch/tasks
 mkdir -p -m 700 -- "$snap_dir" || refuse "cannot create $snap_dir"
+[[ ! -L $snap_dir && -O $snap_dir && $(stat -f %Lp "$snap_dir") == 700 ]] \
+  || refuse "$snap_dir must be a real folder you own with mode 0700"
 snapshot=${snap_dir:A}/$slug.md
 python3 -I -c '
 import fcntl, os, re, stat, sys
@@ -166,7 +168,7 @@ src, dest, *roots = sys.argv[1:]
 fd = os.open(src, os.O_RDONLY | os.O_NOFOLLOW)
 st = os.fstat(fd)
 real = fcntl.fcntl(fd, fcntl.F_GETPATH, bytes(1024)).split(b"\0", 1)[0].decode()
-ok = (stat.S_ISREG(st.st_mode) and 0 < st.st_size < 262144
+ok = (stat.S_ISREG(st.st_mode) and st.st_nlink == 1 and st.st_uid == os.getuid() and 0 < st.st_size < 262144
       and re.fullmatch(r"[A-Za-z0-9._/@+-]+", real) and any(real.startswith(r + "/") for r in roots))
 if not ok:
     sys.exit(1)
