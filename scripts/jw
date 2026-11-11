@@ -3,6 +3,12 @@
 #
 #   jw new <branch>   create the workspace, attach HEAD to <branch>, print its path
 #   jw rm <name>      forget the workspace and remove its directory (never the branch)
+#   jw bg <branch> <prompt>
+#                     ensure the workspace exists, then start `claude --bg <prompt>` in it
+#
+# jw is exempt from Claude's Bash sandbox by absolute path, so it runs unsandboxed
+# and these argument checks are the security boundary: branch and workspace names
+# are allow-listed, the prompt stays one argv word, and `--full` is refused.
 #
 # Runnable from any checkout of the repo: the primary checkout is found from
 # `git rev-parse --git-common-dir`. See docs/workflows/jj-workspaces-plan.md (M1).
@@ -10,11 +16,14 @@ set -euo pipefail
 
 PROTECTED=(main master)
 NAME_LIMIT=16
+BRANCH_RE='^(feat|fix|docs|chore|refactor|test|perf|ci)/[a-z0-9][a-z0-9-]*$'
+WS_RE='^[a-z0-9][a-z0-9-]*$'
 
 usage() {
   cat >&2 <<'EOF'
 usage: jw new <branch>
        jw rm <name>
+       jw bg <branch> <prompt>
 EOF
   exit 2
 }
@@ -44,6 +53,8 @@ cmd_new() {
   done
   [ "${#branch}" -le "$NAME_LIMIT" ] \
     || die "branch '$branch' is ${#branch} characters; the limit is $NAME_LIMIT"
+  [[ $branch =~ $BRANCH_RE ]] \
+    || die "branch '$branch' must look like <type>/<name>: type one of feat fix docs chore refactor test perf ci, name in [a-z0-9-]"
   name=$(workspace_name "$branch")
   primary=$(primary_checkout)
   dir="$primary/.claude/worktrees/$name"
@@ -62,11 +73,9 @@ cmd_new() {
 cmd_rm() {
   local name=${1:-} primary dir real entries dirty
   [ -n "$name" ] || usage
-  # The name must be one path component: "../x" or "a/b" resolve outside the
-  # workspaces directory and would point the removal at another checkout.
-  case "$name" in
-    */*|..|.) die "workspace name '$name' must not contain '/' or be '.' or '..'" ;;
-  esac
+  # The name must be one plain path component: "../x" or "a/b" resolve outside
+  # the workspaces directory and would point the removal at another checkout.
+  [[ $name =~ $WS_RE ]] || die "workspace name '$name' must match [a-z0-9][a-z0-9-]*"
   primary=$(primary_checkout)
   dir="$primary/.claude/worktrees/$name"
   [ -d "$dir" ] || die "no workspace named '$name' at $dir"
@@ -105,8 +114,40 @@ $entries"
   printf '%s\n' "$dir"
 }
 
+# bg: the prompt is passed to claude as one argv word, never through a shell.
+cmd_bg() {
+  [ $# -eq 2 ] || usage
+  local branch=$1 prompt=$2 dir current
+  [ -n "$prompt" ] || die "empty prompt"
+  [[ $branch =~ $BRANCH_RE ]] || die "branch '$branch' must look like <type>/<name>"
+  dir="$(primary_checkout)/.claude/worktrees/$(workspace_name "$branch")"
+  if [ -d "$dir" ]; then
+    current=$(git -C "$dir" branch --show-current 2>/dev/null || true)
+    [ "$current" = "$branch" ] \
+      || die "workspace $dir is on '${current:-detached}', not '$branch'"
+  else
+    cmd_new "$branch" >/dev/null
+  fi
+  cd "$dir" || die "cannot enter $dir"
+  # Same as the zsh claude() wrapper: only the two optional MCP keys, when the
+  # secrets file exists. The bg session sandboxes its own Bash.
+  if [ -r "${SECRETS_ENV:-$HOME/secrets/.env}" ]; then
+    exec "$HOME/dotfiles/scripts/with-secrets" --optional CONTEXT7_API_KEY EXCALIDRAW_API_KEY \
+      -- claude --bg "$prompt"
+  fi
+  exec claude --bg "$prompt"
+}
+
+# Full mode (S4) is not built yet; refuse it everywhere until it is.
+for arg in "$@"; do
+  case $arg in
+    --full*) die "full mode is not available; run jw without --full" ;;
+  esac
+done
+
 case ${1:-} in
   new) shift; cmd_new "$@" ;;
   rm) shift; cmd_rm "$@" ;;
+  bg) shift; cmd_bg "$@" ;;
   *) usage ;;
 esac
