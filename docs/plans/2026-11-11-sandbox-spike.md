@@ -175,3 +175,42 @@ The profile may break Pi in one known way: Pi writes `~/.pi/agent/settings.json`
 - C6: MultiEdit and NotebookEdit; whether Edit rules follow symlinks.
 - C7: a `--bg` session.
 - Whether Claude Code treats a hook timeout as allow. The focus guard's limit is 5 s, and `focus check-dispatch` measured 0.13 to 0.89 s.
+
+## S2 verification (2026-11-11)
+
+The patch is `docs/patches/sandbox/settings.patch`. Method: same as the Claude results above. `claude -p --permission-mode default --settings <overlay> --model claude-haiku-5-5 --allowedTools Bash Write` ran in the `fix/sbx-defer` worktree, with one Bash call per probe. `--permission-mode default` is needed because `settings.json` sets `defaultMode: plan`, which would stop the probe session from running anything. The overlay was the patch's `sandbox` block plus stand-in `denyRead` and `Read`/`Edit` rules.
+
+### Workflow probes
+
+| Probe | Result |
+|---|---|
+| `git fetch origin`, `git push --dry-run` (SSH remote) | Pass with no extra grant. Risk 1 did not happen. |
+| `gh pr list`, `gh auth status` | Fail without help: `tls: failed to verify certificate: x509: OSStatus -26276`. They pass with `sandbox.enableWeakerNetworkIsolation: true`, which opens `com.apple.trustd.agent`. `allowMachLookup` is not needed. Claude Code marks this "reduces security" (trustd is a possible exfiltration channel). It is the documented fix for Go CLIs. |
+| `pueue status` | Pass with the socket in `allowUnixSockets`. pueue-safe warns that the secrets file is unreadable and falls back to name-pattern dropping. |
+| `herdr-app ls` | Pass after adding `~/.config/herdr-app/herdr-app.sock`. |
+| `jj st`, `git hash-object -w`, `git add` / `git rm --cached` | Pass. Commits need nothing more. |
+| `mise ls`, `uv --version`, `scripts/focus status` (relative and absolute) | Pass. |
+| `pi-council.sh --help` | Pass. A paid live council run was not tested. Its model hosts (`opencode.ai`, `chatgpt.com`, `api.openai.com`) are allowed. |
+| `node --test scripts/pi-sandbox.test.mjs` | **Fails under the sandbox.** Risk 3 is confirmed: a nested `sandbox-exec` gets `sandbox_apply: Operation not permitted`. The tests, and any direct `pi-view` call from Claude's Bash, must run outside Claude's sandbox. pueue dispatches are unaffected, because the daemon spawns them. |
+
+### Denial probes
+
+| Target | Result |
+|---|---|
+| `~/.claude/state/focus`, `Focus.md`, `gate-events.jsonl`, Pi `settings.json`, `extensions/`, `~/.pi-lens/bin`, main `~/dotfiles/scripts`, `llm-wiki/claude-setup` | Denied (EPERM). |
+| ac-run and `decisions/` | Refused first by the existing `Bash(...)` text rules, so the sandbox layer was not reached. |
+| `~/.local/state/provenance` | Not tested: the folder does not exist yet. |
+| Stand-in `denyRead` folder (`cat`) | Denied. |
+| Write tool on a stand-in under an `Edit(~/abs/path)` rule | Refused. The rule form works. |
+| Main `~/dotfiles/.git` (a plain file) | Writable. The sandbox grants the repo's git dir. Its `hooks/` and `config` are write-protected by Claude Code's built-in list. Both were probed and denied. |
+| `~/.pi/agent/sessions` (Pi runtime) | Writable, as intended. |
+
+### Built-in limits found
+
+- **`.claude` is on Claude Code's built-in write-protected list**, together with `.git` hooks and config, `.vscode` and others. `allowWrite` cannot override it, so `~/.claude/jobs` and `~/.claude/plans` stay read-only for sandboxed Bash. Background jobs must keep Bash scratch files in `$TMPDIR` (writable). The Write tool is not sandboxed and can still write plans. The `~/.claude/jobs` grant was dropped from the patch.
+- **`~/.npm` is not writable.** Nothing in the probes needed it. Add it when an `npm`/`npx` call fails.
+- **The Pi sandbox needs no trustd setting.** `pi-sandbox.sb` starts from `(allow default)`, and `scripts/pi-sandbox gh auth status` and `gh pr list` work as they are.
+
+### Left out of the patch, for the person
+
+- **`sandbox.filesystem.denyRead` for the secrets folder.** `enforce-bash-safety.sh` refuses any agent command that names that folder, so the agent could not write the entry. After applying the patch, add a `"denyRead"` array under `sandbox.filesystem` holding the same folder that the existing `Read(...)` deny rule names. That rule covers only the Read tool.

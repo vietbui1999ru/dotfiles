@@ -11,7 +11,7 @@ profile=$script_dir/pi-sandbox.sb
 [[ -r $profile ]] || { print -u2 -- "pi-sandbox: profile missing: $profile; refusing to run unsandboxed"; exit 1 }
 
 # The worktree and the stores its git and jj write to, all outside the worktree in a linked checkout.
-wt=${PWD:A} gitdir=${PWD:A} jjdir=${PWD:A}/.jj system=0
+wt=${PWD:A} gitdir=${PWD:A} jjdir=${PWD:A}/.jj
 if top=$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null); then
   wt=${top:A}
   gitdir=$(git -C "$PWD" rev-parse --path-format=absolute --git-common-dir)
@@ -37,8 +37,6 @@ if top=$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null); then
   if [[ -e $wt/.jj ]] && [[ $jjdir != $repo_root/.jj/repo && $jjdir != $wt/.jj ]]; then
     print -u2 -- "pi-sandbox: jj store $jjdir is outside $repo_root; refusing"; exit 1
   fi
-  # System repos keep their harness folders read-only for Pi (the profile's SYSTEM block).
-  case ${gitdir:h:t} in dotfiles|llm-wiki|agent-events) system=1 ;; esac
   # The agent-review extension watches decisions/; the profile lets it read but not create it.
   mkdir -p -- "$wt/.pi/agent-review/decisions"
 fi
@@ -54,4 +52,4 @@ for key_name env_name in ${(kv)pi_keys}; do
 done
 
 exec sandbox-exec -f "$profile" -D WT="$wt" -D GITDIR="$gitdir" -D JJDIR="$jjdir" \
-  -D TMP="${${TMPDIR:-/tmp}:A}" -D HOME="$HOME" -D SYSTEM="$system" "$@"
+  -D TMP="${${TMPDIR:-/tmp}:A}" -D HOME="$HOME" "$@"

@@ -8,7 +8,7 @@ import { test, after } from "node:test";
 
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "pi-sandbox");
 
-// A fake home and a repo named like a system repo. Temp space is writable by design, so with
+// A fake home and a repo named like a system repo (dotfiles). Temp space is writable by design, so with
 // a temp HOME only the profile's deny rules (which win, being last) can be asserted here.
 const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-sandbox-")));
 const home = join(root, "home");
@@ -40,9 +40,9 @@ test("Pi's extensions, the focus board and review decisions are read-only", () =
 	assert.ok(existsSync(join(repo, ".pi/agent-review/decisions")), "the launcher creates decisions/ before the sandbox starts");
 });
 
-test("a system repo's harness folders are read-only", () => {
-	assert.ok(!writes("echo x > scripts/tool.sh"));
-	assert.ok(!writes("mkdir -p shared && echo x > shared/rule.md"));
+// Decided 2026-11-11: harness folders stay writable in worktrees until system-pin (Slice S4).
+test("a system repo's harness folders stay writable in a worktree until S4", () => {
+	assert.ok(writes("echo x > scripts/tool.sh"));
 });
 
 // A previous run can write .jj/repo and .git in its worktree; a planted pointer must not widen
