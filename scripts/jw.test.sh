@@ -15,6 +15,13 @@ dir=$(mktemp -d "${TMPDIR:-/tmp}/jw-test.XXXXXX")
 dir=$(cd "$dir" && pwd -P)
 trap 'rm -rf "$dir"' EXIT
 
+# Run a copy of jw next to a stub full-mode, so no test touches the real gate state.
+mkdir -p "$dir/jwbin"
+cp "$JW" "$dir/jwbin/jw"
+printf '#!/bin/sh\necho "$*" >>"%s/fm.log"\ncase $1 in arm|check) echo 12:00 ;; esac\n' "$dir" >"$dir/jwbin/full-mode"
+chmod +x "$dir/jwbin/jw" "$dir/jwbin/full-mode"
+JW="$dir/jwbin/jw"
+
 # Local bare remote plus a seed commit, then a primary clone: origin/main exists.
 git init -q --bare "$dir/remote.git"
 git init -q -b main "$dir/seed"
@@ -131,10 +138,42 @@ done
 [ -z "$(ls "$main/.claude/worktrees" | grep -v decoy-target)" ] || fail "a refused name left a workspace"
 expect_refusal "rm with an uppercase name" run_jw rm Bad_Name
 
-# --full is refused in any position until full mode (S4) exists.
-expect_refusal "new --full" run_jw new --full feat/full
-expect_refusal "new --full=10m" run_jw new feat/full --full=10m
-[ ! -e "$main/.claude/worktrees/full" ] || fail "--full created a workspace"
+# --full (S4): only on new, 1h to 8h, never from a Claude session, never without a
+# terminal, and only with the workspace name typed back. The stub full-mode logs calls.
+: >"$dir/fm.log"
+for bad in --full=10m --full=0h --full=9h --full=2; do
+  expect_refusal "new $bad" env -u CLAUDECODE bash -c 'cd "$1" && "$2" new feat/full "$3"' _ "$main" "$JW" "$bad"
+done
+expect_refusal "rm --full" run_jw rm full --full
+expect_refusal "bg --full" run_jw bg feat/full --full
+expect_refusal "new --full in a Claude session" env CLAUDECODE=1 bash -c 'cd "$1" && "$2" new feat/full --full' _ "$main" "$JW"
+grep -q 'session' "$dir/err" || fail "CLAUDECODE refusal did not say why"
+[ ! -e "$main/.claude/worktrees/full" ] || fail "a refused --full created a workspace"
+[ ! -s "$dir/fm.log" ] || fail "a refused --full reached full-mode: $(cat "$dir/fm.log")"
+
+# full_confirm <answer> <args...>: run jw under a pty with <answer> typed on /dev/tty.
+full_confirm() {
+  local answer=$1; shift
+  printf '%s\n' "$answer" | (cd "$main" && env -u CLAUDECODE script -q /dev/null "$JW" "$@") >"$dir/out" 2>&1
+}
+if ( : <>/dev/tty ) 2>/dev/null; then
+  printf 'SKIP: no-tty refusal (this runner has a terminal)\n'
+else
+  expect_refusal "new --full without a tty" env -u CLAUDECODE bash -c 'cd "$1" && "$2" new feat/full --full' _ "$main" "$JW" </dev/null
+  grep -q 'terminal' "$dir/err" || fail "no-tty refusal did not say why"
+fi
+if printf '' | script -q /dev/null true 2>/dev/null; then
+  full_confirm wrong new feat/full --full; grep -q 'did not match' "$dir/out" || fail "wrong confirmation was accepted"
+  [ ! -s "$dir/fm.log" ] || fail "a wrong confirmation reached full-mode"
+  full_confirm full new feat/full --full; grep -q 'armed for full' "$dir/out" || fail "--full did not arm: $(cat "$dir/out")"
+  [ -d "$main/.claude/worktrees/full" ] || fail "--full did not create the workspace"
+  full_confirm full new feat/full --full=5h; grep -qx 'arm full feat/full 5' "$dir/fm.log" || fail "re-arm of an existing workspace failed"
+  grep -qx 'arm full feat/full 2' "$dir/fm.log" || fail "--full did not default to 2h"
+  run_jw rm full >/dev/null || fail "rm full failed"
+  grep -qx 'clear full' "$dir/fm.log" || fail "rm did not clear the full-mode marker"
+else
+  printf 'SKIP: --full confirm path (no pty here; run from a terminal)\n'
+fi
 
 # bg: creates the workspace, then runs claude --bg there with the prompt as one word.
 mkdir -p "$dir/bin"

@@ -8,7 +8,8 @@
 #
 # jw is exempt from Claude's Bash sandbox by absolute path, so it runs unsandboxed
 # and these argument checks are the security boundary: branch and workspace names
-# are allow-listed, the prompt stays one argv word, and `--full` is refused.
+# are allow-listed, the prompt stays one argv word, and `--full` (S4 full mode) is
+# accepted only on `new`, outside a Claude session, with a typed tty confirmation.
 #
 # Runnable from any checkout of the repo: the primary checkout is found from
 # `git rev-parse --git-common-dir`. See docs/workflows/jj-workspaces-plan.md (M1).
@@ -18,6 +19,8 @@ PROTECTED=(main master)
 NAME_LIMIT=16
 BRANCH_RE='^(feat|fix|docs|chore|refactor|test|perf|ci)/[a-z0-9][a-z0-9-]*$'
 WS_RE='^[a-z0-9][a-z0-9-]*$'
+# full-mode is found next to jw, never on PATH: jw runs unsandboxed.
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 
 usage() {
   cat >&2 <<'EOF'
@@ -76,6 +79,9 @@ cmd_rm() {
   # The name must be one plain path component: "../x" or "a/b" resolve outside
   # the workspaces directory and would point the removal at another checkout.
   [[ $name =~ $WS_RE ]] || die "workspace name '$name' must match [a-z0-9][a-z0-9-]*"
+  # Clear full mode first: a marker that outlived its workspace would re-arm a
+  # later `jw new` of the same name.
+  "$SCRIPT_DIR/full-mode" clear "$name" || die "could not clear the full-mode marker for '$name'"
   primary=$(primary_checkout)
   dir="$primary/.claude/worktrees/$name"
   [ -d "$dir" ] || die "no workspace named '$name' at $dir"
@@ -114,14 +120,9 @@ $entries"
   printf '%s\n' "$dir"
 }
 
-# bg: the prompt is passed to claude as one argv word, never through a shell.
-cmd_bg() {
-  [ $# -eq 2 ] || usage
-  local branch=$1 prompt=$2 dir current
-  [ -n "$prompt" ] || die "empty prompt"
-  # jw runs unsandboxed: a prompt like --settings=... would reach claude as an option.
-  case $prompt in -*) die "prompt must not start with '-'" ;; esac
-  [[ $branch =~ $BRANCH_RE ]] || die "branch '$branch' must look like <type>/<name>"
+# Print the workspace for <branch>, creating it if missing; an existing one must be on <branch>.
+ensure_workspace() {
+  local branch=$1 dir current
   dir="$(primary_checkout)/.claude/worktrees/$(workspace_name "$branch")"
   if [ -d "$dir" ]; then
     current=$(git -C "$dir" branch --show-current 2>/dev/null || true)
@@ -130,6 +131,42 @@ cmd_bg() {
   else
     cmd_new "$branch" >/dev/null
   fi
+  printf '%s\n' "$dir"
+}
+
+# full: arm S4 full mode (sandbox off) for <branch>'s workspace for FULL_HOURS hours.
+# This is the person's switch. Three gates run before any side effect: no Claude
+# session env (an exempt call cannot drop CLAUDECODE, since an env prefix sandboxes
+# it), a controlling terminal, and the workspace name typed back on that terminal.
+cmd_full() {
+  [ $# -eq 1 ] || usage
+  local branch=$1 name dir answer until
+  [ -z "${CLAUDECODE:-}" ] \
+    || die "full mode is armed only from the person's terminal, never from a Claude session"
+  [[ $branch =~ $BRANCH_RE ]] && [ "${#branch}" -le "$NAME_LIMIT" ] \
+    || die "branch '$branch' must look like <type>/<name>, at most $NAME_LIMIT characters"
+  name=$(workspace_name "$branch")
+  ( : <>/dev/tty ) 2>/dev/null || die "full mode needs a terminal to confirm; none is attached"
+  printf 'jw: full mode turns the sandbox OFF in workspace %s for %sh (claude via jwc, and Pi).\nType %s to confirm: ' \
+    "$name" "$FULL_HOURS" "$name" >/dev/tty
+  IFS= read -r answer </dev/tty || answer=
+  [ "$answer" = "$name" ] || die "confirmation did not match; full mode not armed"
+  dir=$(ensure_workspace "$branch")
+  until=$("$SCRIPT_DIR/full-mode" arm "$name" "$branch" "$FULL_HOURS") \
+    || die "full-mode arm failed; full mode not armed"
+  printf 'jw: full mode armed for %s until %s; start it with: jwc %s\n' "$name" "$until" "$branch" >&2
+  printf '%s\n' "$dir"
+}
+
+# bg: the prompt is passed to claude as one argv word, never through a shell.
+cmd_bg() {
+  [ $# -eq 2 ] || usage
+  local branch=$1 prompt=$2 dir current
+  [ -n "$prompt" ] || die "empty prompt"
+  # jw runs unsandboxed: a prompt like --settings=... would reach claude as an option.
+  case $prompt in -*) die "prompt must not start with '-'" ;; esac
+  [[ $branch =~ $BRANCH_RE ]] || die "branch '$branch' must look like <type>/<name>"
+  dir=$(ensure_workspace "$branch")
   cd "$dir" || die "cannot enter $dir"
   # Same as the zsh claude() wrapper: only the two optional MCP keys, when the
   # secrets file exists. The bg session sandboxes its own Bash.
@@ -140,15 +177,29 @@ cmd_bg() {
   exec claude --bg "$prompt"
 }
 
-# Full mode (S4) is not built yet; refuse it everywhere until it is.
-for arg in "$@"; do
-  case $arg in
-    --full*) die "full mode is not available; run jw without --full" ;;
-  esac
-done
+# Full mode (S4) is armed only by `jw new <branch> --full[=<N>h]`, N from 1 to 8.
+FULL_HOURS=
+if [ "${1:-}" = new ]; then
+  shift
+  rest=()
+  for arg in "$@"; do
+    case $arg in
+      --full) FULL_HOURS=2 ;;
+      --full=*)
+        [[ ${arg#--full=} =~ ^[1-8]h$ ]] || die "--full takes 1h to 8h, got '${arg#--full=}'"
+        FULL_HOURS=${arg#--full=}; FULL_HOURS=${FULL_HOURS%h} ;;
+      *) rest+=("$arg") ;;
+    esac
+  done
+  set -- new ${rest[@]+"${rest[@]}"}
+else
+  for arg in "$@"; do
+    case $arg in --full*) die "--full is only valid on jw new" ;; esac
+  done
+fi
 
 case ${1:-} in
-  new) shift; cmd_new "$@" ;;
+  new) shift; if [ -n "$FULL_HOURS" ]; then cmd_full "$@"; else cmd_new "$@"; fi ;;
   rm) shift; cmd_rm "$@" ;;
   bg) shift; cmd_bg "$@" ;;
   *) usage ;;
