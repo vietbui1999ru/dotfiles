@@ -42,11 +42,13 @@ Method: `sandbox-exec -f <profile> -D WT=… -D HOME=… <command>`, with denial
 | Id | Question | Result |
 |---|---|---|
 | P1 | Profile shape and parameters | Pass. `(param "X")` with `-D X=…` works. The last matching rule wins, so a narrow `deny file-write*` inside an allowed subpath holds. Write rules leave reads alone. |
-| P2 | Real Pi run with zero denials | Not run. Both attempts were refused by the `agent-review/decisions` text deny above, because the setup created that directory. P4 makes the directory unnecessary in a scratch run, so P2 can run again without it, with the person's go-ahead. |
-| P3 | Negative probes inside Pi | Not run; depends on P2. |
+| P2 | Real Pi run with zero denials | Pass after two profile fixes, in a non-git scratch dir. (1) context-mode writes `~/.context-mode/projects/`, which is now granted. (2) `~/.pi/agent/auth.json` resolves provider keys by reading `~/secrets/.env` itself, so with that folder unreadable Pi reported "No API key found for opencode-go". With the secrets read allowed for the probe only, Pi made the edit in 28 s. Pi, pi-lens and context-mode logs showed no EPERM. The only error was agent-review's "not a git repository", which is expected outside git. |
+| P3 | Negative probes inside Pi | Pass. Pi's own edit tool, a `python3` write and a Bash redirect all got EPERM on `scripts/`, `~/.pi/agent/extensions` and `~/.pi-lens/bin`. A plain worktree write succeeded. The OS layer covers Pi's file tools, not only its Bash. |
 | P4 | Does Pi write `decisions/`? | Only in two places. `mkdir -p decisions` runs at session start (`pi/.pi/agent/extensions/agent-review/index.ts:686`). The `/review skip` command writes a skip decision (`index.ts:674`). Under a write deny, `mkdir -p` on an existing directory and `fs.watch` both work, and only new paths get EPERM. Two consequences: the wrapper must create `decisions/` before launch, and `/review skip` inside Pi stops working. `agent-review skip <id>` (`scripts/agent-review:421`) replaces it from outside the sandbox. |
 | P5 | Wrap point | Open. `scripts/pi-view` has four exec paths: `:95` (pi-view-app), `:103` (plain exec), `:370` (`--tui` through `pi-pane-run` in a separate herdr pane) and `:448` (herdr). A pueue-dispatched Pi is spawned by the pueue daemon, so it never inherits Claude's sandbox. The wrapper must sit in pi-view and in `pi-pane-run`, or in a shared `pi-sandbox` launcher both call. |
-| P6 | Cost | Not measured. |
+| P6 | Cost | None measurable: `pi --version` takes 0.25 to 0.28 s with and without the sandbox. `sandbox-exec` printed no deprecation warning. |
+
+Decision by the person (2026-11-11) on keys: the launcher reads only Pi's provider keys from the secrets file, outside the sandbox, and passes them as environment variables. `~/secrets` stays unreadable inside. This needs the `auth.json` entries that read the secrets file switched to the environment, unless the environment already wins over them.
 
 ## Draft allow and deny lists
 
