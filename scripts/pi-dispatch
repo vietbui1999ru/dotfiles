@@ -1,7 +1,7 @@
 #!/usr/bin/env zsh
-# pi-spawn — queue one Pi dispatch from a task file, as a pueue task run through pi-view.
+# pi-dispatch — queue one Pi dispatch from a task file, as a pueue task run through pi-view.
 #
-#   pi-spawn (--tier high|medium|low | --model <provider/id[:thinking]>) --task-file <path>
+#   pi-dispatch (--tier high|medium|low | --model <provider/id[:thinking]>) --task-file <path>
 #            [--cwd <dir>] [--place window|tab|split] [--on <machine>]
 #
 # The task text is read by the pueue task itself (`$(cat ...)` inside the command), so the
@@ -14,14 +14,14 @@
 set -u
 
 usage() {
-  print -u2 -- 'usage: pi-spawn (--tier high|medium|low | --model <provider/id[:thinking]>) --task-file <path> [--cwd <dir>] [--place window|tab|split] [--on <machine>]'
+  print -u2 -- 'usage: pi-dispatch (--tier high|medium|low | --model <provider/id[:thinking]>) --task-file <path> [--cwd <dir>] [--place window|tab|split] [--on <machine>]'
 }
 
 tier="" model="" task_file="" cwd="" place="window" on=""
 while (( $# > 0 )); do
   case $1 in
     --tier|--model|--task-file|--cwd|--place|--on)
-      (( $# >= 2 )) || { print -u2 -- "pi-spawn: $1 needs a value"; usage; exit 2 }
+      (( $# >= 2 )) || { print -u2 -- "pi-dispatch: $1 needs a value"; usage; exit 2 }
       case $1 in
         --tier) tier=$2 ;;
         --model) model=$2 ;;
@@ -32,21 +32,21 @@ while (( $# > 0 )); do
       esac
       shift 2 ;;
     -h|--help) usage; exit 0 ;;
-    *) print -u2 -- "pi-spawn: unknown argument '$1'"; usage; exit 2 ;;
+    *) print -u2 -- "pi-dispatch: unknown argument '$1'"; usage; exit 2 ;;
   esac
 done
 
 if [[ -n $on ]]; then
-  print -u2 -- 'pi-spawn: --on arrives with the machine mesh (slice D)'
+  print -u2 -- 'pi-dispatch: --on arrives with the machine mesh (slice D)'
   exit 2
 fi
 
 if [[ -n $tier && -n $model ]]; then
-  print -u2 -- 'pi-spawn: pass --tier or --model, not both'
+  print -u2 -- 'pi-dispatch: pass --tier or --model, not both'
   exit 2
 fi
 if [[ -z $tier && -z $model ]]; then
-  print -u2 -- 'pi-spawn: a model is required; pass --tier high|medium|low or --model <provider/id[:thinking]>'
+  print -u2 -- 'pi-dispatch: a model is required; pass --tier high|medium|low or --model <provider/id[:thinking]>'
   exit 2
 fi
 
@@ -58,7 +58,7 @@ if [[ -n $tier ]]; then
     high) key=PI_DELEGATE_HIGH_MODEL ;;
     medium) key=PI_DELEGATE_MEDIUM_MODEL ;;
     low) key=PI_DELEGATE_LOW_MODEL ;;
-    *) print -u2 -- "pi-spawn: unknown tier '$tier'; use high, medium or low"; exit 2 ;;
+    *) print -u2 -- "pi-dispatch: unknown tier '$tier'; use high, medium or low"; exit 2 ;;
   esac
   routing_file=${PI_ROUTING_ENV:-$HOME/.pi/agent/routing.env}
   model=""
@@ -70,18 +70,18 @@ if [[ -n $tier ]]; then
     fi
   fi
   if [[ -z $model ]]; then
-    print -u2 -- "pi-spawn: $key is not set in $routing_file"
+    print -u2 -- "pi-dispatch: $key is not set in $routing_file"
     exit 2
   fi
 fi
 
-[[ -n $task_file ]] || { print -u2 -- 'pi-spawn: --task-file is required'; exit 2 }
-[[ -s $task_file ]] || { print -u2 -- "pi-spawn: --task-file '$task_file' is missing or empty"; exit 2 }
+[[ -n $task_file ]] || { print -u2 -- 'pi-dispatch: --task-file is required'; exit 2 }
+[[ -s $task_file ]] || { print -u2 -- "pi-dispatch: --task-file '$task_file' is missing or empty"; exit 2 }
 task_file=${task_file:A}
 
 case $place in
   window|tab|split) ;;
-  *) print -u2 -- "pi-spawn: unknown --place '$place'; use window, tab or split"; exit 2 ;;
+  *) print -u2 -- "pi-dispatch: unknown --place '$place'; use window, tab or split"; exit 2 ;;
 esac
 
 cwd=${cwd:-$PWD}
@@ -100,8 +100,8 @@ session_id=pueue-$slug
 pueue_command="${(q)script_dir}/pi-view --tui pi --model ${(q)model} --session-id ${(q)session_id} -p \"\$(cat ${(q)task_file})\" < /dev/null"
 
 task_id=$(PI_VIEW_APP=1 PI_VIEW_PLACE=$place pueue add -i --print-task-id --label "$slug" -w "$cwd" -- "$pueue_command") || {
-  print -u2 -- 'pi-spawn: pueue add failed'
+  print -u2 -- 'pi-dispatch: pueue add failed'
   exit 1
 }
 
-print -r -- "pi-spawn task=$task_id slug=$slug model=$model"
+print -r -- "pi-dispatch task=$task_id slug=$slug model=$model"

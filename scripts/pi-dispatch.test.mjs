@@ -1,6 +1,6 @@
-// Run: node --test scripts/pi-spawn.test.mjs
+// Run: node --test scripts/pi-dispatch.test.mjs
 //
-// pi-spawn calls pueue; a fake pueue on PATH records its argv and environment so the tests
+// pi-dispatch calls pueue; a fake pueue on PATH records its argv and environment so the tests
 // check the queued command without queueing anything.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -10,7 +10,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
-const SPAWN = join(dirname(fileURLToPath(import.meta.url)), "pi-spawn");
+const SPAWN = join(dirname(fileURLToPath(import.meta.url)), "pi-dispatch");
 
 const PUEUE_STUB = `#!/usr/bin/env node
 import { appendFileSync } from "node:fs";
@@ -21,7 +21,7 @@ process.stdout.write("42\\n");
 const ROUTING = "PI_DELEGATE_HIGH_MODEL=opencode-go/high:high\nPI_DELEGATE_MEDIUM_MODEL=opencode-go/mid:medium\nPI_DELEGATE_LOW_MODEL=opencode-go/low:low\n";
 
 function sandbox({ routing = ROUTING } = {}) {
-	const dir = mkdtempSync(join(tmpdir(), "pi-spawn-test-"));
+	const dir = mkdtempSync(join(tmpdir(), "pi-dispatch-test-"));
 	const bin = join(dir, "bin");
 	mkdirSync(bin);
 	const pueue = join(bin, "pueue");
@@ -79,7 +79,7 @@ test("--on is refused with exit 2 until the machine mesh lands", () => {
 	const box = sandbox();
 	const result = box.run(["--on", "vps", "--tier", "high", "--task-file", box.task]);
 	assert.equal(result.status, 2);
-	assert.equal(result.stderr.trim(), "pi-spawn: --on arrives with the machine mesh (slice D)");
+	assert.equal(result.stderr.trim(), "pi-dispatch: --on arrives with the machine mesh (slice D)");
 	assert.equal(box.queued().length, 0);
 });
 
