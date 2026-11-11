@@ -4,7 +4,7 @@ import { activityLabel, formatElapsed, formatTokens, idleAge, monitorRows, runni
 import { STUCK_MS, type CheckRecord } from './outcome'
 import { trackedFrom } from './handoff.tsx'
 import { emptyProgress, fold } from './pisession'
-import { dispatchCommand, isPiDispatch, parseAddResult, parsePiCommand, parseStatus } from './pueue'
+import { dispatchCommand, dispatchCwd, isDispatchCall, isPiDispatch, parseAddResult, parsePiCommand, parseStatus } from './pueue'
 import { parsePending, reviewState } from './review'
 
 const running = (id = 7): TrackedTask => ({
@@ -35,6 +35,21 @@ test('recognizes and decodes Pi dispatches without trusting add stdout', () => {
   expect(parseAddResult('task 42')).toBeUndefined()
   expect(parsePiCommand("pi --model openai/gpt:high --thinking medium --session-id pueue-x --label x -p ok")).toEqual({ model: 'openai/gpt', effort: 'medium', sessionId: 'pueue-x', label: 'x' })
   expect(dispatchCommand('openai/gpt:high', 'pueue-x', '/tmp/a b.md')).toContain("cat '/tmp/a b.md'")
+})
+
+test('a pi-dispatch add call is a dispatch, and its --cwd adopts the sibling-worktree task', () => {
+  const call = '/Users/u/dotfiles/scripts/pi-dispatch add --tier high --task-file /p/x.md --cwd "/repo/.claude/worktrees/wt/"'
+  expect(isDispatchCall(call)).toBe(true)
+  expect(isDispatchCall('pueue add -- x')).toBe(true)
+  expect(isDispatchCall('/x/pi-dispatch status')).toBe(false)
+  expect(isDispatchCall('echo pi-dispatcher add')).toBe(false)
+  expect(dispatchCwd(call)).toBe('/repo/.claude/worktrees/wt')
+  expect(dispatchCwd("pi-dispatch add --cwd '/a b' --tier low")).toBe('/a b')
+  expect(dispatchCwd('pueue add -w /repo -- x')).toBeUndefined()
+  const task = { id: 5, cwd: '/repo/.claude/worktrees/wt', command: 'pi-view --tui pi --model m --session-id pueue-x -p "$(cat /p/x.md)"', state: 'Queued' as const, createdMs: 10 }
+  // The session sits in another checkout, so only the --cwd match can claim the task.
+  expect(trackedFrom([task], 0, '/elsewhere', '/elsewhere', call).map(item => item.id)).toEqual([5])
+  expect(trackedFrom([task], 0, '/elsewhere', '/elsewhere', 'pi-dispatch add --cwd /repo/.claude/worktrees/other')).toEqual([])
 })
 
 test('folds session JSONL incrementally, preserving partial lines and bounded entries', () => {

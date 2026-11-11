@@ -1,6 +1,7 @@
 import { type EngineInterface, type Register } from 'claude-code'
 
 import { addOwner, daemonState, ensureArgvs, freshIds, idleCheck, ownersPath, parseOwners, type Owners } from './lifecycle'
+import { isDispatchCall } from './pueue'
 
 // The id the heartbeat file is named by, read at session start as register.tsx's heartbeat reads it.
 // After a /clear the process keeps writing that heartbeat, so the owner keeps that id too.
@@ -66,7 +67,7 @@ export async function onSessionStart($: EngineInterface) {
 
 export const register: Register = on => {
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    if (e.command.includes('pueue add')) await ensure($).catch(() => undefined)
+    if (isDispatchCall(e.command)) await ensure($).catch(() => undefined)
     return next(e)
   })
 

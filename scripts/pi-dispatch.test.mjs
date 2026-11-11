@@ -159,6 +159,20 @@ test("status and log pass through; anything else is refused", () => {
 	assert.equal(box.queued().length, 2);
 });
 
+test("wait takes only numeric ids; --mode view drops --tui; an unknown mode is refused", () => {
+	const box = sandbox();
+	assert.equal(box.run(["wait", "3", "4"]).status, 0);
+	assert.deepEqual(box.queued()[0].argv, ["wait", "3", "4"]);
+	for (const args of [["wait"], ["wait", "3", "--group"], ["wait", "x"]]) assert.equal(box.run(args).status, 2, args.join(" "));
+	assert.equal(box.run(["add", "--mode", "view", "--tier", "high", "--task-file", box.task]).status, 0);
+	const viewed = box.queued()[1].argv.join(" ");
+	assert.ok(viewed.includes("/pi-view pi --model") && !viewed.includes("--tui"), viewed);
+	assert.equal(box.run(["add", "--tier", "high", "--task-file", box.task]).status, 0);
+	assert.ok(box.queued()[2].argv.join(" ").includes("/pi-view --tui pi --model"), "tui stays the default");
+	const other = sandbox();
+	refused(other, other.run(["add", "--mode", "live", "--tier", "high", "--task-file", other.task]), /unknown --mode/);
+});
+
 test("an unknown thinking level or unreadable Pi settings is refused", () => {
 	const box = sandbox();
 	refused(box, box.run(["add", "--model", "opencode-go/high:turbo", "--task-file", box.task]), /thinking level/);
