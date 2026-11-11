@@ -132,7 +132,7 @@ task_file=${task_file:A}
 tmp=${${TMPDIR:-/nonexistent}:A}
 [[ $tmp == /private/(var/folders|tmp)/* ]] || tmp=/nonexistent
 [[ $task_file == $cwd/* || $task_file == ${HOME:A}/.claude/plans/* || $task_file == $tmp/* ]] \
-  || refuse "--task-file must be inside the worktree, ~/.claude/plans or \$TMPDIR"
+  || refuse "--task-file must be inside the worktree, ~/.claude/plans or \$TMPDIR ($tmp); a sandboxed session's temp folder is not this \$TMPDIR, so use the worktree or ~/.claude/plans"
 
 case $place in
   window|tab|split) ;;
