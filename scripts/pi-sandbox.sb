@@ -1,0 +1,53 @@
+;; Seatbelt profile for Pi runs, applied by scripts/pi-sandbox through sandbox-exec.
+;; Parameters: WT (worktree root), GITDIR (git common dir), JJDIR (jj repo store), TMP ($TMPDIR), HOME,
+;; SYSTEM ("1" when the worktree belongs to a system repo: dotfiles, llm-wiki, agent-events).
+;; Rules are applied last-match-wins, so each deny block narrows the allow block above it.
+;; Findings behind each path: docs/plans/2026-11-11-sandbox-spike.md.
+(version 1)
+(allow default)
+
+;; Writes: none, then the worktree, temp space and Pi's own runtime state.
+(deny file-write*)
+(allow file-write*
+  (subpath (param "WT"))
+  (subpath (param "GITDIR"))
+  (subpath (param "JJDIR"))
+  (subpath (param "TMP"))
+  (subpath "/private/var/folders")
+  (subpath "/dev")
+  (subpath (string-append (param "HOME") "/.pi"))
+  (subpath (string-append (param "HOME") "/.pi-lens"))
+  (subpath (string-append (param "HOME") "/.context-mode"))
+  (subpath (string-append (param "HOME") "/.local/state/agent-review"))
+  (subpath (string-append (param "HOME") "/.local/state/pi-checks"))
+  (subpath (string-append (param "HOME") "/.local/state/provenance")))
+
+;; Pi's configuration and installed code, gate state and the focus board.
+(deny file-write*
+  (subpath (string-append (param "HOME") "/.pi/agent/extensions"))
+  (subpath (string-append (param "HOME") "/.pi/agent/extensions-available"))
+  (subpath (string-append (param "HOME") "/.pi/agent/skills"))
+  (subpath (string-append (param "HOME") "/.pi/agent/agents"))
+  (subpath (string-append (param "HOME") "/.pi/agent/npm"))
+  (literal (string-append (param "HOME") "/.pi/agent/settings.json"))
+  (literal (string-append (param "HOME") "/.pi/agent/mcp.json"))
+  (literal (string-append (param "HOME") "/.pi/agent/models.json"))
+  (subpath (string-append (param "HOME") "/.pi-lens/bin"))
+  (literal (string-append (param "HOME") "/.pi-lens/config.json"))
+  (subpath (string-append (param "WT") "/.pi/agent-review/decisions"))
+  (subpath (string-append (param "HOME") "/.local/state/ac-run"))
+  (literal (string-append (param "HOME") "/repos/Obsidian/Focus.md")))
+
+;; System repos: the tools, rules and skills that make up the harness.
+(if (equal? (param "SYSTEM") "1")
+  (deny file-write*
+    (subpath (string-append (param "WT") "/scripts"))
+    (subpath (string-append (param "WT") "/claude/.claude"))
+    (subpath (string-append (param "WT") "/shared"))
+    (subpath (string-append (param "WT") "/pi/.pi"))
+    (subpath (string-append (param "WT") "/session-band-plugin"))
+    (subpath (string-append (param "WT") "/herdr-app"))
+    (subpath (string-append (param "WT") "/claude-setup"))))
+
+;; Secrets stay unreadable; scripts/pi-sandbox hands Pi only its provider keys.
+(deny file-read* (subpath (string-append (param "HOME") "/secrets")))

@@ -74,6 +74,11 @@ done
 # commit-funnel reads this to keep the run's row (stamped at start) for every commit in the run.
 [[ -n $session_id ]] && export PROVENANCE_SESSION=$session_id
 
+# Every exec path below runs this argv, --tui included (pi-pane-run gets it as tui_argv), so
+# every dispatch runs under the Seatbelt profile. pi-sandbox refuses rather than run unsandboxed.
+set -- "$script_dir/pi-sandbox" "$@"
+argv=("$@")
+
 driver=$script_dir/pi-live.mjs
 input_path=${TMPDIR:-/tmp}
 input_path=${input_path%/}/pi-view/${session_id}.in
