@@ -1,6 +1,5 @@
 ;; Seatbelt profile for Pi runs, applied by scripts/pi-sandbox through sandbox-exec.
-;; Parameters: WT (worktree root), GITDIR (git common dir), JJDIR (jj repo store), TMP ($TMPDIR), HOME,
-;; SYSTEM ("1" when the worktree belongs to a system repo: dotfiles, llm-wiki, agent-events).
+;; Parameters: WT (worktree root), GITDIR (git common dir), JJDIR (jj repo store), TMP ($TMPDIR), HOME.
 ;; Rules are applied last-match-wins, so each deny block narrows the allow block above it.
 ;; Findings behind each path: docs/plans/2026-11-11-sandbox-spike.md.
 (version 1)
@@ -38,16 +37,8 @@
   (subpath (string-append (param "HOME") "/.local/state/ac-run"))
   (literal (string-append (param "HOME") "/repos/Obsidian/Focus.md")))
 
-;; System repos: the tools, rules and skills that make up the harness.
-(if (equal? (param "SYSTEM") "1")
-  (deny file-write*
-    (subpath (string-append (param "WT") "/scripts"))
-    (subpath (string-append (param "WT") "/claude/.claude"))
-    (subpath (string-append (param "WT") "/shared"))
-    (subpath (string-append (param "WT") "/pi/.pi"))
-    (subpath (string-append (param "WT") "/session-band-plugin"))
-    (subpath (string-append (param "WT") "/herdr-app"))
-    (subpath (string-append (param "WT") "/claude-setup"))))
+;; Harness folders inside a system repo's worktree stay writable until Slice S4 (system-pin)
+;; exists; decided 2026-11-11. The main checkout is outside every grant above already.
 
 ;; Secrets stay unreadable; scripts/pi-sandbox hands Pi only its provider keys.
 (deny file-read* (subpath (string-append (param "HOME") "/secrets")))
