@@ -75,7 +75,8 @@ Every voice runs at `medium` or `high` effort, never above it: the veto has to b
 For long tasks that run in the background while you continue work.
 
 ```bash
-# Write the task to a file first (the worktree, ~/.claude/plans or $TMPDIR; under 256 KiB).
+# Write the task to a file first (the worktree or ~/.claude/plans; under 256 KiB).
+# Not Claude's sandbox $TMPDIR: pi-dispatch runs unsandboxed with the person's own $TMPDIR.
 # WORKTREE is an existing linked worktree, absolute path; create it before dispatching.
 /Users/vietquocbui/dotfiles/scripts/pi-dispatch add --model opencode-go/deepseek-v4.1-flash:low \
   --task-file <absolute-path-to-task>.md --cwd <absolute-path-to-worktree>

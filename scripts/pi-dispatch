@@ -120,7 +120,9 @@ top=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)
 git -C "$repo" worktree list --porcelain | grep -qxF "worktree $cwd" \
   || refuse "--cwd $cwd is not a registered worktree of $repo"
 branch=$(git -C "$cwd" branch --show-current)
-[[ -n $branch && $branch != (main|master) ]] || refuse "--cwd $cwd must be on a feature branch"
+# Empty means detached HEAD: jj workspaces detach it after any jj command. That is fine in a
+# registered linked worktree; commit-funnel picks the branch and refuses main/master on commit.
+[[ $branch != (main|master) ]] || refuse "--cwd $cwd is on $branch; use a feature-branch worktree"
 
 # The pueue task cats the task file outside any sandbox: allow-list where it may live.
 [[ -n $task_file ]] || refuse '--task-file is required'
@@ -132,7 +134,7 @@ task_file=${task_file:A}
 tmp=${${TMPDIR:-/nonexistent}:A}
 [[ $tmp == /private/(var/folders|tmp)/* ]] || tmp=/nonexistent
 [[ $task_file == $cwd/* || $task_file == ${HOME:A}/.claude/plans/* || $task_file == $tmp/* ]] \
-  || refuse "--task-file must be inside the worktree, ~/.claude/plans or \$TMPDIR"
+  || refuse "--task-file must be inside the worktree, ~/.claude/plans or \$TMPDIR ($tmp); a sandboxed session's temp folder is not this \$TMPDIR, so use the worktree or ~/.claude/plans"
 
 case $place in
   window|tab|split) ;;

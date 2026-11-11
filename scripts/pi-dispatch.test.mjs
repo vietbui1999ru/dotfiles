@@ -190,6 +190,19 @@ test("--cwd must be a linked worktree under .claude/worktrees", () => {
 	refused(box, box.run(["add", "--tier", "high", "--task-file", box.task], {}, box.repo), /worktrees/);
 });
 
+test("a detached HEAD worktree (jj workspace) is accepted; a worktree on main is refused", () => {
+	const box = sandbox();
+	const git = (cwd, ...args) => spawnSync("git", args, { cwd, encoding: "utf8" });
+	git(box.wt, "switch", "-q", "--detach");
+	const ok = box.run(["add", "--tier", "high", "--task-file", box.task]);
+	assert.equal(ok.status, 0, ok.stderr);
+	assert.equal(box.queued().length, 1);
+	const onMain = sandbox();
+	git(onMain.repo, "switch", "-q", "-c", "other");
+	git(onMain.wt, "switch", "-q", "main");
+	refused(onMain, onMain.run(["add", "--tier", "high", "--task-file", onMain.task]), /is on main/);
+});
+
 test("--task-file must be an allow-listed regular file", () => {
 	const box = sandbox();
 	const secret = join(box.dir, "secrets", ".env");
