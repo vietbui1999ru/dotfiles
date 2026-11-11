@@ -234,8 +234,8 @@ The host check printed `UNSANDBOXED` (the terminal itself was unsandboxed). The 
 | 1b | `X=1 $P/stub` | SANDBOXED. An env prefix drops the exemption. |
 | 1c | `~/…/stub`; `cd $P && ./stub` | SANDBOXED, both. |
 | 1d | `$P/stub ok; $P/detect` | **The whole compound stays SANDBOXED, the stub included.** Nothing rides along. |
-| 1d' | `$P/stub "$($P/detect)"` | Not reached. Blast-radius refused it first in the headless run. |
-| 1d'' | `$P/stub ok \| $P/detect` | Not run. The model stopped after the 1d' refusal. |
+| 1d' | `$P/stub "$($P/detect)"` | **SANDBOXED, the whole call.** The stub received `SANDBOXED` as its argument, and its self-check was SANDBOXED. A command substitution takes the exemption away from the launcher too. Re-probed 2026-11-11 from an interactive overlay session, using a self-logging kit; every call logged `CLAUDECODE=1`. |
+| 1d'' | `$P/stub ok \| $P/detect` | **SANDBOXED, the whole call**, the stub included. Same re-probe as 1d'. |
 | 2 | socket connect from the stub in 1a | CONNECTED when exempt; `EPERM` from every sandboxed call. Exempt really means unsandboxed. |
 | 3 | `hc ls --json`, `hc get --json` (read-only, from the session) | See below. |
 | 4 | Overlay B, then `$P/detect` | UNSANDBOXED. A `--settings` overlay switches the user-level sandbox off. **S4 is unblocked.** |
@@ -257,9 +257,9 @@ The host check printed `UNSANDBOXED` (the terminal itself was unsandboxed). The 
 - **State:** `state` is `live` or `finished`. `status` and `turn` were null or 0 on every terminal, so they do not yet show idle versus working. Recheck with a busy agent before herdr-safe relies on them.
 - **No machine filter on `hc ls`.** The options are `--all`, `--json` and `--label K=V`. herdr-safe filters on the address prefix.
 
-### Still open before the S2b settings patch lands
+### Closed: substitution and pipe after an exempt launcher
 
-- **1d' and 1d'' at the sandbox layer.** A command substitution or a pipe after an exempt launcher was not tested past blast-radius. Blast-radius protects Claude only. If Claude Code matched `stub *` against the raw text, `stub "$(cmd)"` would run `cmd` unsandboxed. The `;` result suggests the command is parsed rather than glob-matched, but that is inference. Re-probe both from an interactive overlay session, where the blast-radius prompt can be answered, before the patch is applied.
+1d' and 1d'' passed on 2026-11-11. Claude Code parses the command rather than glob-matching its text. A `$(…)`, a pipe or a `;` anywhere in the call leaves the whole call sandboxed, so an exempt launcher cannot carry another command out of the sandbox. The first attempt at this probe was void: its control also printed UNSANDBOXED, so the commands had not gone through Claude's Bash tool. The kit now logs `CLAUDECODE` and the parent processes of every call, which exposes such a run.
 
 ### Patch split (2026-11-11)
 
@@ -268,4 +268,4 @@ The person split the S2b settings patch in two, because `herdr-safe` is not buil
 - **Patch A**, `docs/patches/sandbox/settings-s2b-a.patch`: exempts `jw new`, `jw rm`, `jw bg` and `pi-dispatch` by absolute path, removes the pueue socket from `allowUnixSockets`, and adds the `Bash(*scripts/jw*--full*)` deny.
 - **Patch B**, which ships with herdr-safe: exempts `herdr-safe` and removes both herdr sockets.
 
-Patch A is gated on the 1d' and 1d'' re-probe above. Until that result is recorded here, do not apply it. The kit is a throwaway: `detect`, `stub` and an overlay that exempts `stub *`, run from the person's terminal in an interactive `claude --settings <overlay>` session. A pass means `stub "$(detect)"` receives `SANDBOXED` as its argument, and `stub ok | detect` prints `SANDBOXED`.
+Patch A's gate, the 1d' and 1d'' re-probe above, passed on 2026-11-11. The kit is a throwaway: `detect`, `stub` and an overlay that exempts `stub *`, run from the person's terminal in an interactive `claude --settings <overlay>` session. A pass means `stub "$(detect)"` receives `SANDBOXED` as its argument, and `stub ok | detect` prints `SANDBOXED`.
