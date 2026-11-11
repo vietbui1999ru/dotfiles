@@ -1,0 +1,269 @@
+#!/usr/bin/env -S python3 -I
+"""herdr-safe: the only way a sandboxed agent reaches herdr-core (hc) and the Herdr app.
+
+The sandbox settings exempt this script by its absolute path, so it runs unsandboxed and its
+checks are the security boundary: herdr-core and the app run whatever they are asked to,
+outside any sandbox. Usage:
+
+    herdr-safe hc <sub> ...        a fixed subset of hc (see HC_* below)
+    herdr-safe app <cmd> [json]    a fixed subset of herdr-app (see APP_* below)
+
+Call it as the whole Bash command, with no env prefix and no `;`, `|` or `$(...)`: any of
+those makes the call sandboxed again, and it then fails on the herdr sockets.
+Remote terminals (`pve2/t3`) are for messaging agents only; nothing runs remotely.
+
+Overrides, for tests: HERDR_SAFE_HC, HERDR_SAFE_APP (binaries), HERDR_SAFE_PI_SETTINGS.
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+HOME = Path.home()
+HC = os.environ.get("HERDR_SAFE_HC") or str(HOME / ".local/bin/hc")
+APP = os.environ.get("HERDR_SAFE_APP") or str(HOME / ".local/bin/herdr-app")
+PI_SETTINGS = Path(os.environ.get("HERDR_SAFE_PI_SETTINGS") or HOME / ".pi/agent/settings.json")
+MACHINES = {"pve2"}  # remote machines an agent may message; fixed in code on purpose
+AGENTS = {"claude", "pi"}  # programs a message, key or file may be sent to
+HC_READ = {"ls", "get", "read", "wait", "templates", "events"}
+
+
+def refuse(why):
+    print(f"herdr-safe: {why}. Stop and hand this to the person.", file=sys.stderr)
+    sys.exit(2)
+
+
+def call(argv):
+    """Run argv with no shell and exit with its code."""
+    sys.exit(subprocess.run(argv).returncode)
+
+
+def check_machine(target):
+    """Refuse a target on a machine outside MACHINES. Local targets have no prefix."""
+    if "/" in target and (target.startswith("/") or target.split("/", 1)[0] not in MACHINES):
+        refuse(f"terminal {target!r} is on a machine herdr-safe does not allow")
+
+
+def check_args(args):
+    """No remote execution flag anywhere; every word with a `/` is treated as a target.
+
+    Fail closed: an option value containing `/` is checked as a target too.
+    """
+    for a in args:
+        if a == "--on" or a.startswith("--on="):
+            refuse("--on runs things on another machine")
+        if not a.startswith("-") and "/" in a:
+            check_machine(a)
+
+
+def git(*args, cwd):
+    out = subprocess.run(["/usr/bin/git", "-C", str(cwd), *args], capture_output=True, text=True)
+    return out.stdout.strip() if out.returncode == 0 else None
+
+
+def worktree(path):
+    """Resolve path; refuse unless it is a registered linked worktree at
+    <repo>/.claude/worktrees/<name>, not on main or master. Same rule as scripts/pi-dispatch."""
+    cwd = Path(path).resolve()
+    common = git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=cwd)
+    if not common:
+        refuse(f"{cwd} is not in a git repository")
+    common = Path(common).resolve()
+    repo, top = common.parent, git("rev-parse", "--show-toplevel", cwd=cwd)
+    if not (top and Path(top).resolve() == cwd and common.name == ".git"
+            and cwd.parent == repo / ".claude" / "worktrees"):
+        refuse(f"{cwd} must be a worktree at <repo>/.claude/worktrees/<name>")
+    if f"worktree {cwd}" not in (git("worktree", "list", "--porcelain", cwd=repo) or "").splitlines():
+        refuse(f"{cwd} is not a registered worktree of {repo}")
+    if git("branch", "--show-current", cwd=cwd) in ("main", "master"):
+        refuse(f"{cwd} is on main or master; use a feature-branch worktree")
+    return cwd
+
+
+def agent_target(target):
+    """Refuse unless target is a live claude or pi terminal, locally or on an allowed machine."""
+    check_machine(target)
+    out = subprocess.run([HC, "get", "--json", target], capture_output=True, text=True)
+    try:
+        info = json.loads(out.stdout) if out.returncode == 0 else {}
+        argv0 = ((info.get("foreground") or {}).get("argv") or [""])[0]
+    except (ValueError, AttributeError, IndexError, TypeError):
+        info, argv0 = {}, ""
+    if info.get("state") != "live" or os.path.basename(argv0) not in AGENTS:
+        refuse(f"terminal {target!r} is not a live claude or pi terminal")
+
+
+KEYS = {"enter", "esc", "tab", "up", "down", "left", "right", "ctrl+c", "pageup", "pagedown"}
+PUT_MAX = 256 * 1024
+PUT_DENY = [HOME / "secrets", HOME / ".ssh", HOME / ".claude" / "state"]
+
+
+def hc_message(sub, args):
+    """send, keys, interrupt and put: only to a live agent terminal, in a fixed argv shape."""
+    shapes = {"send": 2, "interrupt": 1, "put": 2}
+    if any(a.startswith("-") for a in args[:1]) or not args:
+        refuse(f"hc {sub} takes the terminal first, with no options")
+    if sub in shapes and len(args) != shapes[sub]:
+        refuse(f"hc {sub} takes exactly {shapes[sub]} argument(s)")
+    target = args[0]
+    agent_target(target)
+    if sub == "send":
+        text = args[1].lstrip()
+        if text[:1] in ("!", "/", "-"):
+            refuse("a message may not start with !, / or - (shell, slash command or option)")
+    elif sub == "keys":
+        bad = [k for k in args[1:] if k not in KEYS] or ([] if args[1:] else ["(none)"])
+        if bad:
+            refuse(f"keys {bad} are not allowed; use only {sorted(KEYS)}")
+    elif sub == "put":
+        args = [target, str(put_source(args[1]))]
+    call([HC, sub, *args])
+
+
+def put_source(name):
+    """A regular file, not a symlink, at most 256 KiB, tracked-or-trackable in cwd's repo."""
+    p = Path(name) if os.path.isabs(name) else Path.cwd() / name
+    try:
+        st = p.lstat()
+    except OSError:
+        refuse(f"{name} does not exist")
+    if p.is_symlink() or not p.is_file() or st.st_size > PUT_MAX:
+        refuse(f"{name} must be a regular file (not a symlink) of at most 256 KiB")
+    real = p.resolve()
+    if any(real.is_relative_to(d.resolve()) for d in PUT_DENY):
+        refuse(f"{name} is under a protected folder")
+    top = git("rev-parse", "--show-toplevel", cwd=Path.cwd())
+    if not top or not real.is_relative_to(Path(top).resolve()):
+        refuse(f"{name} must be inside this repository ({top or 'none'})")
+    if subprocess.run(["/usr/bin/git", "-C", top, "check-ignore", "-q", str(real)]).returncode == 0:
+        refuse(f"{name} is ignored by git (ignored files often hold secrets)")
+    return real
+
+
+CLAUDE = str(HOME / ".local/bin/claude")
+PI_VIEW = str(HOME / "dotfiles/scripts/pi-view")
+THINKING = {"off", "minimal", "low", "medium", "high", "xhigh"}
+
+
+def hc_run(args):
+    """`run [--bg] [--name N] [--cwd D] claude [task]` or `... pi --model M`: always --bg,
+    always local, always in a linked worktree. herdr-safe builds the program argv itself."""
+    opts, pos, it = {}, [], iter(args)
+    for a in it:
+        if a == "--bg":
+            continue
+        if a in ("--name", "--cwd", "--model"):
+            opts[a] = next(it, None) or refuse(f"{a} needs a value")
+        elif a.startswith("-"):
+            refuse(f"hc run option {a} is not allowed (only --bg, --name, --cwd, --model)")
+        else:
+            pos.append(a)
+    name = opts.get("--name")
+    if name is not None and not re.fullmatch(r"[a-z0-9_-]{1,32}", name):
+        refuse("--name must be 1-32 of a-z 0-9 - _")
+    cwd = worktree(opts.get("--cwd") or Path.cwd())
+    prog, rest = (pos[0], pos[1:]) if pos else (None, [])
+    if prog == "claude" and len(rest) <= 1 and "--model" not in opts:
+        if rest and rest[0].lstrip()[:1] in ("!", "/", "-"):
+            refuse("a task may not start with !, / or -")
+        argv = [CLAUDE, *rest]
+    elif prog == "pi" and not rest and "--model" in opts:
+        argv = [PI_VIEW, "--tui", "pi", "--model", pi_model(opts["--model"])]
+    else:
+        refuse("hc run starts only `claude [task]` or `pi --model <m>`")
+    call([HC, "run", "--bg", "--cwd", str(cwd), *(["--name", name] if name else []), "--", *argv])
+
+
+def pi_model(model):
+    base, _, thinking = model.partition(":")
+    if thinking and thinking not in THINKING:
+        refuse(f"unknown thinking level {thinking!r}")
+    try:
+        enabled = json.loads(PI_SETTINGS.read_text()).get("enabledModels") or []
+    except (OSError, ValueError, AttributeError):
+        enabled = []
+    if base not in enabled:
+        refuse(f"model {base!r} is not in enabledModels of {PI_SETTINGS}")
+    return model
+
+
+APP_READ = {"ls", "status", "commands", "--skill", "--version"}
+APP_NAV = {"space.select", "space.next", "space.prev", "tab.select", "tab.next", "tab.prev",
+           "pane.zoom", "pane.focus", "pane.go", "terminal.peek", "terminal.show",
+           "terminal.scroll", "terminal.search", "agent.focus", "agent.next", "agent.prev",
+           "overlay.close", "mod.open", "app.feedback"}
+APP_OPEN = {"space.new", "tab.new", "pane.split", "terminal.open"}  # may start a program
+
+
+def app(args):
+    cmd, rest = (args[0], args[1:]) if args else (None, [])
+    if cmd in APP_READ and not rest:
+        call([APP, cmd])
+    if cmd == "feedback" and len(rest) == 1:
+        call([APP, cmd, rest[0]])
+    if cmd == "shot" and len(rest) == 1:
+        out = Path(rest[0]).resolve()
+        top = git("rev-parse", "--show-toplevel", cwd=Path.cwd())
+        if not top or not out.is_relative_to(Path(top).resolve()) or Path(rest[0]).is_symlink():
+            refuse("shot writes only inside this repository, not through a symlink")
+        call([APP, cmd, str(out)])
+    if cmd != "do" or not rest or len(rest) > 2:
+        refuse("app takes ls, status, commands, --skill, --version, feedback <text>, "
+               "shot <file>, or do <command> ['<json object>']")
+    name, raw = rest[0], rest[1] if len(rest) == 2 else "{}"
+    try:
+        obj = json.loads(raw)
+    except ValueError:
+        obj = None
+    if not isinstance(obj, dict):
+        refuse("do takes one JSON object, not --key value arguments")
+    if name in APP_OPEN:
+        obj = app_open(name, obj)
+    elif name not in APP_NAV:
+        refuse(f"app command {name!r} is not allowed")
+    call([APP, "do", name, *([json.dumps(obj)] if obj else [])])
+
+
+def app_open(name, obj):
+    """A new space, tab, pane or terminal: a shell, or claude/pi in a linked worktree, here."""
+    if obj.get("machine") not in (None, "") or "mod" in obj or "props" in obj:
+        refuse(f"{name} may not set machine, mod or props")
+    argv = obj.get("argv")
+    if argv is None:
+        if "task" in obj:
+            refuse("a task without an agent argv would be typed into a shell")
+        return obj
+    if name == "pane.split" or "folder" not in obj:
+        refuse(f"{name} starts an agent only with a folder (pane.split has none)")
+    obj["folder"] = str(worktree(obj["folder"]))
+    if str(obj.get("task", "")).lstrip()[:1] in ("!", "/", "-"):
+        refuse("a task may not start with !, / or -")
+    if argv == ["claude"]:
+        obj["argv"] = [CLAUDE]
+    elif isinstance(argv, list) and len(argv) == 3 and argv[:2] == ["pi", "--model"]:
+        obj["argv"] = [PI_VIEW, "--tui", "pi", "--model", pi_model(str(argv[2]))]
+    else:
+        refuse('argv must be ["claude"] or ["pi", "--model", "<model>"]')
+    return obj
+
+
+def main(argv):
+    tool, sub, args = (argv + [None, None])[0], (argv[1:] + [None])[0], argv[2:]
+    if tool == "app":
+        app(argv[1:])
+    if tool != "hc" or sub is None:
+        refuse("usage: herdr-safe hc <sub> ... | herdr-safe app <command> ...")
+    if sub in HC_READ:
+        check_args(args)
+        call([HC, sub, *args])
+    if sub in ("send", "keys", "interrupt", "put"):
+        hc_message(sub, args)
+    if sub == "run":
+        hc_run(args)
+    refuse(f"hc {sub} is not allowed through herdr-safe")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
