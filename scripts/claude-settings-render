@@ -1,0 +1,133 @@
+#!/usr/bin/env -S python3 -I
+"""Render ~/.claude/settings.json for a Linux machine from the repo file.
+
+The repo's claude/.claude/settings.json is written for the Mac: its
+sandbox.excludedCommands entries are literal /Users/<user>/dotfiles/scripts/...
+strings, which the sandbox matches as text. On Linux no launcher is exempt. This
+renders a copy with the home folder substituted and the Linux write paths added.
+
+Not stowed, so the Mac keeps its stow link and sees no change. Usage:
+
+    claude-settings-render           # write the rendered file
+    claude-settings-render --check   # report whether the live file is stale
+    claude-settings-render --force   # overwrite a hand-edited file (keeps .prev)
+"""
+import argparse
+import copy
+import difflib
+import hashlib
+import json
+import os
+import platform
+import sys
+import tempfile
+from pathlib import Path
+
+MAC_HOME = "/Users/vietquocbui/"
+DOTFILES = Path.home() / "dotfiles"
+ADD_ALLOW = ["~/.cache/uv", "~/.claude/plans"]
+ADD_DENY = ["~/.config/pi-sandbox"]
+
+
+def fail(msg):
+    print(f"claude-settings-render: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def substitute(node, home):
+    if isinstance(node, dict):
+        return {k: substitute(v, home) for k, v in node.items()}
+    if isinstance(node, list):
+        return [substitute(v, home) for v in node]
+    if isinstance(node, str):
+        return node.replace(MAC_HOME, home + "/")
+    return node
+
+
+def render(source, home):
+    data = substitute(copy.deepcopy(source), home)
+    fs = data.setdefault("sandbox", {}).setdefault("filesystem", {})
+    for key, extra in (("allowWrite", ADD_ALLOW), ("denyWrite", ADD_DENY)):
+        items = fs.setdefault(key, [])
+        items.extend(p for p in extra if p not in items)
+    text = json.dumps(data, indent=2) + "\n"
+    check_rendered(text, data, home)
+    return text
+
+
+def check_rendered(text, data, home):
+    sandbox = data.get("sandbox", {})
+    failed = []
+    if "/Users/" in text:
+        failed.append("text still contains /Users/")
+    if sandbox.get("enabled") is not True:
+        failed.append("sandbox.enabled is not true")
+    excluded = sandbox.get("excludedCommands") or []
+    if not excluded:
+        failed.append("sandbox.excludedCommands is empty")
+    elif not all(e.startswith(f"{home}/dotfiles/scripts/") for e in excluded):
+        failed.append(f"an excludedCommands entry does not start with {home}/dotfiles/scripts/")
+    if failed:
+        fail("render check failed: " + "; ".join(failed))
+
+
+def main():
+    home = str(Path.home())
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--source", default=str(DOTFILES / "claude/.claude/settings.json"))
+    ap.add_argument("--target", default=str(Path.home() / ".claude/settings.json"))
+    ap.add_argument("--state", default=str(Path.home() / ".local/state/claude-settings/rendered.sha256"))
+    ap.add_argument("--check", action="store_true")
+    ap.add_argument("--force", action="store_true")
+    args = ap.parse_args()
+
+    system = os.environ.get("CLAUDE_SETTINGS_RENDER_OS", platform.system())
+    if system == "Darwin":
+        fail("refusing to run on macOS; the Mac keeps its stow link")
+
+    target = Path(args.target)
+    state = Path(args.state)
+    parent = target.parent.resolve()
+    repo = DOTFILES.resolve()
+    if parent == repo or repo in parent.parents:
+        fail(f"target folder {parent} is inside the dotfiles repo; refusing")
+
+    text = render(json.loads(Path(args.source).read_text()), home)
+
+    is_link = target.is_symlink()
+    is_file = target.is_file() and not is_link
+    live = target.read_text() if is_file else None
+    if live == text:
+        return
+
+    if args.check:
+        print(f"claude-settings: {target} is stale or hand-edited; "
+              "run ~/dotfiles/scripts/claude-settings-render")
+        return
+
+    if is_file:
+        recorded = state.read_text().strip() if state.exists() else None
+        if recorded != hashlib.sha256(live.encode()).hexdigest():
+            if not args.force:
+                sys.stdout.writelines(difflib.unified_diff(
+                    live.splitlines(keepends=True), text.splitlines(keepends=True),
+                    fromfile=f"{target} (live)", tofile=f"{target} (rendered)"))
+                fail("live file was hand-edited; rerun with --force to overwrite (keeps .prev)")
+            target.with_name(target.name + ".prev").write_text(live)
+
+    if is_link:
+        target.unlink()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=".settings-", suffix=".tmp")
+    with os.fdopen(fd, "w") as f:
+        f.write(text)
+    os.replace(tmp, target)
+
+    state.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(state.parent, 0o700)
+    state.write_text(hashlib.sha256(text.encode()).hexdigest() + "\n")
+    print(f"wrote {target}")
+
+
+if __name__ == "__main__":
+    main()

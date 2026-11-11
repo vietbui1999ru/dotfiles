@@ -64,10 +64,47 @@
     mode: "0755"
   when: "'herdr' in dotfiles_stow_packages"
 
+# The Mac links ~/.claude/settings.json to the repo file. Linux renders its own copy
+# (scripts/claude-settings-render), so the stow of the claude package must skip it
+# and ~/.claude must be a real folder for the rendered file to live in.
+- name: Ensure ~/.claude is a real directory before stowing
+  ansible.builtin.file:
+    path: "{{ ansible_env.HOME }}/.claude"
+    state: directory
+    mode: "0755"
+  when:
+    - ansible_os_family != 'Darwin'
+    - "'claude' in dotfiles_stow_packages"
+
+- name: Stat ~/.claude/settings.json
+  ansible.builtin.stat:
+    path: "{{ ansible_env.HOME }}/.claude/settings.json"
+  register: dotfiles_claude_settings
+  when:
+    - ansible_os_family != 'Darwin'
+    - "'claude' in dotfiles_stow_packages"
+
+- name: Remove the stowed ~/.claude/settings.json link before rendering
+  ansible.builtin.file:
+    path: "{{ ansible_env.HOME }}/.claude/settings.json"
+    state: absent
+  when:
+    - ansible_os_family != 'Darwin'
+    - "'claude' in dotfiles_stow_packages"
+    - dotfiles_claude_settings.stat.islnk | default(false)
+
 - name: Stow all packages
   ansible.builtin.shell: |
     cd {{ ansible_env.HOME }}/dotfiles
-    stow --target="{{ ansible_env.HOME }}" --restow {{ item }}
+    stow --target="{{ ansible_env.HOME }}" {{ '--ignore=\'settings\\.json$\'' if (item == 'claude' and ansible_os_family != 'Darwin') else '' }} --restow {{ item }}
   loop: "{{ dotfiles_stow_packages }}"
   register: dotfiles_stow_result
   changed_when: dotfiles_stow_result.stdout != ""
+
+- name: Render the Linux ~/.claude/settings.json from the repo file
+  ansible.builtin.command:
+    cmd: "{{ ansible_env.HOME }}/dotfiles/scripts/claude-settings-render"
+  changed_when: false
+  when:
+    - ansible_os_family != 'Darwin'
+    - "'claude' in dotfiles_stow_packages"
