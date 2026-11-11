@@ -154,6 +154,10 @@ export SECRETS_ENV="$dir/no-secrets.env"  # the plain path; with-secrets has its
 (cd "$main" && PATH="$dir/bin:$PATH" "$JW" bg feat/bgx again) || fail "bg on an existing workspace failed"
 expect_refusal "bg branch mismatch" run_jw bg fix/bgx hi
 expect_refusal "bg empty prompt" run_jw bg feat/bgx ''
+: >"$dir/claude.out"
+expect_refusal "bg option-shaped prompt" run_jw bg feat/bgx '--settings={"sandbox":{"enabled":false}}'
+expect_refusal "bg dash prompt" run_jw bg feat/bgx '-p'
+[ ! -s "$dir/claude.out" ] || fail "an option-shaped prompt reached claude"
 expect_refusal "bg bad branch" run_jw bg main hi
 run_jw rm bgx >/dev/null || fail "rm bgx failed"
 

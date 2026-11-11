@@ -210,6 +210,23 @@ test("--task-file must be an allow-listed regular file", () => {
 	assert.equal(box.run(["add", "--tier", "high", "--task-file", plan]).status, 0, "a plan in ~/.claude/plans is allowed");
 });
 
+test("the queued task reads a private snapshot, so swapping the file after queueing changes nothing", async () => {
+	const { readdirSync, rmSync, statSync } = await import("node:fs");
+	const box = sandbox();
+	assert.equal(box.run(["add", "--tier", "high", "--task-file", box.task]).status, 0);
+	const command = box.queued()[0].argv.join(" ");
+	const snapDir = join(box.dir, ".local", "state", "pi-dispatch", "tasks");
+	const [snap] = readdirSync(snapDir);
+	assert.ok(command.includes(`cat ${join(snapDir, snap)}`), command);
+	assert.ok(!command.includes("Plan-Final-v2.md"), "the original path is not read at run time");
+	assert.equal(statSync(join(snapDir, snap)).mode & 0o777, 0o600);
+	const secret = join(box.dir, "secret.env");
+	writeFileSync(secret, "KEY=v\n");
+	rmSync(box.task);
+	symlinkSync(secret, box.task);
+	assert.match(readFileSync(join(snapDir, snap), "utf8"), /^do the thing/, "the snapshot keeps the checked text");
+});
+
 // The allow-list now stops a metacharacter model before quoting matters; (q) quoting stays.
 test("a --model outside enabledModels, such as one with shell metacharacters, is refused", () => {
 	const box = sandbox();

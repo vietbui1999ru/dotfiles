@@ -153,8 +153,30 @@ slug=${slug[1,11]}
 slug=${slug}-$(openssl rand -hex 2)
 session_id=pueue-$slug
 
+# The checks above ran on a path the caller can still swap (worktree and $TMPDIR are
+# sandbox-writable) before pueue runs `cat`. So snapshot it now: open once without following
+# a symlink, re-check the real path of the open file, and copy the bytes into a folder no
+# sandbox can write. The task cats that copy.
+snap_dir=${PI_DISPATCH_STATE:-$HOME/.local/state/pi-dispatch}/tasks
+mkdir -p -m 700 -- "$snap_dir" || refuse "cannot create $snap_dir"
+snapshot=${snap_dir:A}/$slug.md
+python3 -I -c '
+import fcntl, os, re, stat, sys
+src, dest, *roots = sys.argv[1:]
+fd = os.open(src, os.O_RDONLY | os.O_NOFOLLOW)
+st = os.fstat(fd)
+real = fcntl.fcntl(fd, fcntl.F_GETPATH, bytes(1024)).split(b"\0", 1)[0].decode()
+ok = (stat.S_ISREG(st.st_mode) and 0 < st.st_size < 262144
+      and re.fullmatch(r"[A-Za-z0-9._/@+-]+", real) and any(real.startswith(r + "/") for r in roots))
+if not ok:
+    sys.exit(1)
+out = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+os.write(out, os.read(fd, 262144))
+' "$task_file" "$snapshot" "$cwd" "${HOME:A}/.claude/plans" "$tmp" 2>/dev/null \
+  || refuse "--task-file '$task_file' changed or failed its checks while being read"
+
 # The task text is read inside the pueue task, so it is never stored in pueue's command.
-pueue_command="${(q)script_dir}/pi-view${view_flag} pi --model ${(q)model} --session-id ${(q)session_id} -p \"\$(cat ${(q)task_file})\" < /dev/null"
+pueue_command="${(q)script_dir}/pi-view${view_flag} pi --model ${(q)model} --session-id ${(q)session_id} -p \"\$(cat ${(q)snapshot})\" < /dev/null"
 
 task_id=$(PI_VIEW_APP=1 PI_VIEW_PLACE=$place pueue add -i --print-task-id --label "$slug" -w "$cwd" -- "$pueue_command") || {
   print -u2 -- 'pi-dispatch: pueue add failed'

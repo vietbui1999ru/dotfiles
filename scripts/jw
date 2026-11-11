@@ -119,6 +119,8 @@ cmd_bg() {
   [ $# -eq 2 ] || usage
   local branch=$1 prompt=$2 dir current
   [ -n "$prompt" ] || die "empty prompt"
+  # jw runs unsandboxed: a prompt like --settings=... would reach claude as an option.
+  case $prompt in -*) die "prompt must not start with '-'" ;; esac
   [[ $branch =~ $BRANCH_RE ]] || die "branch '$branch' must look like <type>/<name>"
   dir="$(primary_checkout)/.claude/worktrees/$(workspace_name "$branch")"
   if [ -d "$dir" ]; then
