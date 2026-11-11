@@ -4,19 +4,20 @@ After plan approval, dispatch to Pi by default — do not implement directly. Di
 
 Use `shared/skills/delegate-pi/SKILL.md`. Use delegate mode (async through `pueue`) for one task; use parallel delegate mode for independent tasks. Interactive work the human intends to watch goes through pane mode via `scripts/pane-handoff`, with the model asked for rather than assumed. Do not build new dispatch machinery.
 
-Dispatch approved file-backed plans through `pueue`, one task per plan:
+Dispatch approved file-backed plans through `pi-dispatch`, one task per plan:
 
 ```bash
-SLUG="<plan-name>-$(openssl rand -hex 2)"
-TASK_ID=$(pueue add -i --print-task-id --label "$SLUG" -w <absolute-path-to-worktree> -- \
-  "$HOME/dotfiles/scripts/pi-view --tui pi --model <explicit-model> --session-id pueue-$SLUG -p \"\$(cat <absolute-path-to-plan>.md)\" < /dev/null")
+/Users/vietquocbui/dotfiles/scripts/pi-dispatch add --model <explicit-model> \
+  --task-file <absolute-path-to-plan>.md --cwd <absolute-path-to-worktree>
 ```
 
-`scripts/pi-view` goes in front of `pi` on every dispatch. An approved plan is implementation, so it dispatches with `--tui`: from a herdr pane, the pane runs Pi's own interactive TUI on the plan, the person can steer and queue in it, and the task lasts until they quit Pi. Search, exploration, viewing and review dispatches use plain `pi-view`, which only streams the transcript. Outside herdr both run as a plain dispatch.
+Spell the command exactly like this: the literal absolute path, unquoted, as the whole Bash command. Claude's sandbox exempts `pi-dispatch` by that literal text only. `$HOME/...`, `~/...`, a relative path, an env prefix or a chained second command all leave it sandboxed, and the dispatch then fails on the pueue socket. pi-dispatch prints `task=<id> slug=<slug> model=<model>`.
 
-`-w <worktree>` (a pueue flag, before `--`) is required: create the worktree first and run Pi inside it. agent-review snapshots only the run's working directory, so a Pi run started in the main checkout that edits a worktree it made itself leaves no review at all. Never ask Pi to create its own worktree. `< /dev/null` is required. Set an explicit model tier per `model-routing.md`; never rely on defaults. `--label` (a pueue flag, before `--`) and `--session-id pueue-<slug>` (a pi flag) are required: the session-band mod finds the task's Pi session by that id. `<slug>` is the plan name, at most 11 characters, in lowercase `[a-z0-9-]` plus a fresh 4-hex suffix: 16 characters at most, new for every dispatch. The worktree's branch name stays within 16 characters too. `pi --session-id` resumes an existing session with that id, so a reused slug silently continues an old conversation.
+pi-dispatch builds the pueue task: `pi-view --tui pi --model … --session-id pueue-<slug> -p "$(cat <task-file>)" < /dev/null`, run in `--cwd`. The task text is read inside the task, so it never sits in pueue's stored command. The slug, label and session id are generated fresh from the task file name for every dispatch. An approved plan is implementation, so it dispatches with the default `--mode tui`: from a herdr pane, the pane runs Pi's own interactive TUI on the plan, the person can steer and queue in it, and the task lasts until they quit Pi. Search, exploration, viewing and review dispatches pass `--mode view`, which only streams the transcript. Outside herdr both run as a plain dispatch. Every run goes through `pi-sandbox`.
 
-The `\"\$(cat)\"` escaping matters: unescaped, the plan text is pasted into the stored command when the task is added.
+`--cwd` must be an existing linked worktree at `<repo>/.claude/worktrees/<name>`, on a branch other than `main` or `master`: create it first (`jw new <branch>`) and run Pi inside it. agent-review snapshots only the run's working directory, so a Pi run started in the main checkout that edits a worktree it made itself leaves no review at all. Never ask Pi to create its own worktree. Set an explicit model (`--model`, which must be in Pi's `enabledModels`) or tier (`--tier high|medium|low`) per `model-routing.md`; never rely on defaults. The task file must be a regular file under 256 KiB inside the worktree, `~/.claude/plans` or `$TMPDIR`. Keep the worktree's branch name within 16 characters.
+
+`pi-dispatch status`, `pi-dispatch log <id>` and `pi-dispatch wait <id>...` are the read-only views of the queue. `pueue kill`, `pueue clean` and `pi-queue` are the person's commands.
 
 Keep these tasks in Claude:
 

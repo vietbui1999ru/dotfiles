@@ -75,26 +75,28 @@ Every voice runs at `medium` or `high` effort, never above it: the veto has to b
 For long tasks that run in the background while you continue work.
 
 ```bash
-# Fire task to pueue (medium difficulty). The slug must be new for every task.
-# WORKTREE is an existing worktree, absolute path; create it before dispatching.
-SLUG="<task-name>-$(openssl rand -hex 2)"
-TASK_ID=$(pueue add -i --print-task-id --label "$SLUG" -w "$WORKTREE" -- \
-  "$HOME/dotfiles/scripts/pi-view --tui pi --model opencode-go/deepseek-v4.1-flash:low --session-id pueue-$SLUG \
-      -p '<full task description>' < /dev/null")
+# Write the task to a file first (the worktree, ~/.claude/plans or $TMPDIR; under 256 KiB).
+# WORKTREE is an existing linked worktree, absolute path; create it before dispatching.
+/Users/vietquocbui/dotfiles/scripts/pi-dispatch add --model opencode-go/deepseek-v4.1-flash:low \
+  --task-file <absolute-path-to-task>.md --cwd <absolute-path-to-worktree>
+# prints: task=<id> slug=<slug> model=<model>
 
-# Check when ready
-pueue wait "$TASK_ID" && pueue log "$TASK_ID"
+# Check when ready (one command per Bash call)
+/Users/vietquocbui/dotfiles/scripts/pi-dispatch wait <id>
+/Users/vietquocbui/dotfiles/scripts/pi-dispatch log <id>
 ```
 
-Every pueue dispatch carries `--label <slug>` and `-w <worktree>` (pueue flags, before `--`) and `--session-id pueue-<slug>` (pi flag). Create the worktree first and point `-w` at it: agent-review snapshots only the run's working directory, so a Pi run started in the main checkout that edits a worktree it made itself leaves no review. Never ask Pi to create its own worktree. Parallel tasks that edit code each get their own worktree. `<slug>` is a task name of at most 11 characters in lowercase `[a-z0-9-]` plus a fresh 4-hex suffix, 16 characters at most in all; name the worktree's branch within the same 16. Never reuse a slug: `pi --session-id` resumes an existing session with that id. Council and subagent modes are synchronous, not pueue dispatches: keep `--no-session` there and never add `--session-id`.
+Agents queue Pi only through `pi-dispatch`, spelled as above: the literal absolute path, unquoted, as the whole Bash command. Claude's sandbox exempts it by that literal text only; `$HOME/...`, `~/...`, a relative path, an env prefix or a chained second command leave it sandboxed, where the pueue socket is unreachable. Raw `pueue add`, `pueue kill`, `pueue clean` and `pi-queue` are the person's commands.
 
-Start every pueue dispatch's command with `$HOME/dotfiles/scripts/pi-view`. When the dispatch comes from a herdr pane, it opens a pane that streams the run's transcript beside Claude's own pane, and reports `working` and then `done` or `blocked` to herdr. Outside herdr it simply runs Pi. Either way it exits with Pi's exit code. The session-band mod still tracks the task, because its command keeps `pi --model` and `--session-id`. Every pane is named after its task (`pi#184 pi-panes-958d`), so panes can be told apart at a glance.
+pi-dispatch builds the pueue task: it generates a fresh slug from the task file name (11 characters plus a 4-hex suffix), labels the task with it, passes `--session-id pueue-<slug>`, reads the task text inside the task, and runs `pi-view` under `pi-sandbox`. `--cwd` must be an existing linked worktree at `<repo>/.claude/worktrees/<name>` on a branch other than `main` or `master`: agent-review snapshots only the run's working directory, so a Pi run started in the main checkout that edits a worktree it made itself leaves no review. Never ask Pi to create its own worktree. Parallel tasks that edit code each get their own worktree; name each worktree's branch within 16 characters. `--model` must be in Pi's `enabledModels`, or pass `--tier high|medium|low`. Council and subagent modes are synchronous, not pueue dispatches: keep `--no-session` there and never add `--session-id`.
+
+pi-dispatch starts every task's command with `scripts/pi-view`. When the dispatch comes from a herdr pane, it opens a pane that streams the run's transcript beside Claude's own pane, and reports `working` and then `done` or `blocked` to herdr. Outside herdr it simply runs Pi. Either way it exits with Pi's exit code. The session-band mod still tracks the task, because its command keeps `pi --model` and `--session-id`. Every pane is named after its task (`pi#184 pi-panes-958d`), so panes can be told apart at a glance.
 
 Where the pane opens follows `PI_VIEW_LAYOUT`, which defaults to `auto`. Templates: `side` splits Claude's pane to the right and stacks later agent panes down that column, `below` splits it downward and lines later panes up left to right, `tab` keeps the separate `pi` tab, and `auto` picks `side` from 160 columns wide and `below` under that. Claude keeps about 60% of the split. Up to three agent panes fit beside it; a fourth dispatch, or one that would fall under 40 columns by 8 rows, overflows into the `pi` tab, as does any failure to ask herdr.
 
-For a run the person wants to steer, put `--live` before the Pi arguments: text typed in the viewer pane, or `$HOME/dotfiles/scripts/pi-steer <session-id> "<message>"` from the main pane, reaches Pi as a steer while it works or a new prompt once it is idle. `/abort` stops the current turn and keeps the session; `/done` ends it. After Pi settles it waits 120 s for more input before closing, so the task holds its pueue slot during that grace period.
+pi-dispatch has no `--live` mode; an agent that wants a steerable run uses the default `--mode tui`. A `--live` run is queued by the person: text typed in the viewer pane, or `$HOME/dotfiles/scripts/pi-steer <session-id> "<message>"` from the main pane, reaches Pi as a steer while it works or a new prompt once it is idle. `/abort` stops the current turn and keeps the session; `/done` ends it. After Pi settles it waits 120 s for more input before closing, so the task holds its pueue slot during that grace period.
 
-Implementation dispatches, meaning any task that edits code, use `--tui` by default; search, exploration, viewing and review dispatches use plain `pi-view`. With `--tui` before the Pi arguments, the herdr pane runs Pi's own interactive TUI with the request already submitted, so they steer, queue follow-ups and add prompts in Pi directly, and Pi's herdr extension reports its state. The pueue task, and its slot, lasts until they quit Pi (`Ctrl+D`); `pueue kill` ends Pi in the pane. Outside herdr there is no pane, so `--tui` runs as a plain dispatch. When Pi exits normally, `scripts/pi-pane-run` writes the exit file and closes its own pane, so the slot frees up for the next queued dispatch. A `--tui` run that settles — herdr's `agent_status` reads `idle` or `done` for 15 s while the pane is unfocused — moves to the workspace's `verdict` tab and keeps running there, which frees its slot beside Claude; it moves at most once, and herdr shows `pi#<task> ready for verdict`. In the mod's Pi hand-off pane the selected `--tui` run gets `o` to focus its pane, a Close button that sends `ctrl+d` (killing the task if Pi does not quit) and a Continue that types into Pi's TUI — a steer while it works, a new prompt once it is idle — instead of dispatching again. The Monitor row says whether that pane is `beside`, in `verdict` or in the `pi` tab.
+Implementation dispatches, meaning any task that edits code, use the default `--mode tui` (`pi-view --tui`); search, exploration, viewing and review dispatches pass `--mode view` (plain `pi-view`). With `--tui`, the herdr pane runs Pi's own interactive TUI with the request already submitted, so they steer, queue follow-ups and add prompts in Pi directly, and Pi's herdr extension reports its state. The pueue task, and its slot, lasts until they quit Pi (`Ctrl+D`); `pueue kill` ends Pi in the pane. Outside herdr there is no pane, so `--tui` runs as a plain dispatch. When Pi exits normally, `scripts/pi-pane-run` writes the exit file and closes its own pane, so the slot frees up for the next queued dispatch. A `--tui` run that settles — herdr's `agent_status` reads `idle` or `done` for 15 s while the pane is unfocused — moves to the workspace's `verdict` tab and keeps running there, which frees its slot beside Claude; it moves at most once, and herdr shows `pi#<task> ready for verdict`. In the mod's Pi hand-off pane the selected `--tui` run gets `o` to focus its pane, a Close button that sends `ctrl+d` (killing the task if Pi does not quit) and a Continue that types into Pi's TUI — a steer while it works, a new prompt once it is idle — instead of dispatching again. The Monitor row says whether that pane is `beside`, in `verdict` or in the `pi` tab.
 
 **Pi has no web access.** Its tools are files, `qmd` and `context7` (see `shared/pi-role.md`). A task whose answer needs the open web — a URL, a current event, product research, a comparison — is Claude's, not Pi's: research it first, or hand it to Claude, and never dispatch Pi to go looking.
 
@@ -157,32 +159,21 @@ These are pi command lines; a pueue dispatch wraps them as in Delegate Mode, wit
 ### Dispatch + collect
 
 ```bash
-# 1. Dispatch all tasks, collect IDs. Each task gets its own fresh slug and its own
-#    existing worktree (WT_REVIEW, WT_IMPL, WT_LOW: absolute paths, created beforehand).
-S_REVIEW="review-$(openssl rand -hex 2)"
-S_IMPL="impl-$(openssl rand -hex 2)"
-S_LOW="low-$(openssl rand -hex 2)"
-
-T_REVIEW=$(pueue add -i --print-task-id --label "$S_REVIEW" -w "$WT_REVIEW" -- \
-  "$HOME/dotfiles/scripts/pi-view pi --model openai-codex/gpt-6.1-sol:high --session-id pueue-$S_REVIEW \
-      -p '<review task>' < /dev/null")
-
-T_IMPL=$(pueue add -i --print-task-id --label "$S_IMPL" -w "$WT_IMPL" -- \
-  "$HOME/dotfiles/scripts/pi-view --tui pi --model opencode-go/deepseek-v4.1-flash:low --session-id pueue-$S_IMPL \
-      -p '<implementation task>' < /dev/null")
-
-T_LOW=$(pueue add -i --print-task-id --label "$S_LOW" -w "$WT_LOW" -- \
-  "$HOME/dotfiles/scripts/pi-view --tui pi --model opencode-go/deepseek-v4.1-flash:off --session-id pueue-$S_LOW \
-      -p '<low-difficulty implementation task>' < /dev/null")
+# 1. Dispatch each task as its own Bash call and note the task=<id> each prints. Each task
+#    gets its own task file and its own existing linked worktree (absolute paths, created beforehand).
+/Users/vietquocbui/dotfiles/scripts/pi-dispatch add --mode view --model openai-codex/gpt-6.1-sol:high \
+  --task-file <wt-review>/review.md --cwd <wt-review>
+/Users/vietquocbui/dotfiles/scripts/pi-dispatch add --model opencode-go/deepseek-v4.1-flash:low \
+  --task-file <wt-impl>/impl.md --cwd <wt-impl>
+/Users/vietquocbui/dotfiles/scripts/pi-dispatch add --model opencode-go/deepseek-v4.1-flash:off \
+  --task-file <wt-low>/low.md --cwd <wt-low>
 
 # 2. Optional: check status without blocking
-pueue status
+/Users/vietquocbui/dotfiles/scripts/pi-dispatch status
 
-# 3. Wait for all + collect results
-pueue wait "$T_REVIEW" "$T_IMPL" "$T_LOW"
-echo "=== REVIEW ===" && pueue log "$T_REVIEW"
-echo "=== IMPL ===" && pueue log "$T_IMPL"
-echo "=== LOW ===" && pueue log "$T_LOW"
+# 3. Wait for all, then collect each log (one call each)
+/Users/vietquocbui/dotfiles/scripts/pi-dispatch wait <id-review> <id-impl> <id-low>
+/Users/vietquocbui/dotfiles/scripts/pi-dispatch log <id-review>
 ```
 
 **Provider distribution**: fallback chains span OpenCode Go + Codex pools — rate limit on one provider automatically falls to the next. Parallel tasks hit different providers simultaneously.
@@ -233,7 +224,7 @@ srt -c pi   # Anthropic Sandbox Runtime wraps pi
 ## Output Handling
 
 1. For council mode: parse the engine JSON — read `.verdict` for the gate result and `.votes[].reason` for per-dimension rationale. No manual synthesis needed; the engine applies majority rule.
-2. For delegate mode: `pueue log <id>` gives full stdout. Parse for deliverables (files, diffs, summaries).
+2. For delegate mode: `/Users/vietquocbui/dotfiles/scripts/pi-dispatch log <id>` gives full stdout. Parse for deliverables (files, diffs, summaries).
 3. For subagent mode: validate output format before trusting. Pi has no schema enforcement.
 
 ---
