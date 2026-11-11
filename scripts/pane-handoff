@@ -71,7 +71,7 @@ esac
 # Without a Herdr pane, the only handoff left is that window, so --no-prompt is refused.
 if [ "${HERDR_ENV:-}" != 1 ] && [ -n "${HC_TERMINAL_ID:-}" ]; then
   [ "$NO_PROMPT" -eq 0 ] || fail "--no-prompt is not available from a Herdr app terminal; omit it"
-  exec "$(dirname "$0")/pi-dispatch" --model "${PANE_HANDOFF_MODEL:-$model_from_flag}" --place split --cwd "$REPO" --task-file "$SPEC"
+  exec "$(dirname "$0")/pi-dispatch" add --model "${PANE_HANDOFF_MODEL:-$model_from_flag}" --place split --cwd "$REPO" --task-file "$SPEC"
 fi
 
 command -v herdr >/dev/null 2>&1 || \

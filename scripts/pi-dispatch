@@ -1,8 +1,16 @@
 #!/usr/bin/env zsh
 # pi-dispatch — queue one Pi dispatch from a task file, as a pueue task run through pi-view.
 #
-#   pi-dispatch (--tier high|medium|low | --model <provider/id[:thinking]>) --task-file <path>
-#            [--cwd <dir>] [--place window|tab|split] [--on <machine>]
+#   pi-dispatch add (--tier high|medium|low | --model <provider/id[:thinking]>) --task-file <path>
+#                   [--cwd <dir>] [--place window|tab|split] [--on <machine>]
+#   pi-dispatch status        pueue status
+#   pi-dispatch log <id>      pueue log for one numeric task id
+#
+# pi-dispatch is exempt from Claude's Bash sandbox by absolute path, so it runs unsandboxed
+# and its checks are the boundary: the model must be in Pi's enabledModels, --cwd a linked
+# worktree under <repo>/.claude/worktrees/ on a feature branch, and the task file an allow-
+# listed regular file (the pueue task cats it outside any sandbox). Pi itself runs under
+# pi-sandbox through pi-view. PI_DISPATCH_SETTINGS overrides ~/.pi/agent/settings.json.
 #
 # The task text is read by the pueue task itself (`$(cat ...)` inside the command), so the
 # text never sits in pueue's stored command. Outside a Herdr pane the task opens as a
@@ -14,8 +22,19 @@
 set -u
 
 usage() {
-  print -u2 -- 'usage: pi-dispatch (--tier high|medium|low | --model <provider/id[:thinking]>) --task-file <path> [--cwd <dir>] [--place window|tab|split] [--on <machine>]'
+  print -u2 -- 'usage: pi-dispatch add (--tier high|medium|low | --model <provider/id[:thinking]>) --task-file <path> [--cwd <dir>] [--place window|tab|split] [--on <machine>] | status | log <id>'
 }
+
+refuse() { print -u2 -- "pi-dispatch: $*"; exit 2 }
+
+# Only `add` queues work; status and log are read-only views of the queue.
+case ${1:-} in
+  add) shift ;;
+  status) (( $# == 1 )) || refuse 'status takes no arguments'; exec pueue status ;;
+  log) [[ $# == 2 && $2 == <-> ]] || refuse 'log takes one numeric task id'; exec pueue log "$2" ;;
+  -h|--help) usage; exit 0 ;;
+  *) usage; exit 2 ;;
+esac
 
 tier="" model="" task_file="" cwd="" place="window" on=""
 while (( $# > 0 )); do
@@ -75,17 +94,46 @@ if [[ -n $tier ]]; then
   fi
 fi
 
-[[ -n $task_file ]] || { print -u2 -- 'pi-dispatch: --task-file is required'; exit 2 }
-[[ -s $task_file ]] || { print -u2 -- "pi-dispatch: --task-file '$task_file' is missing or empty"; exit 2 }
+# The model must be one Pi has enabled, with a known thinking level if any.
+base_model=${model%%:*}
+thinking=${model#$base_model}
+[[ -z $thinking || $thinking == :(off|minimal|low|medium|high|xhigh) ]] \
+  || refuse "unknown thinking level '$thinking' in --model"
+pi_settings=${PI_DISPATCH_SETTINGS:-$HOME/.pi/agent/settings.json}
+python3 -I -c 'import json,sys; sys.exit(sys.argv[2] not in (json.load(open(sys.argv[1])).get("enabledModels") or []))' \
+  "$pi_settings" "$base_model" 2>/dev/null \
+  || refuse "model '$base_model' is not in enabledModels of $pi_settings"
+
+# The cwd must be a linked worktree under <repo>/.claude/worktrees/, on a feature branch.
+cwd=${cwd:-$PWD}
+cwd=${cwd:A}
+common=$(git -C "$cwd" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
+  || refuse "--cwd $cwd is not in a git repository"
+repo=${common:A:h}
+top=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)
+[[ ${top:A} == $cwd && ${common:A:t} == .git && ${cwd:h} == $repo/.claude/worktrees ]] \
+  || refuse "--cwd $cwd must be a worktree at <repo>/.claude/worktrees/<name>"
+git -C "$repo" worktree list --porcelain | grep -qxF "worktree $cwd" \
+  || refuse "--cwd $cwd is not a registered worktree of $repo"
+branch=$(git -C "$cwd" branch --show-current)
+[[ -n $branch && $branch != (main|master) ]] || refuse "--cwd $cwd must be on a feature branch"
+
+# The pueue task cats the task file outside any sandbox: allow-list where it may live.
+[[ -n $task_file ]] || refuse '--task-file is required'
+[[ ! -L $task_file && -f $task_file && -s $task_file ]] \
+  || refuse "--task-file '$task_file' must be a non-empty regular file, not a symlink"
 task_file=${task_file:A}
+[[ $task_file =~ '^[A-Za-z0-9._/@+-]+$' ]] || refuse "--task-file path has characters outside [A-Za-z0-9._/@+-]"
+(( $(stat -f %z "$task_file") < 262144 )) || refuse '--task-file must be under 256 KiB'
+tmp=${${TMPDIR:-/nonexistent}:A}
+[[ $tmp == /private/(var/folders|tmp)/* ]] || tmp=/nonexistent
+[[ $task_file == $cwd/* || $task_file == ${HOME:A}/.claude/plans/* || $task_file == $tmp/* ]] \
+  || refuse "--task-file must be inside the worktree, ~/.claude/plans or \$TMPDIR"
 
 case $place in
   window|tab|split) ;;
   *) print -u2 -- "pi-dispatch: unknown --place '$place'; use window, tab or split"; exit 2 ;;
 esac
-
-cwd=${cwd:-$PWD}
-cwd=${cwd:A}
 
 # Slug: the task file's basename, reduced to a-z0-9-, cut to 11, plus a random 4-hex suffix.
 base=${${task_file:t}:r}
