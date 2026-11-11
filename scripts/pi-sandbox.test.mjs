@@ -19,14 +19,16 @@ for (const dir of [join(home, ".pi/agent/extensions"), join(home, ".pi/agent/ses
 spawnSync("git", ["init", "-q"], { cwd: repo });
 after(() => rmSync(root, { recursive: true, force: true }));
 
+// Claude's settings are the policy source; this fixture stands in for ~/.claude/settings.json.
+const settings = join(root, "settings.json");
+writeFileSync(settings, JSON.stringify({ sandbox: { filesystem: { denyWrite: [
+	"~/.pi/agent/extensions", "~/repos/Obsidian/Focus.md", "**/.pi/agent-review/decisions",
+] } } }));
+const sandboxEnv = (extra = {}) => ({ ...process.env, HOME: home, PI_VIEW_SECRETS: join(root, "no-secrets"), PI_SANDBOX_SETTINGS: settings, ...extra });
+const inSandbox = (args, extra) => spawnSync("zsh", [SCRIPT, ...args], { cwd: repo, encoding: "utf8", timeout: 10000, env: sandboxEnv(extra) });
+
 // True when `sh -c "<write>"` succeeds inside the sandbox.
-const writes = (command) =>
-	spawnSync("zsh", [SCRIPT, "sh", "-c", command], {
-		cwd: repo,
-		encoding: "utf8",
-		timeout: 10000,
-		env: { ...process.env, HOME: home, PI_VIEW_SECRETS: join(root, "no-secrets") },
-	}).status === 0;
+const writes = (command) => inSandbox(["sh", "-c", command]).status === 0;
 
 test("writes inside the worktree and Pi's session store pass", () => {
 	assert.ok(writes("echo x > note.txt"));
@@ -47,8 +49,36 @@ test("a system repo's harness folders stay writable in a worktree until S4", () 
 
 // A previous run can write .jj/repo and .git in its worktree; a planted pointer must not widen
 // the next run's write grant to another directory.
-const launch = (cwd) =>
-	spawnSync("zsh", [SCRIPT, "true"], { cwd, encoding: "utf8", env: { ...process.env, HOME: home, PI_VIEW_SECRETS: join(root, "no-secrets") } });
+const launch = (cwd) => spawnSync("zsh", [SCRIPT, "true"], { cwd, encoding: "utf8", env: sandboxEnv() });
+
+test("missing or sandbox-less settings refuse the run", () => {
+	for (const bad of [join(root, "absent.json"), join(root, "empty.json")]) {
+		writeFileSync(join(root, "empty.json"), "{}");
+		const result = inSandbox(["true"], { PI_SANDBOX_SETTINGS: bad });
+		assert.equal(result.status, 1, bad);
+		assert.match(result.stderr, /no usable sandbox policy/);
+	}
+});
+
+test("git hooks and config are protected, while a commit still works", () => {
+	assert.ok(!writes("echo x > .git/hooks/post-commit"), "a git hook write passed");
+	assert.ok(!writes("git config core.hooksPath /tmp"), "a git config write passed");
+	assert.ok(writes("git -c user.name=t -c user.email=t@t commit -q --allow-empty -m probe"), "a commit failed");
+});
+
+test("the herdr control socket is unreachable", async () => {
+	const { createServer } = await import("node:net");
+	const dir = join(home, ".local/state/herdr-core/default");
+	mkdirSync(dir, { recursive: true });
+	const server = createServer().listen(join(dir, "default.sock"));
+	await new Promise((resolve) => server.once("listening", resolve));
+	const connect = `import socket,sys; s=socket.socket(socket.AF_UNIX); s.connect(sys.argv[1])`;
+	const outside = spawnSync("python3", ["-I", "-c", connect, join(dir, "default.sock")]);
+	const inside = inSandbox(["python3", "-I", "-c", connect, join(dir, "default.sock")]);
+	server.close();
+	assert.equal(outside.status, 0, "control: the socket accepts outside the sandbox");
+	assert.notEqual(inside.status, 0, "the socket was reachable inside the sandbox");
+});
 
 test("refuses a .jj/repo pointer that leaves the repo", () => {
 	const planted = join(root, "planted");

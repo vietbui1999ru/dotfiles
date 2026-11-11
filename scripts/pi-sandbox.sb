@@ -21,21 +21,9 @@
   (subpath (string-append (param "HOME") "/.local/state/pi-checks"))
   (subpath (string-append (param "HOME") "/.local/state/provenance")))
 
-;; Pi's configuration and installed code, gate state and the focus board.
-(deny file-write*
-  (subpath (string-append (param "HOME") "/.pi/agent/extensions"))
-  (subpath (string-append (param "HOME") "/.pi/agent/extensions-available"))
-  (subpath (string-append (param "HOME") "/.pi/agent/skills"))
-  (subpath (string-append (param "HOME") "/.pi/agent/agents"))
-  (subpath (string-append (param "HOME") "/.pi/agent/npm"))
-  (literal (string-append (param "HOME") "/.pi/agent/settings.json"))
-  (literal (string-append (param "HOME") "/.pi/agent/mcp.json"))
-  (literal (string-append (param "HOME") "/.pi/agent/models.json"))
-  (subpath (string-append (param "HOME") "/.pi-lens/bin"))
-  (literal (string-append (param "HOME") "/.pi-lens/config.json"))
-  (subpath (string-append (param "WT") "/.pi/agent-review/decisions"))
-  (subpath (string-append (param "HOME") "/.local/state/ac-run"))
-  (literal (string-append (param "HOME") "/repos/Obsidian/Focus.md")))
+;; Pi's configuration and installed code, gate state, the focus board, Claude Code's built-in
+;; protections and the control sockets are not listed here: scripts/pi-sandbox-policy generates
+;; them from Claude's sandbox settings and pi-sandbox appends them after this profile.
 
 ;; Harness folders inside a system repo's worktree stay writable until Slice S4 (system-pin)
 ;; exists; decided 2026-11-11. The main checkout is outside every grant above already.
