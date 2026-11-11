@@ -45,10 +45,11 @@ fi
 
 # Provider keys come from the secrets file here, outside the sandbox, one at a time;
 # inside it ~/secrets is unreadable, so Pi sees only these keys.
-pi_keys=(OPENCODE_API_KEY CONTEXT7_API_KEY)
-for key_name in $pi_keys; do
+# Name in the secrets file -> the variable Pi reads (OPENCODE_API_KEY serves opencode-go).
+typeset -A pi_keys=(OPENCODE_GO_API_KEY_PI_QUEUES OPENCODE_API_KEY CONTEXT7_API_KEY CONTEXT7_API_KEY)
+for key_name env_name in ${(kv)pi_keys}; do
   if key_value=$(SECRETS_ENV=${PI_VIEW_SECRETS:-$HOME/secrets/.env} "$script_dir/secret-get" "$key_name" 2>/dev/null); then
-    export "$key_name=$key_value"
+    export "$env_name=$key_value"
   fi
 done
 
