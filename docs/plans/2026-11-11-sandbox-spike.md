@@ -214,3 +214,49 @@ The patch is `docs/patches/sandbox/settings.patch`. Method: same as the Claude r
 ### Left out of the patch, for the person
 
 - **`sandbox.filesystem.denyRead` for the secrets folder.** `enforce-bash-safety.sh` refuses any agent command that names that folder, so the agent could not write the entry. After applying the patch, add a `"denyRead"` array under `sandbox.filesystem` holding the same folder that the existing `Read(...)` deny rule names. That rule covers only the Read tool.
+
+## S2b probes (2026-11-11)
+
+These are Step 0 of the S2b plan (trusted launchers). With S2 live, Claude's Bash cannot nest Seatbelt. The probes therefore ran from the person's own terminal, through a throwaway kit in the job tmp directory:
+
+- `detect` uses nested-Seatbelt refusal as the detector. It runs `sandbox-exec -p '(version 1)(allow default)' true`, which succeeds only when the caller is not already sandboxed.
+- `stub` prints its argv, runs `detect`, and connects to a unix socket that is not in `allowUnixSockets`. The socket sits in a folder whose name contains a space.
+- Overlay A turns the sandbox on and exempts the stub's absolute path, both bare and with `*`. Overlay B sets `sandbox.enabled: false`.
+- `claude -p --permission-mode default --allowedTools Bash --model claude-haiku-5-5 --settings <overlay> --output-format stream-json` ran in this worktree. The commands and tool results below were extracted from the transcript, not from the model's summary.
+
+The host check printed `UNSANDBOXED` (the terminal itself was unsandboxed). The control printed `SANDBOXED` (the overlay loaded).
+
+| Id | Command (`$P` = kit folder) | Result |
+|---|---|---|
+| 0 | `$P/detect` | SANDBOXED. Control. |
+| 1a | `$P/stub "a b; c \| d"` | UNSANDBOXED. argv arrived as one word, `'a b; c \| d'`. |
+| 1a' | `$P/stub` (no arguments) | UNSANDBOXED. The bare pattern matches. |
+| 1b | `X=1 $P/stub` | SANDBOXED. An env prefix drops the exemption. |
+| 1c | `~/…/stub`; `cd $P && ./stub` | SANDBOXED, both. |
+| 1d | `$P/stub ok; $P/detect` | **The whole compound stays SANDBOXED, the stub included.** Nothing rides along. |
+| 1d' | `$P/stub "$($P/detect)"` | Not reached. Blast-radius refused it first in the headless run. |
+| 1d'' | `$P/stub ok \| $P/detect` | Not run. The model stopped after the 1d' refusal. |
+| 2 | socket connect from the stub in 1a | CONNECTED when exempt; `EPERM` from every sandboxed call. Exempt really means unsandboxed. |
+| 3 | `hc ls --json`, `hc get --json` (read-only, from the session) | See below. |
+| 4 | Overlay B, then `$P/detect` | UNSANDBOXED. A `--settings` overlay switches the user-level sandbox off. **S4 is unblocked.** |
+| 5 | `sandbox-exec` with `(deny network-outbound (remote unix-socket (path-literal "<sock>")))`, then the same with `(subpath "<dir>")` | Both deny forms block the connect (`EPERM`). The control without a deny connects. A path containing a space works in both forms. |
+
+### Decisions from the results
+
+- **No `CLAUDE_CODE_*` environment refusal in the wrappers.** The plan made it conditional on 1b, and an env prefix keeps the call sandboxed. The flip side: callers must invoke a launcher with no env prefix, or it runs sandboxed and fails on its socket. The rule text has to say so.
+- **A launcher call must be the whole command.** Per 1d, adding `;` and a second command sandboxes everything. That is safe, but an agent that chains `jw new … && cd …` gets a sandboxed `jw` and a confusing failure. The rule text and the refusal messages should name this.
+- **Pi profile socket deny:** use `(subpath …)` for the herdr and pueue socket folders. One rule then covers socket files that are recreated or renamed. `path-literal` also works.
+- **Overlay B is not an escape for a sandboxed agent.** An inner `claude --settings` with the sandbox off still inherits the outer Seatbelt from its parent process, because Seatbelt applies to every descendant. S4 is safe only because `jwc` starts from the person's unsandboxed shell.
+
+### `hc` schema (probe 3)
+
+- `hc ls --json` returns `{hidden_finished, machines: [{name, state}], terminals: [{address, agent, cwd, state, turn, where}]}`.
+- `hc get --json <t>` adds `argv`, `foreground: {argv, cwd, name, pid}`, `labels`, `exit_code`, `status`, `title` and `pid`.
+- **Program:** `agent` is unreliable. It read `zsh` while Claude ran in the pane. Use `basename(foreground.argv[0])` (`claude`, `pi`, `herdr`). For Claude, `foreground.name` holds the version string.
+- **Machine:** there is no field for it. The `address` prefix names it (`pve2/t2`); a local terminal has no prefix.
+- **State:** `state` is `live` or `finished`. `status` and `turn` were null or 0 on every terminal, so they do not yet show idle versus working. Recheck with a busy agent before herdr-safe relies on them.
+- **No machine filter on `hc ls`.** The options are `--all`, `--json` and `--label K=V`. herdr-safe filters on the address prefix.
+
+### Still open before the S2b settings patch lands
+
+- **1d' and 1d'' at the sandbox layer.** A command substitution or a pipe after an exempt launcher was not tested past blast-radius. Blast-radius protects Claude only. If Claude Code matched `stub *` against the raw text, `stub "$(cmd)"` would run `cmd` unsandboxed. The `;` result suggests the command is parsed rather than glob-matched, but that is inference. Re-probe both from an interactive overlay session, where the blast-radius prompt can be answered, before the patch is applied.

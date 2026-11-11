@@ -1,0 +1,192 @@
+#!/usr/bin/env zsh
+# pi-dispatch — queue one Pi dispatch from a task file, as a pueue task run through pi-view.
+#
+#   pi-dispatch add (--tier high|medium|low | --model <provider/id[:thinking]>) --task-file <path>
+#                   [--cwd <dir>] [--place window|tab|split] [--on <machine>]
+#   pi-dispatch status        pueue status
+#   pi-dispatch log <id>      pueue log for one numeric task id
+#   pi-dispatch wait <id>...  pueue wait for numeric task ids
+#   --mode tui (default, implementation) or view (search, review: plain pi-view)
+#
+# pi-dispatch is exempt from Claude's Bash sandbox by absolute path, so it runs unsandboxed
+# and its checks are the boundary: the model must be in Pi's enabledModels, --cwd a linked
+# worktree under <repo>/.claude/worktrees/ on a feature branch, and the task file an allow-
+# listed regular file (the pueue task cats it outside any sandbox). Pi itself runs under
+# pi-sandbox through pi-view. Trusted paths come from $HOME only, never from other env.
+#
+# The task text is read by the pueue task itself (`$(cat ...)` inside the command), so the
+# text never sits in pueue's stored command. Outside a Herdr pane the task opens as a
+# Herdr app window: PI_VIEW_APP=1 is set on the `pueue add` call, because a Claude
+# background job has no HC_TERMINAL_ID of its own.
+#
+# Tiers read PI_DELEGATE_{HIGH,MEDIUM,LOW}_MODEL from routing.env by matching the line;
+# the file is never sourced. Machine routing (--on) waits for the machine mesh (slice D).
+set -u
+
+usage() {
+  print -u2 -- 'usage: pi-dispatch add (--tier high|medium|low | --model <provider/id[:thinking]>) --task-file <path> [--cwd <dir>] [--mode tui|view] [--place window|tab|split] [--on <machine>] | status | log <id> | wait <id>...'
+}
+
+refuse() { print -u2 -- "pi-dispatch: $*"; exit 2 }
+
+# Only `add` queues work; status, log and wait are read-only views of the queue.
+case ${1:-} in
+  add) shift ;;
+  status) (( $# == 1 )) || refuse 'status takes no arguments'; exec pueue status ;;
+  log) [[ $# == 2 && $2 == <-> ]] || refuse 'log takes one numeric task id'; exec pueue log "$2" ;;
+  wait) shift; (( $# > 0 )) || refuse 'wait takes numeric task ids'; for id; do [[ $id == <-> ]] || refuse 'wait takes numeric task ids'; done; exec pueue wait "$@" ;;
+  -h|--help) usage; exit 0 ;;
+  *) usage; exit 2 ;;
+esac
+
+tier="" model="" task_file="" cwd="" place="window" on="" mode="tui"
+while (( $# > 0 )); do
+  case $1 in
+    --tier|--model|--task-file|--cwd|--place|--on|--mode)
+      (( $# >= 2 )) || { print -u2 -- "pi-dispatch: $1 needs a value"; usage; exit 2 }
+      case $1 in
+        --tier) tier=$2 ;;
+        --model) model=$2 ;;
+        --task-file) task_file=$2 ;;
+        --cwd) cwd=$2 ;;
+        --place) place=$2 ;;
+        --mode) mode=$2 ;;
+        --on) on=$2 ;;
+      esac
+      shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) print -u2 -- "pi-dispatch: unknown argument '$1'"; usage; exit 2 ;;
+  esac
+done
+
+if [[ -n $on ]]; then
+  print -u2 -- 'pi-dispatch: --on arrives with the machine mesh (slice D)'
+  exit 2
+fi
+
+if [[ -n $tier && -n $model ]]; then
+  print -u2 -- 'pi-dispatch: pass --tier or --model, not both'
+  exit 2
+fi
+if [[ -z $tier && -z $model ]]; then
+  print -u2 -- 'pi-dispatch: a model is required; pass --tier high|medium|low or --model <provider/id[:thinking]>'
+  exit 2
+fi
+
+script_dir=${${0:A}:h}
+
+# Tier to model: one line per tier in routing.env, read by matching, never sourced.
+if [[ -n $tier ]]; then
+  case $tier in
+    high) key=PI_DELEGATE_HIGH_MODEL ;;
+    medium) key=PI_DELEGATE_MEDIUM_MODEL ;;
+    low) key=PI_DELEGATE_LOW_MODEL ;;
+    *) print -u2 -- "pi-dispatch: unknown tier '$tier'; use high, medium or low"; exit 2 ;;
+  esac
+  routing_file=${PI_ROUTING_ENV:-$HOME/.pi/agent/routing.env}
+  model=""
+  if [[ -r $routing_file ]]; then
+    model=$(sed -n "s/^${key}=//p" "$routing_file" | tail -n1)
+    # Strip one matching pair of surrounding quotes, as routing.env may quote a value.
+    if [[ $model == \"*\" || $model == \'*\' ]]; then
+      model=${model[2,-2]}
+    fi
+  fi
+  if [[ -z $model ]]; then
+    print -u2 -- "pi-dispatch: $key is not set in $routing_file"
+    exit 2
+  fi
+fi
+
+# The model must be one Pi has enabled, with a known thinking level if any.
+base_model=${model%%:*}
+thinking=${model#$base_model}
+[[ -z $thinking || $thinking == :(off|minimal|low|medium|high|xhigh) ]] \
+  || refuse "unknown thinking level '$thinking' in --model"
+pi_settings=$HOME/.pi/agent/settings.json
+python3 -I -c 'import json,sys; sys.exit(sys.argv[2] not in (json.load(open(sys.argv[1])).get("enabledModels") or []))' \
+  "$pi_settings" "$base_model" 2>/dev/null \
+  || refuse "model '$base_model' is not in enabledModels of $pi_settings"
+
+# The cwd must be a linked worktree under <repo>/.claude/worktrees/, on a feature branch.
+cwd=${cwd:-$PWD}
+cwd=${cwd:A}
+common=$(git -C "$cwd" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
+  || refuse "--cwd $cwd is not in a git repository"
+repo=${common:A:h}
+top=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)
+[[ ${top:A} == $cwd && ${common:A:t} == .git && ${cwd:h} == $repo/.claude/worktrees ]] \
+  || refuse "--cwd $cwd must be a worktree at <repo>/.claude/worktrees/<name>"
+git -C "$repo" worktree list --porcelain | grep -qxF "worktree $cwd" \
+  || refuse "--cwd $cwd is not a registered worktree of $repo"
+branch=$(git -C "$cwd" branch --show-current)
+[[ -n $branch && $branch != (main|master) ]] || refuse "--cwd $cwd must be on a feature branch"
+
+# The pueue task cats the task file outside any sandbox: allow-list where it may live.
+[[ -n $task_file ]] || refuse '--task-file is required'
+[[ ! -L $task_file && -f $task_file && -s $task_file ]] \
+  || refuse "--task-file '$task_file' must be a non-empty regular file, not a symlink"
+task_file=${task_file:A}
+[[ $task_file =~ '^[A-Za-z0-9._/@+-]+$' ]] || refuse "--task-file path has characters outside [A-Za-z0-9._/@+-]"
+(( $(stat -f %z "$task_file") < 262144 )) || refuse '--task-file must be under 256 KiB'
+tmp=${${TMPDIR:-/nonexistent}:A}
+[[ $tmp == /private/(var/folders|tmp)/* ]] || tmp=/nonexistent
+[[ $task_file == $cwd/* || $task_file == ${HOME:A}/.claude/plans/* || $task_file == $tmp/* ]] \
+  || refuse "--task-file must be inside the worktree, ~/.claude/plans or \$TMPDIR"
+
+case $place in
+  window|tab|split) ;;
+  *) print -u2 -- "pi-dispatch: unknown --place '$place'; use window, tab or split"; exit 2 ;;
+esac
+case $mode in
+  tui) view_flag=" --tui" ;;
+  view) view_flag="" ;;
+  *) refuse "unknown --mode '$mode'; use tui or view" ;;
+esac
+
+# Slug: the task file's basename, reduced to a-z0-9-, cut to 11, plus a random 4-hex suffix.
+base=${${task_file:t}:r}
+slug=${(L)base}
+slug=${slug//[^a-z0-9-]/-}
+slug=${slug[1,11]}
+[[ -n $slug ]] || slug=task
+slug=${slug}-$(openssl rand -hex 2)
+session_id=pueue-$slug
+
+# The checks above ran on a path the caller can still swap (worktree and $TMPDIR are
+# sandbox-writable) before pueue runs `cat`. So snapshot it now: open once without following
+# a symlink, re-check the real path of the open file, and copy the bytes into a folder no
+# sandbox can write. The task cats that copy.
+snap_dir=$HOME/.local/state/pi-dispatch/tasks
+mkdir -p -m 700 -- "$snap_dir" || refuse "cannot create $snap_dir"
+[[ ! -L $snap_dir && -O $snap_dir && $(stat -f %Lp "$snap_dir") == 700 ]] \
+  || refuse "$snap_dir must be a real folder you own with mode 0700"
+# HOME is trusted like everywhere in the harness (an env prefix drops the sandbox exemption,
+# S2b probe 1b), but the snapshot must never sit where a sandboxed agent can write.
+[[ ${snap_dir:A} != $cwd/* && ${snap_dir:A} != $tmp/* ]] \
+  || refuse "$snap_dir lies inside the worktree or \$TMPDIR"
+snapshot=${snap_dir:A}/$slug.md
+python3 -I -c '
+import fcntl, os, re, stat, sys
+src, dest, *roots = sys.argv[1:]
+fd = os.open(src, os.O_RDONLY | os.O_NOFOLLOW)
+st = os.fstat(fd)
+real = fcntl.fcntl(fd, fcntl.F_GETPATH, bytes(1024)).split(b"\0", 1)[0].decode()
+ok = (stat.S_ISREG(st.st_mode) and st.st_nlink == 1 and st.st_uid == os.getuid() and 0 < st.st_size < 262144
+      and re.fullmatch(r"[A-Za-z0-9._/@+-]+", real) and any(real.startswith(r + "/") for r in roots))
+if not ok:
+    sys.exit(1)
+out = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+os.write(out, os.read(fd, 262144))
+' "$task_file" "$snapshot" "$cwd" "${HOME:A}/.claude/plans" "$tmp" 2>/dev/null \
+  || refuse "--task-file '$task_file' changed or failed its checks while being read"
+
+# The task text is read inside the pueue task, so it is never stored in pueue's command.
+pueue_command="${(q)script_dir}/pi-view${view_flag} pi --model ${(q)model} --session-id ${(q)session_id} -p \"\$(cat ${(q)snapshot})\" < /dev/null"
+
+task_id=$(PI_VIEW_APP=1 PI_VIEW_PLACE=$place pueue add -i --print-task-id --label "$slug" -w "$cwd" -- "$pueue_command") || {
+  print -u2 -- 'pi-dispatch: pueue add failed'
+  exit 1
+}
+
+print -r -- "pi-dispatch task=$task_id slug=$slug model=$model"

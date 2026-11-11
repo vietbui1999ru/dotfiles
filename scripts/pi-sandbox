@@ -51,5 +51,14 @@ for key_name env_name in ${(kv)pi_keys}; do
   fi
 done
 
-exec sandbox-exec -f "$profile" -D WT="$wt" -D GITDIR="$gitdir" -D JJDIR="$jjdir" \
+# Protected paths come from Claude's sandbox settings (scripts/pi-sandbox-policy), appended
+# after the base profile so they win. No usable settings means no run, never a weaker one.
+settings=${PI_SANDBOX_SETTINGS:-$HOME/.claude/settings.json}
+policy_gitdir=$gitdir
+[[ -n ${top:-} ]] || policy_gitdir=$wt/.git
+policy=$("$script_dir/pi-sandbox-policy" "$settings" "$wt" "$policy_gitdir" "$HOME") \
+  || { print -u2 -- "pi-sandbox: no usable sandbox policy in $settings; refusing to run unsandboxed"; exit 1 }
+
+exec sandbox-exec -p "$(<$profile)
+$policy" -D WT="$wt" -D GITDIR="$gitdir" -D JJDIR="$jjdir" \
   -D TMP="${${TMPDIR:-/tmp}:A}" -D HOME="$HOME" "$@"
