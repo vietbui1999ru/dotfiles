@@ -1,0 +1,24 @@
+--- a/claude/.claude/settings.json
++++ b/claude/.claude/settings.json
+@@ -196,7 +196,8 @@
+       "/Users/vietquocbui/dotfiles/scripts/jw new *",
+       "/Users/vietquocbui/dotfiles/scripts/jw rm *",
+       "/Users/vietquocbui/dotfiles/scripts/jw bg *",
+-      "/Users/vietquocbui/dotfiles/scripts/pi-dispatch *"
++      "/Users/vietquocbui/dotfiles/scripts/pi-dispatch *",
++      "/Users/vietquocbui/dotfiles/scripts/herdr-safe *"
+     ],
+     "filesystem": {
+       "allowWrite": [
+@@ -248,10 +249,7 @@
+         "chatgpt.com",
+         "api.openai.com"
+       ],
+-      "allowUnixSockets": [
+-        "~/.local/state/herdr-core/default/default.sock",
+-        "~/.config/herdr-app/herdr-app.sock"
+-      ]
++      "allowUnixSockets": []
+     },
+     "enableWeakerNetworkIsolation": true
+   },

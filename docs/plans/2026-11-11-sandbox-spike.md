@@ -269,3 +269,14 @@ The person split the S2b settings patch in two, because `herdr-safe` is not buil
 - **Patch B**, which ships with herdr-safe: exempts `herdr-safe` and removes both herdr sockets.
 
 Patch A's gate, the 1d' and 1d'' re-probe above, passed on 2026-11-11. The kit is a throwaway: `detect`, `stub` and an overlay that exempts `stub *`, run from the person's terminal in an interactive `claude --settings <overlay>` session. A pass means `stub "$(detect)"` receives `SANDBOXED` as its argument, and `stub ok | detect` prints `SANDBOXED`.
+
+### herdr-safe decisions (S2b PR 2)
+
+These go beyond the parent plan's tables. They come from the probe 3 schema and from #291:
+
+- **Target check.** A message, key or file goes only to a terminal whose `state` is `live` and whose `basename(foreground.argv[0])` is `claude` or `pi`. The `agent` field of `hc ls` is not used. A smoke test on 2026-11-11 found that a terminal listed as `agent: zsh` was running the person's Claude session in the foreground.
+- **Message guard.** `send` text, and a `run` or app-open task, may not start with `!`, `/` or `-`. `!` runs a shell inside the target agent, and pve2 agents stay unsandboxed until S7. `/` reaches commands such as `/sandbox` and `/permissions`. `-` could be read as an `hc` option.
+- **Named keys only.** `keys` takes only `enter esc tab up down left right ctrl+c pageup pagedown`, so it cannot type a message past the guard.
+- **`hc run` argv is built by herdr-safe.** It runs `claude [task]` or `pi-view --tui pi --model <enabledModels>`, always with `--bg`, a local machine, and `--cwd` set to a linked worktree.
+- **App opens.** `do` takes a JSON object only; the `--key value` form is refused. An app open that sets `argv` must also give a worktree `folder`, because the default is the focused terminal's folder. `pane.split` has no `folder` argument, so it opens shells only. A `task` without an `argv` is refused, because it would be typed into a shell.
+- **No `$TMPDIR` source** for `put` or `shot`, following #291: exempt launchers see the person's TMPDIR, not the sandbox's. Sources stay inside the repository.

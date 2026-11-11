@@ -239,10 +239,22 @@ call. Add a mise config to a repo that has none only when the task asks for it.
 The Mac and pve2 (Tailscale node `pve-2-1`) are linked both ways in Paseo and
 one way (Mac to pve2) in herdr. Setup and limits: `docs/workflows/herdr-paseo-mesh.md`.
 
-- herdr core: `hc ls`, `hc read`, `hc send`, `hc wait` address a terminal as
-  `pve2/t7`. `hc run --on pve2 <cmd>` starts one there; `hc exec --on pve2 <cmd>`
-  runs a program without a terminal. Drive the Herdr app with `herdr-app do <cmd>`.
-- herdr TUI: `herdr --machine pve2 <command>`.
+- Agents reach herdr only through `$HOME/dotfiles/scripts/herdr-safe hc <sub> …`
+  and `$HOME/dotfiles/scripts/herdr-safe app <command> …`. Spell the absolute path
+  as the whole Bash command, with no env prefix and no `;`, `|` or `$(…)`:
+  anything else runs sandboxed and fails on the herdr sockets.
+  - `hc ls`, `get`, `read`, `wait`, `templates`, `events` work locally and on
+    `pve2/t7` addresses. `send`, `keys`, `interrupt` and `put` reach only a live
+    claude or pi terminal. A message may not start with `!`, `/` or `-`. `keys`
+    takes named keys only, and `put` takes a non-ignored file in the repository.
+  - `hc run [--name n] [--cwd <worktree>] claude [task]` or `hc run pi --model <m>`
+    starts an agent in the background, locally, in a linked worktree.
+  - `app`: `ls`, `status`, `commands`, `shot`, `feedback`, navigation through
+    `do <command> ['<json>']`, and `space.new`/`tab.new`/`terminal.open` with
+    argv `["claude"]` or `["pi", "--model", "<m>"]` plus a worktree `folder`.
+  - Nothing runs on pve2: it is for messaging agents there. Bare `hc`,
+    `herdr-app do`, `hc exec`, `hc run --on` and `herdr --machine` are the
+    person's commands. When herdr-safe refuses, stop and hand over.
 - Paseo: from the Mac, `p2 ls|send|wait` (a zsh function that reads the pve2
   password from the Keychain). To start an agent on the other host through the
   Paseo MCP tools, pass that host's `serverId` (from `paseo host ls --json`).
