@@ -13,6 +13,10 @@ wait task in the `waits` group that starts the chain. Each step names exactly on
 executor (`shell`, `pi` or `claude`); a step that fails releases nothing. Labels
 are `q:<session>:<template>:<step>`.
 
+Person-only since S2b: sandboxed agents cannot reach the pueue socket, and a
+shell-executor template would run unsandboxed. Agents queue Pi through
+`scripts/pi-dispatch` instead.
+
 Exit codes: 0 the fact held (or the step succeeded), 1 a contradiction, a failed
 step or a timeout, 2 a usage error.
 

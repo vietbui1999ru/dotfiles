@@ -204,8 +204,8 @@ EOF
 # Start pueue daemon (once per boot, or add to shell startup)
 pueued -d
 
-# Verify
-pueue status
+# Verify (from an agent: the whole Bash command, no prefix or chain)
+/Users/vietquocbui/dotfiles/scripts/pi-dispatch status
 ```
 
 ---
