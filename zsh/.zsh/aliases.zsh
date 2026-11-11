@@ -154,6 +154,8 @@ jwb() {
   ( cd "$dir" && claude --bg "$2" )
 }
 
+alias jw="$HOME/dotfiles/scripts/jw"
+
 # Claude Code, Codex and Pi through the opt-in Headroom proxy launchers (only
 # where Headroom is installed). Normal `claude`, `codex` and `pi` stay direct;
 # the workflow script probes proxy identity and readiness before routing any
