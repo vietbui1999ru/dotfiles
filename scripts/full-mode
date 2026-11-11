@@ -1,0 +1,95 @@
+#!/usr/bin/python3 -I
+"""full-mode: the one reader and writer of S4 full-mode markers.
+
+  full-mode check <ws>                  exit 0 and print the expiry if armed, else exit 1
+  full-mode arm <ws> <branch> <hours>   write the marker (called by jw after its gates)
+  full-mode clear <ws>                  remove the marker (called by jw rm)
+  full-mode hook                        PreToolUse: deny tools once CLAUDE_FULL_WS has expired
+
+The marker is ~/.claude/state/gates/full/<ws>, one line `expires=<epoch> branch=<branch>`.
+It lives in protected gate state: sandboxed Bash cannot write ~/.claude, and the settings
+patch denies Edit there. HOME comes from the password database, never the environment.
+"""
+import json, os, pwd, re, sys, time
+
+WS_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+BRANCH_RE = re.compile(r"^(feat|fix|docs|chore|refactor|test|perf|ci)/[a-z0-9][a-z0-9-]*$")
+LINE_RE = re.compile(r"^expires=(\d+) branch=(\S+)$")
+MAX_HOURS = 8
+GATE_DIR = os.path.join(pwd.getpwuid(os.getuid()).pw_dir, ".claude/state/gates/full")
+
+
+def die(msg):
+    print(f"full-mode: {msg}", file=sys.stderr)
+    sys.exit(2)
+
+
+def marker(ws):
+    if not WS_RE.match(ws):
+        die(f"invalid workspace name: {ws!r}")
+    return os.path.join(GATE_DIR, ws)
+
+
+def read(ws):
+    """Return (expires, branch) for a live marker, or None. Malformed counts as expired."""
+    try:
+        with open(marker(ws)) as f:
+            m = LINE_RE.match(f.read().strip())
+    except OSError:
+        return None
+    if not m or int(m.group(1)) <= time.time() or not BRANCH_RE.match(m.group(2)):
+        return None
+    return int(m.group(1)), m.group(2)
+
+
+def cmd_check(ws):
+    live = read(ws)
+    if not live:
+        sys.exit(1)
+    print(time.strftime("%H:%M", time.localtime(live[0])))
+
+
+def cmd_arm(ws, branch, hours):
+    if not BRANCH_RE.match(branch) or branch.split("/", 1)[1] != ws:
+        die(f"branch {branch!r} does not match workspace {ws!r}")
+    if not hours.isdigit() or not 1 <= int(hours) <= MAX_HOURS:
+        die(f"hours must be 1 to {MAX_HOURS}, got {hours!r}")
+    path = marker(ws)
+    os.makedirs(GATE_DIR, mode=0o700, exist_ok=True)
+    tmp = f"{path}.tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(f"expires={int(time.time()) + int(hours) * 3600} branch={branch}\n")
+    os.replace(tmp, path)
+    cmd_check(ws)
+
+
+def cmd_clear(ws):
+    try:
+        os.unlink(marker(ws))
+    except FileNotFoundError:
+        pass
+
+
+def cmd_hook():
+    sys.stdin.read()
+    ws = os.environ.get("CLAUDE_FULL_WS")
+    if ws is None:
+        return
+    if WS_RE.match(ws) and read(ws):
+        return
+    reason = (f"full mode for workspace {ws!r} has expired or was never armed. Exit this session; "
+              "relaunch with `jwc <branch>` (sandboxed) or re-arm with `jw new <branch> --full`.")
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                      "permissionDecision": "deny", "permissionDecisionReason": reason}}))
+
+
+def main(argv):
+    cmds = {"check": (cmd_check, 1), "arm": (cmd_arm, 3), "clear": (cmd_clear, 1), "hook": (cmd_hook, 0)}
+    if not argv or argv[0] not in cmds or len(argv) - 1 != cmds[argv[0]][1]:
+        die("usage: full-mode check <ws> | arm <ws> <branch> <hours> | clear <ws> | hook")
+    cmds[argv[0]][0](*argv[1:])
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
