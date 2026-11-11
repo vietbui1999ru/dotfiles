@@ -1,4 +1,4 @@
-#!/usr/bin/env -S python3 -I
+#!/usr/bin/python3 -I
 """herdr-safe: the only way a sandboxed agent reaches herdr-core (hc) and the Herdr app.
 
 The sandbox settings exempt this script by its absolute path, so it runs unsandboxed and its
@@ -12,19 +12,24 @@ Call it as the whole Bash command, with no env prefix and no `;`, `|` or `$(...)
 those makes the call sandboxed again, and it then fails on the herdr sockets.
 Remote terminals (`pve2/t3`) are for messaging agents only; nothing runs remotely.
 
-Overrides, for tests: HERDR_SAFE_HC, HERDR_SAFE_APP (binaries), HERDR_SAFE_PI_SETTINGS.
+No trusted path comes from the environment: HOME is read from the password database, there
+are no env overrides, and git runs with a scrubbed env (GIT_DIR, GIT_CONFIG_* are dropped).
 """
 import json
 import os
+import pwd
 import re
 import subprocess
 import sys
 from pathlib import Path
 
-HOME = Path.home()
-HC = os.environ.get("HERDR_SAFE_HC") or str(HOME / ".local/bin/hc")
-APP = os.environ.get("HERDR_SAFE_APP") or str(HOME / ".local/bin/herdr-app")
-PI_SETTINGS = Path(os.environ.get("HERDR_SAFE_PI_SETTINGS") or HOME / ".pi/agent/settings.json")
+HOME = Path(pwd.getpwuid(os.getuid()).pw_dir)
+HC = str(HOME / ".local/bin/hc")
+APP = str(HOME / ".local/bin/herdr-app")
+PI_SETTINGS = HOME / ".pi/agent/settings.json"
+# git gets only these; hc and herdr-app keep the user env, which they need to reach herdr-core.
+CLEAN_ENV = {"PATH": "/usr/bin:/bin", "HOME": str(HOME),
+             **{k: os.environ[k] for k in ("LANG", "TERM") if k in os.environ}}
 MACHINES = {"pve2"}  # remote machines an agent may message; fixed in code on purpose
 AGENTS = {"claude", "pi"}  # programs a message, key or file may be sent to
 HC_READ = {"ls", "get", "read", "wait", "templates", "events"}
@@ -59,7 +64,8 @@ def check_args(args):
 
 
 def git(*args, cwd):
-    out = subprocess.run(["/usr/bin/git", "-C", str(cwd), *args], capture_output=True, text=True)
+    out = subprocess.run(["/usr/bin/git", "-C", str(cwd), *args], capture_output=True, text=True,
+                         env=CLEAN_ENV)
     return out.stdout.strip() if out.returncode == 0 else None
 
 
@@ -137,7 +143,9 @@ def put_source(name):
     top = git("rev-parse", "--show-toplevel", cwd=Path.cwd())
     if not top or not real.is_relative_to(Path(top).resolve()):
         refuse(f"{name} must be inside this repository ({top or 'none'})")
-    if subprocess.run(["/usr/bin/git", "-C", top, "check-ignore", "-q", str(real)]).returncode == 0:
+    ignored = subprocess.run(["/usr/bin/git", "-C", top, "check-ignore", "-q", str(real)],
+                             env=CLEAN_ENV)
+    if ignored.returncode == 0:
         refuse(f"{name} is ignored by git (ignored files often hold secrets)")
     return real
 

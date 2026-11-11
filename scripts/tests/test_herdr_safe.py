@@ -37,8 +37,17 @@ class HerdrSafe(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp()).resolve()
         self.home = self.tmp / "home"
         self.log = self.tmp / "log"
-        for name in ("hc", "app"):
-            stub = self.tmp / name
+        # herdr-safe reads HOME from the password database, not env: test a copy with it pinned.
+        src = WRAPPER.read_text()
+        line = "HOME = Path(pwd.getpwuid(os.getuid()).pw_dir)\n"
+        self.assertEqual(src.count(line), 1, "HOME line changed; update this test's patch")
+        self.wrapper = self.tmp / "herdr-safe"
+        self.wrapper.write_text(src.replace(line, f"HOME = Path({str(self.home)!r})\n"))
+        self.wrapper.chmod(0o755)
+        bindir = self.home / ".local" / "bin"
+        bindir.mkdir(parents=True)
+        for name in ("hc", "herdr-app"):
+            stub = bindir / name
             stub.write_text(STUB)
             stub.chmod(0o755)
         self.repo = self.home / "repo"
@@ -48,15 +57,15 @@ class HerdrSafe(unittest.TestCase):
         self.wt = self.repo / ".claude" / "worktrees" / "w"
         sh("git", "worktree", "add", "-q", "-b", "feat/w", str(self.wt), cwd=self.repo)
         (self.wt / ".gitignore").write_text(".env\n")
-        self.pi = self.tmp / "pi.json"
-        self.pi.write_text(json.dumps({"enabledModels": ["opencode-go/deepseek-v4.1-flash"]}))
+        pi = self.home / ".pi" / "agent" / "settings.json"
+        pi.parent.mkdir(parents=True)
+        pi.write_text(json.dumps({"enabledModels": ["opencode-go/deepseek-v4.1-flash"]}))
 
-    def run_safe(self, *args, cwd=None):
-        env = {"PATH": "/usr/bin:/bin", "HOME": str(self.home), "STUB_LOG": str(self.log),
-               "STUB_TERMS": json.dumps(TERMS), "HERDR_SAFE_HC": str(self.tmp / "hc"),
-               "HERDR_SAFE_APP": str(self.tmp / "app"), "HERDR_SAFE_PI_SETTINGS": str(self.pi)}
-        out = subprocess.run([str(WRAPPER), *args], env=env, cwd=cwd or self.wt,
-                             capture_output=True, text=True, timeout=30)
+    def run_safe(self, *args, cwd=None, env=None):
+        base = {"PATH": "/usr/bin:/bin", "HOME": str(self.home), "STUB_LOG": str(self.log),
+                "STUB_TERMS": json.dumps(TERMS)}
+        out = subprocess.run([str(self.wrapper), *args], env={**base, **(env or {})},
+                             cwd=cwd or self.wt, capture_output=True, text=True, timeout=30)
         return out
 
     def calls(self):
@@ -66,14 +75,14 @@ class HerdrSafe(unittest.TestCase):
         rows = [json.loads(l) for l in self.log.read_text().splitlines()]
         return [r for r in rows if r[:2] != ["get", "--json"]]
 
-    def allowed(self, *args, cwd=None):
-        out = self.run_safe(*args, cwd=cwd)
+    def allowed(self, *args, cwd=None, env=None):
+        out = self.run_safe(*args, cwd=cwd, env=env)
         self.assertEqual(out.returncode, 0, out.stderr)
         return self.calls()[-1]
 
-    def refused(self, *args, cwd=None):
+    def refused(self, *args, cwd=None, env=None):
         before = len(self.calls())
-        out = self.run_safe(*args, cwd=cwd)
+        out = self.run_safe(*args, cwd=cwd, env=env)
         self.assertEqual(out.returncode, 2, out.stdout + out.stderr)
         self.assertIn("Stop and hand this to the person", out.stderr)
         self.assertEqual(len(self.calls()), before, "a refused call must not reach hc or herdr-app")
@@ -134,6 +143,24 @@ class HerdrSafe(unittest.TestCase):
         sh("git", "init", "-q", cwd=secret_repo)
         (secret_repo / "x").write_text("k")
         self.assertIn("protected", self.refused("hc", "put", "t1", "x", cwd=secret_repo))
+
+    # trusted paths ignore the environment
+    def test_env_home_ignored(self):
+        secret_repo = self.home / "secrets"
+        secret_repo.mkdir()
+        sh("git", "init", "-q", cwd=secret_repo)
+        (secret_repo / "x").write_text("k")
+        elsewhere = {"HOME": str(self.tmp / "elsewhere")}
+        self.assertIn("protected", self.refused("hc", "put", "t1", "x", cwd=secret_repo, env=elsewhere))
+
+    def test_env_binary_override_ignored(self):
+        self.assertEqual(self.allowed("hc", "ls", env={"HERDR_SAFE_HC": "/bin/echo"}), ["ls"])
+
+    def test_env_git_dir_ignored(self):
+        got = self.allowed("hc", "run", "claude", env={"GIT_DIR": "/nonexistent"})
+        self.assertEqual(got[:3], ["run", "--bg", "--cwd"])
+        self.refused("hc", "run", "claude", cwd=self.repo,
+                     env={"GIT_DIR": str(self.repo / ".git" / "worktrees" / "w")})
 
     # hc: run
     def test_run_builds_argv(self):
