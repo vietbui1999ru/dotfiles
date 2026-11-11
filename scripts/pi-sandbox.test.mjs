@@ -68,14 +68,19 @@ test("git hooks and config are protected, while a commit still works", () => {
 
 test("the herdr control socket is unreachable", async () => {
 	const { createServer } = await import("node:net");
-	const dir = join(home, ".local/state/herdr-core/default");
+	// A unix socket path is capped at 104 bytes on macOS, and the per-user temp dir alone is
+	// ~60, so this test gets its own short HOME under /tmp.
+	const shortHome = realpathSync(mkdtempSync("/tmp/psb-"));
+	const dir = join(shortHome, ".local/state/herdr-core/default");
 	mkdirSync(dir, { recursive: true });
-	const server = createServer().listen(join(dir, "default.sock"));
+	const sock = join(dir, "default.sock");
+	const server = createServer().listen(sock);
 	await new Promise((resolve) => server.once("listening", resolve));
 	const connect = `import socket,sys; s=socket.socket(socket.AF_UNIX); s.connect(sys.argv[1])`;
-	const outside = spawnSync("python3", ["-I", "-c", connect, join(dir, "default.sock")]);
-	const inside = inSandbox(["python3", "-I", "-c", connect, join(dir, "default.sock")]);
+	const outside = spawnSync("python3", ["-I", "-c", connect, sock]);
+	const inside = inSandbox(["python3", "-I", "-c", connect, sock], { HOME: shortHome });
 	server.close();
+	rmSync(shortHome, { recursive: true, force: true });
 	assert.equal(outside.status, 0, "control: the socket accepts outside the sandbox");
 	assert.notEqual(inside.status, 0, "the socket was reachable inside the sandbox");
 });
