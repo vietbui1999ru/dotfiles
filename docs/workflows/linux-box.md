@@ -35,14 +35,31 @@ Mac row shows the usual case.
 
 3. Restart Claude, so it reads the rendered settings.
 
-4. Smoke test a dispatch:
+4. Smoke test a dispatch. `pi-dispatch add` needs a `--cwd` that is a linked worktree at
+   `<repo>/.claude/worktrees/<name>` on a branch other than `main` or `master`, and a task
+   file inside that worktree, under `~/.claude/plans`, or in a private mode-700 `$TMPDIR`.
+   So create a throwaway worktree and put the task file under `~/.claude/plans`:
 
    ```sh
-   printf 'Report the current git branch.\n' > /tmp/pi-task.txt
-   ~/dotfiles/scripts/pi-dispatch add --mode view --tier low --task-file /tmp/pi-task.txt
+   git -C ~/dotfiles worktree add -b chore/lx-smoke ~/dotfiles/.claude/worktrees/lx-smoke
+   mkdir -p ~/.claude/plans
+   printf 'Report the current git branch.\n' > ~/.claude/plans/lx-smoke.md
+   ~/dotfiles/scripts/pi-dispatch add --mode view --tier low \
+     --task-file ~/.claude/plans/lx-smoke.md --cwd ~/dotfiles/.claude/worktrees/lx-smoke
    ```
 
-   It prints a line starting `pi-dispatch task=`. That `task=` is the queue id.
+   It prints a line starting `pi-dispatch task=`. That `task=` is the queue id. This needs
+   `pueue` installed.
+
+   Afterwards, clean up the smoke test:
+
+   ```sh
+   git -C ~/dotfiles worktree remove ~/dotfiles/.claude/worktrees/lx-smoke
+   git -C ~/dotfiles branch -D chore/lx-smoke
+   rm ~/.claude/plans/lx-smoke.md
+   ```
+
+   This smoke test has not been run on any Linux machine.
 
 ## 3. Keeping the rendered settings current
 
@@ -55,7 +72,8 @@ claude-settings: /home/<you>/.claude/settings.json is stale or hand-edited; run 
 
 Rerun the generator to fix it. The generator records the hash of the file it wrote. If the
 live file no longer matches that hash, the file was edited by hand (by `/model`, for
-example), so the generator refuses and prints a unified diff:
+example). The generator refuses, prints a unified diff of the hand edit and exits 1. Read the
+diff. When the hand edit can be discarded, rerun with `--force`:
 
 ```sh
 ~/dotfiles/scripts/claude-settings-render --force
