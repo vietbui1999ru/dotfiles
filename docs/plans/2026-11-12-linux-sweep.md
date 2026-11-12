@@ -25,7 +25,7 @@ run on Linux.
 | scripts/herdr-sketchybar-bridge:1,21-22 | `/opt/homebrew` node, sketchybar, pueue | sketchybar is macOS | Mac-only by design |
 | scripts/headroom-doctor:30 | `launchctl print` | fails on Linux; the check reports "not running" | Mac-only by design |
 | scripts/setup-fonts.sh:22-52 | `/Library/Fonts`, `~/Library/Fonts` | font install; a Linux font dir is missing | defer (install-time, not an agent path) |
-| scripts/agent-review:277 | `/usr/bin/osascript` notification | macOS-only; on Linux the notify call fails | defer (notification only) |
+| scripts/agent-review:277 | `osascript` `display dialog` approval dialog | `confirm` returns true on Linux before reaching `osascript`, printing "no approval dialog on Linux; approving without confirmation", so `agent-review approve` asks nobody | defer (existing documented behaviour; the review gate is advisory on Linux) |
 | scripts/herdr-copy:15 | `pbcopy` | "command not found" on Linux | defer (clipboard, no portable form in scope) |
 | scripts/sync-agents:233 | `os.readlink` | portable (Python, not the BSD tool) | already handled (no change needed) |
 | scripts/hooks/reference-transaction:56 | `readlink -f` | GNU and BSD 13+ both support it | already handled (no change needed) |
@@ -51,6 +51,6 @@ no script commit is needed.
 ## Defer items
 
 - `scripts/setup-fonts.sh` — install-time font directories; not an agent path.
-- `scripts/agent-review` (osascript) — macOS notification only; no portable equivalent in scope.
+- `scripts/agent-review` (osascript `display dialog`) — this is the approval dialog, not a notification. On Linux `confirm` returns true before reaching `osascript`, printing "no approval dialog on Linux; approving without confirmation", so `agent-review approve` asks nobody. Existing documented behaviour; the review gate is advisory on Linux. With Pi running unsandboxed on Linux, an agent with a shell can approve a Pi run, and only the written rules stop it.
 - `scripts/herdr-copy` (pbcopy) — clipboard; a portable form (xclip/wl-copy) would touch
   behaviour outside this sweep.
