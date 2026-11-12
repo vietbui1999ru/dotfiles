@@ -67,10 +67,12 @@ node_major=$(node -p 'process.versions.node.split(".")[0]')
 
 # 3. User and clone.
 if ! id tester >/dev/null 2>&1; then
-	useradd -m -s "$(command -v zsh)" tester || die "useradd failed"
+	useradd -m -c 'linux-check' -s "$(command -v zsh)" tester || die "useradd failed"
 fi
 TESTER_HOME=$(getent passwd tester | cut -d: -f6)
-as_tester() { sudo -u tester -H env HOME="$TESTER_HOME" PATH="$PATH" bash -lc "$1"; }
+# EMAIL does not start with GIT_, so tests that drop GIT_* variables keep it; git derives the
+# name from the account's full name (useradd -c) and the address from EMAIL.
+as_tester() { sudo -u tester -H env HOME="$TESTER_HOME" PATH="$PATH" EMAIL=linux-check@example.invalid bash -lc "$1"; }
 
 # The bundle is root-owned; copy it to a tester-readable temp file if a direct read fails.
 BUNDLE_READ=$BUNDLE
@@ -93,7 +95,7 @@ run_one() {
 	local label="$1"; shift
 	if "$@" >/tmp/lc-out.$$ 2>&1; then echo "PASS|$label"; else
 		echo "FAIL|$label"
-		sed -n '1,20p' /tmp/lc-out.$$ | sed "s#^#DETAIL|$label|#"
+		sed "s#^#DETAIL|$label|#" /tmp/lc-out.$$
 	fi
 	rm -f /tmp/lc-out.$$
 }
@@ -112,18 +114,44 @@ run_shell() {
 }
 cd "$HOME/dotfiles" || exit 1
 for f in scripts/*.test.mjs; do [[ -e $f ]] && run_one "$f" node --test "$f"; done
-for f in scripts/tests/test_*.py; do [[ -e $f ]] && run_one "$f" python3 "$f"; done
+for f in scripts/tests/test_*.py; do
+	[[ -e $f ]] || continue
+	case $f in
+		scripts/tests/test_pi_view_provenance.py|scripts/tests/test_pi_view_secrets.py)
+			echo "SKIP|$f|needs the pi-sandbox Linux opt-in (~/.config/pi-sandbox/linux-open)"
+			continue ;;
+	esac
+	run_one "$f" python3 "$f"
+done
 [[ -e scripts/jw.test.sh ]] && run_shell scripts/jw.test.sh
 for f in scripts/tests/*.test.sh; do [[ -e $f ]] && run_shell "$f"; done
 for f in claude/.claude/hooks/tests/*.test.sh; do [[ -e $f ]] && run_shell "$f"; done
 EOS
 )
 
+# Remove stale logs so a rerun never shows a previous run's failures.
+if [[ -d /out && -w /out ]]; then
+	rm -rf /out/linux-check-logs
+fi
+
 # Result table: one row per test file, keyed by name. Written to a file the host shell reads.
 TMP_DIR=$(mktemp -d)
 run_tests() { # $1 = label for the output file
 	as_tester "$TEST_SCRIPT" > "$TMP_DIR/$1.res" 2>"$TMP_DIR/$1.err"
 	cat "$TMP_DIR/$1.err" >&2
+	write_logs "$1"
+}
+write_logs() { # $1 = tag; one file per failed test, as root, when /out is writable
+	local tag="$1" dir f name
+	[[ -d /out && -w /out ]] || return 0
+	dir="/out/linux-check-logs/$tag"
+	mkdir -p "$dir" || return 0
+	while IFS= read -r f; do
+		[[ -z $f ]] && continue
+		name=${f//\//_}
+		awk -F'|' -v f="$f" '$1 == "DETAIL" && $2 == f { sub(/^DETAIL\|[^|]*\|/, ""); print }' \
+			"$TMP_DIR/$tag.res" > "$dir/$name.log"
+	done < <(awk -F'|' '$1 == "FAIL" { print $2 }' "$TMP_DIR/$tag.res")
 }
 
 result_of() { # $1 = tag, $2 = file -> PASS|FAIL|MISSING
@@ -324,7 +352,10 @@ while IFS= read -r f; do
 	say "$f"
 	while IFS= read -r line; do
 		say "    $line"
-	done < <(awk -F'|' -v f="$f" '$1 == "DETAIL" && $2 == f { sub(/^DETAIL\|[^|]*\|/, ""); print }' "$TMP_DIR/fixed.res")
+	done < <(awk -F'|' -v f="$f" '$1 == "DETAIL" && $2 == f { sub(/^DETAIL\|[^|]*\|/, ""); print }' "$TMP_DIR/fixed.res" | tail -n 40)
+	if [[ -d /out/linux-check-logs/fixed ]]; then
+		say "    log: /out/linux-check-logs/fixed/${f//\//_}.log"
+	fi
 done <<< "$files"
 
 say ""
