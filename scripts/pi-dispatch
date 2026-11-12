@@ -23,6 +23,9 @@
 # the file is never sourced. Machine routing (--on) waits for the machine mesh (slice D).
 set -u
 
+# zsh's stat builtin: portable between macOS (BSD stat) and Linux (GNU stat).
+zmodload -F zsh/stat b:zstat
+
 usage() {
   print -u2 -- 'usage: pi-dispatch add (--tier high|medium|low | --model <provider/id[:thinking]>) --task-file <path> [--cwd <dir>] [--mode tui|view] [--place window|tab|split] [--on <machine>] | status | log <id> | wait <id>...'
 }
@@ -130,11 +133,19 @@ branch=$(git -C "$cwd" branch --show-current)
   || refuse "--task-file '$task_file' must be a non-empty regular file, not a symlink"
 task_file=${task_file:A}
 [[ $task_file =~ '^[A-Za-z0-9._/@+-]+$' ]] || refuse "--task-file path has characters outside [A-Za-z0-9._/@+-]"
-(( $(stat -f %z "$task_file") < 262144 )) || refuse '--task-file must be under 256 KiB'
-tmp=${${TMPDIR:-/nonexistent}:A}
-[[ $tmp == /private/(var/folders|tmp)/* ]] || tmp=/nonexistent
+(( $(zstat -L +size -- "$task_file") < 262144 )) || refuse '--task-file must be under 256 KiB'
+# $TMPDIR is usable only when it is a real folder (not a symlink), the caller owns it, its mode
+# is 0700, and it is not a shared temp dir. A macOS per-user /private/var/folders/.../T passes.
+tmp=${TMPDIR:-/nonexistent}
+tmp_mode=$(zstat -L -o +mode -- "${tmp:A}" 2>/dev/null) || tmp_mode=
+if [[ -d $tmp && ! -L $tmp && -O "${tmp:A}" && $tmp_mode[-3,-1] == 700 \
+      && ${tmp:A} != (/tmp|/private/tmp|/var/tmp) ]]; then
+  tmp=${tmp:A}
+else
+  tmp=/nonexistent
+fi
 [[ $task_file == $cwd/* || $task_file == ${HOME:A}/.claude/plans/* || $task_file == $tmp/* ]] \
-  || refuse "--task-file must be inside the worktree, ~/.claude/plans or \$TMPDIR ($tmp); a sandboxed session's temp folder is not this \$TMPDIR, so use the worktree or ~/.claude/plans"
+  || refuse "--task-file must be inside the worktree, ~/.claude/plans or a private 0700 \$TMPDIR ($tmp); a sandboxed session's temp folder does not qualify, so use the worktree or ~/.claude/plans"
 
 case $place in
   window|tab|split) ;;
@@ -161,7 +172,8 @@ session_id=pueue-$slug
 # sandbox can write. The task cats that copy.
 snap_dir=$HOME/.local/state/pi-dispatch/tasks
 mkdir -p -m 700 -- "$snap_dir" || refuse "cannot create $snap_dir"
-[[ ! -L $snap_dir && -O $snap_dir && $(stat -f %Lp "$snap_dir") == 700 ]] \
+snap_mode=$(zstat -L -o +mode -- "$snap_dir" 2>/dev/null) || snap_mode=
+[[ ! -L $snap_dir && -O $snap_dir && $snap_mode[-3,-1] == 700 ]] \
   || refuse "$snap_dir must be a real folder you own with mode 0700"
 # HOME is trusted like everywhere in the harness (an env prefix drops the sandbox exemption,
 # S2b probe 1b), but the snapshot must never sit where a sandboxed agent can write.
@@ -173,7 +185,9 @@ import fcntl, os, re, stat, sys
 src, dest, *roots = sys.argv[1:]
 fd = os.open(src, os.O_RDONLY | os.O_NOFOLLOW)
 st = os.fstat(fd)
-real = fcntl.fcntl(fd, fcntl.F_GETPATH, bytes(1024)).split(b"\0", 1)[0].decode()
+getp = getattr(fcntl, "F_GETPATH", None)
+real = (fcntl.fcntl(fd, getp, bytes(1024)).split(b"\0", 1)[0].decode() if getp
+        else os.readlink(f"/proc/self/fd/{fd}"))
 ok = (stat.S_ISREG(st.st_mode) and st.st_nlink == 1 and st.st_uid == os.getuid() and 0 < st.st_size < 262144
       and re.fullmatch(r"[A-Za-z0-9._/@+-]+", real) and any(real.startswith(r + "/") for r in roots))
 if not ok:
