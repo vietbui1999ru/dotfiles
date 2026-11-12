@@ -45,7 +45,7 @@ apt-get install -y -qq zsh nodejs python3 python3-yaml git jq stow coreutils ope
 
 # 3. User and clone.
 if ! id tester >/dev/null 2>&1; then
-	useradd -m -u 1000 -s "$(command -v zsh)" tester || die "useradd failed"
+	useradd -m -s "$(command -v zsh)" tester || die "useradd failed"
 fi
 TESTER_HOME=$(getent passwd tester | cut -d: -f6)
 as_tester() { sudo -u tester -H env HOME="$TESTER_HOME" PATH="$PATH" bash -lc "$1"; }
@@ -154,7 +154,7 @@ if [[ ! -x scripts/claude-settings-render ]]; then
 	emit claude-settings-render SKIP "scripts/claude-settings-render not on lx-all (branch fix/lx-settings not merged)"
 else
 	if scripts/claude-settings-render >/dev/null 2>&1 && [[ -f $H/.claude/settings.json ]]; then
-		bad=$(jq -r '.sandbox.excludedCommands[]? | select(startswith("/home/tester/dotfiles/scripts/") | not)' "$H/.claude/settings.json")
+		bad=$(jq -r --arg prefix "$H/dotfiles/scripts/" '.sandbox.excludedCommands[]? | select(startswith($prefix) | not)' "$H/.claude/settings.json")
 		uv=$(jq -r '(.sandbox.filesystem.allowWrite // .sandbox.allowWrite // [])[] | select(. == "~/.cache/uv" or endswith("/.cache/uv"))' "$H/.claude/settings.json")
 		second=$(scripts/claude-settings-render 2>&1)
 		if [[ -n $bad ]]; then emit claude-settings-render FAIL "excludedCommands outside scripts/: $bad"
@@ -258,7 +258,9 @@ while IFS= read -r f; do
 	[[ -z $f ]] && continue
 	[[ $(result_of fixed "$f") == FAIL ]] || continue
 	say "$f"
-	awk -F'|' -v f="$f" '$1 == "DETAIL" && $2 == f { sub(/^DETAIL\|[^|]*\|/, ""); print "    " $0 }' "$TMP_DIR/fixed.res"
+	while IFS= read -r line; do
+		say "    $line"
+	done < <(awk -F'|' -v f="$f" '$1 == "DETAIL" && $2 == f { sub(/^DETAIL\|[^|]*\|/, ""); print }' "$TMP_DIR/fixed.res")
 done <<< "$files"
 
 say ""
