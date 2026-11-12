@@ -7,11 +7,11 @@ Use `shared/skills/delegate-pi/SKILL.md`. Use delegate mode (async through `pueu
 Dispatch approved file-backed plans through `pi-dispatch`, one task per plan:
 
 ```bash
-/Users/vietquocbui/dotfiles/scripts/pi-dispatch add --model <explicit-model> \
+<home>/dotfiles/scripts/pi-dispatch add --model <explicit-model> \
   --task-file <absolute-path-to-plan>.md --cwd <absolute-path-to-worktree>
 ```
 
-Spell the command exactly like this: the literal absolute path, unquoted, as the whole Bash command. Claude's sandbox exempts `pi-dispatch` by that literal text only. `$HOME/...`, `~/...`, a relative path, an env prefix or a chained second command all leave it sandboxed, and the dispatch then fails on the pueue socket. pi-dispatch prints `task=<id> slug=<slug> model=<model>`.
+Spell the command exactly like this: the literal absolute path, unquoted, where `<home>` is this machine's home folder written out in full (for example `/Users/<user>` on macOS, `/home/<user>` on Linux), as the whole Bash command. Claude's sandbox exempts `pi-dispatch` by that literal text only. `$HOME/...`, `~/...`, a relative path, an env prefix or a chained second command all leave it sandboxed, and the dispatch then fails on the pueue socket. pi-dispatch prints `task=<id> slug=<slug> model=<model>`.
 
 pi-dispatch builds the pueue task: `pi-view --tui pi --model … --session-id pueue-<slug> -p "$(cat <task-file>)" < /dev/null`, run in `--cwd`. The task text is read inside the task, so it never sits in pueue's stored command. The slug, label and session id are generated fresh from the task file name for every dispatch. An approved plan is implementation, so it dispatches with the default `--mode tui`: from a herdr pane, the pane runs Pi's own interactive TUI on the plan, the person can steer and queue in it, and the task lasts until they quit Pi. Search, exploration, viewing and review dispatches pass `--mode view`, which only streams the transcript. Outside herdr both run as a plain dispatch. Every run goes through `pi-sandbox`.
 
