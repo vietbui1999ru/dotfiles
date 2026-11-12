@@ -94,9 +94,13 @@
     - dotfiles_claude_settings.stat.islnk | default(false)
 
 - name: Stow all packages
+  vars:
+    # Only skip ~/.claude/settings.json, not claude/.claude/templates/hooks/settings.json.
+    # Checked with `stow -n -v` on macOS only: re-check before first use on a Linux box.
+    dotfiles_stow_ignore: "{{ '--ignore=\\.claude/settings\\.json' if (item == 'claude' and ansible_os_family != 'Darwin') else '' }}"
   ansible.builtin.shell: |
     cd {{ ansible_env.HOME }}/dotfiles
-    stow --target="{{ ansible_env.HOME }}" {{ '--ignore=\'settings\\.json$\'' if (item == 'claude' and ansible_os_family != 'Darwin') else '' }} --restow {{ item }}
+    stow --target="{{ ansible_env.HOME }}" {{ dotfiles_stow_ignore }} --restow {{ item }}
   loop: "{{ dotfiles_stow_packages }}"
   register: dotfiles_stow_result
   changed_when: dotfiles_stow_result.stdout != ""
