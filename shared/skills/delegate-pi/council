@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# council — advisory quality gate: 3 evaluators in parallel, majority vote.
+#
+# Vendored from the Commandr repo's `bin/council` (main, last changed 2026-06),
+# diff mode only. Packet mode and everything that touched the retired `.agents`
+# task bus are dropped: this engine resolves no bus, writes no file and appends
+# no event. It reads a diff and prints one JSON verdict.
+#
+#   usage:   council --diff <ref-range>     (any `git diff` argument)
+#            council --diff -               (unified diff on stdin)
+#   stdout:  {"mode":"diff","verdict":"PASS|FAIL","votes":[...]}\n, exit 0
+#   exit 1:  runtime error (a diff range git cannot resolve); no partial output.
+#   exit 2:  usage error.
+#
+# Advisory: the human git gate stays authoritative. Evaluator seam: the
+# COUNCIL_EVALUATOR_CMD environment variable, invoked once per dimension in
+# parallel as `$COUNCIL_EVALUATOR_CMD <prompt-file> <dimension>`. A valid vote is
+# exit 0 plus a stdout line `VOTE: PASS` or `VOTE: FAIL`, optionally followed by
+# `REASON: <text>`. Any other outcome is recorded ABSTAIN. Unset or empty falls
+# back to the built-in evaluator, which asks the Claude Code CLI via `claude -p`.
+set -u
+
+usage() {
+	printf 'usage: council --diff <ref-range>|-\n' >&2
+	exit 2
+}
+
+# JSON string escape for the values we construct.
+json_esc() {
+	local s=$1
+	s=${s//\\/\\\\}
+	s=${s//\"/\\\"}
+	printf '%s' "$s"
+}
+
+# Exactly three dimensions; the vote order is fixed.
+dims="acceptance-criteria code-quality style"
+evaluator=${COUNCIL_EVALUATOR_CMD:-}
+
+# Built-in default: ask the Claude Code CLI. Absent or failing, the non-zero exit
+# becomes ABSTAIN downstream (fail-safe).
+builtin_eval() {
+	command -v claude >/dev/null 2>&1 || return 1
+	claude -p "$(cat "$1")
+Evaluate ONLY the '$2' dimension of this work. Reply with exactly one line, either
+'VOTE: PASS' or 'VOTE: FAIL', optionally followed by a line 'REASON: <one line>'." 2>/dev/null
+}
+
+run_one() { # run_one <prompt-file> <dimension>
+	if [ -n "$evaluator" ]; then "$evaluator" "$1" "$2"; else builtin_eval "$1" "$2"; fi
+}
+
+# dispatch_and_tally <prompt-file> <work-dir>
+# Runs the seam once per dimension in parallel, then tallies. Sets the globals
+# `verdict` and `votes` (votes[] JSON in dimension order).
+dispatch_and_tally() {
+	local prompt=$1 work=$2 dim pids="" pd pid ec v vote reason entry pass=0
+	for dim in $dims; do
+		run_one "$prompt" "$dim" >"$work/out.$dim" 2>/dev/null &
+		pids="$pids $!:$dim"
+	done
+	for pd in $pids; do
+		pid=${pd%%:*}
+		dim=${pd#*:}
+		if wait "$pid"; then echo 0 >"$work/ec.$dim"; else echo 1 >"$work/ec.$dim"; fi
+	done
+	votes=""
+	for dim in $dims; do
+		ec=$(cat "$work/ec.$dim" 2>/dev/null || echo 1)
+		vote="ABSTAIN"
+		reason=""
+		if [ "$ec" -eq 0 ]; then
+			# A valid vote is exit 0 AND a clean `VOTE: PASS|FAIL` line.
+			v=$(grep -m1 -E '^VOTE: (PASS|FAIL)$' "$work/out.$dim" 2>/dev/null | awk '{print $2}')
+			if [ -n "$v" ]; then
+				vote=$v
+				reason=$(grep -m1 '^REASON: ' "$work/out.$dim" 2>/dev/null | sed 's/^REASON: //' | tr -d '[:cntrl:]')
+			fi
+		fi
+		[ "$vote" = PASS ] && pass=$((pass + 1))
+		entry=$(printf '{"dimension":"%s","vote":"%s","reason":"%s"}' \
+			"$dim" "$vote" "$(json_esc "$reason")")
+		votes="${votes:+$votes,}$entry"
+	done
+	# PASS iff at least two PASS votes; ties and all-abstain fail-safe to FAIL.
+	if [ "$pass" -ge 2 ]; then verdict="PASS"; else verdict="FAIL"; fi
+}
+
+# The no-input fail-safe: an empty diff is nothing to evaluate, so the seam is
+# never dispatched and every dimension ABSTAINs, which fails.
+all_abstain() {
+	local dim
+	votes=""
+	for dim in $dims; do
+		votes="${votes:+$votes,}$(printf '{"dimension":"%s","vote":"ABSTAIN","reason":""}' "$dim")"
+	done
+	verdict="FAIL"
+}
+
+[ "$#" -ge 1 ] || usage
+[ "$1" = --diff ] || usage
+[ "$#" -eq 2 ] || usage
+
+src=$2
+work=$(mktemp -d "${TMPDIR:-/tmp}/council.XXXXXX") || exit 1
+trap 'rm -rf "$work"' EXIT
+
+diff="$work/diff.txt"
+if [ "$src" = "-" ]; then
+	cat >"$diff"
+else
+	# A range git cannot resolve is a runtime error: exit 1, nothing on stdout.
+	git diff "$src" >"$diff" 2>/dev/null ||
+		{
+			printf 'council: cannot resolve diff range: %s\n' "$src" >&2
+			exit 1
+		}
+fi
+
+if [ -s "$diff" ]; then
+	dispatch_and_tally "$diff" "$work"
+else
+	all_abstain
+fi
+
+# Exactly one JSON object on stdout, and no side effects of any kind.
+printf '{"mode":"diff","verdict":"%s","votes":[%s]}\n' "$verdict" "$votes"
+exit 0

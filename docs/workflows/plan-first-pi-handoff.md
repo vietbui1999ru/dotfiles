@@ -159,11 +159,12 @@ Note: this shell's rtk wrapper discards exit codes at the top level. To check a 
 
 ## Risks and open items
 
-- **`bin/council` is not in this repo.** `delegate-pi`'s council mode calls a `bin/council` engine
-  that lives in the Commandr repo (`~/repos/Commandr/bin/council`, linked at `~/.local/bin/council`),
-  not in dotfiles. Delegate mode, which this work order uses, does not need it. Whether council
-  mode works end to end was not tested (corrected 2026-10-15: this item used to say the engine
-  was missing).
+- **~~`bin/council` is not in this repo~~ — resolved.** `delegate-pi`'s council mode now runs a
+  vendored engine at `shared/skills/delegate-pi/council` (the diff mode of Commandr's
+  `bin/council`), so it works on a machine without the Commandr checkout. `COUNCIL_CMD` still
+  overrides it. Delegate mode, which this work order uses, never needed it. Whether council mode
+  worked end to end was not tested here (corrected 2026-10-15: this item used to say the engine
+  was missing; vendored 2026-11).
 - **Plan mode costs one approval per session.** Approving a plan exits plan mode and asks auto vs.
   manual for the remainder. If the friction outweighs the benefit, the revert is one word in
   `settings.json`.
