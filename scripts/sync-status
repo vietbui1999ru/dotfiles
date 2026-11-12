@@ -8,7 +8,7 @@
 # work starts. See docs/workflows/multi-machine.md.
 #
 # Usage: sync-status   (any git repository; prints nothing outside one)
-# Exit: always 0, so it can run as a SessionStart hook. Offline or without gh, it says so.
+# Exit: always 0, so it can run as a SessionStart hook. Offline, or without gh or glab, it says so.
 
 PATH="$PATH:/usr/bin:/bin"
 git rev-parse --git-dir >/dev/null 2>&1 || exit 0
@@ -26,24 +26,61 @@ echo "sync-status: ${branch:-detached} is $behind commit(s) behind $base"
 # This branch's files: committed since it left main, plus uncommitted changes.
 mine=$( { git diff --name-only "$base...HEAD"; git diff --name-only HEAD; } | sort -u)
 
-command -v gh >/dev/null || { echo "sync-status: gh missing; open pull requests not checked"; exit 0; }
-prs=$(timeout 15 gh pr list --state open --limit 50 \
-	--json number,headRefName,isDraft,labels \
-	-q '.[] | "\(.number)\t\(.headRefName)\t\(if .isDraft then "draft" else "open" end)\t\([.labels[].name] | join(","))"' 2>/dev/null) ||
-	{ echo "sync-status: gh pr list failed; open pull requests not checked"; exit 0; }
+# Pick the forge from origin: GitHub keeps the gh path, anything else tries glab.
+url=$(git remote get-url origin 2>/dev/null)
 
-echo "sync-status: open pull requests (number, branch, state, labels, files shared with this branch):"
-while IFS=$'\t' read -r num head state labels; do
-	[ -n "$num" ] || continue
-	shared="-"
-	if [ "$head" != "$branch" ] && [ -n "$mine" ] && git rev-parse --verify --quiet "origin/$head" >/dev/null; then
-		theirs=$(git diff --name-only "$base...origin/$head" | sort -u)
-		overlap=$(comm -12 <(echo "$mine") <(echo "$theirs") | paste -sd, -)
-		shared=${overlap:-none}
+prs=
+num_prefix=
+header="open pull requests"
+
+if [[ "$url" == *github.com* ]]; then
+	if ! command -v gh >/dev/null; then
+		echo "sync-status: gh missing; open pull requests not checked"
+	elif ! prs=$(timeout 15 gh pr list --state open --limit 50 \
+		--json number,headRefName,isDraft,labels \
+		-q '.[] | "\(.number)\t\(.headRefName)\t\(if .isDraft then "draft" else "open" end)\t\([.labels[].name] | join(","))"' 2>/dev/null); then
+		echo "sync-status: gh pr list failed; open pull requests not checked"
+	else
+		num_prefix='#'
 	fi
-	# A branch this one is stacked on shares its files by design, not by accident.
-	git merge-base --is-ancestor "origin/$head" HEAD 2>/dev/null && shared="(this branch is stacked on it)"
-	[ "$head" = "$branch" ] && shared="(this branch)"
-	printf '  #%s %s [%s] %s: %s\n' "$num" "$head" "$state" "${labels:-no label}" "$shared"
-done <<<"$prs"
+elif command -v glab >/dev/null && command -v jq >/dev/null; then
+	header="open merge requests"
+	num_prefix='!'
+	if ! prs=$(timeout 15 glab mr list --output json --per-page 50 2>/dev/null); then
+		prs=
+		echo "sync-status: glab mr list failed; open merge requests not checked"
+	else
+		prs=$(printf '%s\n' "$prs" | jq -r '.[] | "\(.iid)\t\(.source_branch)\t\(if .draft then "draft" else "open" end)\t\([.labels[]] | join(","))"' 2>/dev/null) || prs=
+	fi
+else
+	host=$url
+	host=${host#*://}
+	host=${host##*@}
+	host=${host%%/*}
+	host=${host%%:*}
+	echo "sync-status: no gh or glab for ${host:-origin}; open merge requests not checked"
+fi
+
+if [ -n "$num_prefix" ]; then
+	echo "sync-status: $header (number, branch, state, labels, files shared with this branch):"
+	while IFS=$'\t' read -r num head state labels; do
+		[ -n "$num" ] || continue
+		shared="-"
+		if [ "$head" != "$branch" ] && [ -n "$mine" ] && git rev-parse --verify --quiet "origin/$head" >/dev/null; then
+			theirs=$(git diff --name-only "$base...origin/$head" | sort -u)
+			overlap=$(comm -12 <(echo "$mine") <(echo "$theirs") | paste -sd, -)
+			shared=${overlap:-none}
+		fi
+		# A branch this one is stacked on shares its files by design, not by accident.
+		git merge-base --is-ancestor "origin/$head" HEAD 2>/dev/null && shared="(this branch is stacked on it)"
+		[ "$head" = "$branch" ] && shared="(this branch)"
+		printf '  %s%s %s [%s] %s: %s\n' "$num_prefix" "$num" "$head" "$state" "${labels:-no label}" "$shared"
+	done <<<"$prs"
+fi
+
+# On Linux, warn when the rendered Claude settings file is stale. The renderer
+# may not exist yet on a branch that adds it.
+if [ "$(uname -s 2>/dev/null)" = Linux ] && [ -x "$HOME/dotfiles/scripts/claude-settings-render" ]; then
+	"$HOME/dotfiles/scripts/claude-settings-render" --check
+fi
 exit 0
