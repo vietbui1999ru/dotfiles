@@ -28,9 +28,14 @@ Start podman yourself; an agent session cannot.
 ```bash
 podman machine start
 mkdir -p ~/lx-out
+git -C ~/dotfiles bundle create ~/lx-out/dotfiles.bundle --branches
 podman run --rm -v ~/dotfiles:/src:ro -v ~/lx-out:/out ubuntu:24.04 \
   bash /src/.claude/worktrees/lx-verify/scripts/tests/linux-check.sh
 ```
+
+The bundle step comes first because the Mac repository sets a git extension (`relativeWorktrees`)
+that Ubuntu's git cannot read, so the container clones from the bundle instead of `/src`.
+Recreate the bundle after new commits; the script refuses with the command if it is missing.
 
 The report prints to the terminal and is written to `~/lx-out/linux-check.txt`.
 

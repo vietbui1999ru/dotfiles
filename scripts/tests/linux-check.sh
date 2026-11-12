@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # linux-check.sh — run the agent scripts' test set on Linux, before and after the lx fixes.
 #
-# Runs as root inside a fresh ubuntu:24.04 container. The repo is mounted read-only at /src
-# (the main checkout, whose .git holds every branch). Nothing is written to /src.
+# Runs as root inside a fresh ubuntu:24.04 container. The repo is mounted read-only at /src,
+# but git never reads /src: the Mac's repository has extensions.relativeWorktrees, which
+# Ubuntu's git 2.43 refuses. Instead the clone comes from a bundle the person creates on the Mac:
+#
+#   git -C ~/dotfiles bundle create ~/lx-out/dotfiles.bundle --branches
+#
+# which the container sees as /out/dotfiles.bundle. Recreate it after new commits.
 #
 #   linux-check.sh [branch ...]     default: the seven fix/lx-* branches
 #
@@ -28,6 +33,12 @@ if [[ ! -e /src/.git ]]; then
 	echo "linux-check: /src/.git not found; mount the repo at /src (read-only). Refusing." >&2
 	exit 1
 fi
+BUNDLE=/out/dotfiles.bundle
+if [[ ! -f $BUNDLE || ! -r $BUNDLE ]]; then
+	echo "linux-check: $BUNDLE not readable. Create it on the Mac first:" >&2
+	echo "  git -C ~/dotfiles bundle create ~/lx-out/dotfiles.bundle --branches" >&2
+	exit 1
+fi
 if [[ "$(uname -s)" != Linux ]]; then
 	echo "linux-check: not Linux; this check runs inside the ubuntu container. Refusing." >&2
 	exit 1
@@ -50,16 +61,17 @@ fi
 TESTER_HOME=$(getent passwd tester | cut -d: -f6)
 as_tester() { sudo -u tester -H env HOME="$TESTER_HOME" PATH="$PATH" bash -lc "$1"; }
 
-git config --system --add safe.directory /src
-git config --system --add safe.directory /src/.git
-as_tester "git clone -q /src \$HOME/dotfiles && \
+# The bundle is root-owned; copy it to a tester-readable temp file if a direct read fails.
+BUNDLE_READ=$BUNDLE
+if ! as_tester "test -r $BUNDLE"; then
+	BUNDLE_READ="$TESTER_HOME/dotfiles.bundle"
+	install -m 644 -o tester "$BUNDLE" "$BUNDLE_READ" || die "cannot copy $BUNDLE for tester"
+fi
+as_tester "git clone -q -b main $BUNDLE_READ \$HOME/dotfiles && \
 	cd \$HOME/dotfiles && \
 	git config user.name 'linux-check' && git config user.email 'linux-check@example.invalid'" \
 	|| die "clone failed"
 REPO="$TESTER_HOME/dotfiles"
-
-# Refresh remote-tracking refs from /src so origin/<branch> exists.
-as_tester "cd $REPO && git fetch -q origin '+refs/heads/*:refs/remotes/origin/*'" || die "fetch failed"
 
 # The test set, run with the repo as cwd. Prints one line per file: "PASS|FAIL <file>".
 # Each file runs in isolation; a failure does not stop the rest.
@@ -110,6 +122,9 @@ run_tests baseline
 # 5. Fixed tree: lx-all from main, merge each requested branch.
 as_tester "cd $REPO && git checkout -q -B lx-all main" || die "create lx-all failed"
 for b in "${BRANCHES[@]}"; do
+	if ! as_tester "cd $REPO && git rev-parse -q --verify refs/remotes/origin/$b" >/dev/null; then
+		die "branch $b is not in the bundle; recreate it with --branches after committing."
+	fi
 	if ! as_tester "cd $REPO && git merge -q --no-edit origin/$b"; then
 		as_tester "cd $REPO && git merge --abort" >/dev/null 2>&1 || true
 		die "merge conflict on origin/$b; not resolved. Stopping."
