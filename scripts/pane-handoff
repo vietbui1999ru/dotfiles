@@ -74,8 +74,9 @@ if [ "${HERDR_ENV:-}" != 1 ] && [ -n "${HC_TERMINAL_ID:-}" ]; then
   # pi-dispatch is sandbox-exempt only as a whole Bash command; as a child of this script
   # inside a Claude session it stays sandboxed and cannot reach the pueue socket.
   if [ -n "${CLAUDECODE:-}" ]; then
+    script_dir=$(cd "$(dirname "$0")" && pwd -P)
     fail "inside a Claude session, run this as the whole Bash command instead:
-/Users/vietquocbui/dotfiles/scripts/pi-dispatch add --model ${PANE_HANDOFF_MODEL:-$model_from_flag} --place split --cwd $REPO --task-file $SPEC"
+$script_dir/pi-dispatch add --model ${PANE_HANDOFF_MODEL:-$model_from_flag} --place split --cwd $REPO --task-file $SPEC"
   fi
   exec "$(dirname "$0")/pi-dispatch" add --model "${PANE_HANDOFF_MODEL:-$model_from_flag}" --place split --cwd "$REPO" --task-file "$SPEC"
 fi

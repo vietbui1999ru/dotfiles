@@ -74,17 +74,19 @@ Every voice runs at `medium` or `high` effort, never above it: the veto has to b
 
 For long tasks that run in the background while you continue work.
 
+`<home>` is this machine's home folder written out in full (for example `/Users/<user>` on macOS, `/home/<user>` on Linux), because the sandbox exempts `pi-dispatch` only by that literal absolute text; see `plan-handoff.md`.
+
 ```bash
 # Write the task to a file first (the worktree or ~/.claude/plans; under 256 KiB).
 # Not Claude's sandbox $TMPDIR: pi-dispatch runs unsandboxed with the person's own $TMPDIR.
 # WORKTREE is an existing linked worktree, absolute path; create it before dispatching.
-/Users/vietquocbui/dotfiles/scripts/pi-dispatch add --model opencode-go/deepseek-v4.1-flash:low \
+<home>/dotfiles/scripts/pi-dispatch add --model opencode-go/deepseek-v4.1-flash:low \
   --task-file <absolute-path-to-task>.md --cwd <absolute-path-to-worktree>
 # prints: task=<id> slug=<slug> model=<model>
 
 # Check when ready (one command per Bash call)
-/Users/vietquocbui/dotfiles/scripts/pi-dispatch wait <id>
-/Users/vietquocbui/dotfiles/scripts/pi-dispatch log <id>
+<home>/dotfiles/scripts/pi-dispatch wait <id>
+<home>/dotfiles/scripts/pi-dispatch log <id>
 ```
 
 Agents queue Pi only through `pi-dispatch`, spelled as above: the literal absolute path, unquoted, as the whole Bash command. Claude's sandbox exempts it by that literal text only; `$HOME/...`, `~/...`, a relative path, an env prefix or a chained second command leave it sandboxed, where the pueue socket is unreachable. Raw `pueue add`, `pueue kill`, `pueue clean` and `pi-queue` are the person's commands.
@@ -162,19 +164,19 @@ These are pi command lines; a pueue dispatch wraps them as in Delegate Mode, wit
 ```bash
 # 1. Dispatch each task as its own Bash call and note the task=<id> each prints. Each task
 #    gets its own task file and its own existing linked worktree (absolute paths, created beforehand).
-/Users/vietquocbui/dotfiles/scripts/pi-dispatch add --mode view --model openai-codex/gpt-6.1-sol:high \
+<home>/dotfiles/scripts/pi-dispatch add --mode view --model openai-codex/gpt-6.1-sol:high \
   --task-file <wt-review>/review.md --cwd <wt-review>
-/Users/vietquocbui/dotfiles/scripts/pi-dispatch add --model opencode-go/deepseek-v4.1-flash:low \
+<home>/dotfiles/scripts/pi-dispatch add --model opencode-go/deepseek-v4.1-flash:low \
   --task-file <wt-impl>/impl.md --cwd <wt-impl>
-/Users/vietquocbui/dotfiles/scripts/pi-dispatch add --model opencode-go/deepseek-v4.1-flash:off \
+<home>/dotfiles/scripts/pi-dispatch add --model opencode-go/deepseek-v4.1-flash:off \
   --task-file <wt-low>/low.md --cwd <wt-low>
 
 # 2. Optional: check status without blocking
-/Users/vietquocbui/dotfiles/scripts/pi-dispatch status
+<home>/dotfiles/scripts/pi-dispatch status
 
 # 3. Wait for all, then collect each log (one call each)
-/Users/vietquocbui/dotfiles/scripts/pi-dispatch wait <id-review> <id-impl> <id-low>
-/Users/vietquocbui/dotfiles/scripts/pi-dispatch log <id-review>
+<home>/dotfiles/scripts/pi-dispatch wait <id-review> <id-impl> <id-low>
+<home>/dotfiles/scripts/pi-dispatch log <id-review>
 ```
 
 **Provider distribution**: fallback chains span OpenCode Go + Codex pools — rate limit on one provider automatically falls to the next. Parallel tasks hit different providers simultaneously.
@@ -206,7 +208,7 @@ EOF
 pueued -d
 
 # Verify (from an agent: the whole Bash command, no prefix or chain)
-/Users/vietquocbui/dotfiles/scripts/pi-dispatch status
+<home>/dotfiles/scripts/pi-dispatch status
 ```
 
 ---
@@ -225,7 +227,7 @@ srt -c pi   # Anthropic Sandbox Runtime wraps pi
 ## Output Handling
 
 1. For council mode: parse the engine JSON — read `.verdict` for the gate result and `.votes[].reason` for per-dimension rationale. No manual synthesis needed; the engine applies majority rule.
-2. For delegate mode: `/Users/vietquocbui/dotfiles/scripts/pi-dispatch log <id>` gives full stdout. Parse for deliverables (files, diffs, summaries).
+2. For delegate mode: `<home>/dotfiles/scripts/pi-dispatch log <id>` gives full stdout. Parse for deliverables (files, diffs, summaries).
 3. For subagent mode: validate output format before trusting. Pi has no schema enforcement.
 
 ---
