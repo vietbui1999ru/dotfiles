@@ -224,6 +224,24 @@ test("--task-file must be an allow-listed regular file", () => {
 	assert.equal(box.run(["add", "--tier", "high", "--task-file", plan]).status, 0, "a plan in ~/.claude/plans is allowed");
 });
 
+test("a task file inside a private 0700 $TMPDIR is allowed; an 0755 $TMPDIR is refused", () => {
+	const box = sandbox();
+	const privateTmp = join(box.dir, "tmp-private");
+	mkdirSync(privateTmp, { mode: 0o700 });
+	chmodSync(privateTmp, 0o700);
+	const inPrivate = join(privateTmp, "task.md");
+	writeFileSync(inPrivate, "x\n");
+	assert.equal(box.run(["add", "--tier", "high", "--task-file", inPrivate], { TMPDIR: privateTmp }).status, 0);
+
+	const sharedTmp = sandbox();
+	const looseTmp = join(sharedTmp.dir, "tmp-loose");
+	mkdirSync(looseTmp);
+	chmodSync(looseTmp, 0o755);
+	const inLoose = join(looseTmp, "task.md");
+	writeFileSync(inLoose, "x\n");
+	refused(sharedTmp, sharedTmp.run(["add", "--tier", "high", "--task-file", inLoose], { TMPDIR: looseTmp }), /inside the worktree/);
+});
+
 test("a hard-linked task file and a loose snapshot folder are refused", async () => {
 	const { chmodSync: chmod, linkSync } = await import("node:fs");
 	const box = sandbox();
