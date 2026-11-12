@@ -43,9 +43,6 @@ apt-get update -qq || die "apt-get update failed"
 apt-get install -y -qq zsh nodejs python3 python3-yaml git jq stow coreutils openssl ca-certificates sudo \
 	|| die "apt-get install failed"
 
-HAVE_PUEUE=0
-if command -v pueue >/dev/null 2>&1 && command -v pueued >/dev/null 2>&1; then HAVE_PUEUE=1; fi
-
 # 3. User and clone.
 if ! id tester >/dev/null 2>&1; then
 	useradd -m -u 1000 -s "$(command -v zsh)" tester || die "useradd failed"
@@ -54,8 +51,8 @@ TESTER_HOME=$(getent passwd tester | cut -d: -f6)
 as_tester() { sudo -u tester -H env HOME="$TESTER_HOME" PATH="$PATH" bash -lc "$1"; }
 
 git config --system --add safe.directory /src
-as_tester "git config --global --add safe.directory /src && \
-	git clone -q /src \$HOME/dotfiles && \
+git config --system --add safe.directory /src/.git
+as_tester "git clone -q /src \$HOME/dotfiles && \
 	cd \$HOME/dotfiles && \
 	git config user.name 'linux-check' && git config user.email 'linux-check@example.invalid'" \
 	|| die "clone failed"
@@ -70,15 +67,25 @@ TEST_SCRIPT=$(cat <<'EOS'
 set -u
 run_one() {
 	local label="$1"; shift
-	if "$@" >/tmp/lc-out.$$ 2>&1; then echo "PASS|$label"; else echo "FAIL|$label"; sed -n '1,20p' /tmp/lc-out.$$ | sed 's/^/    /' >&2; fi
+	if "$@" >/tmp/lc-out.$$ 2>&1; then echo "PASS|$label"; else
+		echo "FAIL|$label"
+		sed -n '1,20p' /tmp/lc-out.$$ | sed "s#^#DETAIL|$label|#"
+	fi
 	rm -f /tmp/lc-out.$$
+}
+# Run a shell test by its own shebang: directly when executable, else zsh or bash per line 1.
+run_shell() {
+	local f="$1" first
+	if [[ -x $f ]]; then run_one "$f" "$f"; return; fi
+	first=$(head -n1 "$f")
+	if [[ $first == *zsh* ]]; then run_one "$f" zsh "$f"; else run_one "$f" bash "$f"; fi
 }
 cd "$HOME/dotfiles" || exit 1
 for f in scripts/*.test.mjs; do [[ -e $f ]] && run_one "$f" node --test "$f"; done
 for f in scripts/tests/test_*.py; do [[ -e $f ]] && run_one "$f" python3 "$f"; done
-[[ -e scripts/jw.test.sh ]] && run_one scripts/jw.test.sh bash scripts/jw.test.sh
-for f in scripts/tests/*.test.sh; do [[ -e $f ]] && run_one "$f" bash "$f"; done
-for f in claude/.claude/hooks/tests/*.test.sh; do [[ -e $f ]] && run_one "$f" bash "$f"; done
+[[ -e scripts/jw.test.sh ]] && run_shell scripts/jw.test.sh
+for f in scripts/tests/*.test.sh; do [[ -e $f ]] && run_shell "$f"; done
+for f in claude/.claude/hooks/tests/*.test.sh; do [[ -e $f ]] && run_shell "$f"; done
 EOS
 )
 
@@ -91,7 +98,7 @@ run_tests() { # $1 = label for the output file
 
 result_of() { # $1 = tag, $2 = file -> PASS|FAIL|MISSING
 	local status
-	status=$(awk -F'|' -v f="$2" '$2 == f { print $1; exit }' "$TMP_DIR/$1.res")
+	status=$(awk -F'|' -v f="$2" '$1 != "DETAIL" && $2 == f { print $1; exit }' "$TMP_DIR/$1.res")
 	echo "${status:-MISSING}"
 }
 
@@ -125,17 +132,20 @@ cd "$HOME/dotfiles" || exit 1
 H="$HOME"
 emit() { printf 'RESULT|%s|%s|%s\n' "$1" "$2" "$3"; }
 
-# (a) stow must not link claude/.claude/settings.json; must mention the template or its parent.
+# (a) stow must not link claude/.claude/settings.json; must link the template (or its parent).
+# ~/.claude must exist first, or stow folds the whole folder into one link.
 if ! command -v stow >/dev/null; then
 	emit stow SKIP "stow not installed"
 else
+	mkdir -p "$H/.claude"
 	out=$(stow -n -v --target="$H" --ignore='\.claude/settings\.json' claude 2>&1)
-	if printf '%s\n' "$out" | grep -q 'LINK.*\.claude/settings\.json'; then
-		emit stow-settings-skipped FAIL "stow still links .claude/settings.json"
-	elif printf '%s\n' "$out" | grep -qE 'templates/hooks/settings\.json|templates/hooks'; then
-		emit stow-settings-skipped PASS "settings.json not linked; template referenced"
+	head5=$(printf '%s\n' "$out" | head -n 5 | tr '\n' ' ')
+	if printf '%s\n' "$out" | grep -qE 'LINK: \.claude/settings\.json( |$)'; then
+		emit stow-settings-skipped FAIL "stow still links .claude/settings.json; first lines: $head5"
+	elif printf '%s\n' "$out" | grep -qE 'LINK: \.claude/templates(/hooks(/settings\.json)?)?( |$)'; then
+		emit stow-settings-skipped PASS "settings.json not linked; template linked"
 	else
-		emit stow-settings-skipped FAIL "output does not mention templates/hooks/settings.json or its parent"
+		emit stow-settings-skipped FAIL "no template LINK line; first lines: $head5"
 	fi
 fi
 
@@ -155,7 +165,7 @@ else
 			scripts/claude-settings-render >/dev/null 2>&1; edited_rc=$?
 			scripts/claude-settings-render --check >/dev/null 2>&1; check_rc=$?
 			if [[ $edited_rc -ne 1 ]]; then emit claude-settings-render FAIL "hand-edited file: render exited $edited_rc, expected 1"
-			elif [[ $check_rc -ne 0 ]]; then emit claude-settings-render FAIL "--check exited $check_rc after restore"
+			elif [[ $check_rc -ne 0 ]]; then emit claude-settings-render FAIL "--check exited $check_rc after a hand edit"
 			else emit claude-settings-render PASS "render, idempotent, hand-edit refused"; fi
 		fi
 	else
@@ -223,9 +233,6 @@ while IFS='|' read -r tag name status reason; do
 	[[ $tag == RESULT ]] || continue
 	extra "$name" "$status" "$reason"
 done < "$TMP_DIR/extra.res"
-if (( ! HAVE_PUEUE )); then
-	extra pi-dispatch SKIP "pueue not on PATH in this container"
-fi
 
 # 9. Report.
 EXIT=0
@@ -234,7 +241,7 @@ say "== report =="
 say "$(printf '%-44s %-10s %-10s' 'test file' 'baseline' 'fixed')"
 
 # Union of test files from both runs; each result line is STATUS|file.
-files=$(cut -d'|' -f2 "$TMP_DIR/baseline.res" "$TMP_DIR/fixed.res" | sort -u)
+files=$(awk -F'|' '$1 != "DETAIL" { print $2 }' "$TMP_DIR/baseline.res" "$TMP_DIR/fixed.res" | sort -u)
 while IFS= read -r f; do
 	[[ -z $f ]] && continue
 	b=$(result_of baseline "$f"); x=$(result_of fixed "$f")
@@ -243,6 +250,15 @@ while IFS= read -r f; do
 	# New failure = fixed fails and baseline did not also fail.
 	if [[ $x == FAIL && $b != FAIL ]]; then EXIT=1; fi
 	if [[ $x == MISSING ]]; then EXIT=1; fi
+done <<< "$files"
+
+say ""
+say "== failures =="
+while IFS= read -r f; do
+	[[ -z $f ]] && continue
+	[[ $(result_of fixed "$f") == FAIL ]] || continue
+	say "$f"
+	awk -F'|' -v f="$f" '$1 == "DETAIL" && $2 == f { sub(/^DETAIL\|[^|]*\|/, ""); print "    " $0 }' "$TMP_DIR/fixed.res"
 done <<< "$files"
 
 say ""
