@@ -39,6 +39,15 @@ Recreate the bundle after new commits; the script refuses with the command if it
 
 The report prints to the terminal and is written to `~/lx-out/linux-check.txt`.
 
+The container installs Node 24 from NodeSource, so the run needs network access beyond
+Ubuntu's own mirrors. If NodeSource cannot be reached, the run stops; it does not fall back to
+Ubuntu's Node 18, which cannot load the tests.
+
+The report opens with a summary: files fixed by the branches, regressions, files failing on
+both trees, and skipped files. A file that fails on both trees is an environment or pre-existing
+failure, not one caused by the branches. Skipped files (a missing `jj`, or a helper that needs
+arguments) never fail the run.
+
 After the branch merges, the script path becomes `/src/scripts/tests/linux-check.sh`.
 
 Pass branch names to test a subset: `... linux-check.sh fix/lx-secret fix/lx-sync`.

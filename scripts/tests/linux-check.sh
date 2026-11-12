@@ -51,8 +51,19 @@ fi
 # 2. Install tools. pueue is used only when already on PATH; nothing is downloaded beyond apt.
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq || die "apt-get update failed"
-apt-get install -y -qq zsh nodejs python3 python3-yaml git jq stow coreutils openssl ca-certificates sudo \
+apt-get install -y -qq zsh python3 python3-yaml git jq stow coreutils openssl ca-certificates sudo curl gnupg \
 	|| die "apt-get install failed"
+
+# Node 24 from NodeSource: the tests need a current Node; Ubuntu's Node 18 cannot load them.
+# No fallback to Node 18: if NodeSource cannot be reached, stop.
+node_major=0
+if command -v node >/dev/null; then node_major=$(node -p 'process.versions.node.split(".")[0]'); fi
+if (( node_major < 24 )); then
+	curl -fsSL https://deb.nodesource.com/setup_24.x | bash - || die "NodeSource setup failed; cannot install Node 24"
+	apt-get install -y -qq nodejs || die "apt-get install nodejs (Node 24) failed"
+fi
+node_major=$(node -p 'process.versions.node.split(".")[0]')
+(( node_major >= 24 )) || die "node is $(node --version); need 24 or later"
 
 # 3. User and clone.
 if ! id tester >/dev/null 2>&1; then
@@ -69,7 +80,8 @@ if ! as_tester "test -r $BUNDLE"; then
 fi
 as_tester "git clone -q -b main $BUNDLE_READ \$HOME/dotfiles && \
 	cd \$HOME/dotfiles && \
-	git config user.name 'linux-check' && git config user.email 'linux-check@example.invalid'" \
+	git config user.name 'linux-check' && git config user.email 'linux-check@example.invalid' && \
+	git config --global user.name 'linux-check' && git config --global user.email 'linux-check@example.invalid'" \
 	|| die "clone failed"
 REPO="$TESTER_HOME/dotfiles"
 
@@ -88,6 +100,12 @@ run_one() {
 # Run a shell test by its own shebang: directly when executable, else zsh or bash per line 1.
 run_shell() {
 	local f="$1" first
+	case $f in
+		scripts/jw.test.sh|claude/.claude/hooks/tests/jj-colocate-worktree.test.sh)
+			command -v jj >/dev/null || { echo "SKIP|$f|jj not installed"; return; } ;;
+		claude/.claude/hooks/tests/design-on-write.test.sh|scripts/tests/skill-vendor.test.sh)
+			echo "SKIP|$f|needs arguments; not a standalone test"; return ;;
+	esac
 	if [[ -x $f ]]; then run_one "$f" "$f"; return; fi
 	first=$(head -n1 "$f")
 	if [[ $first == *zsh* ]]; then run_one "$f" zsh "$f"; else run_one "$f" bash "$f"; fi
@@ -253,14 +271,45 @@ done < "$TMP_DIR/extra.res"
 EXIT=0
 say ""
 say "== report =="
-say "$(printf '%-44s %-10s %-10s' 'test file' 'baseline' 'fixed')"
-
+say "node: $(node --version)  python3: $(python3 --version 2>&1)  git: $(git --version)"
 # Union of test files from both runs; each result line is STATUS|file.
 files=$(awk -F'|' '$1 != "DETAIL" { print $2 }' "$TMP_DIR/baseline.res" "$TMP_DIR/fixed.res" | sort -u)
+
+# Summary: group the files before the table, so the reader sees the answer first.
+fixed_by=(); regress=(); both_fail=(); skipped=()
+while IFS= read -r f; do
+	[[ -z $f ]] && continue
+	b=$(result_of baseline "$f"); x=$(result_of fixed "$f")
+	if [[ $x == SKIP || $b == SKIP ]]; then skipped+=("$f"); continue; fi
+	if [[ $x == PASS && ( $b == FAIL || $b == MISSING ) ]]; then fixed_by+=("$f")
+	elif [[ $x != PASS && $b == PASS ]]; then regress+=("$f")
+	elif [[ $x != PASS && $b != PASS ]]; then both_fail+=("$f")
+	fi
+done <<< "$files"
+
+say "fixed by the branches (baseline FAIL/MISSING, fixed PASS): ${#fixed_by[@]}"
+for f in "${fixed_by[@]}"; do say "    $f"; done
+say "regressions (baseline PASS, fixed not PASS): ${#regress[@]}"
+for f in "${regress[@]}"; do say "    $f"; done
+say "failing on both trees (environment or pre-existing): ${#both_fail[@]}"
+for f in "${both_fail[@]}"; do say "    $f"; done
+say "skipped: ${#skipped[@]}"
+if (( ${#skipped[@]} )); then
+	say ""
+	say "== skipped =="
+	for f in "${skipped[@]}"; do
+		reason=$(awk -F'|' -v f="$f" '$1 == "SKIP" && $2 == f { print $3; exit }' "$TMP_DIR/baseline.res" "$TMP_DIR/fixed.res")
+		say "    $f: ${reason:-skipped}"
+	done
+fi
+
+say "$(printf '%-44s %-10s %-10s' 'test file' 'baseline' 'fixed')"
 while IFS= read -r f; do
 	[[ -z $f ]] && continue
 	b=$(result_of baseline "$f"); x=$(result_of fixed "$f")
 	say "$(printf '%-44s %-10s %-10s' "$f" "$b" "$x")"
+	# A SKIP never sets the exit status.
+	if [[ $x == SKIP || $b == SKIP ]]; then continue; fi
 	if [[ $x != PASS && $b == PASS ]]; then EXIT=1; fi
 	# New failure = fixed fails and baseline did not also fail.
 	if [[ $x == FAIL && $b != FAIL ]]; then EXIT=1; fi
