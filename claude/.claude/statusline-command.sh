@@ -9,7 +9,11 @@
 input=$(cat)
 snap_dir="$HOME/.local/state/claude-tui"
 if mkdir -p "$snap_dir" 2>/dev/null && tmp=$(mktemp "$snap_dir/.claude-status.XXXXXX" 2>/dev/null); then
-  printf '%s' "$input" >"$tmp" && mv -f "$tmp" "$snap_dir/claude-status.json" || rm -f "$tmp"
+  if printf '%s' "$input" >"$tmp"; then
+    mv -f "$tmp" "$snap_dir/claude-status.json" || rm -f "$tmp"
+  else
+    rm -f "$tmp"
+  fi
 fi
 command -v jq >/dev/null || { echo "statusline: jq missing"; exit 0; }
 # Unit separator (0x1f), not tab: tab is IFS whitespace, so read would collapse empty fields.
@@ -49,9 +53,12 @@ br=""
 write_snap() { # write_snap <subdir> <id>
   local dir="$snap_dir/$1" tmp
   mkdir -p "$dir" 2>/dev/null && tmp=$(mktemp "$dir/.snap.XXXXXX" 2>/dev/null) || return 0
-  jq -n --arg used "$used" --arg model "${model#claude-}" --arg branch "$br" --argjson now "$(date +%s)" \
-    '{ctx: (if $used == "" then null else ($used | tonumber | round) end), model: $model, branch: $branch, updated: $now}' >"$tmp" \
-    && mv -f "$tmp" "$dir/$2.json" || rm -f "$tmp"
+  if jq -n --arg used "$used" --arg model "${model#claude-}" --arg branch "$br" --argjson now "$(date +%s)" \
+    '{ctx: (if $used == "" then null else ($used | tonumber | round) end), model: $model, branch: $branch, updated: $now}' >"$tmp"; then
+    mv -f "$tmp" "$dir/$2.json" || rm -f "$tmp"
+  else
+    rm -f "$tmp"
+  fi
 }
 term="${HC_TERMINAL_ID:-}"
 sid=$(jq -r '.session_id // empty' <<<"$input")
@@ -65,7 +72,7 @@ fi
 
 hb="${TMPDIR:-/tmp}/session-band-${sid}.drawn"
 if [[ "$sid" =~ ^[A-Za-z0-9_-]+$ ]] && [ -f "$hb" ]; then
-  mtime=$(stat -f %m "$hb" 2>/dev/null || stat -c %Y "$hb")
+  mtime=$(stat -c %Y "$hb" 2>/dev/null || stat -f %m "$hb")
   [ $(( $(date +%s) - mtime )) -lt 60 ] && exit 0
 fi
 c() { printf '\033[%sm%s\033[0m' "$1" "$2"; }
