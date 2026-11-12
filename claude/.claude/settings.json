@@ -560,7 +560,10 @@
         "files.pythonhosted.org",
         "opencode.ai",
         "chatgpt.com",
-        "api.openai.com"
+        "api.openai.com",
+        "api.firecrawl.dev",
+        "mcp.grep.app",
+        "gitlab.weconex.vn"
       ],
       "allowUnixSockets": []
     },
