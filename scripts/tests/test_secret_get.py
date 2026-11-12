@@ -34,9 +34,9 @@ class SecretGet(unittest.TestCase):
         )
         os.chmod(self.file, 0o600)
 
-    def run_get(self, *args, path=None):
+    def run_get(self, *args, path=None, stat_stub=None):
         env = {
-            "PATH": "/usr/bin:/bin",
+            "PATH": (f"{stat_stub}:" if stat_stub else "") + "/usr/bin:/bin",
             "HOME": str(self.tmp),
             "SECRETS_ENV": str(path or self.file),
         }
@@ -101,6 +101,17 @@ class SecretGet(unittest.TestCase):
     def test_mode_600_and_700_accepted(self):
         out = self.run_get("CONTEXT7_API_KEY")
         self.assertEqual(out.returncode, 0, out.stderr)
+
+    def test_non_octal_stat_output_fails_closed(self):
+        stub_dir = self.tmp / "stub"
+        stub_dir.mkdir()
+        stub = stub_dir / "stat"
+        stub.write_text("#!/bin/sh\nprintf 'not-octal\\n'\n")
+        stub.chmod(0o755)
+        out = self.run_get("CONTEXT7_API_KEY", stat_stub=str(stub_dir))
+        self.assertEqual(out.returncode, 2, out.stderr)
+        self.assertEqual(out.stdout, "")
+        self.assertIn("mode", out.stderr)
 
 
 if __name__ == "__main__":

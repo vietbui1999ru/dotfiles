@@ -65,7 +65,7 @@ fi
 
 hb="${TMPDIR:-/tmp}/session-band-${sid}.drawn"
 if [[ "$sid" =~ ^[A-Za-z0-9_-]+$ ]] && [ -f "$hb" ]; then
-  mtime=$(stat -f %m "$hb" 2>/dev/null || stat -c %Y "$hb")
+  mtime=$(stat -c %Y "$hb" 2>/dev/null || stat -f %m "$hb")
   [ $(( $(date +%s) - mtime )) -lt 60 ] && exit 0
 fi
 c() { printf '\033[%sm%s\033[0m' "$1" "$2"; }
