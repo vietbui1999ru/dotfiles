@@ -113,13 +113,24 @@ run_shell() {
 	if [[ $first == *zsh* ]]; then run_one "$f" zsh "$f"; else run_one "$f" bash "$f"; fi
 }
 cd "$HOME/dotfiles" || exit 1
-for f in scripts/*.test.mjs; do [[ -e $f ]] && run_one "$f" node --test "$f"; done
+for f in scripts/*.test.mjs; do
+	[[ -e $f ]] || continue
+	case $f in
+		scripts/pi-outcome.test.mjs)
+			command -v bun >/dev/null || { echo "SKIP|$f|bun not installed"; continue; } ;;
+		scripts/pi-view-app.test.mjs)
+			command -v pi >/dev/null || { echo "SKIP|$f|pi not installed"; continue; } ;;
+	esac
+	run_one "$f" node --test "$f"
+done
 for f in scripts/tests/test_*.py; do
 	[[ -e $f ]] || continue
 	case $f in
 		scripts/tests/test_pi_view_provenance.py|scripts/tests/test_pi_view_secrets.py)
 			echo "SKIP|$f|needs the pi-sandbox Linux opt-in (~/.config/pi-sandbox/linux-open)"
 			continue ;;
+		scripts/tests/test_commit_funnel.py)
+			command -v jj >/dev/null || { echo "SKIP|$f|jj not installed (9 of its 32 cases need jj)"; continue; } ;;
 	esac
 	run_one "$f" python3 "$f"
 done

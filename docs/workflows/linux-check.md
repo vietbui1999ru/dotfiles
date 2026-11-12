@@ -54,6 +54,16 @@ arguments, or a pi-view test that needs the `pi-sandbox` Linux opt-in) never fai
 `scripts/tests/test_pi_view_provenance.py` and `scripts/tests/test_pi_view_secrets.py` are
 skipped because they need `~/.config/pi-sandbox/linux-open`, which this check does not create.
 
+A whole file is skipped when the tool it needs is not installed, even if only some of its cases
+need that tool. The container installs none of these three tools, so these files are not checked
+on Linux until the tool is installed:
+
+| File | Tool it needs |
+|---|---|
+| `scripts/pi-outcome.test.mjs` | `bun` |
+| `scripts/tests/test_commit_funnel.py` | `jj` (9 of its 32 cases) |
+| `scripts/pi-view-app.test.mjs` | `pi` |
+
 The `tester` account carries the full name `linux-check`, and the tests run with
 `EMAIL=linux-check@example.invalid`. Some tests build their environment from scratch and
 discard `git config` as well as every `GIT_*` variable, so the identity has to come from the
