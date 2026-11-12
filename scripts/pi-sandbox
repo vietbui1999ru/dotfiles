@@ -1,14 +1,22 @@
 #!/usr/bin/env zsh
 # pi-sandbox <command...>: run a Pi command under the Seatbelt profile scripts/pi-sandbox.sb.
 # scripts/pi-view puts this in front of every dispatch, including --tui runs in a herdr pane.
-# It never falls back to an unsandboxed run: no sandbox-exec or no profile is a refusal.
+# On macOS it never falls back to an unsandboxed run: no sandbox-exec or no profile is a refusal.
+# On Linux there is no sandbox yet, so Pi runs unsandboxed only when the person has created
+# ~/.config/pi-sandbox/linux-open by hand (mode 600, containing 'unsandboxed-ok <host>').
+# No environment variable grants or skips that opt-in: a pueue task inherits the queuer's environment.
 set -u
 
 script_dir=${${0:A}:h}
 profile=$script_dir/pi-sandbox.sb
+os=$(uname -s)
 (( $# )) || { print -u2 -- 'usage: pi-sandbox <command...>'; exit 2 }
-(( $+commands[sandbox-exec] )) || { print -u2 -- 'pi-sandbox: sandbox-exec not found; refusing to run unsandboxed'; exit 1 }
-[[ -r $profile ]] || { print -u2 -- "pi-sandbox: profile missing: $profile; refusing to run unsandboxed"; exit 1 }
+if [[ $os == Darwin ]]; then
+  (( $+commands[sandbox-exec] )) || { print -u2 -- 'pi-sandbox: sandbox-exec not found; refusing to run unsandboxed'; exit 1 }
+  [[ -r $profile ]] || { print -u2 -- "pi-sandbox: profile missing: $profile; refusing to run unsandboxed"; exit 1 }
+elif [[ $os != Linux ]]; then
+  print -u2 -- "pi-sandbox: unsupported system $os; refusing to run"; exit 1
+fi
 
 # The worktree and the stores its git and jj write to, all outside the worktree in a linked checkout.
 wt=${PWD:A} gitdir=${PWD:A} jjdir=${PWD:A}/.jj
@@ -56,6 +64,22 @@ done
 settings=${PI_SANDBOX_SETTINGS:-$HOME/.claude/settings.json}
 policy_gitdir=$gitdir
 [[ -n ${top:-} ]] || policy_gitdir=$wt/.git
+if [[ $os == Linux ]]; then
+  opt_in=$HOME/.config/pi-sandbox/linux-open
+  host=$(hostname -s)
+  ok=0
+  if [[ -f $opt_in && ! -L $opt_in && -O $opt_in ]]; then
+    zmodload -F zsh/stat b:zstat
+    mode=$(zstat -L -o +mode -- $opt_in 2>/dev/null) || mode=
+    mode=${mode[-3,-1]}
+    lines=(${(f)"$(<$opt_in)"})
+    [[ $mode == 600 && ${#lines} -eq 1 && $lines[1] == "unsandboxed-ok $host" ]] && ok=1
+  fi
+  (( ok )) || { print -u2 -- "pi-sandbox: no sandbox on Linux and no valid opt-in; the person creates ~/.config/pi-sandbox/linux-open (mode 600) containing 'unsandboxed-ok <host>' to run Pi unsandboxed"; exit 1 }
+  print -u2 -- "pi-sandbox: UNSANDBOXED on $host (opt-in ~/.config/pi-sandbox/linux-open); Pi can write anywhere you can, including ~/dotfiles and ~/.claude"
+  exec "$@"
+fi
+
 policy=$("$script_dir/pi-sandbox-policy" "$settings" "$wt" "$policy_gitdir" "$HOME") \
   || { print -u2 -- "pi-sandbox: no usable sandbox policy in $settings; refusing to run unsandboxed"; exit 1 }
 

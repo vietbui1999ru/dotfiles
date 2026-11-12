@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, existsSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, existsSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -107,4 +107,86 @@ test("refuses a .git pointer into a repo the folder is not a worktree of", () =>
 test("refuses to run without a command", () => {
 	const result = spawnSync("zsh", [SCRIPT], { encoding: "utf8" });
 	assert.equal(result.status, 2);
+});
+
+// Linux has no sandbox yet: the run is allowed only with the person's hand-made opt-in file.
+// Stubs put `uname` and `hostname` first on PATH so the Linux branch runs on macOS.
+const stubs = join(root, "stubs");
+mkdirSync(stubs, { recursive: true });
+writeFileSync(join(stubs, "uname"), "#!/bin/sh\necho Linux\n", { mode: 0o755 });
+writeFileSync(join(stubs, "hostname"), "#!/bin/sh\necho testbox\n", { mode: 0o755 });
+const linuxEnv = (extra = {}) => sandboxEnv({ PATH: `${stubs}:${process.env.PATH}`, ...extra });
+const optIn = join(home, ".config/pi-sandbox/linux-open");
+const writeOptIn = (content, mode = 0o600) => {
+	mkdirSync(dirname(optIn), { recursive: true });
+	rmSync(optIn, { force: true });
+	writeFileSync(optIn, content, { mode });
+	chmodSync(optIn, mode);
+};
+const runLinux = (args, extra) => spawnSync("zsh", [SCRIPT, ...args], { cwd: repo, encoding: "utf8", timeout: 10000, env: linuxEnv(extra) });
+const UNSANDBOXED = /pi-sandbox: UNSANDBOXED on testbox \(opt-in ~\/\.config\/pi-sandbox\/linux-open\); Pi can write anywhere you can, including ~\/dotfiles and ~\/\.claude/;
+const REFUSED = /no sandbox on Linux and no valid opt-in/;
+
+test("Linux runs the command when the opt-in is valid, and says so once", () => {
+	writeOptIn("unsandboxed-ok testbox\n");
+	const result = runLinux(["sh", "-c", "exit 7"]);
+	assert.equal(result.status, 7, "the command's exit status is passed through");
+	assert.equal(result.stderr.match(new RegExp(UNSANDBOXED.source, "g"))?.length, 1, result.stderr);
+});
+
+test("Linux refuses without an opt-in file, and does not run the command", () => {
+	rmSync(optIn, { force: true });
+	const marker = join(root, "ran-without-optin");
+	const result = runLinux(["sh", "-c", `touch '${marker}'`]);
+	assert.equal(result.status, 1);
+	assert.match(result.stderr, REFUSED);
+	assert.ok(!existsSync(marker), "the command ran");
+});
+
+test("Linux refuses an opt-in that names another host", () => {
+	writeOptIn("unsandboxed-ok otherbox\n");
+	const result = runLinux(["true"]);
+	assert.equal(result.status, 1);
+	assert.match(result.stderr, REFUSED);
+});
+
+test("Linux refuses an opt-in with mode 644", () => {
+	writeOptIn("unsandboxed-ok testbox\n", 0o644);
+	const result = runLinux(["true"]);
+	assert.equal(result.status, 1);
+	assert.match(result.stderr, REFUSED);
+});
+
+test("Linux refuses an opt-in that is a symlink to a valid file", () => {
+	writeOptIn("unsandboxed-ok testbox\n");
+	const target = join(root, "real-optin");
+	writeFileSync(target, "unsandboxed-ok testbox\n", { mode: 0o600 });
+	rmSync(optIn, { force: true });
+	symlinkSync(target, optIn);
+	const result = runLinux(["true"]);
+	assert.equal(result.status, 1);
+	assert.match(result.stderr, REFUSED);
+});
+
+test("Linux refuses an opt-in with two lines", () => {
+	writeOptIn("unsandboxed-ok testbox\nextra\n");
+	const result = runLinux(["true"]);
+	assert.equal(result.status, 1);
+	assert.match(result.stderr, REFUSED);
+});
+
+test("an environment variable cannot grant the Linux opt-in", () => {
+	rmSync(optIn, { force: true });
+	const result = runLinux(["true"], { PI_SANDBOX_OPEN: "1" });
+	assert.equal(result.status, 1);
+	assert.match(result.stderr, REFUSED);
+});
+
+test("an unknown system refuses the run", () => {
+	const fakeStubs = join(root, "stubs-other");
+	mkdirSync(fakeStubs, { recursive: true });
+	writeFileSync(join(fakeStubs, "uname"), "#!/bin/sh\necho FreeBSD\n", { mode: 0o755 });
+	const result = spawnSync("zsh", [SCRIPT, "true"], { cwd: repo, encoding: "utf8", env: sandboxEnv({ PATH: `${fakeStubs}:${process.env.PATH}` }) });
+	assert.equal(result.status, 1);
+	assert.match(result.stderr, /unsupported system FreeBSD/);
 });
