@@ -15,6 +15,9 @@ dir=$(mktemp -d "${TMPDIR:-/tmp}/jw-test.XXXXXX")
 dir=$(cd "$dir" && pwd -P)
 trap 'rm -rf "$dir"' EXIT
 
+# Keep every archive this test creates inside the throwaway directory.
+export XDG_STATE_HOME="$dir/state"
+
 # Local bare remote plus a seed commit, then a primary clone: origin/main exists.
 git init -q --bare "$dir/remote.git"
 git init -q -b main "$dir/seed"
@@ -124,11 +127,82 @@ rm -rf "$ign/node_modules"
 run_jw rm ign >/dev/null || fail "rm ign failed after clearing ignored content"
 [ ! -e "$ign" ] || fail "ign directory survived rm"
 
+# rm deletes known caches, archives known records, and leaves tracked files in
+# .agents/ alone. The archive keeps each record at its relative path.
+arc_repo="$XDG_STATE_HOME/jw-archive/$(basename "$main")"
+arc="$main/.claude/worktrees/arc"
+run_jw new feat/arc >/dev/null || fail "jw new feat/arc failed"
+mkdir -p "$arc/.agents/plugins" "$arc/scripts"
+printf '{}\n' >"$arc/.agents/plugins/marketplace.json"
+printf 'keep\n' >"$arc/scripts/keep.txt"
+printf '%s\n' '__pycache__/' '.ruff_cache/' '.pi/' '.agents/events.jsonl' \
+  '.agents/sessions/' '.pi-lens-probe-home/' '.serena/' >"$arc/.gitignore"
+git -C "$arc" add .gitignore .agents/plugins/marketplace.json scripts/keep.txt \
+  || fail "arc setup add failed"
+git -C "$arc" -c user.name=t -c user.email=t@t commit -q -m "records" >/dev/null \
+  || fail "arc setup commit failed"
+mkdir -p "$arc/scripts/__pycache__" "$arc/.ruff_cache" \
+  "$arc/.pi/agent-review/decisions" "$arc/.pi-lens-probe-home" "$arc/.serena"
+printf 'x\n' >"$arc/scripts/__pycache__/x.pyc"
+printf 'x\n' >"$arc/.ruff_cache/x"
+printf '{"run":"ok"}\n' >"$arc/.pi/agent-review/decisions/run.json"
+printf 'event\n' >"$arc/.agents/events.jsonl"
+mkdir -p "$arc/.agents/sessions"
+printf 'note\n' >"$arc/.agents/sessions/note.md"
+printf 'log\n' >"$arc/.pi-lens-probe-home/latency.log"
+printf 'project\n' >"$arc/.serena/project.yml"
+run_jw rm arc >/dev/null || fail "jw rm arc failed: $(cat "$dir/err")"
+[ ! -e "$arc" ] || fail "arc workspace survived rm"
+(cd "$main" && jj workspace list | grep -q '^arc: ') && fail "arc left jj"
+git -C "$main" worktree list | grep -q "$arc" && fail "arc left git"
+[ "$(find "$arc_repo" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')" -eq 1 ] \
+  || fail "expected exactly one archive folder"
+arch=$(find "$arc_repo" -mindepth 1 -maxdepth 1 -type d -print -quit)
+for kept in .pi/agent-review/decisions/run.json .agents/events.jsonl \
+  .agents/sessions/note.md .pi-lens-probe-home/latency.log .serena/project.yml jw-meta.txt; do
+  [ -f "$arch/$kept" ] || fail "archive missing $kept"
+done
+[ -z "$(find "$arch" -name '__pycache__' -o -name '.ruff_cache' -o -name marketplace.json)" ] \
+  || fail "archive holds a deleted cache or the tracked marketplace file"
+
+# An unknown ignored entry stops everything: no delete, no archive.
+unk_repo="$arc_repo"
+unk="$main/.claude/worktrees/unk"
+run_jw new feat/unk >/dev/null || fail "jw new feat/unk failed"
+printf '%s\n' '.pi/' 'node_modules/' >"$unk/.gitignore"
+git -C "$unk" add .gitignore \
+  || fail "unk setup add failed"
+git -C "$unk" -c user.name=t -c user.email=t@t commit -q -m "ignore" >/dev/null \
+  || fail "unk setup commit failed"
+mkdir -p "$unk/.pi" "$unk/node_modules/pkg"
+printf 'x\n' >"$unk/.pi/x"
+printf 'y\n' >"$unk/node_modules/pkg/index.js"
+expect_refusal "rm with an unknown ignored entry" run_jw rm unk
+grep -q 'node_modules' "$dir/err" || fail "refusal did not name the unknown entry"
+[ -f "$unk/.pi/x" ] || fail "unknown refusal deleted an archivable entry"
+[ -z "$(find "$unk_repo" -maxdepth 1 -name 'unk-*')" ] || fail "unknown refusal created an archive"
+rm -rf "$unk/node_modules"
+run_jw rm unk >/dev/null || fail "rm unk failed after clearing node_modules"
+[ ! -e "$unk" ] || fail "unk workspace survived rm"
+
+# After a successful removal, archive folders older than 14 days are pruned.
+old=$(date -v-15d +%Y%m%d%H%M 2>/dev/null || date -d '15 days ago' +%Y%m%d%H%M)
+mkdir -p "$arc_repo/old-archive" "$arc_repo/new-archive"
+touch -t "$old" "$arc_repo/old-archive"
+run_jw new feat/prune >/dev/null || fail "jw new feat/prune failed"
+run_jw rm prune >/dev/null || fail "jw rm prune failed"
+[ ! -e "$arc_repo/old-archive" ] || fail "old archive was not pruned"
+[ -d "$arc_repo/new-archive" ] || fail "prune removed a fresh archive"
+
 # new refuses names outside the allow-list; rm refuses non-plain workspace names.
 for bad in wip/x feat/../x feat/Upper feat/-x 'feat/a b' feat/abcdefghijkl; do
   expect_refusal "new $bad" run_jw new "$bad"
 done
-[ -z "$(ls "$main/.claude/worktrees" | grep -v decoy-target)" ] || fail "a refused name left a workspace"
+for leftover in "$main/.claude/worktrees"/*; do
+  [ -e "$leftover" ] || continue
+  [ "$(basename "$leftover")" = decoy-target ] && continue
+  fail "a refused name left a workspace: $leftover"
+done
 expect_refusal "rm with an uppercase name" run_jw rm Bad_Name
 
 # --full is refused in any position until full mode (S4) exists.
@@ -138,10 +212,12 @@ expect_refusal "new --full=10m" run_jw new feat/full --full=10m
 
 # bg: creates the workspace, then runs claude --bg there with the prompt as one word.
 mkdir -p "$dir/bin"
+# shellcheck disable=SC2016 # the format is for the generated script, not this one
 printf '#!/bin/sh\npwd -P >"%s/claude.out"\nfor a; do printf "[%%s]\\n" "$a"; done >>"%s/claude.out"\n' \
   "$dir" "$dir" >"$dir/bin/claude"
 chmod +x "$dir/bin/claude"
 bgws="$main/.claude/worktrees/bgx"
+# shellcheck disable=SC2016 # the literal metacharacters are the point
 prompt='do a; then b | c $(id)'
 export SECRETS_ENV="$dir/no-secrets.env"  # the plain path; with-secrets has its own tests
 (cd "$main" && PATH="$dir/bin:$PATH" "$JW" bg feat/bgx "$prompt") || fail "jw bg failed"

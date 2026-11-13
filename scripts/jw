@@ -6,6 +6,11 @@
 #   jw bg <branch> <prompt>
 #                     ensure the workspace exists, then start `claude --bg <prompt>` in it
 #
+# `jw rm` deletes known caches (`__pycache__/`, `.ruff_cache/`), archives known agent
+# records under $XDG_STATE_HOME/jw-archive/<repo>/<name>-<timestamp>/ (default
+# ~/.local/state), and refuses anything else it finds gitignored. Archives older than
+# 14 days are pruned after a successful removal.
+#
 # jw is exempt from Claude's Bash sandbox by absolute path, so it runs unsandboxed
 # and these argument checks are the security boundary: branch and workspace names
 # are allow-listed, the prompt stays one argv word, and `--full` is refused.
@@ -16,6 +21,24 @@ set -euo pipefail
 
 PROTECTED=(main master)
 NAME_LIMIT=16
+
+# Gitignored paths `jw rm` may delete. These are regenerable caches.
+DELETE_IGNORED=(
+  '__pycache__'   # Python bytecode, recreated on the next run
+  '.ruff_cache'   # Ruff's cache, recreated on the next run
+)
+
+# Gitignored paths `jw rm` archives instead of deleting, because they are records.
+ARCHIVE_IGNORED=(
+  '.pi/'                 # .pi/agent-review/decisions: the record of approved Pi runs
+  '.agents/events.jsonl' # the workspace's agent event log
+  '.agents/sessions/'    # saved session notes (auto-clear and save-session write them)
+  '.pi-lens-probe-home/' # pi-lens logs from the Pi runs in this workspace
+  '.serena/'             # Serena's project folder, kept until inspected
+)
+
+# Archive folders older than this many days are pruned after a successful removal.
+ARCHIVE_RETENTION_DAYS=14
 BRANCH_RE='^(feat|fix|docs|chore|refactor|test|perf|ci)/[a-z0-9][a-z0-9-]*$'
 WS_RE='^[a-z0-9][a-z0-9-]*$'
 
@@ -38,6 +61,49 @@ primary_checkout() {
   common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
     || die "not inside a git work tree"
   dirname "$common"
+}
+
+# The path without its trailing slash, as a directory entry would be named.
+entry_name() {
+  printf '%s\n' "${1%/}"
+}
+
+is_delete_entry() {
+  local path name
+  path=$(entry_name "$1")
+  name=${path##*/}
+  local allowed
+  for allowed in "${DELETE_IGNORED[@]}"; do
+    [ "$name" != "$allowed" ] || return 0
+  done
+  return 1
+}
+
+is_archive_entry() {
+  local path=$1 allowed
+  for allowed in "${ARCHIVE_IGNORED[@]}"; do
+    [ "$path" != "$allowed" ] || return 0
+    case $allowed in
+      */)
+        case $path in
+          "$allowed"*) return 0 ;;
+        esac
+        ;;
+    esac
+  done
+  return 1
+}
+
+archive_root() {
+  printf '%s\n' "${XDG_STATE_HOME:-$HOME/.local/state}/jw-archive/$(basename -- "$1")"
+}
+
+prune_archives() {
+  local root=$1
+  [ -d "$root" ] || return 0
+  find "$root" -mindepth 1 -maxdepth 1 -type d -mtime +"$ARCHIVE_RETENTION_DAYS" \
+    -exec rm -rf -- {} + \
+    || printf 'jw: warning: could not prune old archives under %s\n' "$root" >&2
 }
 
 # The workspace name is the branch without its type prefix: feat/jj-ws -> jj-ws.
@@ -71,7 +137,9 @@ cmd_new() {
 }
 
 cmd_rm() {
-  local name=${1:-} primary dir real entries dirty
+  local name=${1:-} primary dir real entries dirty line path branch commit
+  local archive_repo archive_dir
+  local -a unknown=() delete=() archive=()
   [ -n "$name" ] || usage
   # The name must be one plain path component: "../x" or "a/b" resolve outside
   # the workspaces directory and would point the removal at another checkout.
@@ -85,12 +153,56 @@ cmd_rm() {
   [ -z "$dirty" ] \
     || die "workspace '$name' has uncommitted changes; commit or discard them first"
 
-  # Gitignored content (node_modules, agent state) is not in git, so removal would
-  # destroy it. Refuse and name it so the human decides. .jj is jj's own state.
+  # Gitignored content (caches, agent records) is not in git. Delete the known
+  # caches, archive the known records, and refuse anything else so the human
+  # decides. .jj is jj's own state.
   entries=$(git -C "$dir" status --porcelain --ignored | grep '^!! ' | grep -v '^!! \.jj/$' || true)
-  [ -z "$entries" ] \
-    || die "workspace '$name' holds gitignored content that removal would delete; remove or move it first:
-$entries"
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    path=${line#!! }
+    if is_delete_entry "$path"; then
+      delete+=("$path")
+    elif is_archive_entry "$path"; then
+      archive+=("$path")
+    else
+      unknown+=("$path")
+    fi
+  done <<< "$entries"
+
+  if [ ${#unknown[@]} -gt 0 ]; then
+    printf "jw: workspace '%s' holds gitignored content that removal would delete; remove or move it first:\n" "$name" >&2
+    printf '!! %s\n' "${unknown[@]}" >&2
+    exit 2
+  fi
+
+  branch=$(git -C "$dir" branch --show-current)
+  commit=$(git -C "$dir" rev-parse HEAD)
+
+  # The length guard is for bash 3.2 (macOS /bin/bash), where expanding an empty
+  # array under `set -u` is an unbound-variable error.
+  if [ ${#delete[@]} -gt 0 ]; then
+    for path in "${delete[@]}"; do
+      rm -rf -- "${dir:?}/${path:?}"
+    done
+  fi
+
+  if [ ${#archive[@]} -gt 0 ]; then
+    archive_repo=$(archive_root "$primary")
+    archive_dir="$archive_repo/$name-$(date +%Y%m%d-%H%M%S)"
+    mkdir -p -- "$archive_repo"
+    mkdir -- "$archive_dir"
+    chmod 700 "$archive_dir"
+    {
+      printf 'branch: %s\n' "$branch"
+      printf 'commit: %s\n' "$commit"
+      printf 'date: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')"
+    } >"$archive_dir/jw-meta.txt"
+    for path in "${archive[@]}"; do
+      mkdir -p -- "$(dirname -- "$archive_dir/$path")"
+      mv -- "$dir/$path" "$archive_dir/$path"
+    done
+    printf 'jw: archived %s entries to %s\n' "${#archive[@]}" "$archive_dir" >&2
+  fi
 
   real=$(cd "$dir" && pwd -P)
   # Git goes first. `jj workspace forget` also drops the git worktree registration,
@@ -110,6 +222,8 @@ $entries"
   fi
   git -C "$primary" worktree list --porcelain | grep -qxF "worktree $real" \
     && die "git worktree entry survived removal: $real"
+
+  prune_archives "$(archive_root "$primary")"
 
   printf '%s\n' "$dir"
 }
