@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 import { test, after } from "node:test";
 
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "pi-sandbox");
+const onMac = process.platform === "darwin";
+const needsSeatbelt = { skip: !onMac && "needs macOS Seatbelt" };
 
 // A fake home and a repo named like a system repo (dotfiles). Temp space is writable by design, so with
 // a temp HOME only the profile's deny rules (which win, being last) can be asserted here.
@@ -30,12 +32,12 @@ const inSandbox = (args, extra) => spawnSync("zsh", [SCRIPT, ...args], { cwd: re
 // True when `sh -c "<write>"` succeeds inside the sandbox.
 const writes = (command) => inSandbox(["sh", "-c", command]).status === 0;
 
-test("writes inside the worktree and Pi's session store pass", () => {
+test("writes inside the worktree and Pi's session store pass", needsSeatbelt, () => {
 	assert.ok(writes("echo x > note.txt"));
 	assert.ok(writes(`touch '${home}/.pi/agent/sessions/s.jsonl'`));
 });
 
-test("Pi's extensions, the focus board and review decisions are read-only", () => {
+test("Pi's extensions, the focus board and review decisions are read-only", needsSeatbelt, () => {
 	assert.ok(!writes(`echo x > '${home}/.pi/agent/extensions/x.ts'`));
 	assert.ok(!writes(`echo x > '${home}/repos/Obsidian/Focus.md'`));
 	assert.ok(!writes("echo x > .pi/agent-review/decisions/run.json"));
@@ -43,7 +45,7 @@ test("Pi's extensions, the focus board and review decisions are read-only", () =
 });
 
 // Decided 2026-11-11: harness folders stay writable in worktrees until system-pin (Slice S4).
-test("a system repo's harness folders stay writable in a worktree until S4", () => {
+test("a system repo's harness folders stay writable in a worktree until S4", needsSeatbelt, () => {
 	assert.ok(writes("echo x > scripts/tool.sh"));
 });
 
@@ -51,7 +53,7 @@ test("a system repo's harness folders stay writable in a worktree until S4", () 
 // the next run's write grant to another directory.
 const launch = (cwd) => spawnSync("zsh", [SCRIPT, "true"], { cwd, encoding: "utf8", env: sandboxEnv() });
 
-test("missing or sandbox-less settings refuse the run", () => {
+test("missing or sandbox-less settings refuse the run", needsSeatbelt, () => {
 	for (const bad of [join(root, "absent.json"), join(root, "empty.json")]) {
 		writeFileSync(join(root, "empty.json"), "{}");
 		const result = inSandbox(["true"], { PI_SANDBOX_SETTINGS: bad });
@@ -60,13 +62,13 @@ test("missing or sandbox-less settings refuse the run", () => {
 	}
 });
 
-test("git hooks and config are protected, while a commit still works", () => {
+test("git hooks and config are protected, while a commit still works", needsSeatbelt, () => {
 	assert.ok(!writes("echo x > .git/hooks/post-commit"), "a git hook write passed");
 	assert.ok(!writes("git config core.hooksPath /tmp"), "a git config write passed");
 	assert.ok(writes("git -c user.name=t -c user.email=t@t commit -q --allow-empty -m probe"), "a commit failed");
 });
 
-test("the herdr control socket is unreachable", async () => {
+test("the herdr control socket is unreachable", needsSeatbelt, async () => {
 	const { createServer } = await import("node:net");
 	// A unix socket path is capped at 104 bytes on macOS, and the per-user temp dir alone is
 	// ~60, so this test gets its own short HOME under /tmp.
@@ -104,7 +106,7 @@ test("refuses a .git pointer into a repo the folder is not a worktree of", () =>
 	assert.match(result.stderr, /not a worktree of/);
 });
 
-test("refuses to run without a command", () => {
+test("refuses to run without a command", needsSeatbelt, () => {
 	const result = spawnSync("zsh", [SCRIPT], { encoding: "utf8" });
 	assert.equal(result.status, 2);
 });
