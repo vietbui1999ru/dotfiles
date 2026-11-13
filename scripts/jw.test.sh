@@ -136,7 +136,7 @@ mkdir -p "$arc/.agents/plugins" "$arc/scripts"
 printf '{}\n' >"$arc/.agents/plugins/marketplace.json"
 printf 'keep\n' >"$arc/scripts/keep.txt"
 printf '%s\n' '__pycache__/' '.ruff_cache/' '.pi/' '.agents/events.jsonl' \
-  '.pi-lens-probe-home/' '.serena/' >"$arc/.gitignore"
+  '.agents/sessions/' '.pi-lens-probe-home/' '.serena/' >"$arc/.gitignore"
 git -C "$arc" add .gitignore .agents/plugins/marketplace.json scripts/keep.txt \
   || fail "arc setup add failed"
 git -C "$arc" -c user.name=t -c user.email=t@t commit -q -m "records" >/dev/null \
@@ -147,6 +147,8 @@ printf 'x\n' >"$arc/scripts/__pycache__/x.pyc"
 printf 'x\n' >"$arc/.ruff_cache/x"
 printf '{"run":"ok"}\n' >"$arc/.pi/agent-review/decisions/run.json"
 printf 'event\n' >"$arc/.agents/events.jsonl"
+mkdir -p "$arc/.agents/sessions"
+printf 'note\n' >"$arc/.agents/sessions/note.md"
 printf 'log\n' >"$arc/.pi-lens-probe-home/latency.log"
 printf 'project\n' >"$arc/.serena/project.yml"
 run_jw rm arc >/dev/null || fail "jw rm arc failed: $(cat "$dir/err")"
@@ -157,7 +159,7 @@ git -C "$main" worktree list | grep -q "$arc" && fail "arc left git"
   || fail "expected exactly one archive folder"
 arch=$(find "$arc_repo" -mindepth 1 -maxdepth 1 -type d -print -quit)
 for kept in .pi/agent-review/decisions/run.json .agents/events.jsonl \
-  .pi-lens-probe-home/latency.log .serena/project.yml jw-meta.txt; do
+  .agents/sessions/note.md .pi-lens-probe-home/latency.log .serena/project.yml jw-meta.txt; do
   [ -f "$arch/$kept" ] || fail "archive missing $kept"
 done
 [ -z "$(find "$arch" -name '__pycache__' -o -name '.ruff_cache' -o -name marketplace.json)" ] \

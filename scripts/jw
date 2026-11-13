@@ -32,6 +32,7 @@ DELETE_IGNORED=(
 ARCHIVE_IGNORED=(
   '.pi/'                 # .pi/agent-review/decisions: the record of approved Pi runs
   '.agents/events.jsonl' # the workspace's agent event log
+  '.agents/sessions/'    # saved session notes (auto-clear and save-session write them)
   '.pi-lens-probe-home/' # pi-lens logs from the Pi runs in this workspace
   '.serena/'             # Serena's project folder, kept until inspected
 )
@@ -177,9 +178,13 @@ cmd_rm() {
   branch=$(git -C "$dir" branch --show-current)
   commit=$(git -C "$dir" rev-parse HEAD)
 
-  for path in "${delete[@]}"; do
-    rm -rf -- "${dir:?}/${path:?}"
-  done
+  # The length guard is for bash 3.2 (macOS /bin/bash), where expanding an empty
+  # array under `set -u` is an unbound-variable error.
+  if [ ${#delete[@]} -gt 0 ]; then
+    for path in "${delete[@]}"; do
+      rm -rf -- "${dir:?}/${path:?}"
+    done
+  fi
 
   if [ ${#archive[@]} -gt 0 ]; then
     archive_repo=$(archive_root "$primary")
