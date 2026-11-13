@@ -118,7 +118,7 @@ local gh = function(x)
 end
 
 -- Work machines: no WakaTime tracking. Add short hostnames (`hostname -s`) here.
-local no_wakatime_hosts = { ["pve-2-1"] = true }
+local no_wakatime_hosts = { ["pve-2"] = true }
 local use_wakatime = not no_wakatime_hosts[(vim.uv.os_gethostname():gsub("%..*$", ""))]
 
 vim.api.nvim_create_autocmd("PackChanged", {
