@@ -33,6 +33,26 @@ export function rangeArgs(refs, path) {
   return [...RUN_READ, "diff", ...range, "--no-ext-diff", "--no-textconv", "--no-color", "--", path];
 }
 
+// ------------------------------------------------------------ keyboard focus
+
+// The file index a j/k press lands on: the current one moved by `delta`, clamped to the list.
+// With no current file (nothing picked yet) the first press lands on the first file, and an
+// empty list has no index (-1).
+export function nextIndex(count, current, delta) {
+  if (!Number.isInteger(count) || count <= 0) return -1;
+  if (!Number.isInteger(current) || current < 0) return delta < 0 ? count - 1 : 0;
+  return Math.min(count - 1, Math.max(0, current + delta));
+}
+
+// The diff row a ctrl-d / ctrl-u press scrolls to: half a page (`pageRows` rows) from `top`,
+// clamped to [0, rows - 1]. An empty diff stays at 0.
+export function halfPageTarget(rows, top, pageRows, direction) {
+  if (!Number.isInteger(rows) || rows <= 0) return 0;
+  const step = Math.max(1, Math.floor((Number.isInteger(pageRows) ? pageRows : 0) / 2));
+  const from = Number.isInteger(top) ? top : 0;
+  return Math.min(rows - 1, Math.max(0, from + (direction < 0 ? -step : step)));
+}
+
 // --------------------------------------------------------------- error reports
 
 // The text of a copyable error report (Markdown), for pasting into an agent session. The same
@@ -92,24 +112,4 @@ export function reportFileName(mod, action, date = new Date()) {
 	const stamp = `${date.getFullYear()}${p(date.getMonth() + 1)}${p(date.getDate())}-${p(date.getHours())}${p(date.getMinutes())}${p(date.getSeconds())}`;
 	const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "x";
 	return `${stamp}-${slug(mod)}-${slug(action)}.md`;
-}
-
-// ------------------------------------------------------------ keyboard focus
-
-// The file index a j/k press lands on: the current one moved by `delta`, clamped to the list.
-// With no current file (nothing picked yet) the first press lands on the first file, and an
-// empty list has no index (-1).
-export function nextIndex(count, current, delta) {
-  if (!Number.isInteger(count) || count <= 0) return -1;
-  if (!Number.isInteger(current) || current < 0) return delta < 0 ? count - 1 : 0;
-  return Math.min(count - 1, Math.max(0, current + delta));
-}
-
-// The diff row a ctrl-d / ctrl-u press scrolls to: half a page (`pageRows` rows) from `top`,
-// clamped to [0, rows - 1]. An empty diff stays at 0.
-export function halfPageTarget(rows, top, pageRows, direction) {
-  if (!Number.isInteger(rows) || rows <= 0) return 0;
-  const step = Math.max(1, Math.floor((Number.isInteger(pageRows) ? pageRows : 0) / 2));
-  const from = Number.isInteger(top) ? top : 0;
-  return Math.min(rows - 1, Math.max(0, from + (direction < 0 ? -step : step)));
 }
