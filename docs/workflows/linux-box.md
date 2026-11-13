@@ -26,6 +26,11 @@ Mac row shows the usual case.
    ~/dotfiles/scripts/claude-settings-render
    ```
 
+   The generator reads the working copy of `claude/.claude/settings.json`, so an
+   uncommitted edit there is rendered too. `scripts/restow.sh` skips
+   `~/.claude/settings.json` on Linux, so the rendered file is not replaced by a stow
+   link.
+
 2. Create the Pi opt-in. Only the person creates this file; an agent must not write it.
 
    ```sh
@@ -59,7 +64,9 @@ Mac row shows the usual case.
    rm ~/.claude/plans/lx-smoke.md
    ```
 
-   This smoke test has not been run on any Linux machine.
+   This smoke test was run once on a real Linux machine on 2026-11-13 and passed: the
+   dispatch printed a `pi-dispatch task=` line, the log held the
+   `pi-sandbox: UNSANDBOXED on <host>` line, and Pi answered.
 
 ## 3. Keeping the rendered settings current
 
@@ -81,6 +88,11 @@ diff. When the hand edit can be discarded, rerun with `--force`:
 
 `--force` overwrites the file and keeps the previous contents as `settings.json.prev`.
 
+The exemptions in `sandbox.excludedCommands` match the command text as typed. Type the
+absolute path the rendered file holds, for example
+`/home/<you>/dotfiles/scripts/pi-dispatch ...`; `~/...` or `$HOME/...` does not match and
+runs sandboxed.
+
 ## 4. What is weaker on Linux
 
 - **Pi can write anywhere you can.** There is no sandbox around it on Linux, so it can write
@@ -92,6 +104,12 @@ diff. When the hand edit can be discarded, rerun with `--force`:
 - **Remove the opt-in when the sandbox lands.** Delete `~/.config/pi-sandbox/linux-open`
   once a bubblewrap port of `scripts/pi-sandbox` exists; until then `pi-sandbox` refuses to
   run Pi without it.
+- **Glob permission rules are ignored.** Claude Code warns on Linux that glob patterns in
+  sandbox permission rules are not fully supported. The `Edit(**/...)` deny rules (11 on
+  2026-11-13) are ignored by the sandbox there. Paths listed without a leading or middle
+  glob in `sandbox.filesystem.denyWrite` still apply. Not covered on Linux: review decisions
+  in other repositories and in worktrees, project `settings.local.json` files, and the gate
+  scripts inside worktrees.
 
 ## 5. Mask files in worktrees
 
@@ -123,6 +141,16 @@ Do not use a global gitignore. An unanchored `.zshrc` there would also hide `zsh
 the dotfiles repository itself. Take the real list from `git status` on your box; the names
 above are the common ones.
 
+### Mask files left at deny paths
+
+For a write-deny path that does not exist, the sandbox creates an empty placeholder. A
+session that is killed, or exits while a sandboxed command runs, leaves it behind. Seen:
+`<repo>/.git/config.lock` (blocks `git config` in that repository) and `~/.pi/agent/skills`.
+
+Fix: close every Claude session for that project (`pgrep -fl claude` lists them; quit them,
+do not kill them), check with `ls -ld` that the path is a 0-byte file, remove it with plain
+`rm`. Prevent it for `~/.pi/agent/skills` with `mkdir -p ~/.pi/agent/skills`.
+
 ## 6. Not fixable from this repository
 
 - Claude Code's built-in worktree guard refuses some commands it cannot parse:
@@ -152,5 +180,10 @@ Tested in an `ubuntu:24.04` container only, on 2026-11-12, by
 - `pi-sandbox` refuses without the opt-in and runs with it,
 - `scripts/pi-dispatch.test.mjs` passes.
 
-Not tested anywhere: the real Linux box, `pi-dispatch` end to end with `pueue`, `glab`
-output, Claude's bubblewrap sandbox, and everything in sections 5 and 6.
+Tested on a real Linux machine on 2026-11-13:
+
+- the setup in section 2,
+- `pi-dispatch` end to end with `pueue`.
+
+Still untested: `glab` output (the dotfiles remote is GitHub), and the worktree-guard items
+in section 6.
