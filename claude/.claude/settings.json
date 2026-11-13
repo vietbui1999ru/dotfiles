@@ -139,6 +139,7 @@
       "Bash(mise *ssh*)",
       "Bash(*focus drop*--yes*)",
       "Edit(~/.local/state/ac-run)",
+      "Edit(~/.local/state/jw-archive/**)",
       "Edit(~/.claude/state/focus)",
       "Edit(~/.claude/state/focus/**)",
       "Edit(~/.claude/state/gates)",
@@ -476,6 +477,7 @@
         "~/.local/state/pi-checks"
       ],
       "denyWrite": [
+        "~/.local/state/jw-archive",
         "~/.local/state/ac-run",
         "~/.claude/state/focus",
         "~/.claude/state/gates",
