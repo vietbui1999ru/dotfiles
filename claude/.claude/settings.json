@@ -13,9 +13,6 @@
       "Bash(gh pr merge --repo vietbui1999ru/agent-events*)",
       "Bash(git -C ~/repos/agent-events push*)",
       "Bash(/usr/bin/git -C ~/repos/agent-events push*)",
-      "Bash(~/.claude/plugins/cache/claude-plugins-official/superpowers/*/skills/brainstorming/scripts/start-server.sh:*)",
-      "mcp__sentry__authenticate",
-      "mcp__sentry__complete_authentication",
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git push:*)",
@@ -442,41 +439,10 @@
     "command": "~/.claude/statusline-command.sh"
   },
   "enabledPlugins": {
-    "basedpyright@claude-code-lsps": false,
-    "caveman@caveman": false,
-    "clangd@claude-code-lsps": false,
-    "explanatory-output-style@claude-plugins-official": false,
-    "gopls@claude-code-lsps": false,
-    "lean4-lake-lsp@claude-code-lsps": true,
-    "learning-output-style@claude-plugins-official": false,
-    "ocaml-lsp@claude-code-lsps": false,
-    "omnisharp@claude-code-lsps": false,
-    "pyright-lsp@claude-plugins-official": false,
-    "pyright@claude-code-lsps": false,
-    "ralph-loop@claude-plugins-official": false,
-    "ruby-lsp@claude-code-lsps": false,
-    "rust-analyzer@claude-code-lsps": false,
     "security-guidance@claude-plugins-official": true,
-    "superpowers@claude-plugins-official": false,
-    "typescript-lsp@claude-plugins-official": false,
-    "vscode-langservers@claude-code-lsps": false,
-    "vtsls@claude-code-lsps": false,
     "obsidian@obsidian-skills": false
   },
-  "extraKnownMarketplaces": {
-    "caveman": {
-      "source": {
-        "source": "github",
-        "repo": "JuliusBrussee/caveman"
-      }
-    },
-    "qmd": {
-      "source": {
-        "source": "github",
-        "repo": "tobi/qmd"
-      }
-    }
-  },
+  "extraKnownMarketplaces": {},
   "sandbox": {
     "enabled": true,
     "failIfUnavailable": true,
@@ -613,9 +579,6 @@
         "if [ \"${SEND_IT:-}\" = 1 ]; then export FIRECRAWL_ENV_FILE=\"$HOME/.config/send-it/.env\"; fi; exec \"$HOME/dotfiles/scripts/firecrawl-mcp\""
       ],
       "command": "bash"
-    },
-    "shadcn": {
-      "url": "https://www.shadcn.io/api/mcp"
     }
   }
 }
