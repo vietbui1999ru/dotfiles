@@ -117,6 +117,10 @@ local gh = function(x)
 	return "https://github.com/" .. x
 end
 
+-- Work machines: no WakaTime tracking. Add short hostnames (`hostname -s`) here.
+local no_wakatime_hosts = { ["pve-2-1"] = true }
+local use_wakatime = not no_wakatime_hosts[(vim.uv.os_gethostname():gsub("%..*$", ""))]
+
 vim.api.nvim_create_autocmd("PackChanged", {
 	group = vim.api.nvim_create_augroup("pack-build-hooks", { clear = true }),
 	callback = function(ev)
@@ -148,7 +152,6 @@ vim.pack.add({
 	{ src = gh("catppuccin/nvim"), name = "catppuccin" },
 	gh("tpope/vim-sleuth"),
 	gh("lewis6991/gitsigns.nvim"),
-	gh("wakatime/vim-wakatime"),
 	gh("numToStr/Comment.nvim"),
 	{ src = gh("mason-org/mason.nvim"), name = "mason.nvim" },
 	{ src = gh("mason-org/mason-lspconfig.nvim"), name = "mason-lspconfig.nvim" },
@@ -272,7 +275,10 @@ require("gitsigns").setup({
 	},
 })
 
-vim.cmd.packadd("vim-wakatime")
+-- Added here rather than in the list above: vim.pack.add loads what it adds.
+if use_wakatime then
+	vim.pack.add({ gh("wakatime/vim-wakatime") })
+end
 
 vim.cmd.packadd("smart-splits.nvim")
 require("custom.plugins.smart-splits")
