@@ -6,11 +6,18 @@ from pathlib import Path
 import json
 import os
 import subprocess
+import sys
 
 import random
 import unittest.mock
 
-from scripts.bench_lib import anonymize, arms, cli_log, collect, compare, events, loop, prepare, report, review
+# Running this file directly (`python3 scripts/tests/test_bench.py`) leaves the repository root off
+# sys.path; add it so the `scripts.bench_lib` import below works both ways.
+_root = Path(__file__).resolve().parent.parent.parent
+if str(_root) not in sys.path:
+    sys.path.insert(0, str(_root))
+
+from scripts.bench_lib import anonymize, arms, cli_log, collect, compare, events, loop, prepare, report, review  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 BENCH = ROOT / "scripts" / "bench"
