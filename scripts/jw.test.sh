@@ -138,7 +138,8 @@ printf 'keep\n' >"$arc/scripts/keep.txt"
 printf '%s\n' '__pycache__/' '.ruff_cache/' '.pi/' '.agents/events.jsonl' \
   '.pi-lens-probe-home/' '.serena/' >"$arc/.gitignore"
 git -C "$arc" add .gitignore .agents/plugins/marketplace.json scripts/keep.txt \
-  && git -C "$arc" -c user.name=t -c user.email=t@t commit -q -m "records" >/dev/null \
+  || fail "arc setup add failed"
+git -C "$arc" -c user.name=t -c user.email=t@t commit -q -m "records" >/dev/null \
   || fail "arc setup commit failed"
 mkdir -p "$arc/scripts/__pycache__" "$arc/.ruff_cache" \
   "$arc/.pi/agent-review/decisions" "$arc/.pi-lens-probe-home" "$arc/.serena"
@@ -168,7 +169,8 @@ unk="$main/.claude/worktrees/unk"
 run_jw new feat/unk >/dev/null || fail "jw new feat/unk failed"
 printf '%s\n' '.pi/' 'node_modules/' >"$unk/.gitignore"
 git -C "$unk" add .gitignore \
-  && git -C "$unk" -c user.name=t -c user.email=t@t commit -q -m "ignore" >/dev/null \
+  || fail "unk setup add failed"
+git -C "$unk" -c user.name=t -c user.email=t@t commit -q -m "ignore" >/dev/null \
   || fail "unk setup commit failed"
 mkdir -p "$unk/.pi" "$unk/node_modules/pkg"
 printf 'x\n' >"$unk/.pi/x"
@@ -194,7 +196,11 @@ run_jw rm prune >/dev/null || fail "jw rm prune failed"
 for bad in wip/x feat/../x feat/Upper feat/-x 'feat/a b' feat/abcdefghijkl; do
   expect_refusal "new $bad" run_jw new "$bad"
 done
-[ -z "$(ls "$main/.claude/worktrees" | grep -v decoy-target)" ] || fail "a refused name left a workspace"
+for leftover in "$main/.claude/worktrees"/*; do
+  [ -e "$leftover" ] || continue
+  [ "$(basename "$leftover")" = decoy-target ] && continue
+  fail "a refused name left a workspace: $leftover"
+done
 expect_refusal "rm with an uppercase name" run_jw rm Bad_Name
 
 # --full is refused in any position until full mode (S4) exists.
@@ -204,10 +210,12 @@ expect_refusal "new --full=10m" run_jw new feat/full --full=10m
 
 # bg: creates the workspace, then runs claude --bg there with the prompt as one word.
 mkdir -p "$dir/bin"
+# shellcheck disable=SC2016 # the format is for the generated script, not this one
 printf '#!/bin/sh\npwd -P >"%s/claude.out"\nfor a; do printf "[%%s]\\n" "$a"; done >>"%s/claude.out"\n' \
   "$dir" "$dir" >"$dir/bin/claude"
 chmod +x "$dir/bin/claude"
 bgws="$main/.claude/worktrees/bgx"
+# shellcheck disable=SC2016 # the literal metacharacters are the point
 prompt='do a; then b | c $(id)'
 export SECRETS_ENV="$dir/no-secrets.env"  # the plain path; with-secrets has its own tests
 (cd "$main" && PATH="$dir/bin:$PATH" "$JW" bg feat/bgx "$prompt") || fail "jw bg failed"
