@@ -67,7 +67,7 @@ Milestone 1 and the later ones go to Pi as separate dispatches, with milestone 2
 3. In the new workspace: `jj bookmark create <branch> -r @-`, then `git switch <branch>`.
 4. Print the absolute path.
 
-`jw rm <name>`: refuse if the workspace has uncommitted changes. Run `jj workspace forget <name>`, confirm the directory and the `git worktree list` entry are gone, and remove the worktree without `--force` if not. Never delete the branch.
+`jw rm <name>`: refuse if the workspace has uncommitted changes. Gitignored content is handled before removal: known caches (`__pycache__/` at any depth and `.ruff_cache/`) are deleted, and known agent records (`.pi/`, `.serena/`, `.pi-lens-probe-home/` and `.agents/events.jsonl`) are moved to `${XDG_STATE_HOME:-$HOME/.local/state}/jw-archive/<repo>/<name>-<YYYYMMDD-HHMMSS>/`, keeping their relative paths. The archive also holds a `jw-meta.txt` with the branch, HEAD commit and date. Any other gitignored entry makes `jw rm` refuse and name it. Archives older than 14 days are pruned after a successful removal. To inspect one, read it from that folder, for example `.pi/agent-review/decisions` for the approved Pi runs. Then run `jj workspace forget <name>`, confirm the directory and the `git worktree list` entry are gone, and remove the worktree without `--force` if not. Never delete the branch.
 
 Zsh functions next to the existing aliases in `zsh/.zsh/`, so the interactive `claude` wrapper still injects MCP keys:
 
