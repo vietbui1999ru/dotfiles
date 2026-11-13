@@ -130,6 +130,14 @@ class RenderTest(unittest.TestCase):
         self.assertEqual(self.state.read_text().strip(),
                          hashlib.sha256(self.target.read_bytes()).hexdigest())
 
+    def test_refuses_duplicate_keys(self):
+        self.source.write_text(
+            '{"sandbox": {"enabled": true}, "sandbox": {"enabled": false}}')
+        result = self.run_script()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("duplicate key", result.stderr)
+        self.assertFalse(self.target.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
