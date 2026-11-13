@@ -34,6 +34,17 @@ def fail(msg):
     sys.exit(1)
 
 
+def duplicate_key_hook(source):
+    def hook(pairs):
+        seen = set()
+        for key, _ in pairs:
+            if key in seen:
+                fail(f'duplicate key "{key}" in {source}')
+            seen.add(key)
+        return dict(pairs)
+    return hook
+
+
 def substitute(node, home):
     if isinstance(node, dict):
         return {k: substitute(v, home) for k, v in node.items()}
@@ -92,7 +103,10 @@ def main():
     if parent == repo or repo in parent.parents:
         fail(f"target folder {parent} is inside the dotfiles repo; refusing")
 
-    text = render(json.loads(Path(args.source).read_text()), home)
+    text = render(
+        json.loads(Path(args.source).read_text(), object_pairs_hook=duplicate_key_hook(args.source)),
+        home,
+    )
 
     is_link = target.is_symlink()
     is_file = target.is_file() and not is_link
