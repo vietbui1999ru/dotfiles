@@ -319,6 +319,16 @@ def cmd_save(args: argparse.Namespace) -> None:
             fpath = sdir / f"{Path(fname).stem}-{suffix}{Path(fname).suffix}"
             suffix += 1
         fname = fpath.name
+        if kind == "session":
+            # A new session note supersedes this worktree+harness's previous active note.
+            for row in index["sessions"]:
+                if (row.get("kind") == "session" and row.get("status") == "active"
+                        and row.get("harness") == harness
+                        and row.get("worktree") == str(context["worktree"])):
+                    old = sdir / row["file"]
+                    if old.exists():
+                        _mark_note_idle(old)
+                    row["status"] = "idle"
         fpath.write_text(content)
         if not getattr(args, "skip_legacy_pointer", False):
             write_legacy_pointer(root, harness, fname)
@@ -419,6 +429,14 @@ def cmd_active(args: argparse.Namespace) -> None:
     print(f".agents/sessions/{latest['file']}")
 
 
+def _mark_note_idle(fpath: Path) -> None:
+    content = fpath.read_text()
+    content, count = re.subn(r'(?m)^status:\s*(?:"active"|\'active\')\s*$', "status: idle", content, count=1)
+    if not count:
+        content, _ = re.subn(r'(?m)^status: active\s*$', "status: idle", content, count=1)
+    fpath.write_text(content)
+
+
 def cmd_idle(args: argparse.Namespace) -> None:
     # If the first positional looks like a directory, treat it as repo
     repo = args.repo
@@ -439,11 +457,7 @@ def cmd_idle(args: argparse.Namespace) -> None:
             fpath = sessions_dir(root) / active[-1]["file"]
         if not fpath.exists():
             die(f"session file not found: {fpath}")
-        content = fpath.read_text()
-        content, count = re.subn(r'(?m)^status:\s*(?:"active"|\'active\')\s*$', "status: idle", content, count=1)
-        if not count:
-            content, _ = re.subn(r'(?m)^status: active\s*$', "status: idle", content, count=1)
-        fpath.write_text(content)
+        _mark_note_idle(fpath)
         for row in index.get("sessions", []):
             if row.get("file") == fpath.name:
                 row["status"] = "idle"
@@ -451,30 +465,75 @@ def cmd_idle(args: argparse.Namespace) -> None:
     print(f"✓ Marked idle: .agents/sessions/{fpath.name}")
 
 
+def _rebuild_index(root: Path) -> int:
+    # Caller must hold index_lock(root).
+    sdir = sessions_dir(root)
+    sessions = []
+    if sdir.is_dir():
+        for f in sorted(sdir.glob("*.md")):
+            fm, _ = parse_frontmatter(f.read_text())
+            row = {
+                "file": f.name, "kind": fm.get("kind", "session"),
+                "harness": fm.get("harness", "unknown"),
+                "work_type": fm.get("work_type", "general"),
+                "status": fm.get("status", "unknown"), "goal": fm.get("goal", ""),
+                "saved_at": fm.get("saved_at", ""), "branch": fm.get("branch", ""),
+                "task": fm.get("task", ""),
+            }
+            for key in ("worktree", "head", "source_session", "parent_checkpoint", "reason", "target_harness", "summary_missing"):
+                if key in fm:
+                    row[key] = fm[key]
+            sessions.append(row)
+    write_index(root, {"sessions": sessions})
+    return len(sessions)
+
+
 def cmd_index(args: argparse.Namespace) -> None:
     root = git_main_root(Path(args.repo if args.repo else "."))
-    sdir = sessions_dir(root)
     with index_lock(root):
         # Reindex may rebuild records, but must not conceal an unreadable index.
         read_index(root)
-        sessions = []
-        if sdir.is_dir():
-            for f in sorted(sdir.glob("*.md")):
-                fm, _ = parse_frontmatter(f.read_text())
-                row = {
-                    "file": f.name, "kind": fm.get("kind", "session"),
-                    "harness": fm.get("harness", "unknown"),
-                    "work_type": fm.get("work_type", "general"),
-                    "status": fm.get("status", "unknown"), "goal": fm.get("goal", ""),
-                    "saved_at": fm.get("saved_at", ""), "branch": fm.get("branch", ""),
-                    "task": fm.get("task", ""),
-                }
-                for key in ("worktree", "head", "source_session", "parent_checkpoint", "reason", "target_harness", "summary_missing"):
-                    if key in fm:
-                        row[key] = fm[key]
-                sessions.append(row)
-        write_index(root, {"sessions": sessions})
-    print(f"✓ Index rebuilt: {len(sessions)} sessions")
+        n = _rebuild_index(root)
+    print(f"✓ Index rebuilt: {n} sessions")
+
+
+def _note_age_days(f: Path, fm: dict[str, str], now: datetime) -> float:
+    try:
+        saved = datetime.strptime(fm.get("saved_at", ""), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        saved = datetime.fromtimestamp(f.stat().st_mtime, timezone.utc)
+    return (now - saved).total_seconds() / 86400
+
+
+def cmd_prune(args: argparse.Namespace) -> None:
+    root = git_main_root(Path(args.repo if args.repo else "."))
+    sdir = sessions_dir(root)
+    archive = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "agent-sessions-archive" / root.name
+    with index_lock(root):
+        # Fails closed on a corrupt index, like cmd_index.
+        read_index(root)
+        notes = sorted(sdir.glob("*.md")) if sdir.is_dir() else []
+        now = datetime.now(timezone.utc)
+        old = []
+        for f in notes:
+            fm, _ = parse_frontmatter(f.read_text())
+            if _note_age_days(f, fm, now) > args.days:
+                old.append(f)
+        if args.dry_run:
+            for f in old:
+                print(f"  would archive {f.name}")
+            print(f"✓ Dry run: {len(old)} of {len(notes)} notes older than {args.days} days")
+            return
+        archive.mkdir(parents=True, exist_ok=True)
+        for f in old:
+            target = archive / f.name
+            suffix = 1
+            while target.exists():
+                target = archive / f"{f.stem}-{suffix}{f.suffix}"
+                suffix += 1
+            shutil.move(str(f), str(target))
+        _rebuild_index(root)
+    print(f"✓ Archived {len(old)} of {len(notes)} notes to {archive}")
 
 
 def cmd_path(args: argparse.Namespace) -> None:
@@ -548,6 +607,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("file", nargs="?")
     p.add_argument("repo", nargs="?")
     p.set_defaults(func=cmd_idle)
+
+    p = sub.add_parser("prune", help="Archive notes older than N days, then rebuild index.json")
+    p.add_argument("repo", nargs="?")
+    p.add_argument("--days", type=int, default=30)
+    p.add_argument("--dry-run", action="store_true")
+    p.set_defaults(func=cmd_prune)
 
     p = sub.add_parser("index", help="Rebuild index.json from files")
     p.add_argument("repo", nargs="?")

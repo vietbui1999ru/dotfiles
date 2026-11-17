@@ -29,12 +29,4 @@ TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 printf '{"ts":"%s","tool":"%s","session":"%s","ok":%s,"model":"%s","effort":"%s"}\n' \
 	"$TS" "$TOOL" "$SESSION" "$OK" "$MODEL" "$EFFORT" >>"$LOG_FILE"
 
-# Universal inbox: also save to .agents/sessions/ via agent-session (lightweight,
-# non-blocking; best-effort — never fails the hook). Keeps Codex sessions in the
-# same universal inbox as cc/opencode/pi. Legacy logging above is unchanged.
-if command -v agent-session >/dev/null 2>&1; then
-	STATE_BODY="## Session log entry\n- ts: $TS\n- tool: $TOOL\n- session: $SESSION\n- ok: $OK\n- model: $MODEL\n- effort: $EFFORT\n"
-	printf '%s' "$STATE_BODY" | agent-session save --harness codex --work-type general --kind session --goal "codex session $SESSION" --body - >/dev/null 2>&1 || true
-fi
-
 exit 0

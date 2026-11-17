@@ -1,18 +1,21 @@
 """Regression tests for agent-session worktree identity and index updates."""
 
 import json
+import os
+import re
 import subprocess
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "agent-session"
 
 
-def run(*args, cwd=None, input=None):
+def run(*args, cwd=None, input=None, env=None):
     return subprocess.run(
-        [str(SCRIPT), *map(str, args)], cwd=cwd, input=input, text=True,
+        [str(SCRIPT), *map(str, args)], cwd=cwd, input=input, text=True, env=env,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
 
@@ -44,6 +47,21 @@ class AgentSessionHandoffTests(unittest.TestCase):
 
     def save(self, path, goal):
         return run("save", "--harness", "codex", "--goal", goal, path)
+
+    def prune(self, *extra):
+        return run("prune", *extra, self.feature,
+                   env={**os.environ, "XDG_STATE_HOME": str(self.base / "state")})
+
+    @property
+    def archive(self):
+        return self.base / "state" / "agent-sessions-archive" / self.repo.name
+
+    def age_note(self, name, days):
+        stamp = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        path = self.inbox / name
+        path.write_text(re.sub(r'(?m)^saved_at:.*$',
+                               lambda m: "saved_at: " + json.dumps(stamp),
+                               path.read_text()))
 
     def test_task_identity_survives_all_save_forms_and_reindex(self):
         for kind, stdin in [("session", False), ("spec", False), ("session", True)]:
@@ -157,6 +175,70 @@ class AgentSessionHandoffTests(unittest.TestCase):
         self.assertEqual(len(rows), 9)
         self.assertEqual(len({r["file"] for r in rows}), 9)
         self.assertIn("status: idle", (self.inbox / existing).read_text())
+
+    def test_second_session_save_retires_previous_note(self):
+        for goal in ("first goal", "second goal"):
+            result = self.save(self.feature, goal)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        rows = self.index()["sessions"]
+        self.assertEqual(rows[0]["status"], "idle")
+        self.assertIn("status: idle", (self.inbox / rows[0]["file"]).read_text())
+        self.assertEqual(rows[1]["status"], "active")
+
+    def test_save_from_other_harness_or_checkout_keeps_note_active(self):
+        result = self.save(self.feature, "codex goal")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = run("save", "--harness", "cc", "--goal", "x", self.feature)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = self.save(self.repo, "main")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.index()["sessions"][0]["status"], "active")
+
+    def test_spec_save_does_not_retire_session_note(self):
+        result = self.save(self.feature, "session goal")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = run("save", "--kind", "spec", "--harness", "codex", "--goal", "s", self.feature)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.index()["sessions"][0]["status"], "active")
+
+    def save_two_and_age_first(self):
+        for goal in ("old goal", "new goal"):
+            result = self.save(self.feature, goal)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        old, new = [row["file"] for row in self.index()["sessions"]]
+        self.age_note(old, 40)
+        return old, new
+
+    def test_prune_archives_old_notes_and_rebuilds_index(self):
+        old, new = self.save_two_and_age_first()
+        result = self.prune("--days", "30")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.archive / old).exists())
+        self.assertFalse((self.inbox / old).exists())
+        self.assertTrue((self.inbox / new).exists())
+        self.assertEqual([row["file"] for row in self.index()["sessions"]], [new])
+
+    def test_prune_dry_run_moves_nothing(self):
+        old, new = self.save_two_and_age_first()
+        result = self.prune("--dry-run", "--days", "30")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(old, result.stdout + result.stderr)
+        self.assertTrue((self.inbox / old).exists())
+        self.assertTrue((self.inbox / new).exists())
+        self.assertFalse(self.archive.exists())
+
+    def test_prune_name_collision_gets_suffix(self):
+        result = self.save(self.feature, "collision goal")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        name = self.index()["sessions"][0]["file"]
+        self.age_note(name, 40)
+        self.archive.mkdir(parents=True)
+        placeholder = self.archive / name
+        placeholder.write_text("placeholder\n")
+        result = self.prune("--days", "30")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(placeholder.read_text(), "placeholder\n")
+        self.assertTrue((self.archive / f"{Path(name).stem}-1.md").exists())
 
 
 if __name__ == "__main__":
