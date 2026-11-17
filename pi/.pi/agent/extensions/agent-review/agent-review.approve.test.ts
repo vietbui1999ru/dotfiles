@@ -340,11 +340,13 @@ test("the caller chain names the real calling programs, nearest first", { skip: 
   assert.ok(caller.every((name: unknown) => typeof name === "string" && name !== ""));
 });
 
-test("an Approve that lands faster than a person can read is not-confirmed", async () => {
+test("an Approve that lands faster than a person can read is refused as too-fast", async () => {
   const root = makeRepo();
   const id = await pendingRun(root);
   const out = approveDialog(root, id, "Approve", 0.3);
-  assert.equal(out.json.reason, "not-confirmed");
+  assert.equal(out.status, 2);
+  // Not "not-confirmed": pi-fleet and the toast show that one as "Cancelled" with no reason.
+  assert.equal(out.json.reason, "too-fast");
   assert.match(String(out.json.message), /too fast/);
   assert.deepEqual(list(join(dirOf(root), "decisions")), []);
   assert.deepEqual(list(join(dirOf(root), "pending")), [`${id}.json`]);

@@ -120,8 +120,9 @@ Build as three separate commits, in this order.
     agent cannot click it. Claude's settings also deny running `agent-review approve`.
     The dialog names the run, its worktree and branch, and the programs that asked for it
     ("Asked by: Herdr < launchd"), so an unexpected dialog is recognisable. An "Approve" that
-    arrives in under 1 s is refused as `not-confirmed` ("answered too fast"): it is a click or
-    keystroke that was already on its way when the dialog took the focus.
+    arrives in under 1 s is refused with the reason `too-fast`: it is a click or keystroke
+    that was already on its way when the dialog took the focus. It has its own reason because
+    the UIs show `not-confirmed` as a plain "Cancelled", without the message.
   - The decision it writes records who approved: `decidedAt` (UTC), `caller` (program names
     of the calling processes, nearest first, never their arguments), `cwd`, and
     `dialogSeconds` (how long the dialog was open; `null` on Linux). Pi ignores these fields.

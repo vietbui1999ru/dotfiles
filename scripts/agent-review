@@ -220,8 +220,8 @@ def caller_chain(limit: int = 6) -> list[str]:
             out = subprocess.run(["ps", "-o", "ppid=,comm=", "-p", str(pid)],
                                  capture_output=True, text=True, timeout=5).stdout.strip()
             parent, _, name = out.partition(" ")
+            pid = int(parent)  # no output (the process is gone) ends the chain here
             chain.append(Path(name.strip()).name or "?")
-            pid = int(parent)
         except Exception:
             break
     return chain
@@ -309,8 +309,10 @@ def confirm(root: Path, run_id: str, files: list[str], name: str = "") -> bool:
     button, seconds = dialog(message)
     DIALOG["seconds"] = round(seconds, 1)
     if button == "Approve" and seconds < MIN_DIALOG_SECONDS:
-        raise Refusal("not-confirmed", f"the dialog was answered too fast to be deliberate "
-                                       f"(under {MIN_DIALOG_SECONDS:g} s); approve again")
+        # Its own reason, not "not-confirmed": the UIs render that one as a plain
+        # "Cancelled" and drop the message, which would hide why nothing was approved.
+        raise Refusal("too-fast", f"Approve was pressed within {MIN_DIALOG_SECONDS:g} s of the "
+                                  f"dialog opening, too fast to be deliberate; approve again")
     return button == "Approve"
 
 
