@@ -236,4 +236,107 @@ expect_refusal "bg dash prompt" run_jw bg feat/bgx '-p'
 expect_refusal "bg bad branch" run_jw bg main hi
 run_jw rm bgx >/dev/null || fail "rm bgx failed"
 
+# ls and sweep. Fake gh and lsof sit first on PATH; the test writes their answers
+# to files, so each case controls the merged PRs, the live cwds and failures.
+fake="$dir/fake"
+mkdir -p "$fake" || fail "fake setup mkdir failed"
+cat >"$fake/gh" <<'GH'
+#!/bin/sh
+[ -e "$FAKE_DIR/gh-fail" ] && exit 1
+cat "$FAKE_DIR/merged.json"
+GH
+cat >"$fake/lsof" <<'LSOF'
+#!/bin/sh
+[ -e "$FAKE_DIR/lsof-fail" ] && exit 2
+[ -s "$FAKE_DIR/live" ] || exit 1
+while IFS= read -r p; do printf 'n%s\n' "$p"; done <"$FAKE_DIR/live"
+LSOF
+chmod +x "$fake/gh" "$fake/lsof" || fail "fake chmod failed"
+export FAKE_DIR="$fake"
+run_ls() { (cd "$main" && PATH="$fake:$PATH" "$JW" ls); }
+run_sweep() { (cd "$main" && PATH="$fake:$PATH" "$JW" sweep "$@"); }
+row() { awk -F'\t' -v n="$1" '$1==n{print $3"\t"$4}' <<<"$2"; }
+
+# Fixtures: one workspace per reason, each on its own branch with one commit.
+mk_ws() {
+  local n=$1 b=$2
+  run_jw new "$b" >/dev/null || fail "ls fixture $b failed"
+  printf '%s\n' "$n" >"$main/.claude/worktrees/$n/$n.txt" || fail "ls fixture write $n failed"
+  git -C "$main/.claude/worktrees/$n" add "$n.txt" || fail "ls fixture add $n failed"
+  git -C "$main/.claude/worktrees/$n" -c user.name=t -c user.email=t@t commit -q -m "$n" || fail "ls fixture commit $n failed"
+}
+mk_ws good feat/good
+mk_ws unmerged feat/unmerged
+mk_ws moved feat/moved
+mk_ws live feat/live
+mk_ws dirty feat/dirty
+mk_ws unkls feat/unkls
+mk_ws detached feat/detached
+git -C "$main/.claude/worktrees/detached" checkout -q --detach || fail "detach fixture failed"
+
+# unkls commits its .gitignore first, so its recorded merged oid is its final HEAD.
+printf 'node_modules/\n' >"$main/.claude/worktrees/unkls/.gitignore" || fail "unk gitignore write failed"
+git -C "$main/.claude/worktrees/unkls" add .gitignore || fail "unk gitignore add failed"
+git -C "$main/.claude/worktrees/unkls" -c user.name=t -c user.email=t@t commit -q -m ignore || fail "unk gitignore commit failed"
+mkdir -p "$main/.claude/worktrees/unkls/node_modules/pkg" || fail "unk mkdir failed"
+printf 'x\n' >"$main/.claude/worktrees/unkls/node_modules/pkg/i.js" || fail "unk js write failed"
+
+# Merged PRs: good, live, dirty, unkls are merged at their current HEAD; moved
+# is merged at a stale oid.
+good_oid=$(git -C "$main/.claude/worktrees/good" rev-parse HEAD)
+live_oid=$(git -C "$main/.claude/worktrees/live" rev-parse HEAD)
+dirty_oid=$(git -C "$main/.claude/worktrees/dirty" rev-parse HEAD)
+unk_oid=$(git -C "$main/.claude/worktrees/unkls" rev-parse HEAD)
+printf '[{"headRefName":"feat/good","headRefOid":"%s"},{"headRefName":"feat/live","headRefOid":"%s"},{"headRefName":"feat/dirty","headRefOid":"%s"},{"headRefName":"feat/unkls","headRefOid":"%s"},{"headRefName":"feat/moved","headRefOid":"0000000000000000000000000000000000000000"}]\n' \
+  "$good_oid" "$live_oid" "$dirty_oid" "$unk_oid" >"$fake/merged.json" || fail "merged.json write failed"
+: >"$fake/live" || fail "live reset failed"
+printf '%s\n' "$(cd "$main/.claude/worktrees/live" && pwd -P)" >"$fake/live" || fail "live write failed"
+printf 'dirty\n' >>"$main/.claude/worktrees/dirty/dirty.txt" || fail "dirty write failed"
+
+ls_out=$(run_ls) || fail "jw ls failed"
+[ "$(row good "$ls_out")" = "$(printf 'sweep\tok')" ] || fail "ls: good not sweep: $(row good "$ls_out")"
+[ "$(row unmerged "$ls_out")" = "$(printf 'keep\tnot merged')" ] || fail "ls: unmerged reason wrong"
+[ "$(row moved "$ls_out")" = "$(printf 'keep\tnewer commits')" ] || fail "ls: moved reason wrong"
+[ "$(row live "$ls_out")" = "$(printf 'keep\tlive')" ] || fail "ls: live reason wrong"
+[ "$(row dirty "$ls_out")" = "$(printf 'keep\tuncommitted')" ] || fail "ls: dirty reason wrong"
+[ "$(row unkls "$ls_out")" = "$(printf 'keep\tunknown ignored: node_modules')" ] || fail "ls: unknown reason wrong: $(row unkls "$ls_out")"
+[ "$(row detached "$ls_out")" = "$(printf 'keep\tdetached')" ] || fail "ls: detached reason wrong"
+[ "$(printf '%s\n' "$ls_out" | awk -F'\t' '$3=="sweep"' | wc -l | tr -d ' ')" -eq 1 ] || fail "ls: expected exactly one sweep row"
+
+# gh failure: every row is keep with merged?.
+printf 'x\n' >"$fake/gh-fail"
+gh_out=$(run_ls) || fail "jw ls failed with gh down"
+[ "$(printf '%s\n' "$gh_out" | awk -F'\t' '$3=="keep" && $4=="merged?"' | wc -l | tr -d ' ')" -eq "$(printf '%s\n' "$gh_out" | grep -c .)" ] || fail "gh failure did not keep every row with merged?: $(printf '%s' "$gh_out" | tr '\n' '|')"
+rm -f "$fake/gh-fail"
+
+# lsof failure: every otherwise-sweepable row becomes live?.
+printf 'x\n' >"$fake/lsof-fail"
+lsof_out=$(run_ls) || fail "jw ls failed with lsof down"
+[ "$(row good "$lsof_out")" = "$(printf 'keep\tlive?')" ] || fail "lsof failure did not give live? for good"
+rm -f "$fake/lsof-fail"
+
+# sweep preview removes nothing and names the one sweepable workspace.
+preview=$(run_sweep 2>"$dir/err") || fail "jw sweep preview failed"
+[ "$preview" = good ] || fail "sweep preview listed '$preview', expected good"
+grep -q 'would be removed' "$dir/err" || fail "sweep preview did not explain the count"
+[ -d "$main/.claude/worktrees/good" ] || fail "sweep preview removed good"
+
+# sweep --apply removes only the sweepable workspace; everything else and every
+# branch survives. The rm path also archives nothing here (no ignored records).
+run_sweep --apply >"$dir/out" 2>"$dir/err" || fail "jw sweep --apply failed: $(cat "$dir/err")"
+[ ! -e "$main/.claude/worktrees/good" ] || fail "sweep --apply did not remove good"
+(cd "$main" && jj workspace list | grep -q '^good: ') && fail "sweep --apply left good in jj"
+git -C "$main" worktree list | grep -q 'worktrees/good$' && fail "sweep --apply left good in git"
+git -C "$main" rev-parse --verify -q refs/heads/feat/good >/dev/null || fail "sweep --apply deleted the branch"
+for keep_ws in unmerged moved live dirty unkls detached; do
+  [ -d "$main/.claude/worktrees/$keep_ws" ] || fail "sweep --apply removed $keep_ws"
+done
+for keep_b in feat/unmerged feat/moved feat/live feat/dirty feat/unkls feat/detached; do
+  git -C "$main" rev-parse --verify -q "refs/heads/$keep_b" >/dev/null || fail "sweep --apply deleted $keep_b"
+done
+
+# Argument errors: sweep takes only --apply.
+expect_refusal "sweep with a bad flag" run_sweep --force
+expect_refusal "sweep with two flags" run_sweep --apply --apply
+
 printf 'PASS: jw\n'
