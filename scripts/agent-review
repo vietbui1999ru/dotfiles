@@ -206,10 +206,32 @@ def events_path() -> Path:
     return Path(state) / "herdr-mods" / "gate-events.jsonl"
 
 
+def caller_chain(limit: int = 6) -> list[str]:
+    """Program names of the processes that called this one, nearest first.
+
+    It answers "which UI asked for this approval" (Herdr, a Claude pane, Neovim, a shell).
+    Names only, never arguments: a command line can hold a secret. Best effort: an
+    unreadable process ends the chain.
+    """
+    chain: list[str] = []
+    pid = os.getppid()
+    while pid > 1 and len(chain) < limit:
+        try:
+            out = subprocess.run(["ps", "-o", "ppid=,comm=", "-p", str(pid)],
+                                 capture_output=True, text=True, timeout=5).stdout.strip()
+            parent, _, name = out.partition(" ")
+            pid = int(parent)  # no output (the process is gone) ends the chain here
+            chain.append(Path(name.strip()).name or "?")
+        except Exception:
+            break
+    return chain
+
+
 def record_event(action: str, outcome: str, target: str, message: str | None) -> None:
     """Best-effort and silent: a failed write never changes the gate's reply or exit code."""
     line = json.dumps({"ts": int(time.time() * 1000), "gate": "agent-review", "action": action,
-                       "outcome": outcome, "target": target, "message": message})
+                       "outcome": outcome, "target": target, "message": message,
+                       "caller": caller_chain()})
     try:
         path = events_path()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -256,7 +278,16 @@ def find_owner(root: Path, run_id: str) -> Path | None:
     return None
 
 
-def confirm(root: Path, run_id: str, files: list[str]) -> bool:
+# An "Approve" that arrives sooner than this was not read: it is a keystroke or click that
+# was already on its way when the dialog took the focus.
+MIN_DIALOG_SECONDS = 1.0
+
+# How the last dialog went, for the decision record: seconds it was open, or None when no
+# dialog ran (Linux).
+DIALOG: dict[str, float | None] = {"seconds": None}
+
+
+def confirm(root: Path, run_id: str, files: list[str], name: str = "") -> bool:
     """Ask the person, in a dialog an agent cannot click. No bypass on macOS.
 
     Linux has no dialog, so the gate is off there and approval goes through without asking:
@@ -265,8 +296,28 @@ def confirm(root: Path, run_id: str, files: list[str]) -> bool:
     if sys.platform.startswith("linux"):
         print("agent-review: no approval dialog on Linux; approving without confirmation", file=sys.stderr)
         return True
+    try:
+        branch = git(root, "branch", "--show-current") or "detached"
+    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+        branch = "unknown"
     shown = ", ".join(files[:10])
-    message = f"Approve Pi run {run_id[:8]} in {root.name}?\n\n{len(files)} file(s): {shown}"
+    # Name the run, where it lives and who asked, so an unexpected dialog is recognisable.
+    message = (f"Approve Pi run {name or run_id[:8]} ({run_id[:8]})?\n\n"
+               f"Worktree: {root.name} [{branch}]\n"
+               f"Asked by: {' < '.join(caller_chain()) or 'unknown'}\n\n"
+               f"{len(files)} file(s): {shown}")
+    button, seconds = dialog(message)
+    DIALOG["seconds"] = round(seconds, 1)
+    if button == "Approve" and seconds < MIN_DIALOG_SECONDS:
+        # Its own reason, not "not-confirmed": the UIs render that one as a plain
+        # "Cancelled" and drop the message, which would hide why nothing was approved.
+        raise Refusal("too-fast", f"Approve was pressed within {MIN_DIALOG_SECONDS:g} s of the "
+                                  f"dialog opening, too fast to be deliberate; approve again")
+    return button == "Approve"
+
+
+def dialog(message: str) -> tuple[str, float]:
+    """Show the approval dialog. Returns the button pressed ("" for none) and seconds open."""
     script = [
         "on run argv",
         'display dialog (item 1 of argv) with title "agent-review" buttons {"Cancel", "Approve"} '
@@ -275,11 +326,13 @@ def confirm(root: Path, run_id: str, files: list[str]) -> bool:
         "end run",
     ]
     command = ["/usr/bin/osascript"] + [a for line in script for a in ("-e", line)] + [message]
+    started = time.monotonic()
     try:
         result = subprocess.run(command, capture_output=True, text=True, timeout=30)
     except Exception:
-        return False
-    return result.returncode == 0 and result.stdout.strip() == "Approve"
+        return "", time.monotonic() - started
+    button = result.stdout.strip() if result.returncode == 0 else ""
+    return button, time.monotonic() - started
 
 
 # The next step for a refusal, appended to its message. It names the person's step and
@@ -378,6 +431,10 @@ def consume(root: Path, d: Path, run_id: str, record: dict[str, object], files: 
                 "runId": run_id, "endTree": record["endTree"], "finalTree": tree,
                 "files": [{"file": f, "status": "accepted"} for f in files],
                 "notes": [], "patch": "", "via": "agent-review approve",
+                # Who approved, when and from where. Pi ignores these fields.
+                "decidedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "caller": caller_chain(), "cwd": os.getcwd(),
+                "dialogSeconds": DIALOG["seconds"],
             })
         os.remove(claim)
     except Refusal:
@@ -412,7 +469,7 @@ def approve(run_id: str) -> int:
     if snapshot_tree(root) != record["endTree"]:
         raise Refusal("tree-changed", "the working tree changed since the run ended")
     files = [f["file"] for f in record["files"] if isinstance(f, dict) and isinstance(f.get("file"), str)]
-    if not confirm(root, run_id, files):
+    if not confirm(root, run_id, files, str(record.get("name") or "")):
         raise Refusal("not-confirmed", "approval needs the person to confirm the dialog")
     consume(root, d, run_id, record, files, decided)
     return reply(True, runId=run_id)

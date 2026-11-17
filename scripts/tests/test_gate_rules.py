@@ -120,7 +120,8 @@ class AgentReviewGateEvents(unittest.TestCase):
                 events = self.events()
                 self.assertEqual(len(events), before + 1)
                 event = events[-1]
-                self.assertEqual(set(event), {"ts", "gate", "action", "outcome", "target", "message"})
+                self.assertEqual(set(event), {"ts", "gate", "action", "outcome", "target", "message", "caller"})
+                self.assertIsInstance(event["caller"], list)
                 self.assertIsInstance(event["ts"], int)
                 self.assertEqual((event["gate"], event["action"], event["outcome"], event["target"]),
                                  ("agent-review", action, outcome, "my-run"))
