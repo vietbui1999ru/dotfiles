@@ -299,7 +299,7 @@ ls_out=$(run_ls) || fail "jw ls failed"
 [ "$(row moved "$ls_out")" = "$(printf 'keep\tnewer commits')" ] || fail "ls: moved reason wrong"
 [ "$(row live "$ls_out")" = "$(printf 'keep\tlive')" ] || fail "ls: live reason wrong"
 [ "$(row dirty "$ls_out")" = "$(printf 'keep\tuncommitted')" ] || fail "ls: dirty reason wrong"
-[ "$(row unkls "$ls_out")" = "$(printf 'keep\tunknown ignored: node_modules')" ] || fail "ls: unknown reason wrong: $(row unkls "$ls_out")"
+[ "$(row unkls "$ls_out")" = "$(printf 'keep\tunknown ignored: node_modules/')" ] || fail "ls: unknown reason wrong: $(row unkls "$ls_out")"
 [ "$(row detached "$ls_out")" = "$(printf 'keep\tdetached')" ] || fail "ls: detached reason wrong"
 [ "$(printf '%s\n' "$ls_out" | awk -F'\t' '$3=="sweep"' | wc -l | tr -d ' ')" -eq 1 ] || fail "ls: expected exactly one sweep row"
 
@@ -334,6 +334,47 @@ done
 for keep_b in feat/unmerged feat/moved feat/live feat/dirty feat/unkls feat/detached; do
   git -C "$main" rev-parse --verify -q "refs/heads/$keep_b" >/dev/null || fail "sweep --apply deleted $keep_b"
 done
+
+# A merged, clean workspace whose only ignored content is archive-class records
+# (.pi-lens-probe-home/ and .pi/) shows sweep: ls classifies records like jw rm.
+mk_ws recsw feat/recsw
+printf '.pi-lens-probe-home/\n.pi/\n' >"$main/.claude/worktrees/recsw/.gitignore" || fail "recsw gitignore write failed"
+git -C "$main/.claude/worktrees/recsw" add .gitignore || fail "recsw gitignore add failed"
+git -C "$main/.claude/worktrees/recsw" -c user.name=t -c user.email=t@t commit -q -m ignore || fail "recsw gitignore commit failed"
+rec_oid=$(git -C "$main/.claude/worktrees/recsw" rev-parse HEAD)
+mkdir -p "$main/.claude/worktrees/recsw/.pi-lens-probe-home" "$main/.claude/worktrees/recsw/.pi" || fail "recsw mkdir failed"
+printf 'log\n' >"$main/.claude/worktrees/recsw/.pi-lens-probe-home/x.log" || fail "recsw log write failed"
+printf 'y\n' >"$main/.claude/worktrees/recsw/.pi/y" || fail "recsw record write failed"
+printf '[{"headRefName":"feat/recsw","headRefOid":"%s"}]\n' "$rec_oid" >"$fake/merged.json" || fail "merged for recsw failed"
+rec_out=$(run_ls) || fail "jw ls failed for recsw"
+[ "$(row recsw "$rec_out")" = "$(printf 'sweep\tok')" ] || fail "ls: record-only workspace not sweep: $(row recsw "$rec_out")"
+run_jw rm recsw >/dev/null || fail "cleanup rm recsw failed"
+
+# Two sweepable workspaces; removing the first fails. The second is still removed
+# and sweep exits 2. The first is made unremovable by a read-only parent.
+mk_ws failsw feat/failsw
+mk_ws okasw feat/okasw
+fail_oid=$(git -C "$main/.claude/worktrees/failsw" rev-parse HEAD)
+ok_oid=$(git -C "$main/.claude/worktrees/okasw" rev-parse HEAD)
+printf '[{"headRefName":"feat/failsw","headRefOid":"%s"},{"headRefName":"feat/okasw","headRefOid":"%s"}]\n' "$fail_oid" "$ok_oid" >"$fake/merged.json" || fail "merged for isolation failed"
+: >"$fake/live"
+chmod 500 "$main/.claude/worktrees/failsw" || fail "chmod failsw failed"
+set +e
+run_sweep --apply >"$dir/iso_out" 2>"$dir/iso_err"
+iso_rc=$?
+set -e
+chmod 700 "$main/.claude/worktrees/failsw"
+[ "$iso_rc" -eq 2 ] || fail "sweep with a failed removal exited $iso_rc, expected 2"
+[ ! -e "$main/.claude/worktrees/okasw" ] || fail "sweep stopped after the first failure; okasw survived"
+grep -q 'FAILED failsw' "$dir/iso_err" || fail "sweep did not report the failed removal"
+grep -q 'removed okasw' "$dir/iso_out" || fail "sweep did not report the second removal"
+
+# Apply with nothing sweepable says so on stderr and exits 0.
+# After a failed removal jw rm has already forgotten failsw in jj and git, so
+# its .git file is dangling and rm refuses it. Clear the directory directly.
+rm -rf -- "$main/.claude/worktrees/failsw" || fail "cleanup failsw directory failed"
+nothing_err=$(run_sweep --apply 2>&1 >/dev/null) || fail "sweep --apply with nothing to remove failed"
+grep -q 'nothing to sweep' <<<"$nothing_err" || fail "sweep --apply with nothing did not say so"
 
 # Argument errors: sweep takes only --apply.
 expect_refusal "sweep with a bad flag" run_sweep --force

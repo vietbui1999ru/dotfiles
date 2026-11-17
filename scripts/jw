@@ -151,7 +151,6 @@ classify_workspace() {
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     path=${line#!! }
-    path=$(entry_name "$path")
     if is_delete_entry "$path" || is_archive_entry "$path"; then
       continue
     fi
@@ -356,9 +355,13 @@ cmd_sweep() {
     printf 'jw: %s workspaces would be removed; rerun with --apply to remove them\n' "${#sweep[@]}" >&2
     return 0
   fi
+  if [ ${#sweep[@]} -eq 0 ]; then
+    printf 'jw: nothing to sweep\n' >&2
+    return 0
+  fi
   local failed=0
   for name in "${sweep[@]+"${sweep[@]}"}"; do
-    if cmd_rm "$name"; then
+    if "${BASH_SOURCE[0]}" rm "$name"; then
       printf 'removed %s\n' "$name"
     else
       printf 'FAILED %s\n' "$name" >&2
