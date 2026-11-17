@@ -99,16 +99,29 @@ const refuse = (cwd: string, id: string) =>
 
 // Load the CLI as a module so `confirm` can be replaced; the CLI never reads
 // an environment variable that could do the same for an agent.
-const approveWith = (cwd: string, id: string, ok: boolean) =>
+const approvePatched = (cwd: string, id: string, patch: string) =>
   parse(spawnSync("python3", ["-I", "-c", `
 import importlib.machinery, importlib.util, sys
 loader = importlib.machinery.SourceFileLoader("agent_review", sys.argv[1])
 m = importlib.util.module_from_spec(importlib.util.spec_from_loader("agent_review", loader))
 loader.exec_module(m)
-m.confirm = lambda *a: ${ok ? "True" : "False"}
+${patch}
 sys.argv = ["agent-review", "approve", sys.argv[2]]
 raise SystemExit(m.main())
 `, cli, id], { cwd, encoding: "utf8" }));
+
+const approveWith = (cwd: string, id: string, ok: boolean) =>
+  approvePatched(cwd, id, `m.confirm = lambda *a: ${ok ? "True" : "False"}`);
+
+// Replace only the dialog itself: (button pressed, seconds it was open). The rules
+// around it (the minimum time, what is recorded) stay the CLI's own. The platform is
+// pinned so the dialog path also runs on Linux, where the gate is otherwise off.
+const approveDialog = (cwd: string, id: string, button: string, seconds: number) =>
+  approvePatched(cwd, id, `m.sys.platform = "darwin"\nm.dialog = lambda message: ("${button}", ${seconds})\n${fixedCaller}`);
+
+// A fixed caller chain: `ps` cannot run inside an agent's sandbox, so the real one is empty there.
+const fixedCaller = `m.caller_chain = lambda *a: ["Herdr", "launchd"]`;
+const psWorks = spawnSync("ps", ["-o", "comm=", "-p", String(process.pid)]).status === 0;
 
 const decisionOf = (root: string, id: string) => JSON.parse(readFileSync(join(dirOf(root), "decisions", `${id}.json`), "utf8"));
 
@@ -299,6 +312,49 @@ test("a declined dialog is not-confirmed and leaves the pending record intact", 
   assert.equal(out.json.reason, "not-confirmed");
   assert.deepEqual(list(join(dirOf(root), "decisions")), []);
   assert.deepEqual(list(join(dirOf(root), "pending")), [`${id}.json`]);
+});
+
+// Repro (2026-11-03 run 2c2ee124, 2026-11-11 run bec26041): a run was recorded as approved
+// and nothing said who approved it, when, or from which UI.
+test("an approval records when, from where and by which caller it was made", async () => {
+  const root = makeRepo();
+  const id = await pendingRun(root);
+  assert.equal(approveDialog(root, id, "Approve", 3.2).status, 0);
+  const decision = decisionOf(root, id);
+  assert.ok(validDecisionShape(decision));
+  assert.ok(!Number.isNaN(Date.parse(decision.decidedAt)), "decidedAt is a timestamp");
+  assert.equal(decision.cwd, root);
+  assert.equal(decision.dialogSeconds, 3.2);
+  assert.deepEqual(decision.caller, ["Herdr", "launchd"]);
+  const events = readFileSync(join(process.env.XDG_STATE_HOME as string, "herdr-mods", "gate-events.jsonl"), "utf8");
+  const last = JSON.parse(events.trimEnd().split("\n").at(-1) as string);
+  assert.deepEqual(last.caller, decision.caller);
+});
+
+test("the caller chain names the real calling programs, nearest first", { skip: !psWorks && "ps cannot run here" }, async () => {
+  const root = makeRepo();
+  const id = await pendingRun(root);
+  assert.equal(approveWith(root, id, true).status, 0);
+  const { caller } = decisionOf(root, id);
+  assert.ok(Array.isArray(caller) && caller.length > 0, "caller chain is recorded");
+  assert.ok(caller.every((name: unknown) => typeof name === "string" && name !== ""));
+});
+
+test("an Approve that lands faster than a person can read is not-confirmed", async () => {
+  const root = makeRepo();
+  const id = await pendingRun(root);
+  const out = approveDialog(root, id, "Approve", 0.3);
+  assert.equal(out.json.reason, "not-confirmed");
+  assert.match(String(out.json.message), /too fast/);
+  assert.deepEqual(list(join(dirOf(root), "decisions")), []);
+  assert.deepEqual(list(join(dirOf(root), "pending")), [`${id}.json`]);
+});
+
+test("a dialog that gives up or is cancelled is not-confirmed", async () => {
+  const root = makeRepo();
+  const id = await pendingRun(root);
+  assert.equal(approveDialog(root, id, "", 25).json.reason, "not-confirmed");
+  assert.deepEqual(list(join(dirOf(root), "decisions")), []);
 });
 
 // Repro (2026-10-23, run edaf6b3a): the worktree moved on after a `pi -p` run, so

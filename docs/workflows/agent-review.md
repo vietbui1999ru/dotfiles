@@ -118,6 +118,13 @@ Build as three separate commits, in this order.
   - Before writing anything it shows a macOS confirmation dialog (`osascript`, default button
     Cancel, gives up after 25 s). There is no environment variable or flag that skips it; an
     agent cannot click it. Claude's settings also deny running `agent-review approve`.
+    The dialog names the run, its worktree and branch, and the programs that asked for it
+    ("Asked by: Herdr < launchd"), so an unexpected dialog is recognisable. An "Approve" that
+    arrives in under 1 s is refused as `not-confirmed` ("answered too fast"): it is a click or
+    keystroke that was already on its way when the dialog took the focus.
+  - The decision it writes records who approved: `decidedAt` (UTC), `caller` (program names
+    of the calling processes, nearest first, never their arguments), `cwd`, and
+    `dialogSeconds` (how long the dialog was open; `null` on Linux). Pi ignores these fields.
     On Linux there is no dialog, so the gate is off: approval goes through without asking, and
     only the written rules and the settings deny stop an agent. `scripts/spec approve` behaves
     the same way.
@@ -465,8 +472,11 @@ Every `agent-review approve` and `agent-review skip` appends one JSON line to
 (pi-fleet, session-band, `:AgentReview`, a shell):
 
 ```json
-{"ts": 1762790400000, "gate": "agent-review", "action": "approve", "outcome": "ok", "target": "<run name or short id>", "message": null}
+{"ts": 1762790400000, "gate": "agent-review", "action": "approve", "outcome": "ok", "target": "<run name or short id>", "message": null, "caller": ["Herdr", "launchd"]}
 ```
+
+`caller` is the same chain of calling program names as in the decision record, so a refused
+or cancelled attempt can be traced to its UI too. `scripts/spec` events do not carry it.
 
 `action` is `approve` or `skip`. `outcome` is `ok`, `cancelled` (the person declined the
 dialog: `not-confirmed`) or `refused` (any other refusal; `message` holds the refusal text,
