@@ -132,25 +132,24 @@ run_jw rm ign >/dev/null || fail "rm ign failed after clearing ignored content"
 arc_repo="$XDG_STATE_HOME/jw-archive/$(basename "$main")"
 arc="$main/.claude/worktrees/arc"
 run_jw new feat/arc >/dev/null || fail "jw new feat/arc failed"
-mkdir -p "$arc/.agents/plugins" "$arc/scripts"
-printf '{}\n' >"$arc/.agents/plugins/marketplace.json"
-printf 'keep\n' >"$arc/scripts/keep.txt"
-printf '%s\n' '__pycache__/' '.ruff_cache/' '.pi/' '.agents/events.jsonl' \
-  '.agents/sessions/' '.pi-lens-probe-home/' '.serena/' >"$arc/.gitignore"
+mkdir -p "$arc/.agents/plugins" "$arc/scripts" || fail "arc setup: mkdir plugins and scripts"
+printf '{}\n' >"$arc/.agents/plugins/marketplace.json" || fail "arc setup: $arc/.agents/plugins/marketplace.json"
+printf 'keep\n' >"$arc/scripts/keep.txt" || fail "arc setup: $arc/scripts/keep.txt"
+printf '%s\n' '__pycache__/' '.ruff_cache/' '.pi/' '.agents/events.jsonl' '.agents/sessions/' '.pi-lens-probe-home/' '.serena/' >"$arc/.gitignore" || fail "arc setup: $arc/.gitignore"
 git -C "$arc" add .gitignore .agents/plugins/marketplace.json scripts/keep.txt \
   || fail "arc setup add failed"
 git -C "$arc" -c user.name=t -c user.email=t@t commit -q -m "records" >/dev/null \
   || fail "arc setup commit failed"
 mkdir -p "$arc/scripts/__pycache__" "$arc/.ruff_cache" \
-  "$arc/.pi/agent-review/decisions" "$arc/.pi-lens-probe-home" "$arc/.serena"
-printf 'x\n' >"$arc/scripts/__pycache__/x.pyc"
-printf 'x\n' >"$arc/.ruff_cache/x"
-printf '{"run":"ok"}\n' >"$arc/.pi/agent-review/decisions/run.json"
-printf 'event\n' >"$arc/.agents/events.jsonl"
-mkdir -p "$arc/.agents/sessions"
-printf 'note\n' >"$arc/.agents/sessions/note.md"
-printf 'log\n' >"$arc/.pi-lens-probe-home/latency.log"
-printf 'project\n' >"$arc/.serena/project.yml"
+  "$arc/.pi/records" "$arc/.pi-lens-probe-home" "$arc/.serena" || fail "arc setup: mkdir caches and records"
+printf 'x\n' >"$arc/scripts/__pycache__/x.pyc" || fail "arc setup: $arc/scripts/__pycache__/x.pyc"
+printf 'x\n' >"$arc/.ruff_cache/x" || fail "arc setup: $arc/.ruff_cache/x"
+printf '{"run":"ok"}\n' >"$arc/.pi/records/run.json" || fail "arc setup: $arc/.pi/records/run.json"
+printf 'event\n' >"$arc/.agents/events.jsonl" || fail "arc setup: $arc/.agents/events.jsonl"
+mkdir -p "$arc/.agents/sessions" || fail "arc setup: mkdir sessions"
+printf 'note\n' >"$arc/.agents/sessions/note.md" || fail "arc setup: $arc/.agents/sessions/note.md"
+printf 'log\n' >"$arc/.pi-lens-probe-home/latency.log" || fail "arc setup: $arc/.pi-lens-probe-home/latency.log"
+printf 'project\n' >"$arc/.serena/project.yml" || fail "arc setup: $arc/.serena/project.yml"
 run_jw rm arc >/dev/null || fail "jw rm arc failed: $(cat "$dir/err")"
 [ ! -e "$arc" ] || fail "arc workspace survived rm"
 (cd "$main" && jj workspace list | grep -q '^arc: ') && fail "arc left jj"
@@ -158,7 +157,7 @@ git -C "$main" worktree list | grep -q "$arc" && fail "arc left git"
 [ "$(find "$arc_repo" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')" -eq 1 ] \
   || fail "expected exactly one archive folder"
 arch=$(find "$arc_repo" -mindepth 1 -maxdepth 1 -type d -print -quit)
-for kept in .pi/agent-review/decisions/run.json .agents/events.jsonl \
+for kept in .pi/records/run.json .agents/events.jsonl \
   .agents/sessions/note.md .pi-lens-probe-home/latency.log .serena/project.yml jw-meta.txt; do
   [ -f "$arch/$kept" ] || fail "archive missing $kept"
 done
