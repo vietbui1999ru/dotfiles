@@ -212,7 +212,7 @@ class Fixture(unittest.TestCase):
     def lint_file_example(self, path, text):
         m = re.search(r"^branch:\s*(\S+)\s*$", text, re.M)
         self.assertIsNotNone(m, f"{path}: no branch: line")
-        self.assert_clean_lint(self.lint_text(text, m.group(1)))
+        self.assert_clean_lint(self.lint_text(text, m.group(1) if m else ""))
 
 
 EXAMPLE = """---
@@ -822,6 +822,67 @@ class SpecLoopCases(Fixture):
         rec = self.read_record(out)
         self.assertEqual(rec["exit"], 3)
         self.assertEqual(rec["acs"], {})
+
+    # check --done: a passing approved spec with no manual ACs becomes status: done
+    def test_done_marks_a_passing_approved_spec(self):
+        self.approved([(1, "true", True)])
+        spec = self.repo / "SPEC.md"
+        self.assertRegex(spec.read_text(), r"(?m)^status: approved$")
+        c = self.check("--done")
+        out = c.stdout + c.stderr
+        self.assertEqual(c.returncode, 0, out)
+        self.assertIn("status: done", out)
+        self.assertRegex(spec.read_text(), r"(?m)^status: done$")
+        s = self.run_spec("status", "SPEC.md")
+        self.assertEqual(s.returncode, 0, s.stdout + s.stderr)
+        self.assertIn("done (record matches)", s.stdout)
+
+    def test_done_leaves_the_file_alone(self):
+        cases = [
+            ("failing AC", lambda: self.approved([(1, "false")]), 1, "not marked done"),
+            ("manual AC", lambda: self.approved([(1, "true", True), (2, "manual: look")]),
+             0, "1 manual AC"),
+            ("draft spec", None, 0, "status is draft"),
+            ("missing record", None, 3, "no approval record"),
+        ]
+        for name, setup, want_code, want_out in cases:
+            with self.subTest(name):
+                self.fresh()
+                if setup is None:
+                    self.init_repo()
+                    self.write_spec([(1, "true", True)])
+                    if name == "draft spec":  # approved, then the status line is set back
+                        self.approve()
+                        spec = self.repo / "SPEC.md"
+                        spec.write_text(spec.read_text().replace("status: approved", "status: draft"))
+                else:
+                    setup()
+                spec = self.repo / "SPEC.md"
+                before = spec.read_bytes()
+                c = self.check("--done")
+                out = c.stdout + c.stderr
+                self.assertEqual(c.returncode, want_code, out)
+                self.assertIn(want_out, out)
+                self.assertEqual(spec.read_bytes(), before, out)
+
+    def test_check_without_done_never_marks_done(self):
+        self.approved([(1, "true", True)])
+        spec = self.repo / "SPEC.md"
+        before = spec.read_bytes()
+        c = self.check()
+        self.assertEqual(c.returncode, 0, c.stdout + c.stderr)
+        self.assertEqual(spec.read_bytes(), before)
+        self.assertNotIn("status: done", c.stdout)
+
+    def test_lint_accepts_status_done(self):
+        for status in ("approved", "done"):
+            with self.subTest(status):
+                self.fresh()
+                r = self.lint_text(spec_text([(1, "true")], status=status))
+                out = r.stdout + r.stderr
+                self.assertEqual(r.returncode, 0, out)
+                self.assertIn("lint clean", out)
+                self.assertNotIn(HUMAN, out)
 
 
 class SpecGateEvents(Fixture):

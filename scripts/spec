@@ -4,9 +4,10 @@
 lint     grammar and branch check; a clean draft is marked ready for the session-band prompt
 approve  records a hash and a baseline; the session-band Approve button runs it, no dialog
 show     prints the approval summary; runs nothing and writes nothing
-check    runs the approved verify commands and classifies them against the baseline
+check    runs the approved verify commands and classifies them against the baseline;
+         --done marks a passing approved spec done
 reject   removes this spec's approval record, sets status: draft, runs nothing
-status   prints approved, draft or stale; exit 0 only when approved
+status   prints approved, done, draft or stale; exit 0 only when approved or done
 """
 import argparse
 import datetime
@@ -300,12 +301,13 @@ def cmd_status(args):
     try:
         json.loads(record_path(spec).read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        if spec["status"] == "approved":
+        if spec["status"] in ("approved", "done"):
             print("stale (spec changed since approval; approve again)")
         else:
             print("draft (no record)")
         return 3
-    print("approved (record matches)")
+    print(f"{spec['status']} (record matches)" if spec["status"] == "done"
+          else "approved (record matches)")
     return 0
 
 
@@ -407,7 +409,25 @@ def cmd_check(args):
         print(f"\n{name} output (last 40 lines):\n```\n" + "\n".join(tail) + "\n```")
     code = 1 if failed else 0
     save_check(args.record, spec, code, saved)
+    if args.done:
+        mark_done(args, spec, code)
     return code
+
+
+def mark_done(args, spec, code):
+    """With check --done, set status: done only for a passing approved spec with no manual AC."""
+    manual = sum(1 for a in spec["acs"] if a["cmd"] is None)
+    if code != 0:
+        print(f"not marked done: check exited {code}")
+    elif spec["status"] != "approved":
+        print(f"not marked done: status is {spec['status']}, not approved")
+    elif manual:
+        print(f"not marked done: {manual} manual AC{'s' if manual != 1 else ''}; "
+              "a human sets status: done by hand")
+    elif set_status(spec, "done"):
+        print("status: done")
+    else:
+        print(f"not marked done: {args.spec} changed or is not writable")
 
 
 # The saved result names; every PASS variant is "pass".
@@ -446,6 +466,8 @@ def main():
             p.add_argument("--timeout", type=int, default=120, help="seconds per AC (default 120)")
         if name == "check":
             p.add_argument("--record", metavar="FILE", help="also write the result to FILE as JSON")
+            p.add_argument("--done", action="store_true",
+                           help="mark a passing approved spec status: done")
         p.add_argument("spec", metavar="SPEC_PATH", nargs="?", default="SPEC.md")
     args = ap.parse_args()
     handler = {"lint": cmd_lint, "approve": cmd_approve, "check": cmd_check,
