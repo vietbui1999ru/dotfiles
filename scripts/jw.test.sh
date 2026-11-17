@@ -132,25 +132,24 @@ run_jw rm ign >/dev/null || fail "rm ign failed after clearing ignored content"
 arc_repo="$XDG_STATE_HOME/jw-archive/$(basename "$main")"
 arc="$main/.claude/worktrees/arc"
 run_jw new feat/arc >/dev/null || fail "jw new feat/arc failed"
-mkdir -p "$arc/.agents/plugins" "$arc/scripts"
-printf '{}\n' >"$arc/.agents/plugins/marketplace.json"
-printf 'keep\n' >"$arc/scripts/keep.txt"
-printf '%s\n' '__pycache__/' '.ruff_cache/' '.pi/' '.agents/events.jsonl' \
-  '.agents/sessions/' '.pi-lens-probe-home/' '.serena/' >"$arc/.gitignore"
+mkdir -p "$arc/.agents/plugins" "$arc/scripts" || fail "arc setup: mkdir plugins and scripts"
+printf '{}\n' >"$arc/.agents/plugins/marketplace.json" || fail "arc setup: $arc/.agents/plugins/marketplace.json"
+printf 'keep\n' >"$arc/scripts/keep.txt" || fail "arc setup: $arc/scripts/keep.txt"
+printf '%s\n' '__pycache__/' '.ruff_cache/' '.pi/' '.agents/events.jsonl' '.agents/sessions/' '.pi-lens-probe-home/' '.serena/' >"$arc/.gitignore" || fail "arc setup: $arc/.gitignore"
 git -C "$arc" add .gitignore .agents/plugins/marketplace.json scripts/keep.txt \
   || fail "arc setup add failed"
 git -C "$arc" -c user.name=t -c user.email=t@t commit -q -m "records" >/dev/null \
   || fail "arc setup commit failed"
 mkdir -p "$arc/scripts/__pycache__" "$arc/.ruff_cache" \
-  "$arc/.pi/agent-review/decisions" "$arc/.pi-lens-probe-home" "$arc/.serena"
-printf 'x\n' >"$arc/scripts/__pycache__/x.pyc"
-printf 'x\n' >"$arc/.ruff_cache/x"
-printf '{"run":"ok"}\n' >"$arc/.pi/agent-review/decisions/run.json"
-printf 'event\n' >"$arc/.agents/events.jsonl"
-mkdir -p "$arc/.agents/sessions"
-printf 'note\n' >"$arc/.agents/sessions/note.md"
-printf 'log\n' >"$arc/.pi-lens-probe-home/latency.log"
-printf 'project\n' >"$arc/.serena/project.yml"
+  "$arc/.pi/records" "$arc/.pi-lens-probe-home" "$arc/.serena" || fail "arc setup: mkdir caches and records"
+printf 'x\n' >"$arc/scripts/__pycache__/x.pyc" || fail "arc setup: $arc/scripts/__pycache__/x.pyc"
+printf 'x\n' >"$arc/.ruff_cache/x" || fail "arc setup: $arc/.ruff_cache/x"
+printf '{"run":"ok"}\n' >"$arc/.pi/records/run.json" || fail "arc setup: $arc/.pi/records/run.json"
+printf 'event\n' >"$arc/.agents/events.jsonl" || fail "arc setup: $arc/.agents/events.jsonl"
+mkdir -p "$arc/.agents/sessions" || fail "arc setup: mkdir sessions"
+printf 'note\n' >"$arc/.agents/sessions/note.md" || fail "arc setup: $arc/.agents/sessions/note.md"
+printf 'log\n' >"$arc/.pi-lens-probe-home/latency.log" || fail "arc setup: $arc/.pi-lens-probe-home/latency.log"
+printf 'project\n' >"$arc/.serena/project.yml" || fail "arc setup: $arc/.serena/project.yml"
 run_jw rm arc >/dev/null || fail "jw rm arc failed: $(cat "$dir/err")"
 [ ! -e "$arc" ] || fail "arc workspace survived rm"
 (cd "$main" && jj workspace list | grep -q '^arc: ') && fail "arc left jj"
@@ -158,7 +157,7 @@ git -C "$main" worktree list | grep -q "$arc" && fail "arc left git"
 [ "$(find "$arc_repo" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')" -eq 1 ] \
   || fail "expected exactly one archive folder"
 arch=$(find "$arc_repo" -mindepth 1 -maxdepth 1 -type d -print -quit)
-for kept in .pi/agent-review/decisions/run.json .agents/events.jsonl \
+for kept in .pi/records/run.json .agents/events.jsonl \
   .agents/sessions/note.md .pi-lens-probe-home/latency.log .serena/project.yml jw-meta.txt; do
   [ -f "$arch/$kept" ] || fail "archive missing $kept"
 done
@@ -236,5 +235,149 @@ expect_refusal "bg dash prompt" run_jw bg feat/bgx '-p'
 [ ! -s "$dir/claude.out" ] || fail "an option-shaped prompt reached claude"
 expect_refusal "bg bad branch" run_jw bg main hi
 run_jw rm bgx >/dev/null || fail "rm bgx failed"
+
+# ls and sweep. Fake gh and lsof sit first on PATH; the test writes their answers
+# to files, so each case controls the merged PRs, the live cwds and failures.
+fake="$dir/fake"
+mkdir -p "$fake" || fail "fake setup mkdir failed"
+cat >"$fake/gh" <<'GH'
+#!/bin/sh
+[ -e "$FAKE_DIR/gh-fail" ] && exit 1
+cat "$FAKE_DIR/merged.json"
+GH
+cat >"$fake/lsof" <<'LSOF'
+#!/bin/sh
+[ -e "$FAKE_DIR/lsof-fail" ] && exit 2
+[ -s "$FAKE_DIR/live" ] || exit 1
+while IFS= read -r p; do printf 'n%s\n' "$p"; done <"$FAKE_DIR/live"
+LSOF
+chmod +x "$fake/gh" "$fake/lsof" || fail "fake chmod failed"
+export FAKE_DIR="$fake"
+run_ls() { (cd "$main" && PATH="$fake:$PATH" "$JW" ls); }
+run_sweep() { (cd "$main" && PATH="$fake:$PATH" "$JW" sweep "$@"); }
+row() { awk -F'\t' -v n="$1" '$1==n{print $3"\t"$4}' <<<"$2"; }
+
+# Fixtures: one workspace per reason, each on its own branch with one commit.
+mk_ws() {
+  local n=$1 b=$2
+  run_jw new "$b" >/dev/null || fail "ls fixture $b failed"
+  printf '%s\n' "$n" >"$main/.claude/worktrees/$n/$n.txt" || fail "ls fixture write $n failed"
+  git -C "$main/.claude/worktrees/$n" add "$n.txt" || fail "ls fixture add $n failed"
+  git -C "$main/.claude/worktrees/$n" -c user.name=t -c user.email=t@t commit -q -m "$n" || fail "ls fixture commit $n failed"
+}
+mk_ws good feat/good
+mk_ws unmerged feat/unmerged
+mk_ws moved feat/moved
+mk_ws live feat/live
+mk_ws dirty feat/dirty
+mk_ws unkls feat/unkls
+mk_ws detached feat/detached
+git -C "$main/.claude/worktrees/detached" checkout -q --detach || fail "detach fixture failed"
+
+# unkls commits its .gitignore first, so its recorded merged oid is its final HEAD.
+printf 'node_modules/\n' >"$main/.claude/worktrees/unkls/.gitignore" || fail "unk gitignore write failed"
+git -C "$main/.claude/worktrees/unkls" add .gitignore || fail "unk gitignore add failed"
+git -C "$main/.claude/worktrees/unkls" -c user.name=t -c user.email=t@t commit -q -m ignore || fail "unk gitignore commit failed"
+mkdir -p "$main/.claude/worktrees/unkls/node_modules/pkg" || fail "unk mkdir failed"
+printf 'x\n' >"$main/.claude/worktrees/unkls/node_modules/pkg/i.js" || fail "unk js write failed"
+
+# Merged PRs: good, live, dirty, unkls are merged at their current HEAD; moved
+# is merged at a stale oid.
+good_oid=$(git -C "$main/.claude/worktrees/good" rev-parse HEAD)
+live_oid=$(git -C "$main/.claude/worktrees/live" rev-parse HEAD)
+dirty_oid=$(git -C "$main/.claude/worktrees/dirty" rev-parse HEAD)
+unk_oid=$(git -C "$main/.claude/worktrees/unkls" rev-parse HEAD)
+printf '[{"headRefName":"feat/good","headRefOid":"%s"},{"headRefName":"feat/live","headRefOid":"%s"},{"headRefName":"feat/dirty","headRefOid":"%s"},{"headRefName":"feat/unkls","headRefOid":"%s"},{"headRefName":"feat/moved","headRefOid":"0000000000000000000000000000000000000000"}]\n' \
+  "$good_oid" "$live_oid" "$dirty_oid" "$unk_oid" >"$fake/merged.json" || fail "merged.json write failed"
+: >"$fake/live" || fail "live reset failed"
+printf '%s\n' "$(cd "$main/.claude/worktrees/live" && pwd -P)" >"$fake/live" || fail "live write failed"
+printf 'dirty\n' >>"$main/.claude/worktrees/dirty/dirty.txt" || fail "dirty write failed"
+
+ls_out=$(run_ls) || fail "jw ls failed"
+[ "$(row good "$ls_out")" = "$(printf 'sweep\tok')" ] || fail "ls: good not sweep: $(row good "$ls_out")"
+[ "$(row unmerged "$ls_out")" = "$(printf 'keep\tnot merged')" ] || fail "ls: unmerged reason wrong"
+[ "$(row moved "$ls_out")" = "$(printf 'keep\tnewer commits')" ] || fail "ls: moved reason wrong"
+[ "$(row live "$ls_out")" = "$(printf 'keep\tlive')" ] || fail "ls: live reason wrong"
+[ "$(row dirty "$ls_out")" = "$(printf 'keep\tuncommitted')" ] || fail "ls: dirty reason wrong"
+[ "$(row unkls "$ls_out")" = "$(printf 'keep\tunknown ignored: node_modules/')" ] || fail "ls: unknown reason wrong: $(row unkls "$ls_out")"
+[ "$(row detached "$ls_out")" = "$(printf 'keep\tdetached')" ] || fail "ls: detached reason wrong"
+[ "$(printf '%s\n' "$ls_out" | awk -F'\t' '$3=="sweep"' | wc -l | tr -d ' ')" -eq 1 ] || fail "ls: expected exactly one sweep row"
+
+# gh failure: every row is keep with merged?.
+printf 'x\n' >"$fake/gh-fail"
+gh_out=$(run_ls) || fail "jw ls failed with gh down"
+[ "$(printf '%s\n' "$gh_out" | awk -F'\t' '$3=="keep" && $4=="merged?"' | wc -l | tr -d ' ')" -eq "$(printf '%s\n' "$gh_out" | grep -c .)" ] || fail "gh failure did not keep every row with merged?: $(printf '%s' "$gh_out" | tr '\n' '|')"
+rm -f "$fake/gh-fail"
+
+# lsof failure: every otherwise-sweepable row becomes live?.
+printf 'x\n' >"$fake/lsof-fail"
+lsof_out=$(run_ls) || fail "jw ls failed with lsof down"
+[ "$(row good "$lsof_out")" = "$(printf 'keep\tlive?')" ] || fail "lsof failure did not give live? for good"
+rm -f "$fake/lsof-fail"
+
+# sweep preview removes nothing and names the one sweepable workspace.
+preview=$(run_sweep 2>"$dir/err") || fail "jw sweep preview failed"
+[ "$preview" = good ] || fail "sweep preview listed '$preview', expected good"
+grep -q 'would be removed' "$dir/err" || fail "sweep preview did not explain the count"
+[ -d "$main/.claude/worktrees/good" ] || fail "sweep preview removed good"
+
+# sweep --apply removes only the sweepable workspace; everything else and every
+# branch survives. The rm path also archives nothing here (no ignored records).
+run_sweep --apply >"$dir/out" 2>"$dir/err" || fail "jw sweep --apply failed: $(cat "$dir/err")"
+[ ! -e "$main/.claude/worktrees/good" ] || fail "sweep --apply did not remove good"
+(cd "$main" && jj workspace list | grep -q '^good: ') && fail "sweep --apply left good in jj"
+git -C "$main" worktree list | grep -q 'worktrees/good$' && fail "sweep --apply left good in git"
+git -C "$main" rev-parse --verify -q refs/heads/feat/good >/dev/null || fail "sweep --apply deleted the branch"
+for keep_ws in unmerged moved live dirty unkls detached; do
+  [ -d "$main/.claude/worktrees/$keep_ws" ] || fail "sweep --apply removed $keep_ws"
+done
+for keep_b in feat/unmerged feat/moved feat/live feat/dirty feat/unkls feat/detached; do
+  git -C "$main" rev-parse --verify -q "refs/heads/$keep_b" >/dev/null || fail "sweep --apply deleted $keep_b"
+done
+
+# A merged, clean workspace whose only ignored content is archive-class records
+# (.pi-lens-probe-home/ and .pi/) shows sweep: ls classifies records like jw rm.
+mk_ws recsw feat/recsw
+printf '.pi-lens-probe-home/\n.pi/\n' >"$main/.claude/worktrees/recsw/.gitignore" || fail "recsw gitignore write failed"
+git -C "$main/.claude/worktrees/recsw" add .gitignore || fail "recsw gitignore add failed"
+git -C "$main/.claude/worktrees/recsw" -c user.name=t -c user.email=t@t commit -q -m ignore || fail "recsw gitignore commit failed"
+rec_oid=$(git -C "$main/.claude/worktrees/recsw" rev-parse HEAD)
+mkdir -p "$main/.claude/worktrees/recsw/.pi-lens-probe-home" "$main/.claude/worktrees/recsw/.pi" || fail "recsw mkdir failed"
+printf 'log\n' >"$main/.claude/worktrees/recsw/.pi-lens-probe-home/x.log" || fail "recsw log write failed"
+printf 'y\n' >"$main/.claude/worktrees/recsw/.pi/y" || fail "recsw record write failed"
+printf '[{"headRefName":"feat/recsw","headRefOid":"%s"}]\n' "$rec_oid" >"$fake/merged.json" || fail "merged for recsw failed"
+rec_out=$(run_ls) || fail "jw ls failed for recsw"
+[ "$(row recsw "$rec_out")" = "$(printf 'sweep\tok')" ] || fail "ls: record-only workspace not sweep: $(row recsw "$rec_out")"
+run_jw rm recsw >/dev/null || fail "cleanup rm recsw failed"
+
+# Two sweepable workspaces; removing the first fails. The second is still removed
+# and sweep exits 2. The first is made unremovable by a read-only parent.
+mk_ws failsw feat/failsw
+mk_ws okasw feat/okasw
+fail_oid=$(git -C "$main/.claude/worktrees/failsw" rev-parse HEAD)
+ok_oid=$(git -C "$main/.claude/worktrees/okasw" rev-parse HEAD)
+printf '[{"headRefName":"feat/failsw","headRefOid":"%s"},{"headRefName":"feat/okasw","headRefOid":"%s"}]\n' "$fail_oid" "$ok_oid" >"$fake/merged.json" || fail "merged for isolation failed"
+: >"$fake/live"
+chmod 500 "$main/.claude/worktrees/failsw" || fail "chmod failsw failed"
+set +e
+run_sweep --apply >"$dir/iso_out" 2>"$dir/iso_err"
+iso_rc=$?
+set -e
+chmod 700 "$main/.claude/worktrees/failsw"
+[ "$iso_rc" -eq 2 ] || fail "sweep with a failed removal exited $iso_rc, expected 2"
+[ ! -e "$main/.claude/worktrees/okasw" ] || fail "sweep stopped after the first failure; okasw survived"
+grep -q 'FAILED failsw' "$dir/iso_err" || fail "sweep did not report the failed removal"
+grep -q 'removed okasw' "$dir/iso_out" || fail "sweep did not report the second removal"
+
+# Apply with nothing sweepable says so on stderr and exits 0.
+# After a failed removal jw rm has already forgotten failsw in jj and git, so
+# its .git file is dangling and rm refuses it. Clear the directory directly.
+rm -rf -- "$main/.claude/worktrees/failsw" || fail "cleanup failsw directory failed"
+nothing_err=$(run_sweep --apply 2>&1 >/dev/null) || fail "sweep --apply with nothing to remove failed"
+grep -q 'nothing to sweep' <<<"$nothing_err" || fail "sweep --apply with nothing did not say so"
+
+# Argument errors: sweep takes only --apply.
+expect_refusal "sweep with a bad flag" run_sweep --force
+expect_refusal "sweep with two flags" run_sweep --apply --apply
 
 printf 'PASS: jw\n'

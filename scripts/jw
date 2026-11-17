@@ -3,6 +3,8 @@
 #
 #   jw new <branch>   create the workspace, attach HEAD to <branch>, print its path
 #   jw rm <name>      forget the workspace and remove its directory (never the branch)
+#   jw ls             list workspaces, one per line: name, branch, sweep|keep, reason
+#   jw sweep [--apply] preview the sweepable workspaces; --apply removes them (see below)
 #   jw bg <branch> <prompt>
 #                     ensure the workspace exists, then start `claude --bg <prompt>` in it
 #
@@ -46,6 +48,8 @@ usage() {
   cat >&2 <<'EOF'
 usage: jw new <branch>
        jw rm <name>
+       jw ls
+       jw sweep [--apply]
        jw bg <branch> <prompt>
 EOF
   exit 2
@@ -134,6 +138,24 @@ cmd_new() {
   (cd "$dir" && git switch "$branch") || die "git switch $branch failed"
 
   printf '%s\n' "$dir"
+}
+
+# Shared by `jw rm` and `jw ls`, so the two cannot disagree about a workspace.
+# Sets WS_DIRTY (uncommitted changes) and WS_UNKNOWN (gitignored entries that
+# removal would delete but that are neither a known cache nor a known record).
+classify_workspace() {
+  local dir=$1 entries line path
+  WS_DIRTY=$(git -C "$dir" status --porcelain) || return 1
+  WS_UNKNOWN=()
+  entries=$(git -C "$dir" status --porcelain --ignored | grep '^!! ' | grep -v '^!! \.jj/$' || true)
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    path=${line#!! }
+    if is_delete_entry "$path" || is_archive_entry "$path"; then
+      continue
+    fi
+    WS_UNKNOWN+=("$path")
+  done <<< "$entries"
 }
 
 cmd_rm() {
@@ -228,6 +250,127 @@ cmd_rm() {
   printf '%s\n' "$dir"
 }
 
+# Merged-PR map for the primary checkout: lines of "<branch> <oid>". Refuses
+# without jq. A failed `gh` leaves MERGED_OK=0, which marks every workspace merged?.
+load_merged() {
+  local primary=$1 json
+  MERGED_MAP=""
+  MERGED_OK=0
+  command -v jq >/dev/null || die "jq is required for jw ls and jw sweep"
+  json=$(cd "$primary" && gh pr list --state merged --limit 200 --json headRefName,headRefOid 2>/dev/null) \
+    || return 0
+  MERGED_MAP=$(printf '%s' "$json" | jq -r '.[] | "\(.headRefName) \(.headRefOid)"') \
+    || { MERGED_MAP=""; return 0; }
+  MERGED_OK=1
+}
+
+# Live: a claude, pi or node process has its cwd inside the workspace. lsof exit 1
+# means no match; any other failure makes the answer unknown (LIVE_OK=0).
+load_live_cwds() {
+  local out rc
+  LIVE_CWDS=""
+  LIVE_OK=1
+  command -v lsof >/dev/null || { LIVE_OK=0; return 0; }
+  out=$(lsof -a -d cwd -c claude -c pi -c node -Fn 2>/dev/null) && rc=0 || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    LIVE_CWDS=$(printf '%s\n' "$out" | sed -n 's/^n//p')
+  elif [ "$rc" -eq 1 ]; then
+    LIVE_CWDS=""
+  else
+    LIVE_OK=0
+  fi
+}
+
+# Sets SWEEP_STATE (sweep|keep) and SWEEP_REASON for one workspace directory.
+# The first rule it fails names the reason. Order matches the plan: branch,
+# merged, head, live, clean tree, ignored content.
+sweep_state() {
+  local name=$1 dir=$2 branch head oid real
+  SWEEP_STATE=keep
+  # Without the PR list no workspace can be proven merged, so gh failure keeps all.
+  if [ "$MERGED_OK" -ne 1 ]; then SWEEP_REASON="merged?"; return; fi
+  branch=$(git -C "$dir" branch --show-current)
+  if [ -z "$branch" ]; then SWEEP_REASON=detached; return; fi
+  for protected in "${PROTECTED[@]}"; do
+    [ "$branch" != "$protected" ] || { SWEEP_REASON="protected branch"; return; }
+  done
+  oid=$(printf '%s\n' "$MERGED_MAP" | awk -v b="$branch" '$1==b{print $2; exit}')
+  if [ -z "$oid" ]; then SWEEP_REASON="not merged"; return; fi
+  head=$(git -C "$dir" rev-parse HEAD)
+  if [ "$head" != "$oid" ]; then SWEEP_REASON="newer commits"; return; fi
+  if [ "$LIVE_OK" -ne 1 ]; then SWEEP_REASON="live?"; return; fi
+  real=$(cd "$dir" && pwd -P)
+  if printf '%s\n' "$LIVE_CWDS" | grep -qxF "$real" \
+     || printf '%s\n' "$LIVE_CWDS" | grep -q "^$real/"; then
+    SWEEP_REASON=live; return
+  fi
+  classify_workspace "$dir" || { SWEEP_REASON="status failed"; return; }
+  if [ -n "$WS_DIRTY" ]; then SWEEP_REASON=uncommitted; return; fi
+  if [ ${#WS_UNKNOWN[@]} -gt 0 ]; then
+    SWEEP_REASON="unknown ignored: ${WS_UNKNOWN[0]}"; return
+  fi
+  SWEEP_STATE=sweep
+  SWEEP_REASON=ok
+}
+
+# One line per workspace directory, sorted by name: name, branch, state, reason.
+cmd_ls() {
+  [ $# -eq 0 ] || usage
+  local primary base dir name branch
+  primary=$(primary_checkout)
+  base="$primary/.claude/worktrees"
+  load_merged "$primary"
+  load_live_cwds
+  [ -d "$base" ] || return 0
+  for dir in "$base"/*/; do
+    [ -d "$dir" ] || continue
+    dir=${dir%/}
+    name=${dir##*/}
+    branch=$(git -C "$dir" branch --show-current 2>/dev/null || true)
+    [ -n "$branch" ] || branch=-
+    sweep_state "$name" "$dir"
+    printf '%s\t%s\t%s\t%s\n' "$name" "$branch" "$SWEEP_STATE" "$SWEEP_REASON"
+  done
+}
+
+# Preview by default; --apply recomputes the list and removes each sweep
+# workspace with the same path as `jw rm`. One failure does not stop the rest.
+cmd_sweep() {
+  local apply=0 primary base dir name line state
+  local -a sweep=()
+  case ${1:-} in
+    '') ;;
+    --apply) [ $# -eq 1 ] || usage; apply=1 ;;
+    *) usage ;;
+  esac
+  primary=$(primary_checkout)
+  base="$primary/.claude/worktrees"
+  while IFS=$'\t' read -r name _ state _; do
+    [ "$state" = sweep ] && sweep+=("$name")
+  done < <(cmd_ls)
+  if [ "$apply" -eq 0 ]; then
+    for name in "${sweep[@]+"${sweep[@]}"}"; do
+      printf '%s\n' "$name"
+    done
+    printf 'jw: %s workspaces would be removed; rerun with --apply to remove them\n' "${#sweep[@]}" >&2
+    return 0
+  fi
+  if [ ${#sweep[@]} -eq 0 ]; then
+    printf 'jw: nothing to sweep\n' >&2
+    return 0
+  fi
+  local failed=0
+  for name in "${sweep[@]+"${sweep[@]}"}"; do
+    if "${BASH_SOURCE[0]}" rm "$name"; then
+      printf 'removed %s\n' "$name"
+    else
+      printf 'FAILED %s\n' "$name" >&2
+      failed=1
+    fi
+  done
+  [ "$failed" -eq 0 ] || exit 2
+}
+
 # bg: the prompt is passed to claude as one argv word, never through a shell.
 cmd_bg() {
   [ $# -eq 2 ] || usage
@@ -264,6 +407,8 @@ done
 case ${1:-} in
   new) shift; cmd_new "$@" ;;
   rm) shift; cmd_rm "$@" ;;
+  ls) shift; cmd_ls "$@" ;;
+  sweep) shift; cmd_sweep "$@" ;;
   bg) shift; cmd_bg "$@" ;;
   *) usage ;;
 esac
