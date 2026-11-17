@@ -97,8 +97,23 @@ if echo "$CMD" | grep -qE 'rm\s+-[a-zA-Z]*r[a-zA-Z]*f\s+(/|~|"\$HOME|\$HOME)'; t
   exit 2
 fi
 
+# ── command anchors for the git rules below ───────────────────────────────────
+# Pieces: segment start (also subshell and $( ) substitution), env assignments and
+# wrappers (command/exec/env/sudo/nohup/time), the binary, then global options
+# (-c k=v, -C dir, --no-pager, -R repo) before the subcommand.
+# GIT anchors a rule to a real git command, and ARGS keeps its arguments inside
+# that one segment, so the same words inside a commit message, a PR body or a
+# printf string do not match. Trade-off: git inside a quoted `bash -c "..."`
+# string is no longer matched; the settings.json deny rules do not cover it either.
+SEG='(^|[;&|(`]|\$\()[[:space:]]*'
+ASSIGN='([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*'
+WRAP="(${ASSIGN}(command|exec|env|sudo|nohup|time)[[:space:]]+)*${ASSIGN}"
+OPTS='([[:space:]]+-[^[:space:]]+([[:space:]]+[^-[:space:]][^[:space:]]*)?)*'
+GIT="${SEG}${WRAP}([^[:space:];&|()]*/)?git${OPTS}[[:space:]]+"
+ARGS='[^;&|`)]*'
+
 # ── git force push to main or master ──────────────────────────────────────────
-if echo "$CMD" | grep -qE 'git\s+(-C\s+\S+\s+)?push\s+.*(-f|--force).*\s+(origin\s+)?(main|master)'; then
+if echo "$CMD" | grep -qE "${GIT}push[[:space:]]${ARGS}(-f|--force)${ARGS}[[:space:]](origin[[:space:]]+)?(main|master)"; then
   echo "BLOCKED: force push to main/master."
   echo "This overwrites remote history. If intentional, confirm with user first."
   exit 2
@@ -108,35 +123,35 @@ fi
 # Allow: git reset --hard HEAD~1, git reset --hard <sha>
 # Block: git reset --hard (no ref = resets to HEAD, safe) — actually that IS safe
 # Block: git reset --hard origin/main (discards local unpushed work)
-if echo "$CMD" | grep -qE 'git\s+(-C\s+\S+\s+)?reset\s+--hard\s+origin/'; then
+if echo "$CMD" | grep -qE "${GIT}reset[[:space:]]+--hard[[:space:]]+origin/"; then
   echo "BLOCKED: git reset --hard to remote ref discards unpushed commits."
   echo "Confirm this is intentional before proceeding."
   exit 2
 fi
 
 # ── git clean with -f (removes untracked files; -fd, -df, -fdx) ───────────────
-if echo "$CMD" | grep -qE 'git\s+(-C\s+\S+\s+)?clean\s+-[a-zA-Z]*f'; then
+if echo "$CMD" | grep -qE "${GIT}clean[[:space:]]${ARGS}-[a-zA-Z]*f"; then
   echo "BLOCKED: git clean -f deletes untracked files irreversibly."
   echo "List what would go with git clean -n first, then confirm with user."
   exit 2
 fi
 
 # ── git push with lease or if-includes force flags ────────────────────────────
-if echo "$CMD" | grep -qE 'git\s+(-C\s+\S+\s+)?push\s+.*--force-(with-lease|if-includes)'; then
+if echo "$CMD" | grep -qE "${GIT}push[[:space:]]${ARGS}--force-(with-lease|if-includes)"; then
   echo "BLOCKED: forced push (--force-with-lease / --force-if-includes)."
   echo "This rewrites remote history. If intentional, confirm with user first."
   exit 2
 fi
 
 # ── git push with a +refspec (forced update of one ref) ───────────────────────
-if echo "$CMD" | grep -qE 'git\s+(-C\s+\S+\s+)?push\s+.*\s\+\S'; then
+if echo "$CMD" | grep -qE "${GIT}push[[:space:]]${ARGS}[[:space:]]\+[^[:space:]]"; then
   echo "BLOCKED: git push +refspec forces a ref update."
   echo "If intentional, confirm with user first."
   exit 2
 fi
 
 # ── git push with a :refspec (deletes a remote branch) ────────────────────────
-if echo "$CMD" | grep -qE 'git\s+(-C\s+\S+\s+)?push\s+.*\s:\S'; then
+if echo "$CMD" | grep -qE "${GIT}push[[:space:]]${ARGS}[[:space:]]:[^[:space:]]"; then
   echo "BLOCKED: git push :branch deletes a remote branch."
   echo "If intentional, confirm with user first."
   exit 2
@@ -146,13 +161,7 @@ fi
 # A session cwd under */.claude/worktrees/* must commit through the funnel, so
 # only the listed paths land, the message comes from a file, main/master is
 # refused, and the jj bookmark plus git HEAD are moved for the git-based gates.
-# Pieces: segment start (also subshell and $( ) substitution), env assignments and
-# wrappers (command/exec/env/sudo/nohup/time), the binary, then global options
-# (-c k=v, -C dir, --no-pager, -R repo) before the subcommand.
-SEG='(^|[;&|(`]|\$\()[[:space:]]*'
-ASSIGN='([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*'
-WRAP="(${ASSIGN}(command|exec|env|sudo|nohup|time)[[:space:]]+)*${ASSIGN}"
-OPTS='([[:space:]]+-[^[:space:]]+([[:space:]]+[^-[:space:]][^[:space:]]*)?)*'
+# SEG, WRAP and OPTS are the anchors defined above the push rules.
 END='([[:space:]]|$|[;&|)`])'
 COMMIT_RE="${SEG}${WRAP}([^[:space:];&|()]*/)?git${OPTS}[[:space:]]+commit${END}|${SEG}${WRAP}([^[:space:];&|()]*/)?jj${OPTS}[[:space:]]+(commit|ci)${END}"
 if echo "$CWD" | grep -qE '/\.claude/worktrees/'; then
