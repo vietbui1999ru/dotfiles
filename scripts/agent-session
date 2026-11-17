@@ -319,6 +319,16 @@ def cmd_save(args: argparse.Namespace) -> None:
             fpath = sdir / f"{Path(fname).stem}-{suffix}{Path(fname).suffix}"
             suffix += 1
         fname = fpath.name
+        if kind == "session":
+            # A new session note supersedes this worktree+harness's previous active note.
+            for row in index["sessions"]:
+                if (row.get("kind") == "session" and row.get("status") == "active"
+                        and row.get("harness") == harness
+                        and row.get("worktree") == str(context["worktree"])):
+                    old = sdir / row["file"]
+                    if old.exists():
+                        _mark_note_idle(old)
+                    row["status"] = "idle"
         fpath.write_text(content)
         if not getattr(args, "skip_legacy_pointer", False):
             write_legacy_pointer(root, harness, fname)
@@ -419,6 +429,14 @@ def cmd_active(args: argparse.Namespace) -> None:
     print(f".agents/sessions/{latest['file']}")
 
 
+def _mark_note_idle(fpath: Path) -> None:
+    content = fpath.read_text()
+    content, count = re.subn(r'(?m)^status:\s*(?:"active"|\'active\')\s*$', "status: idle", content, count=1)
+    if not count:
+        content, _ = re.subn(r'(?m)^status: active\s*$', "status: idle", content, count=1)
+    fpath.write_text(content)
+
+
 def cmd_idle(args: argparse.Namespace) -> None:
     # If the first positional looks like a directory, treat it as repo
     repo = args.repo
@@ -439,11 +457,7 @@ def cmd_idle(args: argparse.Namespace) -> None:
             fpath = sessions_dir(root) / active[-1]["file"]
         if not fpath.exists():
             die(f"session file not found: {fpath}")
-        content = fpath.read_text()
-        content, count = re.subn(r'(?m)^status:\s*(?:"active"|\'active\')\s*$', "status: idle", content, count=1)
-        if not count:
-            content, _ = re.subn(r'(?m)^status: active\s*$', "status: idle", content, count=1)
-        fpath.write_text(content)
+        _mark_note_idle(fpath)
         for row in index.get("sessions", []):
             if row.get("file") == fpath.name:
                 row["status"] = "idle"
