@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# pi-council.sh — the delegate-pi council: bin/council's three voices plus a
-# security/correctness veto voice.
+# pi-council.sh — the delegate-pi council: the vendored council engine's three
+# voices plus a security/correctness veto voice.
 #
 #   pi-council.sh --diff HEAD
 #   pi-council.sh --diff main...HEAD
 #   git diff main...HEAD | pi-council.sh --diff -
 #
-# The three voices, their dimensions and the majority rule are bin/council's
-# (COUNCIL-5, COUNCIL-8); this wrapper only adds a fourth, after the engine has
-# voted. Each voice is one Pi call through pi-router.sh: the engine's three are
+# The three voices, their dimensions and the majority rule are the engine's
+# (the sibling `council` script, vendored from Commandr's `bin/council`); this
+# wrapper only adds a fourth, after the engine has voted. Each voice is one Pi
+# call through pi-router.sh: the engine's three are
 # acceptance-criteria, code-quality and style, and the veto is `council:security`
 # (PI_COUNCIL_SECURITY_MODEL). A FAIL from the security voice turns the verdict
 # to FAIL; a PASS, or an answer that cannot be read as a vote, leaves the
@@ -19,7 +20,7 @@
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd -P)
-engine=${COUNCIL_CMD:-council}
+engine=${COUNCIL_CMD:-$here/council}
 three=${COUNCIL_EVALUATOR_CMD:-$here/pi-evaluator.sh}
 security=${COUNCIL_SECURITY_EVALUATOR_CMD:-$here/pi-evaluator.sh}
 

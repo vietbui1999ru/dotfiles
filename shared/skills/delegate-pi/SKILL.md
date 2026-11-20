@@ -21,11 +21,11 @@ Routes work to the `pi` CLI as a subprocess. Four modes: **council** (adversaria
 
 ---
 
-## Council Mode (diff gate via bin/council)
+## Council Mode (diff gate via the vendored council engine)
 
 Use before committing to architectural decisions, security-relevant changes, or irreversible operations.
 
-Council mode is a thin wrapper, `pi-council.sh`, over the unified `bin/council` engine. It evaluates a working diff — not a task packet — and is bus-less. The engine handles the three-voice dispatch, parallelism, vote parsing, majority rule, and fail-safe, and `delegate-pi` supplies the cross-vendor evaluator (pi/Codex) through the `COUNCIL_EVALUATOR_CMD` seam. The wrapper adds a fourth voice, `security`, as a veto after the engine has voted.
+Council mode is a thin wrapper, `pi-council.sh`, over the council engine vendored next to it as `council` (the diff mode of Commandr's `bin/council`; packet mode and the retired `.agents` task bus are not vendored). It evaluates a working diff — not a task packet — and is bus-less. The engine handles the three-voice dispatch, parallelism, vote parsing, majority rule, and fail-safe, and `delegate-pi` supplies the cross-vendor evaluator (pi/Codex) through the `COUNCIL_EVALUATOR_CMD` seam. The wrapper adds a fourth voice, `security`, as a veto after the engine has voted.
 
 ```bash
 # Evaluate the current working diff against HEAD
@@ -38,7 +38,7 @@ Council mode is a thin wrapper, `pi-council.sh`, over the unified `bin/council` 
 git diff main...HEAD | "$HOME/.claude/skills/delegate-pi/pi-council.sh" --diff -
 ```
 
-The engine is `${COUNCIL_CMD:-council}`; override it only to point at a different checkout of `bin/council`.
+The engine is `${COUNCIL_CMD:-$here/council}`, the vendored copy beside `pi-council.sh`; set `COUNCIL_CMD` only to run a different one.
 
 **Output** is a single JSON object on stdout:
 
