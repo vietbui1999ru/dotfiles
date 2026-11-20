@@ -1,6 +1,6 @@
 ---
 name: repo-docs
-description: Use when maintaining repository documentation alongside code changes, recording durable project tasks and decisions, or preparing linked Obsidian-friendly and hostable Markdown documentation.
+description: Use when maintaining repository documentation alongside code changes, recording durable project tasks and decisions, preparing linked Obsidian-friendly and hostable Markdown documentation, or writing or rewriting procedures, runbooks, READMEs, commit bodies, code comments and step lists in STE (ASD-STE100, Simplified Technical English) style.
 ---
 
 # Repository documentation companion
@@ -9,6 +9,14 @@ Read the repo's instructions, current branch SPEC, plan, existing docs layout,
 and changed code before writing. Reuse existing documentation automation and
 style. If the current checkout is this dotfiles repo, llm-wiki's docs-sync is a
 separate wiki-specific publisher, not a generic project docs generator.
+
+## Writing style
+
+Write procedures, runbooks, READMEs, commit bodies, code comments and step lists
+in STE style. Read [ste.md](../../style/ste.md) before you write them; it is the
+only edited copy of the STE rules. Analysis, trade-offs, uncertainty and opinion
+follow the voice rules in [rules.md](../../style/rules.md) instead. Never rewrite
+code, identifiers, commands, flags, paths, quoted errors or other quotations.
 
 ## Work alongside implementation
 
