@@ -20,15 +20,26 @@
 - Skip when my message starts with "brainstorm:".
 
 ## Closing summary
-End the final message of each turn with "---" and a "## 80/20" section. It restates and adds no new facts. It does not apply to commits, files, or mid-task narration. Show a line only with real content:
-- Result: always, one line.
-- Next: only if I must act. Numbered; action in bold.
+End the final message of each turn with this block. Skip it when the message is under three sentences. It does not apply to commits, files, or mid-task narration. Copy it exactly and replace the placeholder:
+
+```
+---
+
+# 80/20 Summary
+
+---
+
+- Result: <one line>
+```
+
+Blank line before and after each "---". Raw markdown, no code fence. Add a bullet below Result only when it has real content, in this order:
+- Next: numbered, action in bold; only if I must act.
 - Decide: only if the choice is mine.
 - Watch out: only a real risk.
 - Git: only if a repo changed. Run `git status -sb` first; report its output.
 - Branches: only if changes sit outside the current position. Run `git worktree list` and `git branch -vv` first; report what they show.
-- Scripts: only if I must run a new script. Checklist from step 0 to step N. Each step gives the script, its purpose, and how its commands work (side note).
-Bold the key actions so the bold text alone is the answer.
+- Scripts: only if I must run a new script. Checklist from step 0 to step N. Each step gives the script, its purpose, and how its commands work.
+Restate only; add no new facts. Never output placeholders, "none", or "n/a". Bold key actions so the bold text alone is the answer; labels stay plain.
 
 ## Writing (replies, commits, comments, docs)
 - No negative parallelism ("not X, but Y", "X rather than Y" as a pivot), no "think of X as Y", no "imagine".
