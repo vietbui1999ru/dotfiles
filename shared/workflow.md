@@ -17,7 +17,7 @@ Source of truth: `shared/workflow.md` in dotfiles. It records the current flow f
 - If the spec hash changes after approval, ask for a new approval.
 
 ## Flow per issue
-1. Create a worktree `~/repos/<repo>-worktrees/<n>-<slug>` on branch `issue/<n>-<slug>`. Keep the main checkout on `main`.
+1. Create a worktree `$HOME/repos/<repo>-worktrees/<n>-<slug>` on branch `issue/<n>-<slug>`. Keep the main checkout on `main`. A session in an isolated worktree does not do steps 1 and 10.
 2. Draft the spec. Run the spec lint. Report the hash and the tier.
 3. After `approve <hash8>`, record the approval and write the task plan. Run the plan check.
 4. Commit the stub: the spec, the plan, the contract tests and the signatures. Workers do not edit stub tests.
@@ -27,6 +27,16 @@ Source of truth: `shared/workflow.md` in dotfiles. It records the current flow f
 8. Open the PR. Wait for CI with `gh pr checks <n> --watch --required`. Never hide stderr in a wait loop.
 9. On `land PR #<n>`: confirm the approval record matches, the PR head matches, the branch is up to date, and CI passes. Then squash-merge.
 10. Remove the worktrees and branches. Update the handoff file.
+
+## Git in an isolated worktree
+Claude Code guards a session that entered a worktree through `EnterWorktree`, `isolation: "worktree"` or a background job. The guard refuses git that it cannot prove stays in that worktree. Obey these rules in such a session:
+- Run git only from the session worktree directory. Do not use `git -C`, `cd <path> &&`, `--git-dir` or `GIT_DIR`.
+- Write paths with `$HOME` or as absolute paths. The guard does not expand `~`.
+- Use literal paths. Do not put git in a loop, in a `$(...)` substitution, or next to path variables.
+- Do not use `source`, `.` or `eval`. Run a script as `bash <script>`.
+- Write commit messages and PR bodies to a file. Pass the file with `git commit -F` or `gh pr create --body-file`.
+- Do not create, enter or remove another worktree. To report other branches, use only the `git worktree list` and `git branch -vv` output.
+- If the guard refuses a command, run one plain git command per call. If it refuses again, stop and report the message. Do not use `ExitWorktree` to get past the guard.
 
 ## Limits
 - A task gets at most 3 retries. A spec gets at most 2 integration fixes. After that, the user decides.
@@ -45,5 +55,5 @@ Source of truth: `shared/workflow.md` in dotfiles. It records the current flow f
 - Only the user edits network and allowlist files.
 
 ## Context
-- One root session handles all issues. The handoff file is `~/.local/state/harness/root/handoff.md`.
+- One root session handles all issues. The handoff file is `$HOME/.local/state/harness/root/handoff.md`.
 - Update the handoff after each landed issue and at about 70% of the context window. Then ask the user to type `/clear`.
