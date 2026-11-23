@@ -11,7 +11,7 @@ The process skills in `shared/skills` (vendored from superpowers, see `vendor.js
 - **TDD**: active for Web/Backend/API, DevOps, Testing, System Engineering. Skip for learning domains (Embedded, C, Go, C++, CUDA, Shaders, Interpreters, Ansible, Terraform, K8s). Exception: user explicitly requests TDD.
 - **Brainstorming**: commit design docs like any other work (see "Git history" in tool-routing). Present doc path + content and ask before writing. Hard gate honored — no code until design approved.
 - **Skill ordering**: this file is authoritative. Order: wiki-context → process skills → domain/implementation skills.
-- **Caveman + artifacts**: core.md's caveman section is single source of truth. Skill artifacts on disk use clear prose.
+- **Style**: `style.md` is the single source of truth for communication and writing style. core.md's terse mode is subordinate to it. Skill artifacts on disk follow the STE rules in `style.md`.
 - **Agent spawns** (writing-plans and any parallel dispatch): always set an explicit `model:` param per model routing policy.
 
 ## Domain Trigger Table

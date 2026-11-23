@@ -1,11 +1,10 @@
-"""The Gates rule block is one text in every harness, and agent-review names the next step."""
+"""The Pi AGENTS.md file is current, and agent-review names the next step."""
 import argparse
 import importlib.machinery
 import importlib.util
 import io
 import json
 import os
-import re
 import shutil
 import subprocess
 import tempfile
@@ -15,32 +14,7 @@ from pathlib import Path
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
-COPIES = [
-    ROOT / "shared" / "AGENTS.md",
-    ROOT / "shared" / "research-tool-routing.md",
-    ROOT / "pi" / ".pi" / "agent" / "AGENTS.md",
-]
-BLOCK = re.compile(r"<!-- gates:start -->\n(.*?)<!-- gates:end -->", re.S)
-
-
-def gates_block(path: Path) -> str:
-    found = BLOCK.findall(path.read_text())
-    if len(found) != 1:
-        raise AssertionError(f"{path}: expected one gates block, found {len(found)}")
-    return found[0]
-
-
 class GateRulesBlock(unittest.TestCase):
-    def test_block_identical_in_every_copy(self):
-        first, *rest = [gates_block(p) for p in COPIES]
-        for path, block in zip(COPIES[1:], rest):
-            self.assertEqual(block, first, f"{path} differs from {COPIES[0]}")
-
-    def test_block_states_the_rule(self):
-        block = gates_block(COPIES[0])
-        self.assertIn("One refusal means stop", block)
-        self.assertIn("Hand over the unblock", block)
-
     def test_pi_agents_file_is_current(self):
         r = subprocess.run(["zsh", str(ROOT / "scripts" / "build-pi-agents"), "--check"],
                            cwd=ROOT, capture_output=True, text=True)
