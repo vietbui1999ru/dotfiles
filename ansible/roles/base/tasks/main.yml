@@ -25,6 +25,9 @@
       - cmake
       - pkg-config
       - gettext-base
+      # The Claude Code Bash sandbox needs both (settings.json sets failIfUnavailable).
+      - bubblewrap
+      - socat
     state: present
     update_cache: true
   become: true
@@ -62,6 +65,9 @@
       - cmake
       - pkgconf-pkg-config
       - gettext
+      # The Claude Code Bash sandbox needs both (settings.json sets failIfUnavailable).
+      - bubblewrap
+      - socat
     state: present
   become: true
   when: ansible_os_family == "RedHat"
