@@ -2,6 +2,8 @@
 
 Personal configuration for macOS and Linux, managed with [GNU Stow](https://www.gnu.org/software/stow/). Each top-level directory is a stow package that mirrors its layout under `$HOME`. Ansible provisions fresh Linux machines, mise pins the dev tools, and the repo also carries the agent workflow used for AI-assisted coding. Theme: Catppuccin Macchiato.
 
+The agent workflow is moving to `vietbui1999ru/agent-harness`. See `docs/harness-migration.md` for the stages and the steps on each machine.
+
 ```mermaid
 flowchart LR
   repo["dotfiles repo"] --> stow["stow packages"]
