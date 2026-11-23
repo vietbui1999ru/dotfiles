@@ -5,7 +5,7 @@
 1. **User explicit instruction in this session**: "skip the skill", "use Opus", "just answer"
 2. **`~/.claude/rules/style.md`**: communication and writing style. It outranks every rule below, including the terse mode in `core.md`
 3. **Project CLAUDE.md**: project-specific overrides (for example, wiki-startup.md always-invoke)
-4. **These global rules** (imported below, in order: style, workflow, core, tool-routing, startup, skill-invocation, plan-handoff)
+4. **These global rules** (imported below, in order: style, workflow, core, tool-routing, skill-invocation)
 5. **Vendored process skills** (`shared/skills`, pinned in `vendor.json`): extend rules, do not override them; overrides live in `skill-invocation.md`
 6. **Claude Code native defaults**: assumed when no rule covers the behavior
 
@@ -17,9 +17,7 @@ When sources conflict: higher number loses. Explicit always beats implicit.
 @~/.claude/rules/workflow.md
 @~/.claude/rules/core.md
 @~/.claude/rules/tool-routing.md
-@~/.claude/rules/startup.md
 @~/.claude/rules/skill-invocation.md
-@~/.claude/rules/plan-handoff.md
 
 # Niche domain rules (not auto-loaded): intermediate.md, learning.md, research.md,
 # applied-ai.md, model-routing.md — see claude-setup/rules/ and ~/.claude/rules/

@@ -23,8 +23,6 @@ ste_out=$root/pi/.pi/agent/ste.md
 headings=(
 	'Post-run Verification'
 	'Shell Tools — prefer the modern CLI'
-	'Spec loop'
-	'Gates'
 	'Code discipline: YAGNI'
 	'Git history'
 	'Repo tooling: mise'
