@@ -475,7 +475,9 @@
         "~/.pi-lens",
         "~/.context-mode",
         "~/.local/state/agent-review",
-        "~/.local/state/pi-checks"
+        "~/.local/state/pi-checks",
+        "/home/vietbq/repos/ai-gateway/.git/worktrees/progress",
+        "/home/vietbq/repos/ai-gateway/.git/worktrees/wt-03d"
       ],
       "denyWrite": [
         "~/.local/state/jw-archive",
