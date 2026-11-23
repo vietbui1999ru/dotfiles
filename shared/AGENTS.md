@@ -25,80 +25,60 @@ Rules:
 ---
 
 <!-- Mirrored from shared/style/rules.md. Edit that file, then copy this section. -->
-## Communication and writing style (highest priority)
+# Working rules
 
-Source of truth: `shared/style/rules.md` in dotfiles. These rules outrank every other style rule, including the terse-mode rules in `core.md`. They apply to replies, code, comments, commit messages, PR text, docs, slides and diagrams.
+## Voice
+- Direct and factual. Cut filler.
+- If my plan is flawed, counter with the better path and its trade-off.
+- Stay skeptical. Verify (run it, read the file, check the docs) before stating as fact. State assumptions, flag uncertainty, name what could be wrong.
+- Do only what was asked. No tangents, no unrequested refactors, no emojis.
 
-### Communication
-
-- Be direct and factual. No cushioning, no preamble. No closing summary of what you just did, other than the 80/20 section below.
-- Answer only what was asked. Do not add tangents or unrequested refactors.
-- State assumptions. Flag uncertainty. Name what could be wrong.
-- Verify claims (run it, read the file, check the docs) before stating them as fact.
-- If the user's plan has a better alternative, say so and give the trade-off. Do not defer to be agreeable.
-- No emojis.
-
-### Gaps before acting
-
-- Before acting, list what you need to know that I did not say.
-- If a gap blocks the work, ask one short question and stop. Otherwise state the assumption in one line and proceed.
-- In unattended runs, state assumptions at the top and proceed.
+## Gaps before acting
+- Before acting, list what you need that I did not say.
+- Blocking gap: ask one short question and stop. Otherwise state the assumption in one line and proceed.
+- Unattended runs: state assumptions at the top and proceed.
 - Skip when my message starts with "brainstorm:".
 
-### Closing summary
-
-End the final message of each turn with a horizontal rule and a "## 80/20" section. It restates and adds no new facts. It does not apply to commits, files, or mid-task narration. Show a line only with real content:
-
-- Result: always. One line.
-- Next: only if I must act. Numbered, action in bold.
+## Closing summary
+End the final message of each turn with "---" and a "## 80/20" section. It restates and adds no new facts. It does not apply to commits, files, or mid-task narration. Show a line only with real content:
+- Result: always, one line.
+- Next: only if I must act. Numbered; action in bold.
 - Decide: only if the choice is mine.
 - Watch out: only a real risk.
-- Git: only if a repo changed. Run `git status -sb` first and report its output.
-- Branches: only if changes sit outside the current position. Run `git worktree list` and `git branch -vv` first. Report what they show.
-- Scripts: only if I must run a new script. Checklist from step 0 to step N. Each step: the script, its purpose, how its commands work. Put the explanation in a side note.
-
+- Git: only if a repo changed. Run `git status -sb` first; report its output.
+- Branches: only if changes sit outside the current position. Run `git worktree list` and `git branch -vv` first; report what they show.
+- Scripts: only if I must run a new script. Checklist from step 0 to step N. Each step gives the script, its purpose, and how its commands work (side note).
 Bold the key actions so the bold text alone is the answer.
 
-### Writing rules (all written output)
+## Writing (replies, commits, comments, docs)
+- No negative parallelism ("not X, but Y", "X rather than Y" as a pivot), no "think of X as Y", no "imagine".
+- No forced triplets. List the true count.
+- No em or en dashes. Use commas, semicolons, colons, or parentheses.
+- No promotional tone, hollow intensification, or paragraph-closing grandeur.
+- Banned words: groundbreaking, game-changing, transformative, landscape, empower, robust, vibrant, vital, crucial, fundamental, effortless, profound, genuine, promising, enhance, leap, thrilling, unlock.
 
-- No em dashes or en dashes. Use commas, semicolons, colons, or parentheses.
-- No "not X, but Y" pivots, "think of X as Y", or "imagine" framings.
-- No forced groups of three. List the real number of items.
-- No promotional tone or hollow intensification.
-- Banned words: groundbreaking, game-changing, transformative, landscape, empower, robust, vibrant, vital, crucial, fundamental, effortless, profound, genuine, promising, enhance, leap, unlock.
-- End paragraphs on the concrete point.
-
-### Procedural and technical writing (STE style)
-
-Applies to: READMEs, runbooks, commit bodies, code comments, step lists.
-Does not apply to: analysis, trade-offs, uncertainty, code, identifiers, quoted output.
-
-- Procedures: 20 words per sentence maximum. Descriptions: 25. Split sentences; never drop a fact or condition.
-- One instruction per sentence. Condition before command.
+## Procedural and technical writing (STE style)
+Applies to: READMEs, runbooks, commit bodies, code comments, step lists. Not to analysis, trade-offs, uncertainty, code, identifiers, or quoted output.
+- Sentences: 20 words maximum in procedures, 25 in descriptions. Split sentences; never drop a fact or condition.
+- One instruction per sentence, condition first. One topic per paragraph; six sentences maximum.
 - Active voice, simple tenses, no contractions. Keep articles.
-- One topic per paragraph, six sentences maximum.
-- Noun clusters: three words maximum.
-- Start warnings with a command or condition.
-- One term per concept. Do not rotate synonyms.
+- One term per concept; never rotate synonyms. No chained modals.
 - Never edit quoted errors, commands, paths, flags, or exact strings.
 - Full rules: `~/dotfiles/shared/style/ste.md`. Read it before writing a README, runbook, or step list.
 
-### Output format
-
-- Tables for trade-off comparisons only. Exception: lookup tables in specs and reference docs (verbs, states, fields, test results).
-- Diagrams (Mermaid or ASCII) for flows only when they clarify.
+## Code and explanations
+- Explanations: toy snippets under about 15 lines; do not merge them. Implementation work and scripts I must run have no size cap.
 - Math in plain text with a one-line reading: tokens = min(capacity, tokens + rate * elapsed_seconds).
-- When explaining code, use snippets under about 15 lines.
-- Implementation size: if a human reviews the work, write 50 to 100 lines per turn. Otherwise, there is no size cap.
-- Explain the why behind each non-obvious command or config, not only the syntax.
+- Tables for comparisons only. Mermaid or ASCII diagrams for flows, when they clarify.
 
-### Design and review defaults
+## Design and review defaults
+- State trade-offs (latency, throughput, consistency, failure modes, cost) and what breaks first under load.
+- LLM gateway work: cover request vs token limits, per-tenant quotas, budget caps, retries with backoff, and fallback routing.
+- Flag model, API, and pricing details that may be outdated. Link primary sources.
 
-- For any design, state trade-offs: latency, throughput, consistency, failure modes, cost. Name what breaks first under load.
-- For LLM gateway work, cover request-based vs token-based limits, per-tenant quotas, budget caps, retries with backoff, and fallback routing.
-- Flag model, API, or pricing details that may be outdated. Prefer primary sources (papers, official docs) and link them.
+## Agent workflow
 
----
+Follow `~/dotfiles/shared/workflow.md`: roles and models, approval words, the flow per issue, limits, commits, safety and context.
 
 ## Skill invocation patterns (for providers without a native skill system)
 
@@ -526,32 +506,9 @@ ai-ml (training-pipeline/feature-stores/model-serving/A-B-testing/drift-monitori
 
 **Search command:** `qmd query "<topic>" --files --min-score 0.4` (run from any cwd).
 
-## Pi-first session and provider workflow
+## Pi
 
-**Adopted architecture:** Pi is the only supported agent harness. pueue is
-the task queue (`scripts/pi-queue`, `scripts/pi-wait`); DiffView is the review
-service; Obsidian is the human UI.
-Claude Code, Codex, and OpenCode are not parallel workflow targets.
-
-Explicit continuity exception: Claude and Codex may act as successive planners
-for the same task/worktree when Claude usage is exhausted, using the
-context-switch skill and agent-session handoff/takeover. Stop the previous
-writer before takeover; preserve existing review and approval state. Pi/pueue
-remains the implementation dispatch lane. This is not automatic provider
-fallback or permission to run two writers in one checkout.
-
-Provider adapters are selected inside Pi:
-
-```text
-Anthropic / OpenAI-Codex / Google / Bedrock
-local OpenAI-compatible endpoints
-opt-in Antigravity proxy
-bounded CLI bridge only when no supported API exists
-```
-
-Legacy `scripts/agent-session` and `.agents/sessions/` remain migration and
-compatibility surfaces. Pi `/clear-context` saves its checkpoint before
-starting a fresh session.
+The current flow runs Claude workers under one Claude root session (`shared/workflow.md`). Pi runs workers later, through the harness. Provider adapters are selected inside Pi.
 
 ## GitHub stacked pull requests
 
@@ -600,21 +557,3 @@ Apply these at all times when writing, reviewing, or designing code. No retrieva
 
 No custom dev-loop roster is installed. Use harness built-ins and git worktrees
 for bounded parallel work; add a trial artifact only after measured need.
-
-## Next-step convention
-
-End every agent run with exactly one final line:
-
-`NEXT: <action> [plan|build|you]`
-
-No text follows that line. Use `plan` for Claude work, `build` for Pi work, and
-`you` for a human decision.
-
-## Context
-
-- Primary machine: macOS (Apple Silicon)
-- Shell: zsh on macOS, bash on Linux
-- Editor: Neovim + tmux + Kitty
-- Dotfiles: ~/dotfiles (stow-managed)
-- Wiki: ~/repos/llm-wiki (qmd-indexed)
-- Vault: ~/repos/Obsidian (private, local git + Syncthing)
