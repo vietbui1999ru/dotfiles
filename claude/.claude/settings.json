@@ -64,9 +64,7 @@
       "Read(~/secrets/**)",
       "Edit(~/secrets/**)",
       "Edit(~/.claude/settings.json)",
-      "Edit(**/claude/.claude/settings.json)",
       "Edit(~/.claude/hooks/**)",
-      "Edit(**/claude/.claude/hooks/**)",
       "Edit(**/dotfiles/**/scripts/agent-review)",
       "Edit(**/dotfiles/**/scripts/spec)",
       "Edit(**/pi/.pi/agent/extensions/*-guard.ts)",
@@ -166,14 +164,6 @@
       "Edit(~/.pi-lens/bin)",
       "Edit(~/.pi-lens/bin/**)",
       "Edit(~/.pi-lens/config.json)",
-      "Edit(~/dotfiles/scripts)",
-      "Edit(~/dotfiles/scripts/**)",
-      "Edit(~/dotfiles/claude/.claude)",
-      "Edit(~/dotfiles/claude/.claude/**)",
-      "Edit(~/dotfiles/shared)",
-      "Edit(~/dotfiles/shared/**)",
-      "Edit(~/dotfiles/pi/.pi)",
-      "Edit(~/dotfiles/pi/.pi/**)",
       "Edit(~/dotfiles/session-band-plugin)",
       "Edit(~/dotfiles/session-band-plugin/**)",
       "Edit(~/dotfiles/herdr-app)",
@@ -275,16 +265,6 @@
           {
             "type": "command",
             "command": "f='/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/claude-event-hook.sh'; [ -x \"$f\" ] && \"$f\" Working || true # notchbar-agents-claude-hook"
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/dotfiles/scripts/focus guard",
-            "timeout": 5
           }
         ]
       }
@@ -410,15 +390,6 @@
           {
             "type": "command",
             "command": "f='/Users/vietquocbui/Library/Application Support/Bartender/NotchBar/AgentStatus/hooks/claude-event-hook.sh'; [ -x \"$f\" ] && \"$f\" Working || true # notchbar-agents-claude-hook"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/dotfiles/scripts/focus prompt",
-            "timeout": 5
           }
         ]
       }

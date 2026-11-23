@@ -79,59 +79,6 @@ if command -v rg >/dev/null; then rg "$pattern" "$dir"; else grep -r "$pattern" 
 Installed here: `eza`, `rg`, `bat`, `fd`, `delta`. Not installed: `sd`, `dust` — use
 `sed` and `du` for those.
 
-<!-- spec-loop:start -->
-## Spec loop
-
-1. If SPEC.md exists at the repo root and its `branch:` matches the current branch, read it before writing code. Work only toward its AC ids. Obey its Boundaries.
-2. Never run `~/dotfiles/scripts/spec approve`. Only the human approves a spec. (Approval can be forged by anyone with a shell; this rule is the defence.)
-3. When you are asked to write a spec in an unattended or pueue run, stop at a lint-clean SPEC.md with `status: draft`. Implementation is a separate run after approval. A run asked to implement an approved spec proceeds normally. A spec lives only on its feature branch: commit and push the draft there, but never merge a spec-only PR into `main`. The spec reaches `main` only as the rule 7 archive.
-4. Never edit a `verify:` line or a test to make a check pass. Report the failure.
-5. When rule 1 applies, before saying "done", run `~/dotfiles/scripts/spec check SPEC.md` and `~/dotfiles/scripts/floor-guard`. Paste both outputs.
-6. When rule 1 applies, if a check fails, fix and rerun. Stop after 3 tries and report the failing output.
-7. When rule 1 applies, after the rule 5 checks pass and before the PR is marked ready or merged, archive the spec as the branch's last commit: `git mv SPEC.md docs/specs/<YYYY-MM-DD>-<slug>.md`. `<YYYY-MM-DD>` is the date SPEC.md was first committed; `<slug>` is the branch name without its type prefix (`feat/multi-provider-usage` becomes `2026-10-20-multi-provider-usage.md`). Commit message: `docs(specs): archive the <slug> spec under docs/specs`. Approval records live outside the repo and are unaffected.
-<!-- spec-loop:end -->
-
-## Focus slots
-
-One person supervises many worktrees, so the board caps open work. The board is
-`~/repos/Obsidian/Focus.md`; `scripts/focus status` reads it.
-
-- **Caps.** One work item and one hobby item are open at a time; at most three items sit in
-  Frozen. A breach shows in `focus status` and must be cleared before new work starts.
-- **Refuse, park or switch.** When asked for work outside the focus item, say so and offer
-  `scripts/focus park <key>` or `scripts/focus switch <key>`. Never just start it.
-- **Blocker exception.** `scripts/focus allow <worktree> --session <sid> --blocker "<reason>"`
-  is the person's command, for when the focus item is blocked by that other worktree. An agent
-  proposes it with the filled-in command and never runs it to keep working (see Gates).
-- **NEXT names the focus item.** Every `NEXT:` line names the focus item it moves forward.
-
-## Gates
-
-<!-- gates:start -->
-Gates are the focus scripts and focus guard, `agent-review`, the worktree and workspace guard,
-diff review, and every approval prompt (spec approve, permission prompts, approval dialogs).
-They exist so the person decides.
-
-- **One refusal means stop.** When a gate refuses, do not get the same effect another way: no
-  other tool, no copy, no hand edit, no env override, no `scripts/focus allow`, no checkout of
-  a guarded file. Do not suggest such workarounds to the person either.
-- **Hand over the unblock.** Report what was blocked (quote the gate's message), why, and the
-  exact commands the person can run, in the order they run them. Then wait.
-- **The documented workflow is not a bypass.** Taking the next documented step (commit through
-  the funnel, `scripts/focus switch` for a follow-up branch of the current focus item,
-  `jw new`) is allowed; say so in one line.
-
-When the focus item is done and the session should keep working:
-
-- **Follow-up of the same item: do it.** Once the item's PR is merged, run
-  `scripts/focus drop <done key>` (never `--yes`). Then run
-  `scripts/focus switch <repo>:<branch>` and `jw new <branch>`, say so in one line, and tell
-  the person to continue in a session started there (`jwc <branch>`): a session can write only
-  where it started.
-- **Anything else: hand it over.** New work outside the item, or any step a gate refuses, goes to
-  the person as exact commands, for example `scripts/focus switch <new key>`, `jwc <branch>`.
-<!-- gates:end -->
-
 ## Code discipline: YAGNI
 
 Build only what the current request needs. Do not add features, parameters,

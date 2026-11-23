@@ -5,21 +5,23 @@ Classify complexity before every task and agent spawn. No silent defaults.
 | Role | Model | Effort | Use for |
 |---|---|---|---|
 | Orchestrator (main session) | Opus 5.5 (`opus`) | `medium`; `/effort high` or `xhigh` for hard architecture or security work | Decisions, root cause, the review gate, anything with judgment |
-| Light delegate | Haiku 5.5 (`claude-haiku-5-5`) | `medium` | Read-only exploration (`scout`), rote bounded edits (`worker`), lookups, shell commands |
-| Implementation | high: `opencode-go/claude-haiku-5-5:off` (thinking off: pi-lens and context-mode inject unsaved messages each request, so Claude's signed thinking fails from turn 2 with a 400); medium: `opencode-go/deepseek-v4.1-flash:low`; low: `opencode-go/deepseek-v4.1-flash:off` | per tier | Pure coding: multi-file features, migrations, refactors, dispatched to Pi per `plan-handoff.md`. Low tiers and low effort by default. Same tiers as `delegate-pi` and `~/.pi/agent/routing.env` |
+| Light delegate | Haiku 5.5 (`claude-haiku-5-5`) | `medium` | Search, explore, web fetch and report subagents (`scout`), lookups, shell commands |
+| Implementation (Claude) | Sonnet 5.5 (`sonnet`) | `medium` | Worker tasks under the root session per `shared/workflow.md`: one worktree, one task, one packet each |
+| Implementation (Pi, later) | high: `opencode-go/deepseek-v4.1-flash:high`; medium: `opencode-go/deepseek-v4.1-flash:low`; low: `opencode-go/deepseek-v4.1-flash:off` | per tier | Pure coding: multi-file features, migrations, refactors, dispatched to Pi per `plan-handoff.md` once the harness runs Pi workers. Low tiers and low effort by default. Same tiers as `delegate-pi` and `~/.pi/agent/routing.env` |
+| Pi light lane | `opencode-go/claude-haiku-5-5:off` (thinking off: pi-lens and context-mode inject unsaved messages each request, so Claude's signed thinking fails from turn 2 with a 400) | `off` | Fetch, explore and mechanical tasks only. Never implementation or coding. `PI_LIGHT_MODEL` in `~/.pi/agent/routing.env` |
 | Council and adversarial review | Four voices: `openai-codex/gpt-6.1-sol` (acceptance), `opencode-go/deepseek-v4-pro` (code quality, style), `opencode-go/glm-5.3` (security and correctness veto) | `medium` or `high`, never `xhigh` or `max` | Council dimensions, the security veto, and any second or third review of Pi's work. The only roles that get the high tier (`pi -p ... --no-session`, `council.py` voice B). Routes live in `~/.pi/agent/routing.env`: `PI_COUNCIL_ACCEPTANCE_MODEL`, `PI_COUNCIL_CODE_QUALITY_MODEL`, `PI_COUNCIL_STYLE_MODEL`, `PI_COUNCIL_SECURITY_MODEL` |
 | Pi default | `opencode-go/deepseek-v4.1-flash` | `low` (the model has no `medium`) | Plain `pi` with no `--model`: the Haiku-equivalent. Set in `~/.pi/agent/settings.json` (`defaultProvider`, `defaultModel`, `defaultThinkingLevel`) |
 
 **Thinking levels on opencode-go models.** The opencode-go catalogue (`~/.pi/agent/models-store.json`) has no `medium` thinking level for `deepseek-v4.1-flash`, `deepseek-v4-pro` or `glm-5.3`, and Pi raises an unsupported level to the next supported one, so `:medium` silently ran at `high` (found 2026-11-04 from session logs). Use `:low` for medium effort on these models; `deepseek-v4-pro` has no level below `high`.
 
-Sonnet 5.5 has no default role. Pass `model: sonnet` on a spawn when a task needs it.
+Sonnet 5.5 is the implementation worker. Pass `model: sonnet` on each worker spawn.
 
 **Pi scoped models** (`/scoped-models`, `enabledModels` in `~/.pi/agent/settings.json`, read 2026-10-17). Pick Pi models from this set; anything else is not in Ctrl+P cycling.
 
 | Provider | Models |
 |---|---|
 | `openai-codex` | `gpt-6.1-sol` (council and review only), `gpt-6-sol`, `gpt-6-luna`, `gpt-6-astra`, `gpt-5.6-terra` |
-| `opencode-go` | `claude-haiku-5-5` (high), `deepseek-v4-pro` (council and review), `deepseek-v4.1-flash` (medium, low, Pi default), `kimi-k3`, `kimi-k2.7-code`, `glm-5.3`, `qwen3.8-max`, `minimax-m3`, `grok-4.7` |
+| `opencode-go` | `claude-haiku-5-5` (light lane: fetch, explore, mechanical), `deepseek-v4-pro` (council and review), `deepseek-v4.1-flash` (medium, low, Pi default), `kimi-k3`, `kimi-k2.7-code`, `glm-5.3`, `qwen3.8-max`, `minimax-m3`, `grok-4.7` |
 
 Models with no role in parentheses are available but unassigned. When the scoped set changes, update this table, `delegate-pi`, and `~/.pi/agent/routing.env` together.
 

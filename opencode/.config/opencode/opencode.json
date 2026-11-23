@@ -52,7 +52,7 @@
   },
   "instructions": [
     "{env:HOME}/repos/llm-wiki/.opencode/provider-context.md",
-    "{env:HOME}/dotfiles/claude/.claude/rules/communication.md",
+    "{env:HOME}/dotfiles/claude/.claude/rules/style.md",
     "{env:HOME}/dotfiles/claude/.claude/rules/editing.md",
     "{env:HOME}/dotfiles/claude/.claude/rules/model-routing.md",
     "{env:HOME}/dotfiles/claude/.claude/rules/skill-invocation.md",

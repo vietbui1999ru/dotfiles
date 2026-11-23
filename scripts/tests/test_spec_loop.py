@@ -696,13 +696,6 @@ class SpecLoopCases(Fixture):
         self.assertIn("INFO SPEC.md status: draft -> approved", r.stdout + r.stderr)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
-    # The spec-loop rule block is duplicated for two loaders; the copies must match
-    def test_rule_blocks_identical(self):
-        def block(name):
-            text = (ROOT / "shared" / name).read_text()
-            return text[text.index("<!-- spec-loop:start -->"):text.index("<!-- spec-loop:end -->")]
-        self.assertEqual(block("AGENTS.md"), block("research-tool-routing.md"))
-
     # M4 item 4: new sessions start through jw, and in those sessions the jj wire forms pass
     def test_routing_names_jw_and_the_guard_split(self):
         for name in ("AGENTS.md", "research-tool-routing.md"):
